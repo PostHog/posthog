@@ -87,7 +87,7 @@ jobs:
             # step tsc can't resolve the import. Same step as the build job
             # and the Dockerfile.
             - name: Build quill workspace dep
-              run: pnpm --dir packages/quill -r --filter '@posthog/quill-*' --filter '@posthog/quill' build
+              run: pnpm --dir packages/quill -r --filter '@posthog/quill-tokens' --filter '@posthog/quill-primitives' --filter '@posthog/quill-components' --filter '@posthog/quill-blocks' --filter '@posthog/quill' build
 
             - name: Typecheck (also checks packages/agent-chat via workspace dep)
               run: pnpm --filter=@posthog/agent-console --filter=@posthog/agent-chat typescript:check
@@ -128,7 +128,7 @@ jobs:
             # `@posthog/quill` ships `main: ./dist/index.cjs`. Same step as the
             # Dockerfile's build stage — see services/agent-console/Dockerfile.
             - name: Build quill workspace dep
-              run: pnpm --dir packages/quill -r --filter '@posthog/quill-*' --filter '@posthog/quill' build
+              run: pnpm --dir packages/quill -r --filter '@posthog/quill-tokens' --filter '@posthog/quill-primitives' --filter '@posthog/quill-components' --filter '@posthog/quill-blocks' --filter '@posthog/quill' build
 
             - name: Next.js production build
               run: pnpm --filter=@posthog/agent-console build
@@ -164,7 +164,7 @@ jobs:
               run: pnpm --filter='@posthog/agent-console...' install --frozen-lockfile
 
             - name: Build quill workspace dep
-              run: pnpm --dir packages/quill -r --filter '@posthog/quill-*' --filter '@posthog/quill' build
+              run: pnpm --dir packages/quill -r --filter '@posthog/quill-tokens' --filter '@posthog/quill-primitives' --filter '@posthog/quill-components' --filter '@posthog/quill-blocks' --filter '@posthog/quill' build
 
             - name: Storybook static build
               run: pnpm --filter=@posthog/agent-console build-storybook
