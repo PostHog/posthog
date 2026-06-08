@@ -178,8 +178,9 @@ def _intercom_get(session: Session, path_or_url: str, params: dict[str, Any] | N
     return response.json()
 
 
-def _intercom_post(session: Session, path: str, body: dict[str, Any]) -> dict[str, Any]:
-    response = session.post(f"{INTERCOM_API_BASE}{path}", json=body, timeout=30)
+def _intercom_post(session: Session, path_or_url: str, body: dict[str, Any]) -> dict[str, Any]:
+    url = path_or_url if path_or_url.startswith("http") else f"{INTERCOM_API_BASE}{path_or_url}"
+    response = session.post(url, json=body, timeout=30)
     response.raise_for_status()
     return response.json()
 
@@ -229,11 +230,12 @@ def _iter_companies(session: Session) -> Iterator[dict[str, Any]]:
         if next_url is None:
             payload = _intercom_post(session, "/companies/list", body)
         else:
-            # `pages.next` is a full URL; the framework follows it as GET, but
-            # /companies/list is POST. Empirically Intercom honors GET on the
-            # `pages.next` URL too — same response shape — so we use GET to
-            # avoid having to re-build the body with the embedded cursor.
-            payload = _intercom_get(session, next_url)
+            # `pages.next` is a full URL carrying the page cursor in its query
+            # string. `/companies/list` is POST-only — a GET against it 404s —
+            # so we re-POST the same body to the next-page URL, mirroring how
+            # the REST next-URL paginator advances the other list endpoints
+            # (it preserves the POST method + body and only swaps the URL).
+            payload = _intercom_post(session, next_url, body)
         yield from (payload.get("data") or [])
         next_url = (payload.get("pages") or {}).get("next")
         if not next_url:
