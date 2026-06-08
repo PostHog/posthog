@@ -67,7 +67,7 @@ describe('FeatureFlagCache', () => {
     it('writes with the chosen TTL', async () => {
         await cache.set('user-1', ['flag-a'], { 'flag-a': true })
         expect(mockRedis.set).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'EX', FLAG_CACHE_TTL_SECONDS)
-        expect(FLAG_CACHE_TTL_SECONDS).toBe(120)
+        expect(FLAG_CACHE_TTL_SECONDS).toBe(7 * 24 * 60 * 60)
     })
 
     it('isolates cache entries by user', async () => {

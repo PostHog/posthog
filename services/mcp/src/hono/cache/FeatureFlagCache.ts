@@ -6,13 +6,15 @@ import { hash } from '@/lib/utils'
 import { redisOperationsTotal } from '../metrics'
 import type { RedisLike } from './RedisCache'
 
-// Tool-gating flags only decide which MCP tools are visible and change at the
-// cadence of rollout edits. Consecutive same-user MCP calls are bursty — across
-// 30 days of production traffic the inter-call gap is p50 3s / p75 11s / p90 75s
-// — so a 2-minute window sits just above p90 and absorbs >90% of repeat calls
-// (the active burst plus short thinking pauses) while keeping the staleness
-// window tight; larger TTLs add only ~1pp of hit rate per doubling.
-export const FLAG_CACHE_TTL_SECONDS = 2 * 60
+// Sized to warm a returning user's connection so the first request of a new
+// session skips the flags API call. Across 90 days of production traffic the
+// gap between a user's sessions is p50 ~9h / p75 ~28h / p90 ~4.7d, so a 7-day
+// window covers ~93.5% of returning sessions (vs 70% at 24h, 80% at 48h) with
+// diminishing returns beyond. Tool-gating flags only decide which MCP tools are
+// visible and change at the cadence of rollout edits, so this matches the 7-day
+// TTL the sibling token cache (distinctId/projectId/orgId) already uses for the
+// same connection-speedup purpose — see RedisCache DEFAULT_TTL_SECONDS.
+export const FLAG_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 
 const FLAG_CACHE_PREFIX = 'mcp:flags'
 
