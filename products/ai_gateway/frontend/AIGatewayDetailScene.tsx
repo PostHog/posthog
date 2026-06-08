@@ -6,6 +6,8 @@ import { LemonButton, LemonSegmentedButton, LemonTabs, Spinner } from '@posthog/
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { Link } from 'lib/lemon-ui/Link'
+import { AnthropicLogo } from 'scenes/onboarding/sdks/logos/AnthropicLogo'
+import { OpenAILogo } from 'scenes/onboarding/sdks/logos/OpenAILogo'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -227,8 +229,24 @@ client.messages.create(
                 value={endpointProvider}
                 onChange={setEndpointProvider}
                 options={[
-                    { value: 'openai', label: 'OpenAI' },
-                    { value: 'anthropic', label: 'Anthropic' },
+                    {
+                        value: 'openai',
+                        label: 'OpenAI',
+                        icon: (
+                            <span className="flex [&>svg]:size-4">
+                                <OpenAILogo />
+                            </span>
+                        ),
+                    },
+                    {
+                        value: 'anthropic',
+                        label: 'Anthropic',
+                        icon: (
+                            <span className="flex [&>svg]:size-4">
+                                <AnthropicLogo />
+                            </span>
+                        ),
+                    },
                 ]}
             />
             <LemonTabs
