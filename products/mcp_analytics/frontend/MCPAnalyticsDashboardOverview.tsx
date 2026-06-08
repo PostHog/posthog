@@ -36,12 +36,14 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     const { timezone } = useValues(teamLogic)
 
+    // buildTheme() reads CSS vars from the DOM; isDarkModeOn is the dep that forces a recompute when
+    // the theme flips (it isn't passed as an argument).
     const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
 
     return (
         <div className="flex flex-col gap-10">
             <section>
-                <h2 className="mb-4 text-xl font-semibold text-primary">Previous week's key metrics</h2>
+                <h2 className="mb-4 text-xl font-semibold text-primary">This week's key metrics</h2>
                 <KpiTiles kpis={kpis} intentClusterCount={intentClusterCount} kpisLoading={kpisLoading} theme={theme} />
             </section>
             <section>

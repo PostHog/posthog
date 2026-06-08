@@ -1,9 +1,11 @@
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { type ChartTheme, MetricCard } from '@posthog/quill-charts'
+import { cn } from '@posthog/quill-primitives'
 
 import { urls } from 'scenes/urls'
 
 import { type KPIData, KPIMetric } from '../mcpDashboardOverviewLogic'
+import { CARD_SURFACE } from './Card'
 import { formatMs, formatNumber, formatPercent } from './formatters'
 
 interface TileSpec {
@@ -24,7 +26,10 @@ function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.El
         <Link
             to={tile.href}
             subtle
-            className="flex flex-col rounded-lg border border-primary bg-surface-primary px-3.5 py-3 shadow-sm transition-all hover:border-secondary hover:shadow-md"
+            className={cn(
+                CARD_SURFACE,
+                'flex flex-col px-3.5 py-3 shadow-sm transition-all hover:border-secondary hover:shadow-md'
+            )}
         >
             {tile.loading ? (
                 <div className="flex flex-col gap-2">
@@ -67,7 +72,7 @@ export function KpiTiles({
             metric: kpis.sessions,
             href: urls.mcpAnalyticsSessions(),
             format: formatNumber,
-            color: theme.colors[0], // --data-color-1 (blue)
+            color: theme.colors[0],
             loading: kpisLoading,
         },
         {
@@ -75,7 +80,7 @@ export function KpiTiles({
             metric: kpis.toolCalls,
             href: urls.mcpAnalyticsToolQuality(),
             format: formatNumber,
-            color: theme.colors[0], // --data-color-1 (blue)
+            color: theme.colors[0],
             loading: kpisLoading,
         },
         {
@@ -83,7 +88,7 @@ export function KpiTiles({
             metric: kpis.errorRatePct,
             href: urls.mcpAnalyticsSessions(),
             format: formatPercent,
-            color: theme.colors[4], // --data-color-5 (red)
+            color: theme.colors[4],
             loading: kpisLoading,
         },
         {
@@ -91,7 +96,7 @@ export function KpiTiles({
             metric: kpis.p95LatencyMs,
             href: urls.mcpAnalyticsToolQuality(),
             format: formatMs,
-            color: theme.colors[0], // --data-color-1 (blue)
+            color: theme.colors[0],
             loading: kpisLoading,
         },
         {
@@ -99,7 +104,7 @@ export function KpiTiles({
             metric: intentClusterCount,
             href: urls.mcpAnalyticsIntentClustering(),
             format: formatNumber,
-            color: theme.colors[6], // --data-color-7 (green)
+            color: theme.colors[6],
             loading: false,
         },
     ]

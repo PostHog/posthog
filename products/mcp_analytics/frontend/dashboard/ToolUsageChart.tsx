@@ -4,7 +4,7 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { type ChartTheme, type Series, TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
 import { type ToolDailySeries } from '../mcpDashboardOverviewLogic'
-import { Card } from './Card'
+import { Card, CardState } from './Card'
 
 export function ToolUsageChart({
     data,
@@ -41,15 +41,16 @@ export function ToolUsageChart({
 
     return (
         <Card title="Daily breakdown of tool calls">
-            {loading && data.labels.length === 0 ? (
-                <LemonSkeleton className="h-[260px] w-full" />
-            ) : data.labels.length === 0 ? (
-                <div className="py-6 text-center text-[12px] text-secondary">No tool calls yet.</div>
-            ) : (
+            <CardState
+                loading={loading}
+                isEmpty={data.labels.length === 0}
+                skeleton={<LemonSkeleton className="h-[260px] w-full" />}
+                empty={<div className="py-6 text-center text-[12px] text-secondary">No tool calls yet.</div>}
+            >
                 <div className="flex h-[260px] flex-col">
                     <TimeSeriesBarChart series={series} labels={data.labels} config={config} theme={theme} />
                 </div>
-            )}
+            </CardState>
         </Card>
     )
 }

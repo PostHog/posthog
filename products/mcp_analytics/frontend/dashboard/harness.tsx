@@ -13,13 +13,14 @@ export const HARNESS_LOGOS: Record<string, string> = {
     'VS Code': vscodeLogo,
 }
 
-// Per-harness slice color, chosen so the logo drawn on top keeps enough contrast against its slice.
+// Per-harness slice color (index into the data-viz palette), chosen so the logo drawn on top keeps
+// enough contrast against its slice.
 const HARNESS_SLICE_COLOR_INDEX: Record<string, number> = {
-    'Claude Code': 0, // blue
-    'Claude.ai': 2, // teal
-    'OpenAI Codex': 1, // purple
-    Cursor: 12, // amber
-    'VS Code': 11, // orange
+    'Claude Code': 0,
+    'Claude.ai': 2,
+    'OpenAI Codex': 1,
+    Cursor: 12,
+    'VS Code': 11,
 }
 
 export function harnessSliceColor(theme: ChartTheme, category: string, fallbackIndex: number): string {

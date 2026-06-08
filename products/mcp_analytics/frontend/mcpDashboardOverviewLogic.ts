@@ -85,6 +85,8 @@ WHERE event = 'mcp_tool_call'
     AND properties.$mcp_client_name IS NOT NULL
     AND properties.$mcp_client_name != ''
 GROUP BY client
+ORDER BY total_calls DESC
+LIMIT 200
 `
 
 // Daily success/error split powering the activity time-series bar chart.
@@ -292,6 +294,10 @@ export function aggregateHarnessRows(raw: HarnessRawRow[]): HarnessRow[] {
     return result
 }
 
+// Keep the stacked bar legible: only the busiest tools get their own segment; the long tail is
+// folded into a single "Other" series so the chart can't sprout dozens of repeating-colour bands.
+const TOOL_SERIES_LIMIT = 8
+
 // Pivot flat (day, tool, calls) rows into a label array + one data series per tool, tools ordered
 // by total volume (biggest first) so the stack and legend read consistently.
 export function buildToolDailySeries(rows: ToolDailyRow[]): ToolDailySeries {
@@ -307,12 +313,13 @@ export function buildToolDailySeries(rows: ToolDailyRow[]): ToolDailySeries {
         }
         dayMap.set(row.day, (dayMap.get(row.day) ?? 0) + row.calls)
     }
-    const tools = [...totalByTool.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .map(([tool]) => {
-            const dayMap = byToolDay.get(tool)!
-            return { tool, data: days.map((day) => dayMap.get(day) ?? 0) }
-        })
+    const seriesFor = (tool: string): number[] => days.map((day) => byToolDay.get(tool)!.get(day) ?? 0)
+    const ranked = [...totalByTool.entries()].sort((a, b) => b[1] - a[1]).map(([tool]) => tool)
+    const tools = ranked.slice(0, TOOL_SERIES_LIMIT).map((tool) => ({ tool, data: seriesFor(tool) }))
+    const rest = ranked.slice(TOOL_SERIES_LIMIT)
+    if (rest.length > 0) {
+        tools.push({ tool: 'Other', data: days.map((_, i) => rest.reduce((sum, t) => sum + seriesFor(t)[i], 0)) })
+    }
     return { labels: days, tools }
 }
 

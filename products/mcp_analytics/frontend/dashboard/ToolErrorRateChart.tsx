@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
@@ -11,7 +11,7 @@ import {
 } from '@posthog/quill-charts'
 
 import { type ToolRow } from '../mcpDashboardOverviewLogic'
-import { Card } from './Card'
+import { Card, CardState } from './Card'
 import { ChartTooltip } from './ChartTooltip'
 import { formatPercent } from './formatters'
 
@@ -55,40 +55,47 @@ export function ToolErrorRateChart({
             bars: { cornerRadius: 3, minBandSize: 30, track: { hover: false }, valueDomain: [0, axisMax] },
         }
     }, [sorted])
-    const renderTooltip = (ctx: TooltipContext): JSX.Element | null => {
-        const row = sorted.find((r) => r.tool === ctx.label)
-        if (!row) {
-            return null
-        }
-        return (
-            <ChartTooltip
-                title={row.tool}
-                rows={[
-                    ['Error rate', formatPercent(row.error_rate_pct)],
-                    ['Errors', String(row.errors)],
-                    ['Calls', String(row.total_calls)],
-                ]}
-            />
-        )
-    }
+    const byTool = useMemo(() => new Map(sorted.map((r) => [r.tool, r])), [sorted])
+    const renderTooltip = useCallback(
+        (ctx: TooltipContext): JSX.Element | null => {
+            const row = byTool.get(ctx.label)
+            if (!row) {
+                return null
+            }
+            return (
+                <ChartTooltip
+                    title={row.tool}
+                    rows={[
+                        ['Error rate', formatPercent(row.error_rate_pct)],
+                        ['Errors', String(row.errors)],
+                        ['Calls', String(row.total_calls)],
+                    ]}
+                />
+            )
+        },
+        [byTool]
+    )
 
     return (
         <Card title="Tools with the highest error rate">
-            {loading && rows.length === 0 ? (
-                <div className="space-y-2 py-3">
-                    {Array.from({ length: 5 }).map((_, i) => (
-                        <LemonSkeleton key={i} className="h-7 w-full" />
-                    ))}
-                </div>
-            ) : rows.length === 0 ? (
-                <div className="py-6 text-center text-[12px] text-secondary">No tool calls yet.</div>
-            ) : (
+            <CardState
+                loading={loading}
+                isEmpty={rows.length === 0}
+                skeleton={
+                    <div className="space-y-2 py-3">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                            <LemonSkeleton key={i} className="h-7 w-full" />
+                        ))}
+                    </div>
+                }
+                empty={<div className="py-6 text-center text-[12px] text-secondary">No tool calls yet.</div>}
+            >
                 <div className="flex flex-col">
                     <BarChart series={series} labels={labels} config={config} theme={theme} tooltip={renderTooltip}>
                         <ValueLabels valueFormatter={(value) => formatPercent(value)} offset={6} />
                     </BarChart>
                 </div>
-            )}
+            </CardState>
         </Card>
     )
 }

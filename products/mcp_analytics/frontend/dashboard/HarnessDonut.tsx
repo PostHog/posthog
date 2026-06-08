@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
@@ -23,6 +23,9 @@ const HARNESS_DONUT_CONFIG: PieChartConfig = {
     showValueOnSlice: false,
 }
 
+// Slices smaller than this don't get a logo overlay — it wouldn't fit on the arc.
+const MIN_LABELLED_SLICE_FRACTION = 0.05
+
 // Rendered as a PieChart child so it can read the slice geometry from the radial layout context.
 function HarnessSliceLabels(): JSX.Element | null {
     const { layout } = useRadialLayout()
@@ -30,7 +33,7 @@ function HarnessSliceLabels(): JSX.Element | null {
     return (
         <>
             {layout.slices.map((slice) => {
-                if (slice.fraction < 0.05) {
+                if (slice.fraction < MIN_LABELLED_SLICE_FRACTION) {
                     return null
                 }
                 const x = layout.cx + Math.sin(slice.centroidAngle) * midRadius
@@ -82,7 +85,7 @@ export function HarnessDonut({
             })),
         [rows, theme]
     )
-    const renderTooltip = (ctx: TooltipContext<HarnessRow>): JSX.Element | null => {
+    const renderTooltip = useCallback((ctx: TooltipContext<HarnessRow>): JSX.Element | null => {
         const entry = ctx.seriesData[0]
         const row = entry?.series.meta
         if (!row) {
@@ -100,7 +103,7 @@ export function HarnessDonut({
                 ]}
             />
         )
-    }
+    }, [])
 
     if (loading && rows.length === 0) {
         return (

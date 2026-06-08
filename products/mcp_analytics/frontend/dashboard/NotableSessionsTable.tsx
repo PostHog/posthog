@@ -1,17 +1,76 @@
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
-import { Badge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@posthog/quill-primitives'
+import { Badge, cn, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@posthog/quill-primitives'
 
 import { urls } from 'scenes/urls'
 
 import { type NotableSession } from '../mcpDashboardOverviewLogic'
+import { CARD_SURFACE } from './Card'
 import { formatDuration, formatPercent, truncateSessionId } from './formatters'
+
+const DESTRUCTIVE_ERROR_PCT = 5
+const WARNING_ERROR_PCT = 1
+
+function statusVariant(errorRatePct: number): 'destructive' | 'warning' | 'success' {
+    if (errorRatePct > DESTRUCTIVE_ERROR_PCT) {
+        return 'destructive'
+    }
+    if (errorRatePct >= WARNING_ERROR_PCT) {
+        return 'warning'
+    }
+    return 'success'
+}
 
 function StatusPill({ errorRatePct }: { errorRatePct: number }): JSX.Element {
     if (errorRatePct === 0) {
         return <Badge variant="success">Healthy</Badge>
     }
-    const variant = errorRatePct > 5 ? 'destructive' : errorRatePct >= 1 ? 'warning' : 'success'
-    return <Badge variant={variant}>{formatPercent(errorRatePct)} errors</Badge>
+    return <Badge variant={statusVariant(errorRatePct)}>{formatPercent(errorRatePct)} errors</Badge>
+}
+
+function SessionRows({ sessions, loading }: { sessions: NotableSession[]; loading: boolean }): JSX.Element {
+    if (loading && sessions.length === 0) {
+        return (
+            <TableRow>
+                <TableCell colSpan={5}>
+                    <div className="space-y-2 py-1">
+                        {Array.from({ length: 4 }).map((_, i) => (
+                            <LemonSkeleton key={i} className="h-3.5 w-full" />
+                        ))}
+                    </div>
+                </TableCell>
+            </TableRow>
+        )
+    }
+    if (sessions.length === 0) {
+        return (
+            <TableRow>
+                <TableCell colSpan={5} align="center" className="py-6 text-secondary">
+                    No notable sessions in the last 30 days.
+                </TableCell>
+            </TableRow>
+        )
+    }
+    return (
+        <>
+            {sessions.map((entry) => (
+                <TableRow key={entry.session.session_id}>
+                    <TableCell className="whitespace-nowrap">
+                        <Link to={urls.mcpAnalyticsSessions()} className="font-mono" title={entry.session.session_id}>
+                            {truncateSessionId(entry.session.session_id)}
+                        </Link>
+                    </TableCell>
+                    <TableCell align="right">{entry.session.tool_calls}</TableCell>
+                    <TableCell align="right">{formatDuration(entry.session.duration_seconds)}</TableCell>
+                    <TableCell>
+                        <StatusPill errorRatePct={entry.session.error_rate_pct} />
+                    </TableCell>
+                    <TableCell expand className="text-primary" title={entry.label}>
+                        {entry.label}
+                    </TableCell>
+                </TableRow>
+            ))}
+        </>
+    )
 }
 
 export function NotableSessionsTable({
@@ -22,7 +81,7 @@ export function NotableSessionsTable({
     loading: boolean
 }): JSX.Element {
     return (
-        <div className="flex h-full flex-col overflow-hidden rounded-lg border border-primary bg-surface-primary">
+        <div className={cn(CARD_SURFACE, 'flex h-full flex-col overflow-hidden')}>
             <h3 className="mb-0 border-b border-primary px-3.5 py-3 text-sm font-medium text-primary">
                 Sessions flagged for review
             </h3>
@@ -37,45 +96,7 @@ export function NotableSessionsTable({
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {loading && sessions.length === 0 ? (
-                        <TableRow>
-                            <TableCell colSpan={5}>
-                                <div className="space-y-2 py-1">
-                                    {Array.from({ length: 4 }).map((_, i) => (
-                                        <LemonSkeleton key={i} className="h-3.5 w-full" />
-                                    ))}
-                                </div>
-                            </TableCell>
-                        </TableRow>
-                    ) : sessions.length === 0 ? (
-                        <TableRow>
-                            <TableCell colSpan={5} align="center" className="py-6 text-secondary">
-                                No notable sessions in the last 30 days.
-                            </TableCell>
-                        </TableRow>
-                    ) : (
-                        sessions.map((entry) => (
-                            <TableRow key={entry.session.session_id}>
-                                <TableCell className="whitespace-nowrap">
-                                    <Link
-                                        to={urls.mcpAnalyticsSessions()}
-                                        className="font-mono"
-                                        title={entry.session.session_id}
-                                    >
-                                        {truncateSessionId(entry.session.session_id)}
-                                    </Link>
-                                </TableCell>
-                                <TableCell align="right">{entry.session.tool_calls}</TableCell>
-                                <TableCell align="right">{formatDuration(entry.session.duration_seconds)}</TableCell>
-                                <TableCell>
-                                    <StatusPill errorRatePct={entry.session.error_rate_pct} />
-                                </TableCell>
-                                <TableCell expand className="text-primary" title={entry.label}>
-                                    {entry.label}
-                                </TableCell>
-                            </TableRow>
-                        ))
-                    )}
+                    <SessionRows sessions={sessions} loading={loading} />
                 </TableBody>
             </Table>
             {sessions.length > 0 && (

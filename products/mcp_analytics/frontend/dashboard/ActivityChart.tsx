@@ -9,7 +9,7 @@ import {
 } from '@posthog/quill-charts'
 
 import { type DailyActivity } from '../mcpDashboardOverviewLogic'
-import { Card } from './Card'
+import { Card, CardState } from './Card'
 
 export function ActivityChart({
     daily,
@@ -43,17 +43,20 @@ export function ActivityChart({
 
     return (
         <Card className="flex flex-1 flex-col" title="Daily tool calls and errors">
-            {loading && daily.labels.length === 0 ? (
-                <LemonSkeleton className="min-h-[300px] flex-1" />
-            ) : daily.labels.length === 0 ? (
-                <div className="flex flex-1 items-center justify-center py-6 text-center text-[12px] text-secondary">
-                    No activity yet.
-                </div>
-            ) : (
+            <CardState
+                loading={loading}
+                isEmpty={daily.labels.length === 0}
+                skeleton={<LemonSkeleton className="min-h-[300px] flex-1" />}
+                empty={
+                    <div className="flex flex-1 items-center justify-center py-6 text-center text-[12px] text-secondary">
+                        No activity yet.
+                    </div>
+                }
+            >
                 <div className="flex min-h-[300px] flex-1 flex-col">
                     <TimeSeriesLineChart series={series} labels={daily.labels} config={config} theme={theme} />
                 </div>
-            )}
+            </CardState>
         </Card>
     )
 }

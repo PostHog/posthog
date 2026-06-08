@@ -90,6 +90,29 @@ describe('mcpDashboardOverviewLogic helpers', () => {
                 ],
             })
         })
+
+        it('keeps the top 8 tools and folds the rest into a single "Other" series', () => {
+            // 10 tools on one day, each with a distinct volume (tool-0 busiest … tool-9 quietest).
+            const rows: ToolDailyRow[] = Array.from({ length: 10 }, (_, i) => ({
+                day: '2024-01-01',
+                tool: `tool-${i}`,
+                calls: 100 - i,
+            }))
+            const { tools } = buildToolDailySeries(rows)
+            expect(tools).toHaveLength(9) // 8 named + Other
+            expect(tools.slice(0, 8).map((t) => t.tool)).toEqual([
+                'tool-0',
+                'tool-1',
+                'tool-2',
+                'tool-3',
+                'tool-4',
+                'tool-5',
+                'tool-6',
+                'tool-7',
+            ])
+            // Other = tool-8 (92) + tool-9 (91)
+            expect(tools[8]).toEqual({ tool: 'Other', data: [183] })
+        })
     })
 
     describe('buildKPIs', () => {
