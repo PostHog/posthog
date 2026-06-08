@@ -28,7 +28,8 @@ export const scene: SceneExport<AIGatewayDetailLogicProps> = {
 }
 
 export function AIGatewayDetailScene(): JSX.Element {
-    const { gateway, gatewayLoading } = useValues(aiGatewayDetailLogic)
+    const { gateway, gatewayLoading, detailTab } = useValues(aiGatewayDetailLogic)
+    const { setDetailTab } = useActions(aiGatewayDetailLogic)
 
     if (gatewayLoading && !gateway) {
         return (
@@ -59,30 +60,48 @@ export function AIGatewayDetailScene(): JSX.Element {
             </LemonButton>
             <SceneTitleSection
                 name={gateway.slug}
-                description="Usage and keys for this gateway. A request is attributed to this gateway by using one of its keys; the gateway slug in the endpoint path mirrors that binding so calling code reads clearly."
+                description="Monitor this gateway's usage, see how to connect to it, and manage the keys that attribute to it."
                 resourceType={{ type: 'llm_analytics' }}
             />
 
-            <GatewayEndpoint gateway={gateway} />
+            <LemonTabs
+                activeKey={detailTab}
+                onChange={setDetailTab}
+                tabs={[
+                    { key: 'usage', label: 'Usage', content: <UsageTab gateway={gateway} /> },
+                    { key: 'connect', label: 'Connect', content: <GatewayEndpoint gateway={gateway} /> },
+                    { key: 'keys', label: 'Keys', content: <KeysTab gateway={gateway} /> },
+                ]}
+            />
+        </SceneContent>
+    )
+}
 
-            <UsagePanel />
+function UsageTab({ gateway }: { gateway: GatewayApi }): JSX.Element {
+    const { usage, usageLoading } = useValues(aiGatewayDetailLogic)
 
+    return (
+        <div className="flex flex-col gap-4">
+            <UsageTiles usage={usage} loading={usageLoading} />
             <section className="flex flex-col gap-2">
-                <h3 className="m-0">Usage by model · last 30 days</h3>
+                <h3 className="m-0">By model · last 30 days</h3>
                 <Query query={byModelQuery(gateway)} readOnly />
             </section>
+        </div>
+    )
+}
 
-            <section className="flex flex-col gap-2">
-                <h3 className="m-0">Keys</h3>
-                <p className="text-secondary m-0">
-                    Keys assigned to this gateway. A key belongs to exactly one gateway — add a second to rotate, then
-                    remove the old one.
-                </p>
-                <div className="border rounded">
-                    <GatewayCredentials gateway={gateway} />
-                </div>
-            </section>
-        </SceneContent>
+function KeysTab({ gateway }: { gateway: GatewayApi }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2">
+            <p className="text-secondary m-0">
+                Keys assigned to this gateway. A key belongs to exactly one gateway — add a second to rotate, then
+                remove the old one.
+            </p>
+            <div className="border rounded">
+                <GatewayCredentials gateway={gateway} />
+            </div>
+        </div>
     )
 }
 
@@ -166,17 +185,6 @@ client.messages.create(
                 ]}
             />
             <CodeSnippet language={snippets[endpointTab].language}>{snippets[endpointTab].code}</CodeSnippet>
-        </section>
-    )
-}
-
-function UsagePanel(): JSX.Element {
-    const { usage, usageLoading } = useValues(aiGatewayDetailLogic)
-
-    return (
-        <section className="flex flex-col gap-2">
-            <h3 className="m-0">Usage · last 30 days</h3>
-            <UsageTiles usage={usage} loading={usageLoading} />
         </section>
     )
 }

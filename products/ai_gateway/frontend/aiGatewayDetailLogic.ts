@@ -14,6 +14,7 @@ export interface AIGatewayDetailLogicProps {
 }
 
 export type EndpointTab = 'curl' | 'openai' | 'anthropic'
+export type DetailTab = 'usage' | 'connect' | 'keys'
 
 export const aiGatewayDetailLogic = kea<aiGatewayDetailLogicType>([
     path((key) => ['products', 'ai_gateway', 'frontend', 'aiGatewayDetailLogic', key]),
@@ -26,9 +27,11 @@ export const aiGatewayDetailLogic = kea<aiGatewayDetailLogicType>([
     actions({
         loadUsage: true,
         setEndpointTab: (tab: EndpointTab) => ({ tab }),
+        setDetailTab: (tab: DetailTab) => ({ tab }),
     }),
     reducers({
         endpointTab: ['curl' as EndpointTab, { setEndpointTab: (_, { tab }) => tab }],
+        detailTab: ['usage' as DetailTab, { setDetailTab: (_, { tab }) => tab }],
     }),
     loaders(({ props, values }) => ({
         gateway: [
