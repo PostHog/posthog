@@ -511,6 +511,21 @@ mod test {
                     RawFrame::Rust(frame) => assert_eq!(frame.frame_id(), resolved_frame_id),
                     _ => panic!("Expected a rust frame"),
                 }
+
+                let missing_function_data =
+                    data.replace("\"function\": \"checkout::payment::charge\",\n", "");
+                let missing_function_frame: RawFrame =
+                    serde_json::from_str(&missing_function_data).unwrap();
+                match missing_function_frame {
+                    RawFrame::Rust(frame) => {
+                        let resolved: Frame = (&frame).into();
+                        assert_eq!(resolved.mangled_name, "");
+                        assert_eq!(resolved.resolved_name, None);
+                        assert_eq!(resolved.source.as_deref(), Some("src/main.rs"));
+                        assert_eq!(resolved.line, Some(42));
+                    }
+                    _ => panic!("Expected a rust frame"),
+                }
             }
             _ => panic!("Expected a rust frame"),
         }
