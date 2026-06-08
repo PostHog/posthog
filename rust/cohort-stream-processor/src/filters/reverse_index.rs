@@ -30,15 +30,13 @@ use crate::stage1::state::StateVariant;
 #[derive(Debug, Clone, Copy)]
 pub struct LeafStateMeta {
     pub variant: StateVariant,
-    /// The relative/explicit eviction window — `BehavioralSingle` only; `None` for the bucket and
-    /// person variants (daily buckets derive their deadline from the bucket array).
+    /// The eviction window — `BehavioralSingle` only; `None` for the bucket and person variants.
     pub window: Option<EvictionWindow>,
     /// The daily-bucket window length in days (`buckets.len() − 1`) — `Some` only for
     /// [`StateVariant::BehavioralDailyBuckets`], `None` otherwise.
     pub window_days: Option<u32>,
-    /// The count comparator applied to a daily-bucket window's sum — `Some` only for
-    /// [`StateVariant::BehavioralDailyBuckets`], `None` otherwise. Held here, never in the stored
-    /// state, so the threshold has one source of truth.
+    /// The count comparator for a daily-bucket window's sum — `Some` only for
+    /// [`StateVariant::BehavioralDailyBuckets`], `None` otherwise.
     pub predicate_op: Option<PredicateOp>,
 }
 
@@ -260,9 +258,8 @@ fn collect_leaf_meta(
         }
         FilterNode::Leaf(CohortLeaf::Behavioral(leaf)) => {
             if let Ok((variant, window)) = pick_state_variant(leaf) {
-                // Daily buckets carry their window length and count comparator; the other variants
-                // need neither. `effective_window_days` is the same function the picker routed on, so
-                // `window_days` cannot drift from the chosen variant.
+                // `effective_window_days` is the function the picker routed on, so `window_days`
+                // matches the chosen variant.
                 let (window_days, predicate_op) = match variant {
                     StateVariant::BehavioralDailyBuckets => (
                         Some(effective_window_days(leaf)),
@@ -519,7 +516,7 @@ mod tests {
 
     #[test]
     fn freeze_drops_an_hourly_deferred_multiple() {
-        // A sub-day multiple (hour interval) stays unsupported → no by_lsk entry, exactly as before.
+        // A sub-day multiple (hour interval) is unsupported → no by_lsk entry.
         let mut builder = TeamFiltersBuilder::default();
         builder
             .add_cohort(

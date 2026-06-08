@@ -197,8 +197,8 @@ pub fn process_event(
         let first_write = prev.is_none();
 
         let mutation = match apply {
-            // Both single-bit and daily-bucket behavioral leaves arrive as `Apply::Behavioral`;
-            // the stored variant picks the fold. `collect_applies` only enqueues these two.
+            // Single-bit and daily-bucket leaves both arrive as `Apply::Behavioral`; the variant
+            // picks the fold.
             Apply::Behavioral { condition_hash, .. } => {
                 let variant = filters.by_lsk.get(&apply.lsk()).map(|meta| meta.variant);
                 if variant == Some(StateVariant::BehavioralDailyBuckets) {
@@ -423,13 +423,12 @@ fn mutate_behavioral(
     Some((record, transition))
 }
 
-/// Fold a `performed_event_multiple` match into a leaf's dense daily-bucket state. Unlike
-/// [`mutate_behavioral`], this can emit `Left`: a window slide that drains the contributing
-/// bucket(s) drops the count below the threshold.
+/// Fold a `performed_event_multiple` match into a leaf's dense daily-bucket state. A window slide
+/// that drains the contributing bucket(s) can drop the count below the threshold and emit `Left`.
 ///
-/// The apply path reads **no wall clock** — the event's own calendar day positions it against the
-/// stored window, and `window_start_day` only ever moves forward (the sweep owns wall-clock
-/// advance). [`None`] skips the leaf (replay, a meta desync, or an unexpected stored variant).
+/// The apply path reads **no wall clock**: the event's own calendar day positions it against the
+/// stored window, and `window_start_day` only moves forward. [`None`] skips the leaf (replay, a meta
+/// desync, or an unexpected stored variant).
 fn mutate_behavioral_daily(
     filters: &TeamFilters,
     lsk: LeafStateKey,
@@ -439,9 +438,8 @@ fn mutate_behavioral_daily(
     event_ms: i64,
     prev: Option<StatefulRecord>,
 ) -> Option<(StatefulRecord, Option<LeafTransition>)> {
-    // `window_days` (the bucket-array length − 1) and the count comparator live on the catalog meta,
-    // never in the stored state. Both are `Some` for a daily leaf by construction; a `None` is a
-    // catalog/meta desync — skip rather than panic or silently mis-evaluate.
+    // `window_days` and the count comparator live on the meta, and are `Some` for a daily leaf by
+    // construction; a `None` is a catalog desync — skip rather than panic.
     let (Some(window_days), Some(op)) = filters
         .by_lsk
         .get(&lsk)
@@ -487,9 +485,8 @@ fn mutate_behavioral_daily(
     }
     applied.record(event.source_partition, event.source_offset);
 
-    // A stored array whose length disagrees with the leaf's window is a format desync — impossible
-    // for an in-sync catalog (the LSK pins `window_days`), but guarded so the fold can't index out of
-    // bounds.
+    // A stored array whose length disagrees with the leaf's window is a format desync (the LSK pins
+    // `window_days`, so it shouldn't happen); guard it so the fold can't index out of bounds.
     let mut buckets = match prior_buckets {
         Some(buckets) if buckets.len() == len => buckets,
         Some(_) => {
@@ -553,8 +550,7 @@ fn mutate_behavioral_daily(
         },
         applied_offsets: applied,
     };
-    // Both edges are event-driven here: a fold that crosses the threshold gives `Entered`, a slide
-    // that drains the contributing bucket(s) gives `Left`.
+    // A fold crossing the threshold gives `Entered`; a slide draining the buckets gives `Left`.
     let kind = match (predicate_before, predicate_after) {
         (false, true) => Some(TransitionKind::Entered),
         (true, false) => Some(TransitionKind::Left),
@@ -570,10 +566,9 @@ fn mutate_behavioral_daily(
     Some((record, transition))
 }
 
-/// The day-boundary (epoch ms, team tz) at which the oldest non-zero bucket leaves the window — the
-/// deadline the (future) sweep evicts it on, stored but not acted on this PR. A day-`d` bucket is
-/// in-window while `now_day ≤ d + window_days`, so it leaves at the start of day
-/// `d + window_days + 1`. An all-zero array (no contributing bucket) never evicts → [`i64::MAX`].
+/// The day-boundary (epoch ms, team tz) at which the oldest non-zero bucket leaves the window — its
+/// eviction deadline. A day-`d` bucket is in-window while `now_day ≤ d + window_days`, so it leaves
+/// at the start of day `d + window_days + 1`. An all-zero array never evicts → [`i64::MAX`].
 fn daily_eviction_deadline(
     buckets: &[u32],
     window_start_day: i32,

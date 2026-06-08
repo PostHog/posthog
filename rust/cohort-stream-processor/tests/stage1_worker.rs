@@ -1081,7 +1081,7 @@ async fn worker_keeps_processing_after_a_produce_failure() {
     assert_eq!(changes[0].person_id, person(2).to_string());
 }
 
-// ── performed_event_multiple daily buckets (M2 / PR 2.1) ─────────────────────────
+// ── performed_event_multiple daily buckets (M2) ──────────────────────────────────
 // These exercise the `BehavioralDailyBuckets` fold: a counter (not a bit), a window slide that can
 // emit an event-driven `Left`, the count>=1 parity guard, and replay-safety of the non-idempotent
 // `buckets[i] += 1` across source partitions.
@@ -1137,7 +1137,6 @@ fn daily_multiple_enters_when_count_crosses_threshold() {
 
 #[test]
 fn daily_multiple_slide_drops_contributing_bucket_and_emits_left() {
-    // The capability `BehavioralSingle` lacks: an event-driven `Left`, before any sweep exists.
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![(
         CohortId(1),
@@ -1354,9 +1353,9 @@ fn daily_multiple_eq_or_lte_zero_is_never_a_member() {
 
 #[test]
 fn daily_multiple_stores_eviction_deadline_at_oldest_bucket_day_boundary() {
-    // The stored deadline (not acted on this PR) is the start of the day the oldest non-zero bucket
-    // leaves the window: a day-d bucket is in-window while now_day ≤ d + window_days, so it leaves at
-    // the start of day d + window_days + 1.
+    // The stored deadline is the start of the day the oldest non-zero bucket leaves the window: a
+    // day-d bucket is in-window while now_day ≤ d + window_days, so it leaves at the start of day
+    // d + window_days + 1.
     let (_dir, store) = temp_store();
     let window_days = 7;
     let filters = build_team_filters(vec![(

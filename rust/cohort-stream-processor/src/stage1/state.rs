@@ -45,9 +45,8 @@ pub enum Stage1State {
         /// Earliest time (epoch ms) the sweep may evict this state.
         earliest_eviction_at_ms: i64,
     },
-    /// `performed_event_multiple` over a `1..=180`-day window. The predicate is a pure function of
-    /// `buckets` and the leaf's `PredicateOp` (held on the catalog meta, never here), so there is no
-    /// stored verdict to desync.
+    /// `performed_event_multiple` over a `1..=180`-day window. Membership is derived from `buckets`
+    /// and the leaf's `PredicateOp` (which lives on the catalog meta, not here).
     BehavioralDailyBuckets {
         /// Dense per-day counts: `buckets[i]` is the matching-event count for calendar day
         /// `window_start_day + i`, in the team timezone. `len() == window_days + 1` (the inclusive
@@ -59,9 +58,8 @@ pub enum Stage1State {
         window_start_day: i32,
         /// Most recent matching event time (epoch ms), `max`-folded across events.
         last_event_at_ms: i64,
-        /// Earliest time (epoch ms) the oldest non-zero bucket leaves the window — the day boundary
-        /// the sweep evicts it on. Stored for the (future) sweep; the event path never reads a wall
-        /// clock.
+        /// Earliest time (epoch ms) the oldest non-zero bucket leaves the window — its eviction
+        /// deadline. Computed and stored but not yet read; the event path never reads a wall clock.
         earliest_eviction_at_ms: i64,
     },
     /// A person-property filter: last-write-wins, tie-broken by event-time argMax
@@ -211,8 +209,6 @@ mod tests {
 
     #[test]
     fn daily_buckets_decode_from_its_on_disk_shape() {
-        // The `#[serde(tag = "v")]` form: the variant is fully data, the `buckets` array round-trips
-        // in order, and `window_start_day` is a plain signed day index.
         let on_disk = serde_json::json!({
             "state": {
                 "v": "BehavioralDailyBuckets",
@@ -229,9 +225,8 @@ mod tests {
 
     #[test]
     fn still_unknown_variant_tag_is_a_decode_error() {
-        // Forward-compat is preserved for the variants that are *still* unimplemented: a future tag
-        // must surface as Err, not deserialize into the wrong shape. `applied_offsets` is present and
-        // valid so the error is the *inner* unknown variant, not a missing-outer-field error.
+        // An unknown state tag must surface as Err, not silently mis-deserialize. `applied_offsets`
+        // is valid so the failure is the inner unknown variant, not a missing outer field.
         let forward = serde_json::json!({
             "state": { "v": "BehavioralHourlyBuckets", "buckets": [1, 2, 3] },
             "applied_offsets": { "0": 0 },

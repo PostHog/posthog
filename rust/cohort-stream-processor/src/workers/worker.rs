@@ -226,10 +226,8 @@ fn handle_event(
     }
 }
 
-/// Map a transition to its `stage1_transitions_total{kind}` label. A single-bit `behavioral_left` is
-/// impossible without sweep eviction (so it emits no metric), but a daily-bucket `Left` is
-/// event-driven (a window slide) and is labelled distinctly. An unknown LSK shouldn't occur, so it
-/// emits no metric.
+/// Map a transition to its `stage1_transitions_total{kind}` label. A `BehavioralSingle` `Left` and an
+/// unknown LSK both map to no metric.
 fn transition_metric_label(
     filters: &TeamFilters,
     transition: &LeafTransition,

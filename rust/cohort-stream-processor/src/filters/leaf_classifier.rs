@@ -278,8 +278,8 @@ mod tests {
 
     #[test]
     fn performed_event_multiple_out_of_daily_range_is_dropped() {
-        // Sub-day (hourly-deferred) and over-180-day (compressed-deferred) windows both still drop as
-        // unsupported, exactly as every multiple did before daily buckets landed.
+        // Sub-day (hourly-deferred) and over-180-day (compressed-deferred) windows both drop as
+        // unsupported.
         for (time_value, time_interval, why) in [
             (5, "hour", "sub-day → hourly-deferred"),
             (1, "year", "365 days → compressed-deferred"),
