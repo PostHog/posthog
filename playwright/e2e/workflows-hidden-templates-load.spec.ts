@@ -1,6 +1,4 @@
-import { expect } from '@playwright/test'
-
-import { test } from '../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
 
 const TRIGGER_NODE_ID = 'trigger_node'
 const EXIT_NODE_ID = 'exit_node'
@@ -62,16 +60,26 @@ function buildWorkflowWithCaptureStep(): Record<string, any> {
 }
 
 test.describe('Workflows hidden built-in templates load', () => {
+    test.describe.configure({ mode: 'serial' })
+    test.setTimeout(90 * 1000)
+
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({
+            skip_onboarding: true,
+            no_demo_data: true,
+        })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
+    })
+
     test('opening a workflow whose step uses a hidden template renders its config (no "Template not found")', async ({
         page,
     }) => {
-        test.setTimeout(90 * 1000)
-
-        const me = await page.request.get('/api/users/@me/')
-        expect(me.ok()).toBe(true)
-        const meData = await me.json()
-        const teamId: number = meData.team.id
-
+        const teamId = workspace!.team_id
         const workflowPayload = buildWorkflowWithCaptureStep()
         const workflowId = await page.evaluate(
             async ({ teamId, payload }) => {
