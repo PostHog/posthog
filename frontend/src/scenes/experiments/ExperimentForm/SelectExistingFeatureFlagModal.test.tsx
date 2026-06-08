@@ -88,7 +88,7 @@ describe('SelectExistingFeatureFlagModal', () => {
                     200,
                     {
                         results: mockFeatureFlags,
-                        count: mockFeatureFlags.length,
+                        has_more: false,
                     },
                 ],
             },

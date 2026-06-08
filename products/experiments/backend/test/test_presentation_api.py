@@ -81,7 +81,7 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/eligible_feature_flags/?order=key")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["has_more"], False)
         self.assertEqual([flag["key"] for flag in response.json()["results"]], ["eligible-flag"])
 
     @parameterized.expand(

@@ -37,7 +37,7 @@ import { CopyExperimentToProjectModal } from '../CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
-import { isExperimentPaused } from '../experimentsLogic'
+import { experimentsLogic, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { isLegacyExperiment } from '../utils'
 import { FinishExperimentModal, PauseExperimentModal, ResumeExperimentModal } from './ExperimentModals'
@@ -67,6 +67,7 @@ export function PageHeaderCustom(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
     const { openFinishExperimentModal, openPauseExperimentModal, openResumeExperimentModal } = useActions(modalsLogic)
+    const { openFeatureFlagModal } = useActions(experimentsLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
     const [copyToProjectModalOpen, setCopyToProjectModalOpen] = useState(false)
     const [surveyModalOpen, setSurveyModalOpen] = useState(false)
@@ -166,7 +167,13 @@ export function PageHeaderCustom(): JSX.Element {
             {experiment && (
                 <ScenePanel>
                     <ScenePanelActionsSection>
-                        <ButtonPrimitive menuItem onClick={() => setDuplicateModalOpen(true)}>
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={() => {
+                                openFeatureFlagModal()
+                                setDuplicateModalOpen(true)
+                            }}
+                        >
                             <IconCopy />
                             Duplicate
                         </ButtonPrimitive>

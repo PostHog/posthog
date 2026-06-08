@@ -705,7 +705,7 @@ class EnterpriseExperimentsViewSet(
         return Response(
             {
                 "results": serializer.data,
-                "count": eligible_feature_flags["count"],
+                "has_more": eligible_feature_flags["has_more"],
             }
         )
 

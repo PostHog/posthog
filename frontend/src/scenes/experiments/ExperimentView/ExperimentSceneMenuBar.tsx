@@ -42,7 +42,7 @@ import { CopyExperimentToProjectModal } from '../CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
-import { isExperimentPaused } from '../experimentsLogic'
+import { experimentsLogic, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { isLegacyExperiment } from '../utils'
 
@@ -76,6 +76,7 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { openPauseExperimentModal, openResumeExperimentModal } = useActions(modalsLogic)
+    const { openFeatureFlagModal } = useActions(experimentsLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
 
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
@@ -251,7 +252,10 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                 <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
                     <SceneMenuBarItem
                         opensFloatingUi
-                        onClick={() => setDuplicateModalOpen(true)}
+                        onClick={() => {
+                            openFeatureFlagModal()
+                            setDuplicateModalOpen(true)
+                        }}
                         data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
                     >
                         <IconCopy />

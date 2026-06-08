@@ -66,7 +66,33 @@ describe('experimentsLogic', () => {
     })
 
     describe('feature flag modal filters', () => {
-        it('updates filters and triggers new API call', async () => {
+        it('does not load eligible feature flags until the modal is opened', async () => {
+            api.get.mockClear()
+
+            // Filter syncs (e.g. from URL deep-links) must not hit the endpoint while closed.
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagModalFilters({ page: 2 })
+            })
+                .delay(350)
+                .toFinishAllListeners()
+
+            expect(api.get).not.toHaveBeenCalledWith(
+                expect.stringMatching(/api\/projects\/\d+\/experiments\/eligible_feature_flags\/\?/)
+            )
+
+            api.get.mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.openFeatureFlagModal()
+            }).toFinishAllListeners()
+
+            expect(api.get).toHaveBeenCalledWith(
+                expect.stringMatching(/api\/projects\/\d+\/experiments\/eligible_feature_flags\/\?/)
+            )
+        })
+
+        it('updates filters and triggers new API call while the modal is open', async () => {
+            logic.actions.openFeatureFlagModal()
             api.get.mockClear()
 
             await expectLogic(logic, () => {
@@ -100,8 +126,8 @@ describe('experimentsLogic', () => {
             })
         })
 
-        it('resets filters and reloads feature flags', async () => {
-            api.get.mockClear()
+        it('does not reload feature flags when filters are reset (modal closing)', async () => {
+            logic.actions.openFeatureFlagModal()
 
             await expectLogic(logic, () => {
                 logic.actions.setFeatureFlagModalFilters({ search: 'test' })
@@ -115,6 +141,7 @@ describe('experimentsLogic', () => {
                 logic.actions.resetFeatureFlagModalFilters()
             })
                 .toMatchValues({
+                    isFeatureFlagModalOpen: false,
                     featureFlagModalFilters: {
                         active: undefined,
                         created_by_id: undefined,
@@ -126,28 +153,26 @@ describe('experimentsLogic', () => {
                 })
                 .toFinishAllListeners()
 
-            expect(api.get).toHaveBeenCalledWith(
+            expect(api.get).not.toHaveBeenCalledWith(
                 expect.stringMatching(/api\/projects\/\d+\/experiments\/eligible_feature_flags\/\?/)
             )
         })
 
-        it('hides pagination when insufficient results', () => {
-            // Set up a scenario with few results (less than FLAGS_PER_PAGE)
+        it('hides next-page navigation when there are no more results', () => {
             logic.actions.loadFeatureFlagModalFeatureFlagsSuccess({
                 results: [mkFlag(1, 'flag1'), mkFlag(2, 'flag2')],
-                count: 2,
+                hasMore: false,
             })
 
             expect(logic.values.featureFlagModalPagination.onForward).toBe(undefined)
             expect(logic.values.featureFlagModalPagination.onBackward).toBe(undefined)
         })
 
-        it('shows pagination when results exceed page size', () => {
-            // Set up a scenario with many results (more than FLAGS_PER_PAGE = 100)
-            const manyResults = Array.from({ length: 50 }, (_, i) => mkFlag(i, `flag${i}`))
+        it('shows next-page navigation when more results exist', () => {
+            const results = Array.from({ length: 50 }, (_, i) => mkFlag(i, `flag${i}`))
             logic.actions.loadFeatureFlagModalFeatureFlagsSuccess({
-                results: manyResults,
-                count: 150, // Total count is more than one page
+                results,
+                hasMore: true,
             })
 
             expect(logic.values.featureFlagModalPagination.onForward).toBeTruthy()
@@ -157,29 +182,27 @@ describe('experimentsLogic', () => {
         it('shows backward pagination on non-first page', () => {
             logic.actions.setFeatureFlagModalFilters({ page: 2 })
 
-            const manyResults = Array.from({ length: 50 }, (_, i) => mkFlag(i, `flag${i}`))
+            const results = Array.from({ length: 50 }, (_, i) => mkFlag(i, `flag${i}`))
             logic.actions.loadFeatureFlagModalFeatureFlagsSuccess({
-                results: manyResults,
-                count: 250, // Total count spans multiple pages
+                results,
+                hasMore: true,
             })
 
             expect(logic.values.featureFlagModalPagination.onForward).toBeTruthy()
             expect(logic.values.featureFlagModalPagination.onBackward).toBeTruthy()
         })
 
-        it('hides pagination when on page 2+ but filtered results are insufficient', () => {
-            // User navigates to page 2
+        it('still allows navigating back from a later page with no further results', () => {
+            // User is on page 2 but the current page is the last one.
             logic.actions.setFeatureFlagModalFilters({ page: 2 })
 
-            // Then applies filter that results in very few results (less than FLAGS_PER_PAGE)
             logic.actions.loadFeatureFlagModalFeatureFlagsSuccess({
                 results: [mkFlag(1, 'filtered-flag1'), mkFlag(2, 'filtered-flag2')],
-                count: 2, // Only 2 total results, not enough for pagination
+                hasMore: false,
             })
 
-            // Pagination should be hidden since total results don't warrant it
             expect(logic.values.featureFlagModalPagination.onForward).toBe(undefined)
-            expect(logic.values.featureFlagModalPagination.onBackward).toBe(undefined)
+            expect(logic.values.featureFlagModalPagination.onBackward).toBeTruthy()
         })
 
         it('resets page to 1 when search filter is applied from page 2', () => {

@@ -103,7 +103,7 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
 
     loaders(({ values }) => ({
         featureFlags: [
-            { results: [], count: 0 } as { results: FeatureFlagType[]; count: number },
+            { results: [], hasMore: false } as { results: FeatureFlagType[]; hasMore: boolean },
             {
                 loadFeatureFlags: async () => {
                     const url = `api/projects/${values.currentProjectId}/experiments/eligible_feature_flags/?${toParams(
@@ -112,7 +112,7 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
                         }
                     )}`
                     const response = await api.get(url)
-                    return response
+                    return { results: response?.results ?? [], hasMore: !!response?.has_more }
                 },
             },
         ],
@@ -140,29 +140,25 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
             (s) => [s.filters, s.featureFlags],
             (filters, featureFlags): PaginationManual => {
                 const currentPage = filters.page || 1
-                const hasNextPage = featureFlags.count > currentPage * FLAGS_PER_PAGE
+                const hasNextPage = featureFlags.hasMore
                 const hasPreviousPage = currentPage > 1
-                const needsPagination = featureFlags.count > FLAGS_PER_PAGE
 
                 return {
                     controlled: true,
                     pageSize: FLAGS_PER_PAGE,
                     currentPage,
-                    entryCount: featureFlags.count,
-                    onForward:
-                        needsPagination && hasNextPage
-                            ? () => {
-                                  selectExistingFeatureFlagModalLogic.actions.setFilters({ page: currentPage + 1 })
-                              }
-                            : undefined,
-                    onBackward:
-                        needsPagination && hasPreviousPage
-                            ? () => {
-                                  selectExistingFeatureFlagModalLogic.actions.setFilters({
-                                      page: Math.max(1, currentPage - 1),
-                                  })
-                              }
-                            : undefined,
+                    onForward: hasNextPage
+                        ? () => {
+                              selectExistingFeatureFlagModalLogic.actions.setFilters({ page: currentPage + 1 })
+                          }
+                        : undefined,
+                    onBackward: hasPreviousPage
+                        ? () => {
+                              selectExistingFeatureFlagModalLogic.actions.setFilters({
+                                  page: Math.max(1, currentPage - 1),
+                              })
+                          }
+                        : undefined,
                 }
             },
         ],

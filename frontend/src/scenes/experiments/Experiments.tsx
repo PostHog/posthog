@@ -544,7 +544,7 @@ const ExperimentsTable = ({
 
 export function Experiments(): JSX.Element {
     const { tab } = useValues(experimentsLogic)
-    const { setExperimentsTab, loadExperiments } = useActions(experimentsLogic)
+    const { setExperimentsTab, loadExperiments, openFeatureFlagModal } = useActions(experimentsLogic)
 
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
     const [copyToProjectModalExperiment, setCopyToProjectModalExperiment] = useState<Experiment | null>(null)
@@ -634,7 +634,10 @@ export function Experiments(): JSX.Element {
                         label: 'Experiments',
                         content: (
                             <ExperimentsTable
-                                openDuplicateModal={setDuplicateModalExperiment}
+                                openDuplicateModal={(experiment) => {
+                                    openFeatureFlagModal()
+                                    setDuplicateModalExperiment(experiment)
+                                }}
                                 openSurveyModal={setSurveyModalExperiment}
                                 openCopyToProjectModal={setCopyToProjectModalExperiment}
                             />

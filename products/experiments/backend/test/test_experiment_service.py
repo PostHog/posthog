@@ -3246,7 +3246,7 @@ class TestExperimentService(APIBaseTest):
 
         result = self._service().get_eligible_feature_flags(order="key")
 
-        assert result["count"] == 1
+        assert result["has_more"] is False
         assert [flag.key for flag in result["results"]] == [eligible_flag.key]
 
     def test_get_eligible_feature_flags_applies_search_and_pagination(self) -> None:
@@ -3254,15 +3254,15 @@ class TestExperimentService(APIBaseTest):
         self._create_flag(key="search-beta")
         self._create_flag(key="other-flag")
 
-        result = self._service().get_eligible_feature_flags(
-            search="search",
-            order="key",
-            limit=1,
-            offset=1,
-        )
+        service = self._service()
 
-        assert result["count"] == 2
-        assert [flag.key for flag in result["results"]] == ["search-beta"]
+        first_page = service.get_eligible_feature_flags(search="search", order="key", limit=1, offset=0)
+        assert first_page["has_more"] is True
+        assert [flag.key for flag in first_page["results"]] == ["search-alpha"]
+
+        second_page = service.get_eligible_feature_flags(search="search", order="key", limit=1, offset=1)
+        assert second_page["has_more"] is False
+        assert [flag.key for flag in second_page["results"]] == ["search-beta"]
 
     def test_get_eligible_feature_flags_filters_by_evaluation_contexts(self) -> None:
         flag_with_tags = self._create_flag(key="flag-with-tags")

@@ -234,6 +234,13 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 loadExperimentsFailure: () => true,
             },
         ],
+        isFeatureFlagModalOpen: [
+            false,
+            {
+                openFeatureFlagModal: () => true,
+                resetFeatureFlagModalFilters: () => false,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         setExperimentsFilters: async (_, breakpoint) => {
@@ -245,22 +252,24 @@ export const experimentsLogic = kea<experimentsLogicType>([
             actions.loadExperiments()
         },
         setFeatureFlagModalFilters: async (_, breakpoint) => {
+            // Search/pagination only happen inside the open modal — don't hit the
+            // (expensive) eligible_feature_flags endpoint on filter sync while closed.
+            if (!values.isFeatureFlagModalOpen) {
+                return
+            }
             await breakpoint(300)
-            actions.loadFeatureFlagModalFeatureFlags()
-        },
-        resetFeatureFlagModalFilters: () => {
             actions.loadFeatureFlagModalFeatureFlags()
         },
         openFeatureFlagModal: () => {
             actions.loadFeatureFlagModalFeatureFlags()
         },
         loadCurrentTeamSuccess: () => {
-            if (values.featureFlagModalFeatureFlags.results.length > 0) {
+            if (values.isFeatureFlagModalOpen && values.featureFlagModalFeatureFlags.results.length > 0) {
                 actions.loadFeatureFlagModalFeatureFlags()
             }
         },
         updateCurrentTeamSuccess: () => {
-            if (values.featureFlagModalFeatureFlags.results.length > 0) {
+            if (values.isFeatureFlagModalOpen && values.featureFlagModalFeatureFlags.results.length > 0) {
                 actions.loadFeatureFlagModalFeatureFlags()
             }
         },
@@ -368,7 +377,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             },
         ],
         featureFlagModalFeatureFlags: [
-            { results: [], count: 0 } as { results: FeatureFlagType[]; count: number },
+            { results: [], hasMore: false } as { results: FeatureFlagType[]; hasMore: boolean },
             {
                 loadFeatureFlagModalFeatureFlags: async () => {
                     const response = await api.get(
@@ -376,7 +385,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                             ...values.featureFlagModalParamsFromFilters,
                         })}`
                     )
-                    return response
+                    return { results: response?.results ?? [], hasMore: !!response?.has_more }
                 },
             },
         ],
@@ -434,29 +443,25 @@ export const experimentsLogic = kea<experimentsLogicType>([
             (filters, featureFlags, urlPage): PaginationManual => {
                 const currentPage = Math.max(filters.page || 1, urlPage)
 
-                const hasNextPage = featureFlags.count > currentPage * FLAGS_PER_PAGE
+                const hasNextPage = featureFlags.hasMore
                 const hasPreviousPage = currentPage > 1
-                const needsPagination = featureFlags.count > FLAGS_PER_PAGE
 
                 return {
                     controlled: true,
                     pageSize: FLAGS_PER_PAGE,
                     currentPage,
-                    entryCount: featureFlags.count,
-                    onForward:
-                        needsPagination && hasNextPage
-                            ? () => {
-                                  experimentsLogic.actions.setFeatureFlagModalFilters({ page: currentPage + 1 })
-                              }
-                            : undefined,
-                    onBackward:
-                        needsPagination && hasPreviousPage
-                            ? () => {
-                                  experimentsLogic.actions.setFeatureFlagModalFilters({
-                                      page: Math.max(1, currentPage - 1),
-                                  })
-                              }
-                            : undefined,
+                    onForward: hasNextPage
+                        ? () => {
+                              experimentsLogic.actions.setFeatureFlagModalFilters({ page: currentPage + 1 })
+                          }
+                        : undefined,
+                    onBackward: hasPreviousPage
+                        ? () => {
+                              experimentsLogic.actions.setFeatureFlagModalFilters({
+                                  page: Math.max(1, currentPage - 1),
+                              })
+                          }
+                        : undefined,
                 }
             },
         ],
@@ -508,12 +513,13 @@ export const experimentsLogic = kea<experimentsLogicType>([
     }),
     afterMount(({ actions, values }) => {
         actions.loadExperimentsStats()
-        // Sync modal page with URL on mount
+        // Sync the modal page filter with the URL so deep-linked pagination is correct
+        // once the modal opens. The eligible flag list itself is loaded lazily when the
+        // user actually opens the modal (see the openFeatureFlagModal listener), not on
+        // every Experiments scene mount.
         const urlPage = values.featureFlagModalPageFromURL
         if (urlPage !== 1) {
             actions.setFeatureFlagModalFilters({ page: urlPage })
-        } else {
-            actions.loadFeatureFlagModalFeatureFlags()
         }
     }),
     actionToUrl(({ values }) => {

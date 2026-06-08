@@ -2408,9 +2408,16 @@ class ExperimentService:
             has_evaluation_contexts=has_evaluation_contexts,
         )
 
+        # Fetch one extra row to decide whether a next page exists, instead of an
+        # unbounded `queryset.count()`. On large tenants the count forces a full
+        # scan of every flag through the jsonb variant-shape predicate, which can
+        # blow past the gateway timeout; a `limit + 1` window stays bounded.
+        rows = list(queryset[offset : offset + limit + 1])
+        has_more = len(rows) > limit
+
         return {
-            "results": queryset[offset : offset + limit],
-            "count": queryset.count(),
+            "results": rows[:limit],
+            "has_more": has_more,
         }
 
     def _get_eligible_feature_flags_queryset(
@@ -2426,16 +2433,9 @@ class ExperimentService:
     ) -> QuerySet[FeatureFlag]:
         queryset = FeatureFlag.objects.filter(team__project_id=self.team.project_id)
 
-        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
-        queryset = queryset.extra(
-            where=[
-                """
-                jsonb_array_length(filters->'multivariate'->'variants') >= 2
-                AND filters->'multivariate'->'variants'->0->>'key' = 'control'
-                """
-            ]
-        )
-
+        # Apply the cheap, index-friendly predicates first so the expensive
+        # jsonb variant-shape scan below runs over a pre-narrowed set rather
+        # than every flag in the tenant.
         if excluded_flag_ids:
             queryset = queryset.exclude(id__in=excluded_flag_ids)
 
@@ -2451,6 +2451,16 @@ class ExperimentService:
 
         if evaluation_runtime:
             queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
+
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
+        queryset = queryset.extra(
+            where=[
+                """
+                jsonb_array_length(filters->'multivariate'->'variants') >= 2
+                AND filters->'multivariate'->'variants'->0->>'key' = 'control'
+                """
+            ]
+        )
 
         if has_evaluation_contexts is not None:
             filter_value = (

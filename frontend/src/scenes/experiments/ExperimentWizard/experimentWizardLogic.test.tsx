@@ -79,7 +79,7 @@ const apiMocks = {
     get: {
         '/api/projects/:team_id/experiments/eligible_feature_flags/': () => [
             200,
-            { results: mockEligibleFlags, count: mockEligibleFlags.length },
+            { results: mockEligibleFlags, has_more: false },
         ],
         '/api/projects/:team_id/feature_flags/': () => [200, { results: [], count: 0 }],
         '/api/projects/:team_id/experiments': () => [200, { results: [], count: 0 }],

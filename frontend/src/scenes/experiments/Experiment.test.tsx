@@ -52,7 +52,7 @@ const apiMocks = {
     get: {
         '/api/projects/:team/experiments': () => [200, { results: [], count: 0 }],
         '/api/projects/:team/experiments/123': () => [200, DRAFT_EXPERIMENT],
-        '/api/projects/:team/experiments/eligible_feature_flags/': () => [200, { results: [], count: 0 }],
+        '/api/projects/:team/experiments/eligible_feature_flags/': () => [200, { results: [], has_more: false }],
         '/api/projects/:team/feature_flags/': () => [200, { results: [], count: 0 }],
         '/api/projects/:team/experiment_holdouts': () => [200, { results: [], count: 0 }],
         '/api/projects/:team/experiment_saved_metrics': () => [200, { results: [], count: 0 }],

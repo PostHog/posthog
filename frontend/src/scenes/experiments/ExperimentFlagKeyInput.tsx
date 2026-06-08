@@ -17,7 +17,7 @@ interface ExperimentFlagKeyInputProps {
     onFlagKeyChange: (value: string) => void
     isExistingFlag: boolean
     sourceExperiment: Experiment
-    featureFlags: { results: FeatureFlagType[]; count: number }
+    featureFlags: { results: FeatureFlagType[]; hasMore: boolean }
     featureFlagsLoading: boolean
     featureFlagFilters: Partial<FeatureFlagsFilters>
     onFeatureFlagFiltersChange: (filters: Partial<FeatureFlagsFilters>) => void

@@ -50,9 +50,9 @@ export function CopyExperimentToProjectModal({
     const [showReuseFlag, setShowReuseFlag] = useState(false)
 
     // Local state for target project's feature flags
-    const [targetFeatureFlags, setTargetFeatureFlags] = useState<{ results: FeatureFlagType[]; count: number }>({
+    const [targetFeatureFlags, setTargetFeatureFlags] = useState<{ results: FeatureFlagType[]; hasMore: boolean }>({
         results: [],
-        count: 0,
+        hasMore: false,
     })
     const [targetFlagsLoading, setTargetFlagsLoading] = useState(false)
     const [targetFlagFilters, setTargetFlagFilters] = useState<Partial<FeatureFlagsFilters>>(DEFAULT_FILTERS)
@@ -75,7 +75,7 @@ export function CopyExperimentToProjectModal({
             const data = await api.get(
                 `api/projects/${projectId}/experiments/eligible_feature_flags/?${toParams(params)}`
             )
-            setTargetFeatureFlags(data)
+            setTargetFeatureFlags({ results: data?.results ?? [], hasMore: !!data?.has_more })
         } finally {
             setTargetFlagsLoading(false)
         }
@@ -138,7 +138,7 @@ export function CopyExperimentToProjectModal({
         setIsExistingFlag(false)
         setShowReuseFlag(false)
         setTargetFlagFilters(DEFAULT_FILTERS)
-        setTargetFeatureFlags({ results: [], count: 0 })
+        setTargetFeatureFlags({ results: [], hasMore: false })
         onClose()
     }
 
@@ -147,23 +147,19 @@ export function CopyExperimentToProjectModal({
     }
 
     const currentPage = targetFlagFilters.page || 1
-    const hasNextPage = targetFeatureFlags.count > currentPage * FLAGS_PER_PAGE
+    const hasNextPage = targetFeatureFlags.hasMore
     const hasPreviousPage = currentPage > 1
-    const needsPagination = targetFeatureFlags.count > FLAGS_PER_PAGE
 
     const targetFlagPagination: PaginationManual = {
         controlled: true,
         pageSize: FLAGS_PER_PAGE,
         currentPage,
-        entryCount: targetFeatureFlags.count,
-        onForward:
-            needsPagination && hasNextPage
-                ? () => setTargetFlagFilters((prev) => ({ ...prev, page: (prev.page || 1) + 1 }))
-                : undefined,
-        onBackward:
-            needsPagination && hasPreviousPage
-                ? () => setTargetFlagFilters((prev) => ({ ...prev, page: Math.max(1, (prev.page || 1) - 1) }))
-                : undefined,
+        onForward: hasNextPage
+            ? () => setTargetFlagFilters((prev) => ({ ...prev, page: (prev.page || 1) + 1 }))
+            : undefined,
+        onBackward: hasPreviousPage
+            ? () => setTargetFlagFilters((prev) => ({ ...prev, page: Math.max(1, (prev.page || 1) - 1) }))
+            : undefined,
     }
 
     return (

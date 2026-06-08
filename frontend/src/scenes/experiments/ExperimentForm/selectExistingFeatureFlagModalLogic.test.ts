@@ -98,6 +98,8 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                 [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: (req) => {
                     const url = new URL(req.url, 'http://localhost')
                     const search = url.searchParams.get('search')
+                    const limit = parseInt(url.searchParams.get('limit') || '100')
+                    const offset = parseInt(url.searchParams.get('offset') || '0')
 
                     const filteredFlags = search
                         ? mockFeatureFlags.filter((flag) => flag.key.toLowerCase().includes(search.toLowerCase()))
@@ -106,8 +108,8 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                     return [
                         200,
                         {
-                            results: filteredFlags,
-                            count: filteredFlags.length,
+                            results: filteredFlags.slice(offset, offset + limit),
+                            has_more: offset + limit < filteredFlags.length,
                         },
                     ]
                 },
@@ -251,7 +253,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                 .toMatchValues({
                     featureFlags: {
                         results: mockFeatureFlags,
-                        count: mockFeatureFlags.length,
+                        hasMore: false,
                     },
                 })
         })
@@ -264,7 +266,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                 .toMatchValues({
                     featureFlags: {
                         results: [mockFeatureFlags[0]],
-                        count: 1,
+                        hasMore: false,
                     },
                 })
         })
@@ -278,7 +280,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                         200,
                         {
                             results: [],
-                            count: 0,
+                            has_more: false,
                         },
                     ],
                 },
@@ -293,7 +295,6 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                         controlled: true,
                         pageSize: 100,
                         currentPage: 1,
-                        entryCount: 0,
                         onForward: undefined,
                         onBackward: undefined,
                     },
@@ -310,7 +311,6 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                         controlled: true,
                         pageSize: 100,
                         currentPage: 1,
-                        entryCount: 2,
                         onForward: undefined,
                         onBackward: undefined,
                     },
@@ -324,7 +324,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                         200,
                         {
                             results: mockFeatureFlags,
-                            count: 125,
+                            has_more: true,
                         },
                     ],
                 },
@@ -339,7 +339,6 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                         controlled: true,
                         pageSize: 100,
                         currentPage: 1,
-                        entryCount: 125,
                         onForward: expect.any(Function),
                         onBackward: undefined,
                     },
@@ -353,7 +352,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                         200,
                         {
                             results: mockFeatureFlags,
-                            count: 125,
+                            has_more: false,
                         },
                     ],
                 },
@@ -369,7 +368,6 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                         controlled: true,
                         pageSize: 100,
                         currentPage: 2,
-                        entryCount: 125,
                         onForward: undefined,
                         onBackward: expect.any(Function),
                     },
@@ -383,7 +381,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                         200,
                         {
                             results: mockFeatureFlags,
-                            count: 125,
+                            has_more: true,
                         },
                     ],
                 },
@@ -413,7 +411,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                         200,
                         {
                             results: mockFeatureFlags,
-                            count: 125,
+                            has_more: true,
                         },
                     ],
                 },
@@ -443,7 +441,7 @@ describe('selectExistingFeatureFlagModalLogic', () => {
                         200,
                         {
                             results: mockFeatureFlags,
-                            count: 125,
+                            has_more: true,
                         },
                     ],
                 },
