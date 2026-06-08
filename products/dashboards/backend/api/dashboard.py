@@ -2046,7 +2046,7 @@ class DashboardsViewSet(
         )
 
         # Async generator that handles progressive tile serialization and streaming
-        async def async_tile_stream_generator() -> AsyncGenerator[bytes, None]:
+        async def async_tile_stream_generator() -> AsyncGenerator[bytes]:
             renderer = SafeJSONRenderer()
 
             try:

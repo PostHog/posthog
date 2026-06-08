@@ -1788,7 +1788,7 @@ def get_week_start_for_country_code(country_code: str) -> int:
     return 1  # Monday
 
 
-def sleep_time_generator() -> Generator[float, None, None]:
+def sleep_time_generator() -> Generator[float]:
     # a generator that yield an exponential back off between 0.1 and 3 seconds
     for _ in range(10):
         yield 0.1  # 1 second in total

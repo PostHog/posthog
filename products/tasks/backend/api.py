@@ -2793,7 +2793,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         format_sse_event = self._format_sse_event
         origin_product = origin_product_label(task_run)
 
-        async def async_stream() -> AsyncGenerator[bytes, None]:
+        async def async_stream() -> AsyncGenerator[bytes]:
             redis_stream = TaskRunRedisStream(stream_key, stream_created_at)
             connection_started_at = asyncio.get_running_loop().time()
             # Default to client_disconnect: any exit that isn't an explicit

@@ -9,7 +9,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 
-def async_to_sync(async_handler: Callable[[], AsyncGenerator[Any, None]]) -> Generator[Any, None, None]:
+def async_to_sync(async_handler: Callable[[], AsyncGenerator[Any]]) -> Generator[Any]:
     """Converts an async iterator to a sync generator."""
 
     q: Queue[Any] = Queue(maxsize=5000)

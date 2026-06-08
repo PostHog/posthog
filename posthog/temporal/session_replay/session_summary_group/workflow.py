@@ -515,8 +515,7 @@ async def _start_session_group_summary_workflow(
     tuple[
         SessionSummaryStreamUpdate,
         tuple[EnrichedSessionGroupSummaryPatternsList, str, list[FailedSessionInfo]] | str | SessionProgressStreamData,
-    ],
-    None,
+    ]
 ]:
     """Start the workflow and yield status updates until completion."""
     client = await async_connect()
@@ -665,8 +664,7 @@ async def execute_summarize_session_group(
     tuple[
         SessionSummaryStreamUpdate,
         tuple[EnrichedSessionGroupSummaryPatternsList, str, list[FailedSessionInfo]] | str | SessionProgressStreamData,
-    ],
-    None,
+    ]
 ]:
     """
     Start the workflow and yield status updates and final summary for the group of sessions.

@@ -670,7 +670,7 @@ class QueryCounter:
 
 
 @contextmanager
-def tags_context(**tags_to_set: Any) -> Generator[None, None, None]:
+def tags_context(**tags_to_set: Any) -> Generator[None]:
     """
     Context manager that saves all query tags on enter and restores them on exit.
     Optionally accepts key-value pairs to set after saving the original tags.

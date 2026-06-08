@@ -249,7 +249,7 @@ class BaseAgentRunner(ABC):
         stream_subgraphs: bool = True,
         stream_first_message: bool = True,
         stream_only_assistant_messages: bool = False,
-    ) -> AsyncGenerator[AssistantOutput, None]:
+    ) -> AsyncGenerator[AssistantOutput]:
         state = await self._init_or_update_state()
         config = self._get_config()
 

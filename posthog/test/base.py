@@ -721,7 +721,7 @@ class PostHogTestCase(SimpleTestCase):
             yield value
 
     @contextmanager
-    def retry_assertion(self, max_retries=5, delay=0.1) -> Generator[None, None, None]:
+    def retry_assertion(self, max_retries=5, delay=0.1) -> Generator[None]:
         for attempt in range(max_retries):
             try:
                 yield  # Only yield once per context manager instance

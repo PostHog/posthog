@@ -518,7 +518,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             session_ids=session_ids,
         )
 
-        async def async_stream() -> AsyncGenerator[bytes, None]:
+        async def async_stream() -> AsyncGenerator[bytes]:
             SSE_KEEPALIVE_COMMENT = b": keepalive\n\n"
             SSE_KEEPALIVE_INTERVAL = 15  # seconds — well under typical LB idle timeouts (60s)
 

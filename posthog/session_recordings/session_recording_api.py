@@ -581,7 +581,7 @@ def ensure_not_weak(etag: str) -> str:
 
 
 @contextmanager
-def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Response, None, None]:
+def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Response]:
     """
     Stream data from a URL using optional headers.
 
@@ -1534,7 +1534,7 @@ class SessionRecordingViewSet(
         product_context: str | None = None,
         custom_tags: dict[str, str] | None = None,
         force_restart: bool = False,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str]:
         """Stream video-based summarization progress events and final summary to the client.
 
         Progress events (``session-summary-progress``) carry the workflow's

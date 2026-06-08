@@ -97,7 +97,7 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
 
 
 @contextmanager
-def open_ssh_tunnel(config) -> Generator[tuple[str, int], Any, None]:
+def open_ssh_tunnel(config) -> Generator[tuple[str, int], Any]:
     """Yield `(host, port)` for a database connection, going through an SSH tunnel if configured."""
     if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
         ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)

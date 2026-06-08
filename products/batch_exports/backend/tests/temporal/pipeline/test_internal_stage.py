@@ -219,7 +219,7 @@ async def minio_client():
 
 async def _generate_record_batches_from_internal_stage(
     batch_export_id: str, data_interval_start: dt.datetime, data_interval_end: dt.datetime, stage_folder: str
-) -> AsyncGenerator[pa.RecordBatch, None]:
+) -> AsyncGenerator[pa.RecordBatch]:
     """Generate record batches from the internal stage."""
     queue = RecordBatchQueue()
     producer = Producer()
