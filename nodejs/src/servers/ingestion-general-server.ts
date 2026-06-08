@@ -19,15 +19,9 @@ import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
 import { createClientWarningsConsumer } from '../ingestion/clientwarnings'
 import {
     KafkaDownstreamProducerEnvConfig,
-    KafkaIngestionProducerEnvConfig,
-    KafkaProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
-    KafkaWarpstreamProducerEnvConfig,
     getDefaultKafkaDownstreamProducerEnvConfig,
-    getDefaultKafkaIngestionProducerEnvConfig,
-    getDefaultKafkaProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
-    getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
 import { ingestionConsumerService } from '../ingestion/common/ingestion-consumer'
 import { KafkaProducerRegistryComponent } from '../ingestion/common/outputs/registry'
@@ -77,9 +71,6 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
     IngestionConsumerConfig &
     HogTransformerServiceConfig &
     KafkaBrokerConfig &
-    KafkaProducerEnvConfig &
-    KafkaWarpstreamProducerEnvConfig &
-    KafkaIngestionProducerEnvConfig &
     KafkaUpstreamProducerEnvConfig &
     KafkaDownstreamProducerEnvConfig &
     IngestionOutputsConfig &
@@ -117,9 +108,6 @@ export class IngestionGeneralServer implements NodeServer {
     constructor(config: Partial<IngestionGeneralServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
-            ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),

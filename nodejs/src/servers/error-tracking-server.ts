@@ -12,15 +12,9 @@ import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
 import {
     KafkaDownstreamProducerEnvConfig,
-    KafkaIngestionProducerEnvConfig,
-    KafkaProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
-    KafkaWarpstreamProducerEnvConfig,
     getDefaultKafkaDownstreamProducerEnvConfig,
-    getDefaultKafkaIngestionProducerEnvConfig,
-    getDefaultKafkaProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
-    getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
 import { ProducerName } from '../ingestion/common/outputs'
 import { createIngestionProducerRegistry } from '../ingestion/common/outputs/registry'
@@ -69,9 +63,6 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
     ErrorTrackingConsumerConfig &
     HogTransformerServiceConfig &
     KafkaBrokerConfig &
-    KafkaProducerEnvConfig &
-    KafkaWarpstreamProducerEnvConfig &
-    KafkaIngestionProducerEnvConfig &
     KafkaUpstreamProducerEnvConfig &
     KafkaDownstreamProducerEnvConfig &
     ErrorTrackingOutputsConfig &
@@ -105,9 +96,6 @@ export class ErrorTrackingServer implements NodeServer {
     constructor(config: Partial<ErrorTrackingServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
-            ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultErrorTrackingOutputsConfig()),
