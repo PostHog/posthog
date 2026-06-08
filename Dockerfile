@@ -4,7 +4,7 @@
 # PostHog has sunset support for self-hosted K8s deployments.
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
-# Note: for PostHog Cloud remember to update ‘Dockerfile.cloud’ as appropriate.
+# Note: PostHog Cloud uses this same image (re-tagged to ECR posthog-cloud); there is no separate Dockerfile.cloud.
 #
 # The stages are used to:
 #
@@ -100,6 +100,16 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     NODE_OPTIONS="--max-old-space-size=4096" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/plugin-transpiler build
 
+# The transpiler bundle externalizes @babel/standalone (its only external runtime require — a
+# self-contained 24MB package with no deps). Materialize it as real files inside the transpiler's
+# own node_modules, replacing the pnpm symlink that pointed into the root node_modules. The final
+# image then carries just this package instead of the entire ~469MB root /code/node_modules.
+RUN cd /code/common/plugin_transpiler && \
+    BABEL_REAL="$(node -e "process.stdout.write(require('path').dirname(require.resolve('@babel/standalone/package.json')))")" && \
+    rm -rf node_modules/@babel/standalone && \
+    mkdir -p node_modules/@babel && \
+    cp -rL "$BABEL_REAL" node_modules/@babel/standalone
+
 
 #
 # ---------------------------------------------------------
@@ -157,6 +167,12 @@ COPY --from=frontend-build /code/frontend/src/products.json /code/frontend/src/p
 
 # Make sure we build the static files
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+
+# Strip JS sourcemaps from the artifacts that ship in the final image. They are uploaded to
+# PostHog error tracking by the isolated sourcemap-upload stage (which reads frontend-build,
+# untouched), and nothing reads .map files at runtime — they are ~2.8GB of dead weight otherwise.
+# Done here (not in the final stage) so the bytes never enter the COPYed layers.
+RUN find /code/staticfiles /code/frontend/dist -name '*.map' -delete
 
 
 
@@ -230,27 +246,25 @@ RUN apt-get update && \
 
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
+# Runtime-only shared libs: lxml/xmlsec are compiled --no-binary in the build stage (which keeps
+# its own -dev headers), so the final image needs the runtime .so, not the -dev headers/static libs.
+# libxmlsec1-openssl provides the OpenSSL crypto backend that libxmlsec1-dev used to pull in.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
     "chromium" \
     "chromium-driver" \
     "gettext-base" \
-    "libpq-dev" \
+    "libpq5" \
     "libxmlsec1=1.2.37-2" \
-    "libxmlsec1-dev=1.2.37-2" \
+    "libxmlsec1-openssl=1.2.37-2" \
     "libxml2" \
-    "libssl-dev=3.0.19-1~deb12u2" \
     "libssl3=3.0.19-1~deb12u2" \
     "libjemalloc2" \
     && \
     rm -rf /var/lib/apt/lists/*
 
-# Install MS SQL dependencies
-RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc && \
-    curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/apt/sources.list.d/mssql-release.list && \
-    apt-get update && \
-    ACCEPT_EULA=Y apt-get install -y msodbcsql18 && \
-    rm -rf /var/lib/apt/lists/*
+# Note: no MS SQL ODBC driver is installed — the data-warehouse MSSQL source uses pymssql, which
+# bundles FreeTDS in its wheel and does not use msodbcsql18/unixodbc (there is no pyodbc in the tree).
 
 # Install Node.js 24.13.0 for standalone scripts with architecture detection and verification
 ENV NODE_VERSION 24.13.0
@@ -291,7 +305,7 @@ RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
     && rm "node-v$NODE_VERSION-linux-$ARCH.tar.xz" SHASUMS256.txt.asc SHASUMS256.txt \
     && ln -s /usr/local/bin/node /usr/local/bin/nodejs \
     && node --version \
-    && npm --version \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/include/node \
     && rm -rf /tmp/*
 
 # Install and use a non-root user.
@@ -311,21 +325,18 @@ COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtim
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
 
-# Install Playwright Chromium browser for heatmap screenshots (as root for system deps)
-# Use cache mount for browser binaries to avoid re-downloading on every build
+# Install the system dependencies (fonts, shared libs) that headless Chromium screenshots need,
+# but NOT the Playwright-bundled Chromium binary. Heatmap screenshots drive the system chromium
+# (CHROME_BIN) — the same engine the selenium image-export path uses — so we avoid shipping a
+# second, duplicate ~170MB browser. (See _launch_local_browser in heatmap_screenshot.py.)
 USER root
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN --mount=type=cache,id=playwright-browsers,target=/tmp/playwright-cache,sharing=locked \
-    PLAYWRIGHT_BROWSERS_PATH=/tmp/playwright-cache \
-    /python-runtime/bin/python -m playwright install --with-deps chromium && \
-    mkdir -p /ms-playwright && \
-    cp -r /tmp/playwright-cache/* /ms-playwright/ && \
-    chown -R posthog:posthog /ms-playwright
+RUN /python-runtime/bin/python -m playwright install-deps chromium
 USER posthog
 
-# Copy the frontend assets from the frontend-build stage.
-# TODO: this copy should not be necessary, we should remove it once we verify everything still works.
-COPY --from=frontend-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
+# frontend/dist is read at runtime (Django template DIR in settings/web.py + the array.js disk
+# fallback in js_snippet_versioning.py), so this COPY is load-bearing. Sourced from posthog-build,
+# where the JS sourcemaps have already been stripped.
+COPY --from=posthog-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
 
 # Ensure sourcemap-upload stage runs (the file itself is not needed in the final image).
 COPY --from=sourcemap-upload /tmp/.sourcemaps-processed /tmp/.sourcemaps-processed
@@ -336,9 +347,9 @@ COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.j
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
 COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
 
-# Copy plugin transpiler (used by Django for site destinations/apps).
-# pnpm stores packages in node_modules/.pnpm/, workspace node_modules contain symlinks there.
-COPY --from=node-scripts-build --chown=posthog:posthog /code/node_modules /code/node_modules
+# Copy plugin transpiler (used by Django for site destinations/apps). The transpiler dist is a
+# self-contained esbuild bundle (build.mjs uses bundle:true), so only its own dist + node_modules
+# are needed at runtime — the full root /code/node_modules COPY was redundant.
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json
@@ -362,8 +373,7 @@ RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwrig
 ENV NODE_ENV=production \
     CHROME_BIN=/usr/bin/chromium \
     CHROME_PATH=/usr/lib/chromium/ \
-    CHROMEDRIVER_BIN=/usr/bin/chromedriver \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    CHROMEDRIVER_BIN=/usr/bin/chromedriver
 
 # Expose container port and run entry point script.
 EXPOSE 8000

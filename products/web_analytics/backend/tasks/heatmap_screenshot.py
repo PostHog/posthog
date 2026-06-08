@@ -490,8 +490,12 @@ def _launch_local_browser(p: Playwright) -> Browser:
         launch_args.append("--no-sandbox")
     proxy_url = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
     proxy_config = ProxySettings(server=proxy_url) if proxy_url else None
+    # Use the system Chromium (CHROME_BIN) in production so the image ships a single browser shared
+    # with the selenium export path. Falls back to Playwright's bundled Chromium locally (env unset).
+    executable_path = os.environ.get("CHROME_BIN") or None
     return p.chromium.launch(
         headless=True,  # TIP: for debugging, set to False
+        executable_path=executable_path,
         args=launch_args,
         proxy=proxy_config,
     )
