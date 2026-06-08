@@ -5,6 +5,7 @@ import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
+import { Link } from 'lib/lemon-ui/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -38,7 +39,17 @@ export function AIGatewayDetailScene(): JSX.Element {
     }
 
     if (!gateway) {
-        return <NotFound object="gateway" />
+        return (
+            <NotFound
+                object="gateway"
+                caption={
+                    <>
+                        This gateway may have been deleted or renamed.{' '}
+                        <Link to={urls.aiGateway()}>Back to AI gateway</Link>
+                    </>
+                }
+            />
+        )
     }
 
     return (
