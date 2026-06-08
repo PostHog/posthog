@@ -8,7 +8,7 @@ from posthog.date_util import start_of_month
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 
-MONTHLY_OBSERVATION_QUOTA = 3000
+MONTHLY_OBSERVATION_QUOTA = 10  # ⚠️ TEMP — revert to 3000 before committing.
 
 # In-flight rows count against the quota so concurrent on-demand triggers can't all race past the gate before any complete.
 _COUNTED_STATUSES = (ObservationStatus.SUCCEEDED, ObservationStatus.PENDING, ObservationStatus.RUNNING)
