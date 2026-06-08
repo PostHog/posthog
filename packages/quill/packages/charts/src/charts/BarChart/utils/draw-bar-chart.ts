@@ -5,6 +5,7 @@ import {
     BAR_TRACK_HOVER_ALPHA,
     type BarRect,
     type BarRoundedCorners,
+    type BarShadow,
     clipToRoundedRects,
     drawBarHighlight,
     drawBars,
@@ -14,7 +15,14 @@ import {
 } from '../../../core/canvas-renderer'
 import { barColorAt } from '../../../core/color-utils'
 import type { BarScaleSet, StackedBand } from '../../../core/scales'
-import type { BarChartConfig, BarFillStyle, BarsConfig, ChartDrawArgs, ResolvedSeries } from '../../../core/types'
+import type {
+    BarChartConfig,
+    BarFillStyle,
+    BarsConfig,
+    ChartDimensions,
+    ChartDrawArgs,
+    ResolvedSeries,
+} from '../../../core/types'
 import { DEFAULT_Y_AXIS_ID } from '../../../core/types'
 import { computeVisibleXLabels } from '../../../overlays/AxisLabels'
 import { resolveBarShadow } from './bar-config'
@@ -32,7 +40,7 @@ const ALL_CORNERS: BarRoundedCorners = { topLeft: true, topRight: true, bottomLe
 /** One fully-rounded rect per band, spanning the union of that band's stacked segments — the
  *  pill the bar layer is clipped to for `roundStackEnds`. Bars in the same band share a band-axis
  *  slot (same `dataIndex`), so we group by it and extend along the value axis. */
-export function stackPillRects(bars: BarRect[], isHorizontal: boolean): BarRect[] {
+function stackPillRects(bars: BarRect[], isHorizontal: boolean): BarRect[] {
     const byBand = new Map<number, BarRect>()
     for (const bar of bars) {
         if (bar.width <= 0 || bar.height <= 0) {
@@ -58,7 +66,55 @@ export function stackPillRects(bars: BarRect[], isHorizontal: boolean): BarRect[
     return [...byBand.values()]
 }
 
-export interface DrawBarChartStaticConfig {
+/** Category-axis grid ticks aligned to the visible labels rather than every band: all band
+ *  centers for horizontal charts, the de-duplicated visible x-labels for vertical ones so a
+ *  dense axis stays legible. */
+function computeGridTicks(
+    d3Scales: BarScaleSet,
+    drawLabels: string[],
+    isHorizontal: boolean,
+    xTickFormatter: BarChartConfig['xTickFormatter']
+): number[] {
+    if (isHorizontal) {
+        const ticks: number[] = []
+        for (const label of drawLabels) {
+            const coord = bandCenter(d3Scales, label)
+            if (coord != null && isFinite(coord)) {
+                ticks.push(coord)
+            }
+        }
+        return ticks
+    }
+    return computeVisibleXLabels(drawLabels, (label) => bandCenter(d3Scales, label), xTickFormatter).map(
+        (entry) => entry.x
+    )
+}
+
+/** Run `draw` with the bar drop-shadow active, clipped to the plot area so a 100% bar's upward
+ *  shadow doesn't bleed past the chart edge. No-op wrapper (just calls `draw`) when no shadow. */
+function withBarShadow(
+    ctx: CanvasRenderingContext2D,
+    dimensions: ChartDimensions,
+    shadow: BarShadow | undefined,
+    draw: () => void
+): void {
+    if (!shadow) {
+        draw()
+        return
+    }
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(dimensions.plotLeft, dimensions.plotTop, dimensions.plotWidth, dimensions.plotHeight)
+    ctx.clip()
+    ctx.shadowColor = shadow.color
+    ctx.shadowBlur = shadow.blur
+    ctx.shadowOffsetX = shadow.offsetX ?? 0
+    ctx.shadowOffsetY = shadow.offsetY ?? 0
+    draw()
+    ctx.restore()
+}
+
+export interface DrawBarChartStaticArgs {
     barLayout: BarLayout
     isHorizontal: boolean
     showGrid: boolean
@@ -89,7 +145,7 @@ export function drawBarChartStatic(
         barTrack,
         barShadow,
         barFillStyle,
-    }: DrawBarChartStaticConfig
+    }: DrawBarChartStaticArgs
 ): void {
     const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
     if (!d3Scales) {
@@ -105,26 +161,10 @@ export function drawBarChartStatic(
     }
 
     if (showGrid) {
-        // Align cross-axis grid with visible category labels, not every band.
-        let categoryTicks: number[] = []
-        if (isHorizontal) {
-            for (const label of drawLabels) {
-                const coord = bandCenter(d3Scales, label)
-                if (coord != null && isFinite(coord)) {
-                    categoryTicks.push(coord)
-                }
-            }
-        } else {
-            categoryTicks = computeVisibleXLabels(
-                drawLabels,
-                (label) => bandCenter(d3Scales, label),
-                xTickFormatter
-            ).map((entry) => entry.x)
-        }
         drawGrid(baseDrawCtx, {
             gridColor: theme.gridColor,
             orientation: isHorizontal ? 'horizontal' : 'vertical',
-            categoryTicks,
+            categoryTicks: computeGridTicks(d3Scales, drawLabels, isHorizontal, xTickFormatter),
         })
     }
 
@@ -168,31 +208,18 @@ export function drawBarChartStatic(
         }
     }
 
-    const resolvedShadow = resolveBarShadow(barShadow)
-    // Clip to plot area so a 100% bar's upward shadow doesn't bleed past the chart edge.
-    if (resolvedShadow) {
-        ctx.save()
-        ctx.beginPath()
-        ctx.rect(dimensions.plotLeft, dimensions.plotTop, dimensions.plotWidth, dimensions.plotHeight)
-        ctx.clip()
-        ctx.shadowColor = resolvedShadow.color
-        ctx.shadowBlur = resolvedShadow.blur
-        ctx.shadowOffsetX = resolvedShadow.offsetX ?? 0
-        ctx.shadowOffsetY = resolvedShadow.offsetY ?? 0
-    }
-    if (stackPills.length > 0) {
-        ctx.save()
-        clipToRoundedRects(ctx, stackPills, barCornerRadius)
-    }
-    for (const { series: s, bars } of seriesBars) {
-        drawBars(baseDrawCtx, s, bars, stackPills.length > 0 ? 0 : barCornerRadius, barFillStyle)
-    }
-    if (stackPills.length > 0) {
-        ctx.restore()
-    }
-    if (resolvedShadow) {
-        ctx.restore()
-    }
+    withBarShadow(ctx, dimensions, resolveBarShadow(barShadow), () => {
+        if (stackPills.length > 0) {
+            ctx.save()
+            clipToRoundedRects(ctx, stackPills, barCornerRadius)
+        }
+        for (const { series: s, bars } of seriesBars) {
+            drawBars(baseDrawCtx, s, bars, stackPills.length > 0 ? 0 : barCornerRadius, barFillStyle)
+        }
+        if (stackPills.length > 0) {
+            ctx.restore()
+        }
+    })
 }
 
 export interface BarHoverItem {
@@ -211,7 +238,7 @@ export interface ResolvedBarHover {
     hoveredBandPills: BarRect[]
 }
 
-export interface ResolveBarHoverConfig {
+export interface ResolveBarHoverArgs {
     barLayout: BarLayout
     isHorizontal: boolean
     stackedData: Map<string, StackedBand> | undefined
@@ -227,7 +254,7 @@ export interface ResolveBarHoverConfig {
 export function resolveBarHoverItems(
     { series: coloredSeries, labels: drawLabels, hoverIndex, hoverPosition }: ChartDrawArgs,
     d3Scales: BarScaleSet,
-    { barLayout, isHorizontal, stackedData, topStackedKeyByAxis, roundStackEnds, barTrack }: ResolveBarHoverConfig
+    { barLayout, isHorizontal, stackedData, topStackedKeyByAxis, roundStackEnds, barTrack }: ResolveBarHoverArgs
 ): ResolvedBarHover | null {
     const hoveredLabel = drawLabels[hoverIndex]
     const items: BarHoverItem[] = []
@@ -306,7 +333,7 @@ export function resolveBarHoverItems(
     return { items, composition, hoveredBandPills }
 }
 
-export interface DrawBarHoverConfig {
+export interface DrawBarHoverArgs {
     alpha: number
     barCornerRadius: number
     barTrack: boolean
@@ -320,7 +347,7 @@ export function drawBarHoverItems(
     ctx: CanvasRenderingContext2D,
     d3Scales: BarScaleSet,
     { items, hoveredBandPills }: ResolvedBarHover,
-    { alpha, barCornerRadius, barTrack, isHorizontal }: DrawBarHoverConfig
+    { alpha, barCornerRadius, barTrack, isHorizontal }: DrawBarHoverArgs
 ): void {
     const [trackAxisStart = 0, trackAxisEnd = 0] = barTrack ? d3Scales.value.range() : []
     const highlightRadius = hoveredBandPills.length > 0 ? 0 : barCornerRadius
