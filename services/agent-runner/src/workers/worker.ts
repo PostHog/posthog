@@ -27,8 +27,10 @@ import {
     AnalyticsSink,
     ApprovalStore,
     BundleStore,
+    categorize,
     createLogger,
     CredentialBroker,
+    FailureNotifier,
     GatewayClient,
     HttpFetcher,
     LogSink,
@@ -40,6 +42,7 @@ import {
     SecretBroker,
     SessionEventBus,
     SessionQueue,
+    userFacingMessage,
 } from '@posthog/agent-shared'
 
 import { runSession } from '../loop/driver'
@@ -206,6 +209,15 @@ export interface WorkerDeps {
      * against. Forwarded into `ToolContext.posthogApiBaseUrl`.
      */
     posthogApiBaseUrl: string
+    /**
+     * Out-of-band notifier fired on terminal failure (pre-runSession catch +
+     * in-loop `emitFailure`). Production wires `TriggerAwareFailureNotifier`
+     * with a `SlackFailureNotifier` registered for slack-triggered sessions
+     * so a crashed session reaches back to the originating thread with a
+     * sanitized message. Optional — when unset, terminal failures still
+     * update PG / bus / log_entries identically.
+     */
+    failureNotifier?: FailureNotifier
 }
 
 export class Worker {
@@ -497,19 +509,23 @@ export class Worker {
             // identically regardless of where the failure originated.
             const e = err as Error
             const reason = e.message || 'session_failed_before_start'
-            sLog.error({ err: reason, stack: e.stack }, 'session.crashed')
+            const category = categorize(reason)
+            const userText = userFacingMessage(category)
+            sLog.error({ err: reason, stack: e.stack, category }, 'session.crashed')
 
             // 1. Synthetic assistant message — so the user sees something in the
             //    transcript instead of their lone user turn followed by silence.
-            //    Keep it brief and factual; the structured event log carries the
-            //    stack trace for debugging.
+            //    Sanitized via `userFacingMessage(category)` so a docker/MCP
+            //    error string doesn't leak into the conversation UI. The raw
+            //    reason lives on `errorMessage` (owner-facing only) and in
+            //    log_entries for the session-detail page.
             const ts = new Date().toISOString()
             session.conversation.push({
                 role: 'assistant',
                 content: [
                     {
                         type: 'text',
-                        text: `This session failed before it could start. Reason: ${reason}`,
+                        text: userText,
                     },
                 ],
                 stopReason: 'error',
@@ -553,7 +569,7 @@ export class Worker {
                             session_id: session.id,
                             level: 'error',
                             event: 'failed',
-                            data: { reason, source: 'pre_run_session' },
+                            data: { reason, category, source: 'pre_run_session' },
                         },
                     ])
                     .catch((logErr) =>
@@ -573,6 +589,26 @@ export class Worker {
                 conversation: session.conversation,
                 usage_total: session.usage_total,
             })
+
+            // 4. Out-of-band notifier — runs AFTER queue.update so a notifier
+            //    crash can't leave the row in a non-terminal state. The
+            //    notifier itself contracts to swallow errors, but the catch
+            //    here is belt-and-braces. For slack-triggered sessions this
+            //    posts the same `userText` back to the originating thread; for
+            //    every other trigger type it no-ops silently.
+            if (this.deps.failureNotifier) {
+                const application = await this.deps.revisions.getApplication(session.application_id).catch((appErr) => {
+                    sLog.warn({ err: (appErr as Error).message }, 'session.failure_notifier_app_load_failed')
+                    return null
+                })
+                if (application) {
+                    await this.deps.failureNotifier
+                        .notify({ session, application, reason, category })
+                        .catch((notifyErr) =>
+                            sLog.warn({ err: (notifyErr as Error).message }, 'session.failure_notifier_threw')
+                        )
+                }
+            }
         } finally {
             if (sandbox) {
                 await this.deps.sandboxes.release(session.id)

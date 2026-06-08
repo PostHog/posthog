@@ -22,6 +22,7 @@ import {
     SessionQueue,
     SLACK_BOT_TOKEN_KEY,
     SLACK_SIGNING_SECRET_KEY,
+    SlackSigningSecretResolver,
 } from '@posthog/agent-shared'
 
 const log = createLogger('slack-trigger')
@@ -34,16 +35,6 @@ import { RevisionResolver } from '../routing/resolver'
 import { hasTrigger, resolveAgent } from './resolve'
 import { SlackEventBodySchema } from './slack.schemas'
 import type { TriggerModule } from './types'
-
-/**
- * Resolves a secret named by `secretKey` (conventional, from
- * `TRIGGER_REQUIRED_SECRETS`) out of the agent's `encrypted_env`. The concrete
- * impl decrypts via `EncryptedFields`; the harness wires an in-memory
- * fallback. Pattern reusable for any future "trigger-needs-secret" wiring.
- */
-export interface SlackSigningSecretResolver {
-    resolve(secretKey: string, application: AgentApplication): Promise<string | null>
-}
 
 export interface SlackTriggerDeps {
     resolver: RevisionResolver
@@ -335,6 +326,19 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                     principal: slackPrincipal,
                     trigger: 'slack',
                     requesterDisplay: `slack:${workspaceId}:${event.user}`,
+                    // Stash the originating thread coordinates so the runner
+                    // can post a sanitized failure reply if the session dies
+                    // before the agent can answer (see FailureNotifier). The
+                    // model also reads channel/thread_ts from the seed text
+                    // for happy-path replies via the `slack` tool — this is
+                    // for the unhappy path only.
+                    triggerMetadata: {
+                        type: 'slack',
+                        workspace_id: workspaceId,
+                        channel: event.channel,
+                        ts: event.ts,
+                        thread_ts: event.thread_ts ?? event.ts,
+                    },
                 }
             )
             if (outcome.kind === 'elevation_required') {

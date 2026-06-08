@@ -13,10 +13,10 @@
  */
 
 import {
-    AgentApplication,
     createAgentPool,
     createLogger,
     DirectHttpClient,
+    EncryptedEnvSlackSecretResolver,
     EncryptedFields,
     HttpClient,
     installProcessHandlers,
@@ -32,7 +32,6 @@ import {
 import { loadAgentIngressConfig } from './config'
 import { buildDefaultVerifiers, defaultPosthogIntrospector } from './enqueue/verifiers'
 import { buildApp } from './routing/server'
-import type { SlackSigningSecretResolver } from './triggers/slack'
 
 const log = createLogger('agent-ingress')
 
@@ -97,24 +96,11 @@ async function main(): Promise<void> {
         encryptionSaltKeys: config.encryptionSaltKeys,
     })
 
-    // Per-agent Slack signing secret. Each agent's spec names which entry in
-    // `encrypted_env` holds the Slack app's signing key
-    // (`slack.config.signing_secret_ref`); we decrypt the env per request and
-    // pluck the named entry. Mirrors `makeEncryptedEnvResolver` on the runner.
-    const slackSigningSecretResolver: SlackSigningSecretResolver = {
-        async resolve(secretRef: string, application: AgentApplication): Promise<string | null> {
-            if (!application.encrypted_env) {
-                return null
-            }
-            try {
-                const env = encryption.decryptJsonEnv(application.encrypted_env)
-                const value = env[secretRef]
-                return typeof value === 'string' && value.length > 0 ? value : null
-            } catch {
-                return null
-            }
-        },
-    }
+    // Per-agent Slack secret resolver. Each agent's `encrypted_env` holds the
+    // Slack app's signing key + bot token; we decrypt per request and pluck
+    // the named entry. Shared impl in `@posthog/agent-shared` — runner's
+    // failure notifier uses the same class against the same encrypted env.
+    const slackSigningSecretResolver = new EncryptedEnvSlackSecretResolver(encryption)
 
     const app = buildApp({
         revisions: new PgRevisionStore(posthogDb),

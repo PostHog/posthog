@@ -28,7 +28,7 @@ import { Express } from 'express'
 import { Pool } from 'pg'
 import request from 'supertest'
 
-import { AuthProvider, buildApp, SessionEventBus, SlackSigningSecretResolver } from '@posthog/agent-ingress'
+import { AuthProvider, buildApp, SessionEventBus } from '@posthog/agent-ingress'
 import { buildJanitorApp } from '@posthog/agent-janitor'
 import { reset } from '@posthog/agent-migrations'
 import { IntegrationHostValidator, IsAskerInApproverScope, McpTransportFactory, Worker } from '@posthog/agent-runner'
@@ -52,10 +52,12 @@ import {
     RedisSessionEventBus,
     S3BundleStore,
     S3JsonlTabularStore,
+    EncryptedEnvSlackSecretResolver,
     EncryptedFields,
     HttpClient,
     S3MemoryStore,
     SecretBroker,
+    SlackSigningSecretResolver,
     TEST_S3_BUCKET,
     wipeTestPrefix as wipeMemoryTestPrefix,
 } from '@posthog/agent-shared'
@@ -361,25 +363,13 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         posthogApiBaseUrl: 'http://localhost:8010',
     })
 
-    // Real-flow Slack signing secret resolver: decrypts the agent's
-    // `encrypted_env` via the same `EncryptedFields` key the credential broker
-    // uses, then plucks the requested key. Tests populate `encrypted_env` on
+    // Real-flow Slack secret resolver: decrypts the agent's `encrypted_env`
+    // via the same `EncryptedFields` key the credential broker uses, then
+    // plucks the requested key. Tests populate `encrypted_env` on
     // `deployAgent` to wire a secret per agent — same path production uses.
     const encryption = new EncryptedFields(HARNESS_ENCRYPTION_SALT_KEYS)
-    const slackSigningSecretResolver: SlackSigningSecretResolver = opts.slackSigningSecretResolver ?? {
-        async resolve(secretKey, application): Promise<string | null> {
-            if (!application.encrypted_env) {
-                return null
-            }
-            try {
-                const env = encryption.decryptJsonEnv(application.encrypted_env)
-                const value = env[secretKey]
-                return typeof value === 'string' && value.length > 0 ? value : null
-            } catch {
-                return null
-            }
-        },
-    }
+    const slackSigningSecretResolver: SlackSigningSecretResolver =
+        opts.slackSigningSecretResolver ?? new EncryptedEnvSlackSecretResolver(encryption)
 
     const ingress = buildApp({
         revisions,

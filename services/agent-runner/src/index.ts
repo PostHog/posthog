@@ -26,6 +26,7 @@ import {
     createAgentPool,
     createLogger,
     DirectHttpClient,
+    EncryptedEnvSlackSecretResolver,
     EncryptedFields,
     HttpClient,
     HttpGatewayClient,
@@ -49,6 +50,8 @@ import {
     S3MemoryStore,
     SecretBroker,
     selectSandboxPool,
+    SlackFailureNotifier,
+    TriggerAwareFailureNotifier,
 } from '@posthog/agent-shared'
 
 import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
@@ -260,6 +263,25 @@ async function main(): Promise<void> {
     // requires_approval flags on tools are silently ungated.
     const approvals = new PgApprovalStore(agentDb)
 
+    // Out-of-band notifier for terminal failures. Slack-triggered sessions
+    // get a sanitized thread reply when they crash before the agent can
+    // post one itself; every other trigger type falls through to a no-op.
+    // Uses the same encrypted_env resolver ingress uses for the signing
+    // secret, so the bot token decrypts the same way at request time.
+    const slackSecretResolver = new EncryptedEnvSlackSecretResolver(encryption)
+    const slackFailureNotifier = new SlackFailureNotifier({
+        http,
+        resolver: slackSecretResolver,
+        logger: {
+            warn: (meta, msg) => log.warn(meta, msg),
+            info: (meta, msg) => log.info(meta, msg),
+        },
+    })
+    const failureNotifier = new TriggerAwareFailureNotifier(
+        { slack: slackFailureNotifier },
+        { warn: (meta, msg) => log.warn(meta, msg) }
+    )
+
     const worker = new Worker({
         queue: new PgSessionQueue(agentDb),
         revisions,
@@ -323,6 +345,7 @@ async function main(): Promise<void> {
         integrationHostValidator: makeIntegrationHostValidator(),
         http,
         posthogApiBaseUrl: config.posthogApiBaseUrl,
+        failureNotifier,
     })
 
     const shutdown = (sig: string): void => {
