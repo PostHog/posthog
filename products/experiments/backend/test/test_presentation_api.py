@@ -20,7 +20,12 @@ from posthog.test.test_journeys import journeys_for
 
 from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.event_definition import EventDefinition
-from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+)
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
@@ -189,6 +194,25 @@ class TestExperimentCRUD(APILicensedTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/?event=checkout")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], experiment.id)
+
+    def test_filter_by_event_matches_saved_metric(self) -> None:
+        experiment = self._create_experiment_with_metric_event("Saved metric", "saved-metric-flag", "primary_event")
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Conversion",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "saved_event"},
+            },
+        )
+        ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/?event=saved_event")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)

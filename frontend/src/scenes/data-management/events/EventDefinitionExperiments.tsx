@@ -16,11 +16,6 @@ import { urls } from 'scenes/urls'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { EventDefinition, ExperimentStatus } from '~/types'
 
-function getFeatureFlagId(experiment: ExperimentApi): number | undefined {
-    const flag = experiment.feature_flag as { id?: number } | undefined
-    return flag?.id
-}
-
 export function EventDefinitionExperiments({ definition }: { definition: EventDefinition }): JSX.Element {
     const event = definition.name
     const { page, experiments, experimentsLoading } = useValues(eventExperimentsLogic({ event }))
@@ -29,16 +24,16 @@ export function EventDefinitionExperiments({ definition }: { definition: EventDe
     const columns: LemonTableColumns<ExperimentApi> = [
         {
             title: 'Name',
-            dataIndex: 'name',
             key: 'name',
-            render: function renderName(name, experiment) {
-                return <LemonTableLink to={urls.experiment(experiment.id)} title={name as string} />
+            render: function renderName(_, experiment) {
+                return <LemonTableLink to={urls.experiment(experiment.id)} title={experiment.name} />
             },
         },
         {
             title: 'Status',
             key: 'status',
             render: function renderStatus(_, experiment) {
+                // ExperimentStatusEnumApi shares the ExperimentStatus enum's values; bridge the nominal gap.
                 return <StatusTag status={experiment.status as ExperimentStatus} />
             },
         },
@@ -46,7 +41,8 @@ export function EventDefinitionExperiments({ definition }: { definition: EventDe
             title: 'Feature flag',
             key: 'feature_flag',
             render: function renderFeatureFlag(_, experiment) {
-                const flagId = getFeatureFlagId(experiment)
+                // feature_flag is typed once the regenerated MinimalFeatureFlag schema lands; read id defensively until then.
+                const flagId = (experiment.feature_flag as { id?: number } | null)?.id
                 return flagId ? (
                     <Link to={urls.featureFlag(flagId)}>{experiment.feature_flag_key}</Link>
                 ) : (
@@ -56,11 +52,13 @@ export function EventDefinitionExperiments({ definition }: { definition: EventDe
         },
         {
             title: 'Created',
-            dataIndex: 'created_at',
             key: 'created_at',
-            render: function renderCreatedAt(created_at) {
-                const time = created_at as string | null
-                return <div className="whitespace-nowrap">{time ? <TZLabel time={time} /> : null}</div>
+            render: function renderCreatedAt(_, experiment) {
+                return (
+                    <div className="whitespace-nowrap">
+                        {experiment.created_at ? <TZLabel time={experiment.created_at} /> : null}
+                    </div>
+                )
             },
         },
     ]

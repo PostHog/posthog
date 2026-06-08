@@ -8,7 +8,6 @@ ViewSet remains in experiments.py.
 
 from typing import Any
 
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers
@@ -29,6 +28,7 @@ from products.experiments.backend.hogql_queries.utils import get_experiment_stat
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricsRecalculation
+from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
@@ -289,10 +289,8 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             fields["holdout_id"].queryset = ExperimentHoldout.objects.none()  # type: ignore[attr-defined]
         return fields
 
-    @extend_schema_field(OpenApiTypes.OBJECT)
+    @extend_schema_field(MinimalFeatureFlagSerializer)
     def get_feature_flag(self, obj):
-        from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
-
         return MinimalFeatureFlagSerializer(obj.feature_flag).data if obj.feature_flag else None
 
     def to_representation(self, instance):

@@ -179,17 +179,3 @@ def resolve_action_events(action_ids: set[int], team: Team) -> dict[int, set[str
         action.id: {event for event in action.get_step_events() if event}
         for action in Action.objects.filter(id__in=action_ids, team=team, deleted=False)
     }
-
-
-def extract_event_names_from_metrics(metrics: list[dict[str, Any]], team: Team) -> set[str]:
-    """Return every event name referenced by a list of experiment metric queries.
-
-    Walks each metric query collecting events from EventsNode entries and resolving
-    ActionsNode references to their underlying step events, mirroring how insights
-    expand actions to events. Powers the "experiments using event" lookup on the
-    event definition page.
-    """
-    event_names, action_ids = collect_metric_events_and_action_ids(metrics)
-    for events in resolve_action_events(action_ids, team).values():
-        event_names |= events
-    return event_names

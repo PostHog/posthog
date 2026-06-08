@@ -1,5 +1,6 @@
 """Experiment service — single source of truth for experiment business logic."""
 
+from collections import defaultdict
 from collections.abc import Mapping
 from copy import deepcopy
 from datetime import date, datetime, timedelta
@@ -39,6 +40,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
+    ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
     holdout_filters_for_flag,
 )
@@ -2255,19 +2257,30 @@ class ExperimentService:
     def _experiments_matching_event(self, queryset: QuerySet[Experiment], event: str) -> list[int]:
         """Return PKs of experiments whose metrics reference the given event.
 
-        Collects every event/action reference across all experiments first, then
-        resolves all referenced actions in a single query to avoid an N+1.
+        Reads only the metric columns — no model hydration or prefetches, so the
+        caller's prefetch-heavy queryset isn't materialized twice — and resolves
+        every referenced action in a single batched query to avoid an N+1.
         """
+        inline_metrics = list(queryset.values_list("pk", "metrics", "metrics_secondary"))
+        pks = [pk for pk, _, _ in inline_metrics]
+
+        saved_queries_by_experiment: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        for experiment_id, query in ExperimentToSavedMetric.objects.filter(experiment_id__in=pks).values_list(
+            "experiment_id", "saved_metric__query"
+        ):
+            if query:
+                saved_queries_by_experiment[experiment_id].append(query)
+
         per_experiment: list[tuple[int, set[str], set[int]]] = []
         all_action_ids: set[int] = set()
-        for experiment in queryset:
-            metrics: list[dict[str, Any]] = [
-                *(experiment.metrics or []),
-                *(experiment.metrics_secondary or []),
-                *(saved_metric.query for saved_metric in experiment.saved_metrics.all() if saved_metric.query),
+        for pk, metrics, metrics_secondary in inline_metrics:
+            combined: list[dict[str, Any]] = [
+                *(metrics or []),
+                *(metrics_secondary or []),
+                *saved_queries_by_experiment.get(pk, []),
             ]
-            events, action_ids = collect_metric_events_and_action_ids(metrics)
-            per_experiment.append((experiment.pk, events, action_ids))
+            events, action_ids = collect_metric_events_and_action_ids(combined)
+            per_experiment.append((pk, events, action_ids))
             all_action_ids |= action_ids
 
         action_events = resolve_action_events(all_action_ids, self.team)
