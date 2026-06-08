@@ -1,6 +1,5 @@
+import { expect, test } from '@playwright-utils/playwright-test-base'
 import { Page } from '@playwright/test'
-
-import { expect, test } from '../../utils/playwright-test-base'
 
 test.describe('Survey Settings', () => {
     test.beforeEach(async ({ page }) => {

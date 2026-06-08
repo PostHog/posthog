@@ -11,7 +11,6 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
-from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import F, OuterRef, Q, Subquery
 from django.db.models.functions import JSONObject
@@ -75,6 +74,7 @@ from .models import (
     TaskPresence,
     TaskRun,
 )
+from .redis import get_tasks_cache
 from .repository_readiness import compute_repository_readiness
 from .serializers import (
     CodeInviteRedeemRequestSerializer,
@@ -1143,7 +1143,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             task_run.save(update_fields=["artifacts", "updated_at"])
 
             for artifact_id in pending_user_artifact_ids:
-                cache.delete(build_task_staged_artifact_cache_key(str(task.id), artifact_id))
+                get_tasks_cache().delete(build_task_staged_artifact_cache_key(str(task.id), artifact_id))
 
         if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
             cache_github_user_token(str(task_run.id), github_user_token)
@@ -2755,13 +2755,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def stream(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         stream_key = get_task_run_stream_key(str(task_run.id))
+        stream_created_at = task_run.created_at
         last_event_id = request.headers.get("Last-Event-ID")
         start_latest = request.GET.get("start") == "latest"
         format_sse_event = self._format_sse_event
         origin_product = origin_product_label(task_run)
 
         async def async_stream() -> AsyncGenerator[bytes, None]:
-            redis_stream = TaskRunRedisStream(stream_key)
+            redis_stream = TaskRunRedisStream(stream_key, stream_created_at)
             connection_started_at = asyncio.get_running_loop().time()
             # Default to client_disconnect: any exit that isn't an explicit
             # completion/error/unavailable is the client (or proxy) going away.

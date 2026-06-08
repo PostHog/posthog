@@ -612,6 +612,105 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select some_field.key from events"
         prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
 
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
+    def test_build_from_sources_performs_no_io(self, patch_execute):
+        # _fetch_sources does all the Postgres / feature-flag I/O; _build_from_sources must not query.
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="_accesskey", access_secret="_secret"
+        )
+        for i in range(3):
+            table = DataWarehouseTable.objects.create(
+                name=f"whatever{i}",
+                team=self.team,
+                columns={"id": "String"},
+                credential=credential,
+                url_pattern="",
+            )
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"whatever_view{i}",
+                query={"query": f"SELECT id FROM whatever{i}"},
+                columns={"id": "String"},
+                table=table,
+                status=DataWarehouseSavedQuery.Status.COMPLETED,
+            )
+        # Endpoint-origin saved query so the endpoint build loop is exercised under assertNumQueries(0).
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="whatever_endpoint",
+            query={"query": "SELECT id FROM whatever0"},
+            columns={"id": "String"},
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+        )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="event",
+            joining_table_name="whatever0",
+            joining_table_key="id",
+            field_name="some_field",
+        )
+
+        # A dataWarehouseEventsModifier so the define_mappings path (get_clickhouse_column_type, the
+        # events-join lookup) is also exercised under assertNumQueries(0) - it used to query per modifier.
+        modifiers = create_default_modifiers_for_team(
+            self.team,
+            modifiers=HogQLQueryModifiers(
+                useMaterializedViews=True,
+                dataWarehouseEventsModifiers=[
+                    DataWarehouseEventsModifier(
+                        table_name="whatever0",
+                        id_field="id",
+                        timestamp_field="created_at",
+                        distinct_id_field="id",
+                    )
+                ],
+            ),
+        )
+        sources = Database._fetch_sources(team=self.team, modifiers=modifiers)
+
+        with self.assertNumQueries(0):
+            db = Database._build_from_sources(sources)
+
+        # The warehouse table, saved query, endpoint view, join and modifier were all wired up without queries.
+        assert db.has_table("whatever0")
+        assert db.has_table("whatever_view0")
+        assert db.has_table("whatever_endpoint")
+        assert "some_field" in db.get_table("events").fields
+        assert "timestamp" in db.get_table("whatever0").fields
+
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
+    def test_build_from_sources_raises_when_modifier_table_has_no_backing_row(self, patch_execute):
+        # A dataWarehouseEventsModifier whose table resolves to a node with no backing row must fail
+        # loudly (as the eager .latest() did), not silently skip timestamp-field resolution.
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="orphan_view",
+            query={"query": "SELECT id FROM events"},
+            columns={"id": "String"},
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+        modifiers = create_default_modifiers_for_team(
+            self.team,
+            modifiers=HogQLQueryModifiers(
+                dataWarehouseEventsModifiers=[
+                    DataWarehouseEventsModifier(
+                        table_name="orphan_view",
+                        id_field="id",
+                        timestamp_field="created_at",
+                        distinct_id_field="id",
+                    )
+                ],
+            ),
+        )
+        sources = Database._fetch_sources(team=self.team, modifiers=modifiers)
+        # Simulate the node existing without a backing saved-query row (e.g. a revenue-analytics view).
+        sources.event_modifier_saved_queries["orphan_view"] = None
+
+        with self.assertRaises(DataWarehouseSavedQuery.DoesNotExist):
+            Database._build_from_sources(sources)
+
     def test_database_warehouse_joins_on_system_table_are_serialized(self):
         DataWarehouseJoin.objects.create(
             team=self.team,

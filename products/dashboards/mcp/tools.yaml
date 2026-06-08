@@ -409,9 +409,6 @@ tools:
             id:
                 cast: string-int
         feature_flag: dashboard-widgets
-    dashboards-analyze-refresh-result-create:
-        operation: dashboards_analyze_refresh_result_create
-        enabled: false
     dashboards-bulk-update-tags-create:
         operation: dashboards_bulk_update_tags_create
         enabled: false
@@ -490,9 +487,6 @@ tools:
         enabled: false
     dashboards-sharing-refresh-create:
         operation: dashboards_sharing_refresh_create
-        enabled: false
-    dashboards-snapshot-create:
-        operation: dashboards_snapshot_create
         enabled: false
     dashboards-stream-tiles-retrieve:
         operation: dashboards_stream_tiles_retrieve

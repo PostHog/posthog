@@ -42128,18 +42128,6 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
-    export type EnvironmentsDashboardsAnalyzeRefreshResultCreateParams = {
-    format?: EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat = typeof EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat[keyof typeof EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat];
-
-
-    export const EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
     export type EnvironmentsDashboardsCopyTileCreateParams = {
     format?: EnvironmentsDashboardsCopyTileCreateFormat;
     };
@@ -42269,18 +42257,6 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsRunWidgetsRetrieveFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsSnapshotCreateParams = {
-    format?: EnvironmentsDashboardsSnapshotCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsSnapshotCreateFormat = typeof EnvironmentsDashboardsSnapshotCreateFormat[keyof typeof EnvironmentsDashboardsSnapshotCreateFormat];
-
-
-    export const EnvironmentsDashboardsSnapshotCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -47427,18 +47403,6 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
-    export type DashboardsAnalyzeRefreshResultCreateParams = {
-    format?: DashboardsAnalyzeRefreshResultCreateFormat;
-    };
-
-    export type DashboardsAnalyzeRefreshResultCreateFormat = typeof DashboardsAnalyzeRefreshResultCreateFormat[keyof typeof DashboardsAnalyzeRefreshResultCreateFormat];
-
-
-    export const DashboardsAnalyzeRefreshResultCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
     export type DashboardsCopyTileCreateParams = {
     format?: DashboardsCopyTileCreateFormat;
     };
@@ -47568,18 +47532,6 @@ export namespace Schemas {
 
 
     export const DashboardsRunWidgetsRetrieveFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type DashboardsSnapshotCreateParams = {
-    format?: DashboardsSnapshotCreateFormat;
-    };
-
-    export type DashboardsSnapshotCreateFormat = typeof DashboardsSnapshotCreateFormat[keyof typeof DashboardsSnapshotCreateFormat];
-
-
-    export const DashboardsSnapshotCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;

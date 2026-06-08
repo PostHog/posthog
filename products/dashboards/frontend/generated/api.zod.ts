@@ -247,48 +247,6 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Serializer mixin that handles tags for objects.')
 
 /**
- * Generate AI analysis comparing before/after dashboard refresh.
-Expects cache_key in request body pointing to the stored 'before' state.
- */
-export const dashboardsAnalyzeRefreshResultCreateBodyNameMax = 400
-
-export const dashboardsAnalyzeRefreshResultCreateBodyDeleteInsightsDefault = false
-
-export const DashboardsAnalyzeRefreshResultCreateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod.string().max(dashboardsAnalyzeRefreshResultCreateBodyNameMax).nullish(),
-        description: zod.string().optional(),
-        pinned: zod.boolean().optional(),
-        last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
-        deleted: zod.boolean().optional(),
-        breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
-        data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
-        tags: zod.array(zod.unknown()).optional(),
-        restriction_level: zod
-            .union([zod.literal(21), zod.literal(37)])
-            .optional()
-            .describe(
-                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
-            ),
-        last_refresh: zod.iso.datetime({ offset: true }).nullish(),
-        quick_filter_ids: zod
-            .array(zod.string())
-            .nullish()
-            .describe('List of quick filter IDs associated with this dashboard'),
-        use_template: zod
-            .string()
-            .optional()
-            .describe('Template key to create the dashboard from a predefined template.'),
-        use_dashboard: zod.number().nullish().describe('ID of an existing dashboard to duplicate.'),
-        delete_insights: zod
-            .boolean()
-            .default(dashboardsAnalyzeRefreshResultCreateBodyDeleteInsightsDefault)
-            .describe('When deleting, also delete insights that are only on this dashboard.'),
-        _create_in_folder: zod.string().optional(),
-    })
-    .describe('Serializer mixin that handles tags for objects.')
-
-/**
  * Copy an existing dashboard tile to another dashboard (insight, text card, or widget tile).
  */
 export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
@@ -391,48 +349,6 @@ export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
             "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.\n\n\* `preserve` - preserve\n\* `two_column` - two_column\n\* `full_width` - full_width"
         ),
 })
-
-/**
- * Snapshot the current dashboard state (from cache) for AI analysis.
-Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
- */
-export const dashboardsSnapshotCreateBodyNameMax = 400
-
-export const dashboardsSnapshotCreateBodyDeleteInsightsDefault = false
-
-export const DashboardsSnapshotCreateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod.string().max(dashboardsSnapshotCreateBodyNameMax).nullish(),
-        description: zod.string().optional(),
-        pinned: zod.boolean().optional(),
-        last_accessed_at: zod.iso.datetime({ offset: true }).nullish(),
-        deleted: zod.boolean().optional(),
-        breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
-        data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
-        tags: zod.array(zod.unknown()).optional(),
-        restriction_level: zod
-            .union([zod.literal(21), zod.literal(37)])
-            .optional()
-            .describe(
-                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
-            ),
-        last_refresh: zod.iso.datetime({ offset: true }).nullish(),
-        quick_filter_ids: zod
-            .array(zod.string())
-            .nullish()
-            .describe('List of quick filter IDs associated with this dashboard'),
-        use_template: zod
-            .string()
-            .optional()
-            .describe('Template key to create the dashboard from a predefined template.'),
-        use_dashboard: zod.number().nullish().describe('ID of an existing dashboard to duplicate.'),
-        delete_insights: zod
-            .boolean()
-            .default(dashboardsSnapshotCreateBodyDeleteInsightsDefault)
-            .describe('When deleting, also delete insights that are only on this dashboard.'),
-        _create_in_folder: zod.string().optional(),
-    })
-    .describe('Serializer mixin that handles tags for objects.')
 
 /**
  * Update the markdown body, layout, or color of an existing text tile on a dashboard.
