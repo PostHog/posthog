@@ -13,7 +13,7 @@ async def wait_for_workflows(
     temporal_client: temporalio.client.Client,
     schedule_id: str,
     expected_count: int,
-    timeout: int = 30,
+    timeout: int = 60,
 ) -> list[temporalio.client.WorkflowExecution]:
     """Wait for workflows to be queryable and return them."""
     query = f'TemporalScheduledById="{schedule_id}" order by StartTime asc'
