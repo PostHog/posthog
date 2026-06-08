@@ -5,7 +5,11 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from posthog.temporal.data_imports.sources.common.sql.location import resolve_source_location
+from posthog.temporal.data_imports.sources.common.sql.location import (
+    fill_missing_from_dotted_name,
+    normalize_namespace,
+    resolve_source_location,
+)
 
 
 def _source_inputs(schema_name: str = "users", **overrides: Any) -> SourceInputs:
@@ -118,3 +122,41 @@ class TestResolveSourceLocation:
         inputs = _source_inputs(schema_name="users")
         location = resolve_source_location(inputs, config_namespace="public", default="public")
         assert location == (None, "public", "users", "users")
+
+
+class TestSelfHealHelpers:
+    """Shared primitives the resolver and the migration's row extractor both depend on."""
+
+    @parameterized.expand(
+        [
+            ("value", "public", "public"),
+            ("trims", "  dbo  ", "dbo"),
+            ("empty to none", "", None),
+            ("whitespace to none", "   ", None),
+            ("non-string to none", None, None),
+        ]
+    )
+    def test_normalize_namespace(self, _name: str, value: str | None, expected: str | None) -> None:
+        assert normalize_namespace(value) == expected
+
+    @parameterized.expand(
+        [
+            # (name, schema, table, display_name, exp_schema, exp_table)
+            ("both present, no heal", "analytics", "users", "analytics.users", "analytics", "users"),
+            ("missing both, dotted heals", None, None, "analytics.users", "analytics", "users"),
+            ("missing schema only", None, "users", "sales.orders", "sales", "users"),
+            ("missing table only", "reporting", None, "x.events", "reporting", "events"),
+            ("empty schema treated as missing", "", None, "sales.orders", "sales", "orders"),
+            ("not dotted, no heal", None, None, "users", None, None),
+        ]
+    )
+    def test_fill_missing_from_dotted_name(
+        self,
+        _name: str,
+        schema: str | None,
+        table: str | None,
+        display_name: str,
+        exp_schema: str | None,
+        exp_table: str | None,
+    ) -> None:
+        assert fill_missing_from_dotted_name(schema, table, display_name) == (exp_schema, exp_table)

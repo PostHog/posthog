@@ -57,11 +57,18 @@ class TestMultiSchemaCapability:
 
     @parameterized.expand(
         [
-            # Stable anchors: Postgres ships an optional `schema` field (qualifies today); MySQL
-            # conflates database≈schema and is out of scope forever; an unknown type is never capable.
+            # Postgres ships an optional `schema` field (qualifies today); MySQL conflates
+            # database≈schema and is out of scope forever; an unknown type is never capable.
             ("postgres", ExternalDataSourceType.POSTGRES, True),
             ("mysql", ExternalDataSourceType.MYSQL, False),
             ("unknown type", "NotARealSource", False),
+            # Tripwires: the "no behavior change today" guarantee rests on these three having a
+            # *required* `schema` field. When a follow-up PR makes one optional to enable multi-schema,
+            # this anchor flips True and forces a conscious update here — the migration gate is no
+            # longer dormant for that source.
+            ("mssql", ExternalDataSourceType.MSSQL, False),
+            ("snowflake", ExternalDataSourceType.SNOWFLAKE, False),
+            ("redshift", ExternalDataSourceType.REDSHIFT, False),
         ]
     )
     def test_capability_by_source_type(

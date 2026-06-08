@@ -11,16 +11,10 @@ from typing import Any
 
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
+from posthog.temporal.data_imports.sources.common.sql.location import fill_missing_from_dotted_name, normalize_namespace
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-
-
-def _normalize_default_schema(default_schema: str | None) -> str | None:
-    if not isinstance(default_schema, str):
-        return None
-    normalized = default_schema.strip()
-    return normalized or None
 
 
 def _source_has_optional_schema_field(source: Any) -> bool:
@@ -150,11 +144,7 @@ def _extract_source_location_from_row(row: Any) -> tuple[str | None, str | None]
             source_schema = metadata["source_schema"]
         if isinstance(metadata.get("source_table_name"), str):
             source_table_name = metadata["source_table_name"]
-    if (not source_schema or not source_table_name) and "." in row.name:
-        inferred_schema, _, inferred_table = row.name.partition(".")
-        source_schema = source_schema or inferred_schema or None
-        source_table_name = source_table_name or inferred_table or None
-    return source_schema, source_table_name
+    return fill_missing_from_dotted_name(source_schema, source_table_name, row.name)
 
 
 def apply_on_refresh(*, source: ExternalDataSource, team_id: int) -> dict[str, str]:
@@ -180,7 +170,7 @@ def apply_on_refresh(*, source: ExternalDataSource, team_id: int) -> dict[str, s
         else:
             unqualified_rows.append(row)
 
-    default_schema = _normalize_default_schema((source.job_inputs or {}).get("schema"))
+    default_schema = normalize_namespace((source.job_inputs or {}).get("schema"))
     name_substitutions: dict[str, str] = {}
 
     for legacy in unqualified_rows:

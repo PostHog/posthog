@@ -21,12 +21,27 @@ class ResolvedSourceLocation(NamedTuple):
     response_name: str
 
 
-def _normalize_namespace(value: Optional[str]) -> Optional[str]:
+def normalize_namespace(value: Optional[str]) -> Optional[str]:
     """Empty / whitespace-only namespace means "all namespaces" — never an empty predicate."""
     if not isinstance(value, str):
         return None
     stripped = value.strip()
     return stripped or None
+
+
+def fill_missing_from_dotted_name(
+    schema: Optional[str], table: Optional[str], display_name: str
+) -> tuple[Optional[str], Optional[str]]:
+    """Self-heal a missing `schema`/`table` from a dotted `display_name` (`analytics.users`).
+
+    Shared by the sync resolver and the migration's row extractor so the "metadata-first, then split
+    the dotted name" rule can't drift between them.
+    """
+    if (not schema or not table) and "." in display_name:
+        inferred_schema, _, inferred_table = display_name.partition(".")
+        schema = schema or normalize_namespace(inferred_schema)
+        table = table or inferred_table or None
+    return schema, table
 
 
 def resolve_source_location(
@@ -42,16 +57,13 @@ def resolve_source_location(
     `config_namespace` → `default`. `response_name` (the Delta subdir) comes from `dwh_storage_key`
     when present, so a migrated row keeps its legacy path — no S3 rewrite, no orphaned data.
     """
-    source_schema = _normalize_namespace(inputs.source_schema)
+    source_schema = normalize_namespace(inputs.source_schema)
     source_table_name = inputs.source_table_name if isinstance(inputs.source_table_name, str) else None
+    source_schema, source_table_name = fill_missing_from_dotted_name(
+        source_schema, source_table_name, inputs.schema_name
+    )
 
-    # Self-heal rows synced before metadata existed: split the dotted name instead of routing it whole.
-    if (source_schema is None or not source_table_name) and "." in inputs.schema_name:
-        inferred_schema, inferred_table = inputs.schema_name.split(".", 1)
-        source_schema = source_schema or _normalize_namespace(inferred_schema)
-        source_table_name = source_table_name or inferred_table
-
-    schema = source_schema or _normalize_namespace(config_namespace) or default
+    schema = source_schema or normalize_namespace(config_namespace) or default
     table_name = source_table_name or inputs.schema_name
     catalog = (inputs.source_catalog if isinstance(inputs.source_catalog, str) else None) or config_catalog
 

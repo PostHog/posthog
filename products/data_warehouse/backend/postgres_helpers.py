@@ -15,6 +15,7 @@ from django.db.models import Q
 import structlog
 
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql.location import normalize_namespace
 from posthog.temporal.data_imports.sources.common.sql.metadata import (
     extract_available_column_names,
     sql_schema_metadata as _sql_schema_metadata,
@@ -33,7 +34,6 @@ from products.data_warehouse.backend.direct_postgres import (
     rename_direct_postgres_join_references,
     upsert_direct_postgres_table,
 )
-from products.data_warehouse.backend.sql_warehouse_migration import _normalize_default_schema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.util import (
     postgres_column_to_dwh_column,
@@ -102,7 +102,7 @@ def get_postgres_source_location(
     source_catalog = schema_metadata.get("source_catalog") if isinstance(schema_metadata, dict) else None
     source_schema = schema_metadata.get("source_schema") if isinstance(schema_metadata, dict) else None
     source_table_name = schema_metadata.get("source_table_name") if isinstance(schema_metadata, dict) else None
-    normalized_default = _normalize_default_schema(default_schema)
+    normalized_default = normalize_namespace(default_schema)
 
     if isinstance(source_schema, str) and isinstance(source_table_name, str):
         return source_catalog if isinstance(source_catalog, str) else None, source_schema, source_table_name
