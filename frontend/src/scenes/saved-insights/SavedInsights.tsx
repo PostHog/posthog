@@ -520,6 +520,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLlmAnalytics,
         inMenu: false,
     },
+    [NodeKind.SessionMessagesQuery]: {
+        name: 'AI observability session messages',
+        icon: IconLlmAnalytics,
+        inMenu: false,
+    },
     [NodeKind.DocumentSimilarityQuery]: {
         name: 'Document Similarity',
         description: 'Find documents similar to a given query.',

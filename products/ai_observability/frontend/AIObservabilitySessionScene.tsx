@@ -286,7 +286,7 @@ function SessionTurnView({
     showSentiment: boolean
     showSessionSummarization: boolean
     traceSearchParams: Record<string, unknown>
-}): JSX.Element {
+}): JSX.Element | null {
     const { traceSummaries, fullTraces, bulkLoading, stepsExpandedTraceIds, expandedGenerationIds } = useValues(
         aiObservabilitySessionDataLogic
     )

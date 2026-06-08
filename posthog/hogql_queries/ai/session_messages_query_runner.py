@@ -78,7 +78,7 @@ class SessionMessagesQueryRunner(AnalyticsQueryRunner[SessionMessagesQueryRespon
 
     def _build_query(self) -> ast.SelectQuery:
         query = parse_select(
-            f"""
+            """
             SELECT
                 uuid,
                 event,
@@ -91,10 +91,10 @@ class SessionMessagesQueryRunner(AnalyticsQueryRunner[SessionMessagesQueryRespon
                 output_state,
                 tools
             FROM posthog.ai_events
-            WHERE event IN {{transcript_event_names}}
-              AND {{filter_conditions}}
+            WHERE event IN {transcript_event_names}
+              AND {filter_conditions}
             ORDER BY trace_id, timestamp
-            LIMIT {_MAX_EVENTS}
+            LIMIT {max_events}
             """,
         )
         return cast(ast.SelectQuery, query)
@@ -105,6 +105,7 @@ class SessionMessagesQueryRunner(AnalyticsQueryRunner[SessionMessagesQueryRespon
             "transcript_event_names": ast.Tuple(
                 exprs=[ast.Constant(value=name) for name in sorted(_SESSION_TRANSCRIPT_EVENT_NAMES)]
             ),
+            "max_events": ast.Constant(value=_MAX_EVENTS),
         }
 
     def _build_where_clause(self) -> ast.Expr:
