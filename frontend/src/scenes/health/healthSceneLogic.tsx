@@ -4,7 +4,6 @@ import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
 import { healthSummaryLogic } from 'lib/components/HelpMenu/healthSummaryLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -25,7 +24,6 @@ export interface HealthIssuesResponse {
 
 export const healthSceneLogic = kea<healthSceneLogicType>([
     path(['scenes', 'health', 'healthSceneLogic']),
-    tabAwareScene(),
     connect({
         values: [teamLogic, ['currentTeamIdStrict']],
     }),

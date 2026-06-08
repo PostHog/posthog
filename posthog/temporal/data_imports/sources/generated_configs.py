@@ -390,7 +390,9 @@ class FullStorySourceConfig(config.Config):
 
 @config.config
 class GitLabSourceConfig(config.Config):
-    pass
+    personal_access_token: str
+    project: str
+    gitlab_host: str | None = None
 
 
 @config.config
