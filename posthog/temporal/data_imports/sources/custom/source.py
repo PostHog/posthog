@@ -1,4 +1,6 @@
+import copy
 import json
+import graphlib
 from typing import Any, Literal, Optional, cast
 from urllib.parse import urlparse
 
@@ -22,9 +24,16 @@ from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleS
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.mixins import _is_host_safe
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
+from posthog.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
 from posthog.temporal.data_imports.sources.common.rest_source.auth import auth_secret_values
-from posthog.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
+from posthog.temporal.data_imports.sources.common.rest_source.config_setup import (
+    build_resource_dependency_graph,
+    create_auth,
+)
 from posthog.temporal.data_imports.sources.common.rest_source.utils import resolve_request_url
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import CustomSourceConfig
@@ -160,6 +169,30 @@ def validate_manifest(manifest: Any) -> None:
         _Manifest.model_validate(manifest)
     except ValidationError as exc:
         raise ManifestValidationError(_format_validation_errors(exc)) from exc
+
+    _validate_resource_graph(manifest)
+
+
+def _validate_resource_graph(manifest: dict[str, Any]) -> None:
+    """Surface parent/child fan-out errors at create-time instead of first sync.
+
+    Reuses the REST engine's own :func:`build_resource_dependency_graph` so the
+    rules can't drift from what the engine enforces at runtime: a child's
+    ``type: "resolve"`` param must reference a resource that exists, must be
+    bound in the path (``/forms/{form_id}/responses`` — query-param resolve is
+    not supported by the engine), at most one resolve param per resource, and no
+    dependency cycles (forced by ``static_order``). The graph builder mutates the
+    resources it inspects (binds path params), so it runs on a deep copy and
+    never touches the stored manifest.
+    """
+    try:
+        graph, _, _ = build_resource_dependency_graph(
+            copy.deepcopy(manifest.get("resource_defaults") or {}),
+            copy.deepcopy(manifest["resources"]),
+        )
+        list(graph.static_order())
+    except (ValueError, NotImplementedError, graphlib.CycleError) as exc:
+        raise ManifestValidationError(str(exc)) from exc
 
 
 def _format_validation_errors(exc: ValidationError) -> str:
@@ -446,7 +479,12 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             allow_redirects=False,
         )
 
-        for resource in manifest["resources"][:PROBE_MAX_RESOURCES]:
+        # Fan-out child resources bind a parent row's field into their path
+        # (`/forms/{form_id}/responses`), so they can't be reached without first
+        # fetching a parent — skip them. Auth is shared across resources, so the
+        # top-level resources still validate the credential.
+        probeable = [resource for resource in manifest["resources"] if _find_resolve_parent(resource) is None]
+        for resource in probeable[:PROBE_MAX_RESOURCES]:
             endpoint = resource.get("endpoint", {})
             method = (endpoint.get("method") or "GET").upper()
             path = endpoint.get("path", "")
@@ -526,27 +564,59 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             )
             if chosen is None:
                 raise ValueError(f"Resource {inputs.schema_name!r} not found in config")
+
+            # When the chosen resource binds a parent via a `type: "resolve"`
+            # param, the REST engine needs the parent(s) in the same config so it
+            # can fan out: fetch the parent, then issue one child request per
+            # parent row. `chain` is [root, …, chosen]; a top-level resource is
+            # just [chosen].
+            chain = _resolve_ancestor_chain(manifest, chosen)
         except ValueError as exc:
-            # A malformed manifest or a missing resource is a permanent,
-            # deterministic failure — retrying the sync cannot fix it. Raise
-            # NonRetryableException (the only type Temporal treats as
-            # non-retryable for this activity) so the job fails fast instead of
-            # burning the whole retry budget on an error that will always recur.
+            # A malformed manifest, a missing resource, or a broken parent
+            # reference is a permanent, deterministic failure — retrying the sync
+            # cannot fix it. Raise NonRetryableException (the only type Temporal
+            # treats as non-retryable for this activity) so the job fails fast
+            # instead of burning the whole retry budget on an error that will
+            # always recur.
             raise NonRetryableException(str(exc)) from exc
 
-        single_resource_manifest = cast(
-            RESTAPIConfig,
-            {**manifest, "resources": [_strip_engine_unsupported_incremental_keys(chosen)]},
+        db_incremental_field_last_value = (
+            inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
         )
 
-        resource = rest_api_resource(
-            single_resource_manifest,
-            team_id=inputs.team_id,
-            job_id=inputs.job_id,
-            db_incremental_field_last_value=(
-                inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
-            ),
-        )
+        if len(chain) == 1:
+            single_resource_manifest = cast(
+                RESTAPIConfig,
+                {**manifest, "resources": [_strip_engine_unsupported_incremental_keys(chosen)]},
+            )
+            resource = rest_api_resource(
+                single_resource_manifest,
+                team_id=inputs.team_id,
+                job_id=inputs.job_id,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+            )
+        else:
+            # Fan-out: hand the engine the whole parent→child chain. The
+            # ancestors are fetched transiently to drive the child and are NOT
+            # persisted — only the chosen child resource is returned (its own
+            # table). Incremental is stripped from the ancestors so the child's
+            # high-watermark isn't misapplied to a parent; ancestors full-scan
+            # every run, matching the built-in fan-out sources (Typeform/Sentry).
+            chosen_name = chosen["name"]
+            fanout_resources = [_prepare_fanout_resource(r, is_child=r["name"] == chosen_name) for r in chain]
+            multi_resource_manifest = cast(
+                RESTAPIConfig,
+                {**manifest, "resources": fanout_resources},
+            )
+            resources = rest_api_resources(
+                multi_resource_manifest,
+                team_id=inputs.team_id,
+                job_id=inputs.job_id,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+            )
+            resource = next((r for r in resources if getattr(r, "name", None) == chosen_name), None)
+            if resource is None:
+                raise NonRetryableException(f"Fan-out resource {chosen_name!r} was not produced by the REST engine")
 
         primary_key = chosen.get("primary_key")
         primary_keys: list[str] | None
@@ -676,6 +746,83 @@ def _strip_engine_unsupported_incremental_keys(resource: dict[str, Any]) -> dict
         return resource
     cleaned = {k: v for k, v in incremental.items() if k not in _ENGINE_UNSUPPORTED_INCREMENTAL_KEYS}
     return {**resource, "endpoint": {**endpoint, "incremental": cleaned}}
+
+
+def _find_resolve_parent(resource: Any) -> str | None:
+    """The parent resource name a fan-out child binds via a ``type: "resolve"``
+    param, or ``None`` for a top-level resource.
+
+    Mirrors the REST engine's ``_find_resolved_params`` — a child declares its
+    parent inside ``endpoint.params`` as
+    ``{"<path_param>": {"type": "resolve", "resource": "<parent>", "field": "<field>"}}``.
+    The manifest is validated to allow at most one such param per resource, so
+    the first match is authoritative.
+    """
+    if not isinstance(resource, dict):
+        return None
+    endpoint = resource.get("endpoint")
+    if not isinstance(endpoint, dict):
+        return None
+    params = endpoint.get("params")
+    if not isinstance(params, dict):
+        return None
+    for value in params.values():
+        if isinstance(value, dict) and value.get("type") == "resolve":
+            parent = value.get("resource")
+            if isinstance(parent, str):
+                return parent
+    return None
+
+
+def _resolve_ancestor_chain(manifest: dict[str, Any], chosen: dict[str, Any]) -> list[dict[str, Any]]:
+    """Walk a fan-out child up to its root, returning ``[root, …, chosen]``.
+
+    A top-level resource resolves to ``[chosen]``. The dependency graph is
+    validated at manifest time, so the missing-parent / cycle guards here are
+    defensive — they convert a logic error into a clear, non-retryable failure
+    rather than an opaque engine crash.
+    """
+    by_name: dict[str, dict[str, Any]] = {
+        r["name"]: r for r in manifest["resources"] if isinstance(r, dict) and isinstance(r.get("name"), str)
+    }
+    chain: list[dict[str, Any]] = [chosen]
+    seen: set[str] = {chosen["name"]}
+    current = chosen
+    while (parent_name := _find_resolve_parent(current)) is not None:
+        if parent_name in seen:
+            raise ValueError(f"Circular parent dependency at resource {parent_name!r}")
+        parent = by_name.get(parent_name)
+        if parent is None:
+            raise ValueError(f"Resource {current['name']!r} depends on unknown parent resource {parent_name!r}")
+        chain.append(parent)
+        seen.add(parent_name)
+        current = parent
+    chain.reverse()
+    return chain
+
+
+def _prepare_fanout_resource(resource: dict[str, Any], *, is_child: bool) -> dict[str, Any]:
+    """Ready a resource in a fan-out chain for the REST engine.
+
+    The chosen child keeps its incremental config (the run's high-watermark is
+    its cursor). Ancestors are stripped of incremental config so the single
+    ``db_incremental_field_last_value`` — which belongs to the child — can't be
+    misapplied to a parent and silently drop parent rows (and with them their
+    children). Both still have engine-incompatible keys (``cursor_type``)
+    stripped.
+    """
+    prepared = _strip_engine_unsupported_incremental_keys(resource)
+    if is_child:
+        return prepared
+    return _without_endpoint_incremental(prepared)
+
+
+def _without_endpoint_incremental(resource: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of ``resource`` with ``endpoint.incremental`` removed."""
+    endpoint = resource.get("endpoint")
+    if not isinstance(endpoint, dict) or "incremental" not in endpoint:
+        return resource
+    return {**resource, "endpoint": {k: v for k, v in endpoint.items() if k != "incremental"}}
 
 
 def _schema_from_resource(resource: dict[str, Any]) -> SourceSchema:

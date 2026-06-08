@@ -24,6 +24,10 @@ const baseState = (): ManifestState => ({
             cursor_path: '',
             cursor_type: 'datetime',
             start_param: '',
+            parent_stream: '',
+            parent_resolve_field: '',
+            parent_path_param: '',
+            include_from_parent: '',
         },
     ],
 })
@@ -259,6 +263,10 @@ describe('parseManifestIntoState', () => {
                 cursor_path: 'updated_at',
                 cursor_type: 'datetime',
                 start_param: 'since',
+                parent_stream: '',
+                parent_resolve_field: '',
+                parent_path_param: '',
+                include_from_parent: '',
             },
         ]
 
@@ -399,10 +407,107 @@ describe('parseManifestIntoState', () => {
                 cursor_path: 'updated_at',
                 cursor_type: 'timestamp',
                 start_param: 'since',
+                parent_stream: '',
+                parent_resolve_field: '',
+                parent_path_param: '',
+                include_from_parent: '',
             },
         ]
 
         const firstJson = JSON.stringify(buildManifest(original))
+        const secondJson = JSON.stringify(buildManifest(parseManifestIntoState(firstJson)))
+        expect(secondJson).toBe(firstJson)
+    })
+})
+
+describe('fan-out (parent/child)', () => {
+    const childState = (): ManifestState => {
+        const state = baseState()
+        state.streams = [
+            {
+                id: 'stream-forms',
+                name: 'forms',
+                path: '/forms',
+                method: 'GET',
+                data_selector: 'items',
+                primary_key: 'id',
+                paginator: { type: 'single_page' },
+                sort_mode: 'asc',
+                incremental_enabled: false,
+                cursor_path: '',
+                cursor_type: 'datetime',
+                start_param: '',
+                parent_stream: '',
+                parent_resolve_field: '',
+                parent_path_param: '',
+                include_from_parent: '',
+            },
+            {
+                id: 'stream-responses',
+                name: 'responses',
+                path: '/forms/{form_id}/responses',
+                method: 'GET',
+                data_selector: 'items',
+                primary_key: 'token',
+                paginator: { type: 'single_page' },
+                sort_mode: 'asc',
+                incremental_enabled: false,
+                cursor_path: '',
+                cursor_type: 'datetime',
+                start_param: '',
+                parent_stream: 'forms',
+                parent_resolve_field: 'id',
+                parent_path_param: 'form_id',
+                include_from_parent: 'id, title',
+            },
+        ]
+        return state
+    }
+
+    it('emits a resolve param binding the parent field into the path placeholder', () => {
+        const manifest = buildManifest(childState()) as any
+        expect(manifest.resources[1].endpoint.params).toEqual({
+            form_id: { type: 'resolve', resource: 'forms', field: 'id' },
+        })
+    })
+
+    it('emits include_from_parent as a list when fields are provided', () => {
+        const manifest = buildManifest(childState()) as any
+        expect(manifest.resources[1].include_from_parent).toEqual(['id', 'title'])
+    })
+
+    it('omits the resolve param when the dependency is half-filled', () => {
+        const state = childState()
+        state.streams[1].parent_path_param = '' // missing placeholder name
+        const manifest = buildManifest(state) as any
+        expect('params' in manifest.resources[1].endpoint).toBe(false)
+        expect('include_from_parent' in manifest.resources[1]).toBe(false)
+    })
+
+    it('omits include_from_parent when no parent fields are listed', () => {
+        const state = childState()
+        state.streams[1].include_from_parent = ''
+        const manifest = buildManifest(state) as any
+        expect('params' in manifest.resources[1].endpoint).toBe(true)
+        expect('include_from_parent' in manifest.resources[1]).toBe(false)
+    })
+
+    it('keeps the top-level parent stream free of a resolve param', () => {
+        const manifest = buildManifest(childState()) as any
+        expect('params' in manifest.resources[0].endpoint).toBe(false)
+    })
+
+    it('hydrates the parent dependency back out on parse', () => {
+        const state = parseManifestIntoState(JSON.stringify(buildManifest(childState())))
+        const child = state.streams[1]
+        expect(child.parent_stream).toBe('forms')
+        expect(child.parent_resolve_field).toBe('id')
+        expect(child.parent_path_param).toBe('form_id')
+        expect(child.include_from_parent).toBe('id, title')
+    })
+
+    it('round-trips a fan-out manifest through build → parse → build without drift', () => {
+        const firstJson = JSON.stringify(buildManifest(childState()))
         const secondJson = JSON.stringify(buildManifest(parseManifestIntoState(firstJson)))
         expect(secondJson).toBe(firstJson)
     })

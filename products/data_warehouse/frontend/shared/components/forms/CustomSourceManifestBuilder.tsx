@@ -133,6 +133,9 @@ export function CustomSourceManifestBuilder({
                         index={index}
                         stream={stream}
                         canRemove={manifestState.streams.length > 1}
+                        parentOptions={manifestState.streams
+                            .filter((other, otherIndex) => otherIndex !== index && other.name.trim().length > 0)
+                            .map((other) => ({ value: other.name, label: other.name }))}
                         onUpdate={(patch) => updateStream(index, patch)}
                         onUpdatePaginator={(paginator) => updatePaginator(index, paginator)}
                         onRemove={() => removeStream(index)}
@@ -292,6 +295,7 @@ function StreamCard({
     index,
     stream,
     canRemove,
+    parentOptions,
     onUpdate,
     onUpdatePaginator,
     onRemove,
@@ -299,6 +303,7 @@ function StreamCard({
     index: number
     stream: StreamForm
     canRemove: boolean
+    parentOptions: { value: string; label: string }[]
     onUpdate: (patch: Partial<StreamForm>) => void
     onUpdatePaginator: (paginator: Paginator) => void
     onRemove: () => void
@@ -359,8 +364,87 @@ function StreamCard({
                     <code>items</code>, <code>results.data</code>).
                 </p>
             </LemonField.Pure>
+            <ParentSection stream={stream} parentOptions={parentOptions} onUpdate={onUpdate} />
             <PaginatorSection paginator={stream.paginator} onUpdate={onUpdatePaginator} />
             <IncrementalSection stream={stream} onUpdate={onUpdate} />
+        </div>
+    )
+}
+
+function ParentSection({
+    stream,
+    parentOptions,
+    onUpdate,
+}: {
+    stream: StreamForm
+    parentOptions: { value: string; label: string }[]
+    onUpdate: (patch: Partial<StreamForm>) => void
+}): JSX.Element {
+    const hasParent = stream.parent_stream.trim().length > 0
+    const pathParam = stream.parent_path_param.trim()
+    // The REST engine can only inject a resolved value into the URL path, so the
+    // path must contain the placeholder — warn early instead of failing at sync.
+    const pathMissingPlaceholder = hasParent && pathParam.length > 0 && !stream.path.includes(`{${pathParam}}`)
+    return (
+        <div className="rounded border border-border p-3 space-y-2">
+            <LemonField.Pure label="Depends on parent stream">
+                <LemonSelect
+                    value={hasParent ? stream.parent_stream : ''}
+                    onChange={(value) =>
+                        value
+                            ? onUpdate({ parent_stream: value })
+                            : onUpdate({
+                                  parent_stream: '',
+                                  parent_resolve_field: '',
+                                  parent_path_param: '',
+                                  include_from_parent: '',
+                              })
+                    }
+                    options={[{ value: '', label: 'None (top-level stream)' }, ...parentOptions]}
+                />
+            </LemonField.Pure>
+            {hasParent && (
+                <>
+                    <p className="m-0 text-xs text-secondary">
+                        PostHog fetches the parent stream first, then calls this stream once per parent row — binding
+                        the chosen parent field into the path placeholder (e.g.{' '}
+                        <code>/forms/{'{form_id}'}/responses</code>).
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                        <LemonField.Pure label="Parent field">
+                            <LemonInput
+                                placeholder="id"
+                                value={stream.parent_resolve_field}
+                                onChange={(value) => onUpdate({ parent_resolve_field: value })}
+                            />
+                        </LemonField.Pure>
+                        <LemonField.Pure label="Path placeholder">
+                            <LemonInput
+                                placeholder="form_id"
+                                value={stream.parent_path_param}
+                                onChange={(value) => onUpdate({ parent_path_param: value })}
+                            />
+                        </LemonField.Pure>
+                    </div>
+                    {pathMissingPlaceholder && (
+                        <p className="m-0 text-xs text-danger">
+                            Add <code>{`{${pathParam}}`}</code> to the path above — the parent field is injected there,
+                            and the sync fails without it.
+                        </p>
+                    )}
+                    <LemonField.Pure label="Include parent fields">
+                        <LemonInput
+                            placeholder="id, name"
+                            value={stream.include_from_parent}
+                            onChange={(value) => onUpdate({ include_from_parent: value })}
+                        />
+                        <p className="m-0 mt-1 text-xs text-secondary">
+                            Optional comma-separated parent fields copied onto each row, as{' '}
+                            <code>_{stream.parent_stream || 'parent'}_&lt;field&gt;</code>.
+                        </p>
+                    </LemonField.Pure>
+                </>
+            )}
         </div>
     )
 }

@@ -86,6 +86,15 @@ export interface StreamForm {
     cursor_path: string
     cursor_type: CursorType
     start_param: string
+    // Fan-out (parent/child): when `parent_stream` is set, PostHog fetches that
+    // stream first and calls this one once per parent row, injecting
+    // `parent_resolve_field` into the `{parent_path_param}` placeholder in the
+    // path. `include_from_parent` lists parent fields copied onto each child row.
+    // Empty `parent_stream` means a top-level stream.
+    parent_stream: string
+    parent_resolve_field: string
+    parent_path_param: string
+    include_from_parent: string
 }
 
 export interface ManifestState {
@@ -125,7 +134,18 @@ export function emptyStream(): StreamForm {
         cursor_path: '',
         cursor_type: 'datetime',
         start_param: '',
+        parent_stream: '',
+        parent_resolve_field: '',
+        parent_path_param: '',
+        include_from_parent: '',
     }
+}
+
+function splitCsv(value: string): string[] {
+    return value
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean)
 }
 
 export function defaultState(): ManifestState {
@@ -201,16 +221,31 @@ export function buildManifest(state: ManifestState): Record<string, unknown> {
             }
             endpoint.incremental = incremental
         }
-        const primaryKeys = stream.primary_key
-            .split(',')
-            .map((part) => part.trim())
-            .filter(Boolean)
+        // Fan-out: bind the parent's field into the path placeholder via a
+        // `resolve` param. The REST engine fetches the parent first, then calls
+        // this stream once per parent row. Only emitted when all three pieces are
+        // present — a half-filled dependency would produce an invalid manifest.
+        const parentStream = stream.parent_stream.trim()
+        const pathParam = stream.parent_path_param.trim()
+        const parentField = stream.parent_resolve_field.trim()
+        const hasParent = Boolean(parentStream && pathParam && parentField)
+        if (hasParent) {
+            endpoint.params = {
+                ...(endpoint.params as Record<string, unknown> | undefined),
+                [pathParam]: { type: 'resolve', resource: parentStream, field: parentField },
+            }
+        }
+        const primaryKeys = splitCsv(stream.primary_key)
         const resource: Record<string, unknown> = {
             name: stream.name,
             // Fall back to 'id' when the field is cleared — an empty primary_key
             // array produces a broken resource downstream.
             primary_key: primaryKeys.length === 0 ? 'id' : primaryKeys.length === 1 ? primaryKeys[0] : primaryKeys,
             endpoint,
+        }
+        const includeFromParent = splitCsv(stream.include_from_parent)
+        if (hasParent && includeFromParent.length > 0) {
+            resource.include_from_parent = includeFromParent
         }
         // sort_mode only affects incremental resume safety. Emit only when the
         // user explicitly opts into descending order — backend default is asc.
@@ -344,6 +379,24 @@ function parseStream(resource: unknown): StreamForm {
     const cursorTypeRaw = asString(incremental.cursor_type, 'datetime')
     const cursorType: CursorType = isMember(CURSOR_TYPES, cursorTypeRaw) ? cursorTypeRaw : 'datetime'
     const primaryKey = r.primary_key
+    // Recover a fan-out dependency from the first `resolve` param: its key is the
+    // path placeholder, and it names the parent stream + the parent field bound in.
+    const params = asObject(endpoint.params)
+    let parentStream = ''
+    let parentResolveField = ''
+    let parentPathParam = ''
+    for (const [key, value] of Object.entries(params)) {
+        const spec = asObject(value)
+        if (spec.type === 'resolve') {
+            parentPathParam = key
+            parentStream = asString(spec.resource)
+            parentResolveField = asString(spec.field)
+            break
+        }
+    }
+    const includeFromParent = Array.isArray(r.include_from_parent)
+        ? (r.include_from_parent as unknown[]).map((field) => String(field)).join(', ')
+        : ''
     return {
         id: nextStreamId(),
         name: asString(r.name),
@@ -357,5 +410,9 @@ function parseStream(resource: unknown): StreamForm {
         cursor_path: asString(incremental.cursor_path),
         cursor_type: cursorType,
         start_param: asString(incremental.start_param),
+        parent_stream: parentStream,
+        parent_resolve_field: parentResolveField,
+        parent_path_param: parentPathParam,
+        include_from_parent: includeFromParent,
     }
 }

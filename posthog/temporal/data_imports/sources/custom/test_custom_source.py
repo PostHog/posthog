@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+from requests import Response
 from urllib3.response import HTTPResponse
 
 from posthog.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth, BearerTokenAuth, HttpBasicAuth
@@ -17,6 +18,7 @@ from posthog.temporal.data_imports.sources.custom.source import (
     CustomSource,
     ManifestValidationError,
     _read_capped_text,
+    _resolve_ancestor_chain,
     is_custom_source_available_for_team,
     manifest_request_hosts,
     validate_manifest,
@@ -828,3 +830,271 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
 
         threaded_incremental = mock_resource.call_args.args[0]["resources"][0]["endpoint"]["incremental"]
         assert threaded_incremental == {"cursor_path": "updated_at", "start_param": "since"}
+
+
+def _fanout_manifest() -> dict:
+    """A parent (`forms`) + fan-out child (`responses`) that binds the parent's
+    `id` into its path via a `type: "resolve"` param."""
+    return {
+        "client": {"base_url": "https://api.example.com", "auth": {"type": "bearer"}},
+        "resources": [
+            {"name": "forms", "primary_key": "id", "endpoint": {"path": "/forms", "data_selector": "items"}},
+            {
+                "name": "responses",
+                "primary_key": "token",
+                "endpoint": {
+                    "path": "/forms/{form_id}/responses",
+                    "data_selector": "items",
+                    "params": {"form_id": {"type": "resolve", "resource": "forms", "field": "id"}},
+                },
+            },
+        ],
+    }
+
+
+def _fake_resource(name: str) -> MagicMock:
+    # MagicMock(name=...) sets the mock's repr, not a `.name` attribute, so the
+    # source's `r.name == chosen_name` lookup needs the attribute set explicitly.
+    resource = MagicMock()
+    resource.name = name
+    return resource
+
+
+class TestCustomSourceFanoutValidation(SimpleTestCase):
+    def test_accepts_valid_fanout(self):
+        validate_manifest(_fanout_manifest())
+
+    def test_rejects_unknown_parent(self):
+        manifest = _fanout_manifest()
+        manifest["resources"][1]["endpoint"]["params"]["form_id"]["resource"] = "nonexistent"
+        with self.assertRaises(ManifestValidationError):
+            validate_manifest(manifest)
+
+    def test_rejects_resolve_param_not_bound_in_path(self):
+        # The engine can only inject a resolved value into the URL path, so a
+        # resolve param with no matching `{placeholder}` is rejected at create time.
+        manifest = _fanout_manifest()
+        manifest["resources"][1]["endpoint"]["path"] = "/responses"
+        with self.assertRaises(ManifestValidationError):
+            validate_manifest(manifest)
+
+    def test_rejects_cycle(self):
+        manifest = _fanout_manifest()
+        # Make `forms` depend on `responses`, closing a loop.
+        manifest["resources"][0]["endpoint"]["path"] = "/forms/{response_token}"
+        manifest["resources"][0]["endpoint"]["params"] = {
+            "response_token": {"type": "resolve", "resource": "responses", "field": "token"}
+        }
+        with self.assertRaises(ManifestValidationError):
+            validate_manifest(manifest)
+
+    def test_rejects_multiple_resolve_params(self):
+        manifest = _fanout_manifest()
+        manifest["resources"][1]["endpoint"]["path"] = "/forms/{form_id}/responses/{other_id}"
+        manifest["resources"][1]["endpoint"]["params"]["other_id"] = {
+            "type": "resolve",
+            "resource": "forms",
+            "field": "id",
+        }
+        with self.assertRaises(ManifestValidationError):
+            validate_manifest(manifest)
+
+
+class TestResolveAncestorChain(SimpleTestCase):
+    def test_top_level_resource_is_single_element_chain(self):
+        manifest = _fanout_manifest()
+        chosen = manifest["resources"][0]
+        assert _resolve_ancestor_chain(manifest, chosen) == [chosen]
+
+    def test_child_chain_is_parent_first(self):
+        manifest = _fanout_manifest()
+        parent, child = manifest["resources"]
+        assert _resolve_ancestor_chain(manifest, child) == [parent, child]
+
+    def test_multi_level_chain(self):
+        manifest = _fanout_manifest()
+        # grandchild: /forms/{form_id}/responses/{response_token}/answers, resolving `responses`.
+        manifest["resources"].append(
+            {
+                "name": "answers",
+                "primary_key": "id",
+                "endpoint": {
+                    "path": "/responses/{response_token}/answers",
+                    "params": {"response_token": {"type": "resolve", "resource": "responses", "field": "token"}},
+                },
+            }
+        )
+        forms, responses, answers = manifest["resources"]
+        assert _resolve_ancestor_chain(manifest, answers) == [forms, responses, answers]
+
+
+class TestCustomSourceFanoutPipeline(SimpleTestCase):
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resource")
+    def test_child_schema_runs_parent_and_child(self, mock_single, mock_plural):
+        # Selecting the child must hand the engine BOTH resources (parent first)
+        # and return only the child resource — the parent is fetched transiently.
+        mock_plural.return_value = [_fake_resource("forms"), _fake_resource("responses")]
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_fanout_manifest()))
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="responses",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        response = source.source_for_pipeline(config, inputs)
+
+        mock_single.assert_not_called()
+        threaded_resources = mock_plural.call_args.args[0]["resources"]
+        assert [r["name"] for r in threaded_resources] == ["forms", "responses"]
+        assert response.items().name == "responses"
+        assert response.primary_keys == ["token"]
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resource")
+    def test_top_level_schema_uses_single_resource_path(self, mock_single, mock_plural):
+        # A parent selected on its own is a plain single-resource sync — the
+        # fan-out (plural) path must not run.
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_fanout_manifest()))
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="forms",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        source.source_for_pipeline(config, inputs)
+
+        mock_plural.assert_not_called()
+        mock_single.assert_called_once()
+        assert [r["name"] for r in mock_single.call_args.args[0]["resources"]] == ["forms"]
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_fanout_strips_incremental_from_parent_but_keeps_child(self, mock_plural):
+        # The run's high-watermark belongs to the child; applying it to the parent
+        # would silently drop parents (and their children). Parent must full-scan.
+        mock_plural.return_value = [_fake_resource("forms"), _fake_resource("responses")]
+        manifest = _fanout_manifest()
+        manifest["resources"][0]["endpoint"]["incremental"] = {"cursor_path": "updated_at", "start_param": "since"}
+        manifest["resources"][1]["endpoint"]["incremental"] = {"cursor_path": "submitted_at", "start_param": "since"}
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="responses",
+            job_id="job-1",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2024-01-01T00:00:00Z",
+        )
+        source.source_for_pipeline(config, inputs)
+
+        parent_cfg, child_cfg = mock_plural.call_args.args[0]["resources"]
+        assert "incremental" not in parent_cfg["endpoint"]
+        assert child_cfg["endpoint"]["incremental"] == {"cursor_path": "submitted_at", "start_param": "since"}
+        assert mock_plural.call_args.kwargs["db_incremental_field_last_value"] == "2024-01-01T00:00:00Z"
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_fanout_strips_cursor_type_from_child(self, mock_plural):
+        # cursor_type is a schema-typing hint the engine's Incremental(**config)
+        # rejects — it must be removed before the child reaches the engine.
+        mock_plural.return_value = [_fake_resource("forms"), _fake_resource("responses")]
+        manifest = _fanout_manifest()
+        manifest["resources"][1]["endpoint"]["incremental"] = {
+            "cursor_path": "submitted_at",
+            "start_param": "since",
+            "cursor_type": "datetime",
+        }
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="responses",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        source.source_for_pipeline(config, inputs)
+
+        _parent_cfg, child_cfg = mock_plural.call_args.args[0]["resources"]
+        assert child_cfg["endpoint"]["incremental"] == {"cursor_path": "submitted_at", "start_param": "since"}
+
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
+    def test_fanout_runs_through_real_engine(self, mock_make_session):
+        # End-to-end through the real REST engine (only the HTTP session is
+        # mocked): the parent is fetched once, the child is requested per parent
+        # row, and `include_from_parent` carries the parent id onto each child row.
+        def _response(body: dict) -> Response:
+            resp = Response()
+            resp.status_code = 200
+            resp._content = json.dumps(body).encode()
+            resp.headers["Content-Type"] = "application/json"
+            return resp
+
+        session = mock_make_session.return_value
+        session.headers = {}
+        session.prepare_request.side_effect = lambda request: request
+        session.send.side_effect = [
+            _response({"items": [{"id": "f1"}, {"id": "f2"}]}),  # GET /forms
+            _response({"items": [{"token": "r1"}, {"token": "r2"}]}),  # GET /forms/f1/responses
+            _response({"items": [{"token": "r3"}]}),  # GET /forms/f2/responses
+        ]
+
+        manifest = _fanout_manifest()
+        for resource in manifest["resources"]:
+            resource["endpoint"]["paginator"] = {"type": "single_page"}
+        manifest["resources"][1]["include_from_parent"] = ["id"]
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="responses",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        response = source.source_for_pipeline(config, inputs)
+
+        rows = [row for page in response.items() for row in page]
+        assert [row["token"] for row in rows] == ["r1", "r2", "r3"]
+        # include_from_parent injects the parent id as `_<parent>_<field>`.
+        assert [row["_forms_id"] for row in rows] == ["f1", "f1", "f2"]
+        requested_paths = [call.args[0].url for call in session.prepare_request.call_args_list]
+        assert requested_paths == [
+            "https://api.example.com/forms",
+            "https://api.example.com/forms/f1/responses",
+            "https://api.example.com/forms/f2/responses",
+        ]
+
+
+class TestCustomSourceFanoutSchemasAndProbe(SimpleTestCase):
+    def test_child_resource_is_its_own_schema(self):
+        manifest = _fanout_manifest()
+        manifest["resources"][1]["endpoint"]["incremental"] = {"cursor_path": "submitted_at", "start_param": "since"}
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        schemas = {s.name: s for s in source.get_schemas(config, team_id=999)}
+
+        assert set(schemas) == {"forms", "responses"}
+        assert schemas["responses"].supports_incremental is True
+        assert [f["field"] for f in schemas["responses"].incremental_fields] == ["submitted_at"]
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_probe_skips_fanout_child(self, mock_session):
+        # The child can't be probed without a parent row, so only the parent is hit.
+        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_fanout_manifest()), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
+
+        probed_urls = [call.args[1] for call in mock_session.return_value.request.call_args_list]
+        assert probed_urls == ["https://api.example.com/forms"]
