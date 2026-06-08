@@ -1,0 +1,27 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "image_base64": {
+            "description": "Base64-encoded PNG bytes of the image you rendered.",
+            "type": "string"
+        },
+        "insight_short_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional short id of the insight this image visualizes, recorded for provenance."
+        },
+        "title": {
+            "default": "",
+            "description": "Optional title used to build a readable filename for the published image.",
+            "type": "string"
+        }
+    },
+    "required": ["image_base64"],
+    "type": "object"
+}
