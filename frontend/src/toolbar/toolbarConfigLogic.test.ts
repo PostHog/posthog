@@ -360,33 +360,37 @@ describe('toolbar toolbarConfigLogic', () => {
             captureSpy.mockRestore()
         })
 
-        it('does not report expected timeouts as exceptions but still captures the analytics event', async () => {
-            ;(global.fetch as jest.Mock).mockImplementation(() =>
-                Promise.reject(new DOMException('signal is aborted without reason', 'AbortError'))
-            )
-            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
-            logic.mount()
-            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+        it.each([
+            {
+                scenario: 'expected timeout (DOMException AbortError)',
+                error: new DOMException('signal is aborted without reason', 'AbortError'),
+                expectedErrorType: 'timeout',
+                expectException: false,
+            },
+            {
+                scenario: 'genuine network/CORS error (TypeError)',
+                error: new TypeError('Failed to fetch'),
+                expectedErrorType: 'network_or_cors',
+                expectException: true,
+            },
+        ])(
+            '$scenario: captureException=$expectException, analytics event always fires',
+            async ({ error, expectedErrorType, expectException }) => {
+                ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(error))
+                const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+                logic.mount()
+                await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
 
-            expect(captureExceptionSpy).not.toHaveBeenCalled()
-            const checkEvent = captureSpy.mock.calls.find((c) => c[0] === 'toolbar ui host check')
-            expect(checkEvent?.[1]).toMatchObject({ status: 'error', error_type: 'timeout' })
-        })
+                const uiHostCheckExceptions = captureExceptionSpy.mock.calls.filter(
+                    (c) => c[1]?.toolbar_context === 'ui_host_check'
+                )
+                expect(uiHostCheckExceptions).toHaveLength(expectException ? 1 : 0)
+                expect(uiHostCheckExceptions[0]?.[1]?.error_type).toBe(expectException ? expectedErrorType : undefined)
 
-        it('reports genuine errors as exceptions', async () => {
-            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')))
-            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
-            logic.mount()
-            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
-
-            const uiHostCheckException = captureExceptionSpy.mock.calls.find(
-                (c) => c[1]?.toolbar_context === 'ui_host_check'
-            )
-            expect(uiHostCheckException?.[1]).toMatchObject({
-                toolbar_context: 'ui_host_check',
-                error_type: 'network_or_cors',
-            })
-        })
+                const checkEvent = captureSpy.mock.calls.find((c) => c[0] === 'toolbar ui host check')
+                expect(checkEvent?.[1]).toMatchObject({ status: 'error', error_type: expectedErrorType })
+            }
+        )
     })
 
     describe('canonicalizeUiHost', () => {
