@@ -6571,10 +6571,10 @@ class TestCloudUsageGate(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertEqual(response.json()["code"], "usage_limit_exceeded")
-        self.assertEqual(response.json()["limit_type"], "burst")
-        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.json()["code"] == "usage_limit_exceeded"
+        assert response.json()["limit_type"] == "burst"
+        assert not TaskRun.objects.filter(task=task).exists()
 
     @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
     def test_create_cloud_run_over_limit_returns_429_and_creates_no_run(self, mock_gate):
@@ -6587,9 +6587,9 @@ class TestCloudUsageGate(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertEqual(response.json()["code"], "usage_limit_exceeded")
-        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.json()["code"] == "usage_limit_exceeded"
+        assert not TaskRun.objects.filter(task=task).exists()
 
     @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
     def test_create_local_run_is_not_gated(self, mock_gate):
@@ -6602,9 +6602,9 @@ class TestCloudUsageGate(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         mock_gate.assert_not_called()
-        self.assertTrue(TaskRun.objects.filter(task=task).exists())
+        assert TaskRun.objects.filter(task=task).exists()
 
     @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
     def test_start_over_limit_returns_429(self, mock_gate):
@@ -6618,10 +6618,10 @@ class TestCloudUsageGate(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertEqual(response.json()["code"], "usage_limit_exceeded")
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.json()["code"] == "usage_limit_exceeded"
         run.refresh_from_db()
-        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+        assert run.status == TaskRun.Status.QUEUED
 
     @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
     def test_resume_in_cloud_over_limit_returns_429(self, mock_gate):
@@ -6640,8 +6640,8 @@ class TestCloudUsageGate(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertEqual(response.json()["code"], "usage_limit_exceeded")
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.json()["code"] == "usage_limit_exceeded"
 
     @parameterized.expand(
         [
@@ -6661,9 +6661,9 @@ class TestCloudUsageGate(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         mock_gate.assert_called_once()
-        self.assertTrue(TaskRun.objects.filter(task=task).exists())
+        assert TaskRun.objects.filter(task=task).exists()
         mock_workflow.assert_called_once()
 
 
@@ -6686,15 +6686,15 @@ class TestGetPosthogCodeUsage(TestCase):
         usage = get_posthog_code_usage(MagicMock(), 1)
 
         assert usage is not None
-        self.assertTrue(usage.is_rate_limited)
-        self.assertEqual(usage.limit_type, "burst")
-        self.assertEqual(usage.reset_at, "2026-06-09T00:00:00Z")
-        self.assertTrue(usage.is_pro)
-        self.assertEqual(mock_get.call_args.args[0], "https://gateway.us.posthog.com/v1/usage/posthog_code")
+        assert usage.is_rate_limited
+        assert usage.limit_type == "burst"
+        assert usage.reset_at == "2026-06-09T00:00:00Z"
+        assert usage.is_pro
+        assert mock_get.call_args.args[0] == "https://gateway.us.posthog.com/v1/usage/posthog_code"
 
     @override_settings(DEBUG=True, CLOUD_DEPLOYMENT=None)
     def test_local_uses_localhost_gateway(self):
-        self.assertEqual(_gateway_usage_url(), "http://localhost:3308/v1/usage/posthog_code")
+        assert _gateway_usage_url() == "http://localhost:3308/v1/usage/posthog_code"
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("products.tasks.backend.services.code_usage_gate.OAuthAccessToken")
@@ -6716,7 +6716,7 @@ class TestGetPosthogCodeUsage(TestCase):
         usage = get_posthog_code_usage(MagicMock(), 1)
 
         assert usage is not None
-        self.assertTrue(usage.is_rate_limited)
+        assert usage.is_rate_limited
 
     @parameterized.expand(
         [
@@ -6734,10 +6734,10 @@ class TestGetPosthogCodeUsage(TestCase):
         else:
             mock_get.return_value = MagicMock(status_code=status_code)
 
-        self.assertIsNone(get_posthog_code_usage(MagicMock(), 1))
+        assert get_posthog_code_usage(MagicMock(), 1) is None
 
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="DEV")
     @patch("products.tasks.backend.services.code_usage_gate.create_oauth_access_token_for_user")
     def test_fails_open_when_no_gateway_url(self, mock_token):
-        self.assertIsNone(get_posthog_code_usage(MagicMock(), 1))
+        assert get_posthog_code_usage(MagicMock(), 1) is None
         mock_token.assert_not_called()
