@@ -1,7 +1,7 @@
 import uuid
 import asyncio
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 from django.conf import settings
 from django.core.cache import cache
@@ -1056,7 +1056,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
     # Delivery fields that embed the query-derived AI report, mapped to the value each returns when
     # scrubbed for a caller without query access (content_snapshot is a non-null object, change_summary
     # nullable text). Single source of truth — keep in sync when adding AI-derived delivery fields.
-    AI_REPORT_SCRUBBED = {"content_snapshot": {}, "change_summary": None}
+    AI_REPORT_SCRUBBED: ClassVar[dict[str, dict | None]] = {"content_snapshot": {}, "change_summary": None}
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
