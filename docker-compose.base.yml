@@ -264,7 +264,12 @@ services:
                 ) &
                 exec /usr/bin/weed "$$@"
             - --
-        command: ['server', '-master.port=19001', '-s3', '-s3.port=19000', '-dir=/data']
+        # -volume.max raised from the default 8: every S3 bucket is its own SeaweedFS
+        # collection needing a dedicated volume, and the empty default collection
+        # pre-grows several. With three buckets (posthog, ducklake-dev, ai-blobs) the
+        # default cap is exhausted and writes to the starved buckets fail with
+        # "no writable volumes". 100 leaves ample headroom (empty volumes are sparse).
+        command: ['server', '-master.port=19001', '-s3', '-s3.port=19000', '-dir=/data', '-volume.max=100']
         # Without this, bin/wait-for-docker treats the container as ready the instant
         # weed execs, which races the bucket bootstrap. The previous MinIO config
         # `mkdir -p ... && minio server` created buckets BEFORE the server started, so
