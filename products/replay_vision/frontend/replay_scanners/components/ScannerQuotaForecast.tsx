@@ -63,7 +63,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                 Projected from this scanner: <strong>~{(projected ?? 0).toLocaleString()}/month</strong>
             </div>
             <div>
-                Monthly cap: <strong>{cap.toLocaleString()}</strong>
+                Monthly quota: <strong>{cap.toLocaleString()}</strong>
             </div>
             {resetsOn && <div className="text-muted">Resets {resetsOn}</div>}
         </div>

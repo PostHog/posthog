@@ -22,8 +22,7 @@ export function VisionMetrics(): JSX.Element {
     const { quota } = useValues(visionQuotaLogic)
 
     const projection = projectQuota(quota)
-    const { status, capReachDate, capReachInPeriod, projectionConfident, resetsOn, daysRemaining, combinedDailyRate } =
-        projection
+    const { resetsOn, status, daysRemaining, combinedDailyRate } = projection
     const used = quota?.usage_this_month ?? 0
     const cap = quota?.monthly_quota ?? 0
     const hasCap = cap > 0
@@ -115,7 +114,7 @@ export function VisionMetrics(): JSX.Element {
                                             Used this month: <strong>{quota.usage_this_month.toLocaleString()}</strong>
                                         </div>
                                         <div>
-                                            Monthly cap: <strong>{quota.monthly_quota.toLocaleString()}</strong>
+                                            Monthly quota: <strong>{quota.monthly_quota.toLocaleString()}</strong>
                                         </div>
                                         {resetsOn && <div className="text-muted">Resets {resetsOn}</div>}
                                     </div>
@@ -142,21 +141,9 @@ export function VisionMetrics(): JSX.Element {
                             </Tooltip>
                             <div className="text-muted text-sm mt-1">
                                 {quota.exhausted ? (
-                                    <span className="text-danger">Quota reached.</span>
-                                ) : capReachInPeriod && projectionConfident && capReachDate ? (
-                                    <span className="text-danger">
-                                        {quota.remaining.toLocaleString()} remaining. You'll run out on{' '}
-                                        <strong>{capReachDate.format('MMMM D')}</strong> at this rate.
-                                    </span>
-                                ) : status === 'warning' && projectionConfident ? (
-                                    <span className="text-warning">
-                                        {quota.remaining.toLocaleString()} remaining. You'll use most of your cap by{' '}
-                                        {resetsOn ?? 'period end'} at this rate.
-                                    </span>
+                                    <span className="text-danger">Quota exhausted</span>
                                 ) : (
-                                    `${quota.remaining.toLocaleString()} observations left${
-                                        resetsOn ? ` until ${resetsOn}.` : '.'
-                                    }`
+                                    `${quota.remaining.toLocaleString()} observations remaining.`
                                 )}
                             </div>
                         </>
