@@ -30,6 +30,10 @@ inputs:
         required: false
         default: 'false'
         description: Whether to disable caching on the docker depot build
+    platforms:
+        required: false
+        default: 'linux/amd64'
+        description: Target platforms. Defaults to amd64 only — this CI image is consumed by amd64 jobs (ci-hobby). The CD build (container-images-cd.yml) builds multi-arch for prod separately.
 
 outputs:
     tag:
@@ -53,9 +57,6 @@ runs:
 
         - name: Set up Docker Buildx
           uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
-
-        - name: Set up QEMU
-          uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
 
         - name: Set up Depot CLI
           uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
@@ -103,7 +104,7 @@ runs:
               context: .
               buildx-fallback: false # buildx is so slow it's better to just fail
               tags: ${{ steps.emit.outputs.tag }}
-              platforms: linux/amd64,linux/arm64
+              platforms: ${{ inputs.platforms }}
               build-args: COMMIT_HASH=${{ github.sha }}
               save: ${{ inputs.save }}
               push: ${{ inputs.push-image }}
