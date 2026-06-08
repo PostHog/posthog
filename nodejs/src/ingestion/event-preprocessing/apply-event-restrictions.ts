@@ -16,6 +16,32 @@ export type RoutingConfig = {
     preservePartitionLocality: boolean
 }
 
+/**
+ * Drop + DLQ token restrictions only, no overflow handling. For pipelines
+ * that don't have an overflow topic (e.g. client warnings). Type signature
+ * has no side outputs, so callers don't need to include `OverflowOutput` in
+ * their pipeline's outputs union just to satisfy the step.
+ */
+export function createApplyBasicEventRestrictionsStep<T extends { headers: EventHeaders }>(
+    manager: EventIngestionRestrictionManager
+): ProcessingStep<T, T> {
+    return function applyBasicEventRestrictionsStep(input) {
+        const { headers } = input
+
+        const restrictions = manager.getAppliedRestrictions(headers.token, headers)
+
+        if (restrictions.has(RestrictionType.DROP_EVENT)) {
+            return Promise.resolve(drop('blocked_token'))
+        }
+
+        if (restrictions.has(RestrictionType.REDIRECT_TO_DLQ)) {
+            return Promise.resolve(dlq('restricted_to_dlq'))
+        }
+
+        return Promise.resolve(ok(input))
+    }
+}
+
 export function createApplyEventRestrictionsStep<T extends { headers: EventHeaders }>(
     manager: EventIngestionRestrictionManager,
     routingConfig: RoutingConfig
