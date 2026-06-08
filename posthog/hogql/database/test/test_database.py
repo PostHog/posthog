@@ -685,6 +685,49 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select some_field.key from events"
         prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
 
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
+    def test_build_from_sources_performs_no_io(self, patch_execute):
+        # _fetch_sources does all the Postgres / feature-flag I/O; _build_from_sources must not query.
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="_accesskey", access_secret="_secret"
+        )
+        for i in range(3):
+            table = DataWarehouseTable.objects.create(
+                name=f"whatever{i}",
+                team=self.team,
+                columns={"id": "String"},
+                credential=credential,
+                url_pattern="",
+            )
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"whatever_view{i}",
+                query={"query": f"SELECT id FROM whatever{i}"},
+                columns={"id": "String"},
+                table=table,
+                status=DataWarehouseSavedQuery.Status.COMPLETED,
+            )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="event",
+            joining_table_name="whatever0",
+            joining_table_key="id",
+            field_name="some_field",
+        )
+
+        modifiers = create_default_modifiers_for_team(
+            self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
+        )
+        sources = Database._fetch_sources(team=self.team, modifiers=modifiers)
+
+        with self.assertNumQueries(0):
+            db = Database._build_from_sources(sources)
+
+        # The warehouse table and join were wired up without any further queries.
+        assert db.has_table("whatever0")
+        assert "some_field" in db.get_table("events").fields
+
     def test_database_warehouse_joins_on_system_table_are_serialized(self):
         DataWarehouseJoin.objects.create(
             team=self.team,
