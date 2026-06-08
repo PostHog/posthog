@@ -519,6 +519,19 @@ class TaskRunErrorResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Artifact ids that could not be resolved for the run",
     )
+    limit_type = serializers.ChoiceField(
+        choices=[("burst", "burst"), ("sustained", "sustained")],
+        required=False,
+        help_text="Which usage limit was hit on a rate_limited error: 'burst' (daily) or 'sustained' (monthly)",
+    )
+    reset_at = serializers.CharField(
+        required=False,
+        help_text="ISO 8601 timestamp when the hit usage limit resets, when known",
+    )
+    is_pro = serializers.BooleanField(
+        required=False,
+        help_text="Whether the team is on a Pro plan (drives the upgrade-prompt copy)",
+    )
 
 
 class AgentListResponseSerializer(serializers.Serializer):

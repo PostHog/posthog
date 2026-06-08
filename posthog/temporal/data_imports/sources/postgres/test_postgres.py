@@ -14,6 +14,7 @@ import structlog
 from psycopg import sql
 
 import posthog.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
+from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_SCALE,
     MAX_NUMERIC_SCALE,
@@ -49,6 +50,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _get_primary_keys,
     _get_sslmode,
     _get_table,
+    _get_table_chunk_size,
     _has_duplicate_primary_keys,
     _is_connection_dropped_error,
     _is_partitioned_table,
@@ -1077,6 +1079,21 @@ class TestIsPartitionedTable:
             for stmt in setup_ddl:
                 dj_cursor.execute(stmt)
             assert _is_partitioned_table(cast(Any, dj_cursor), "public", table_name) is expected
+
+
+class TestGetTableChunkSize:
+    @pytest.mark.django_db
+    def test_failing_probe_falls_back_without_poisoning_transaction(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            inner_query = sql.SQL("SELECT * FROM does_not_exist_chunk_probe").format()
+
+            chunk_size = _get_table_chunk_size(cast(Any, dj_cursor), inner_query, logger)
+            assert chunk_size == DEFAULT_CHUNK_SIZE
+
+            dj_cursor.execute("SELECT 1")
+            assert dj_cursor.fetchone()[0] == 1
 
 
 class TestPartitionedTableChunkSizing:
