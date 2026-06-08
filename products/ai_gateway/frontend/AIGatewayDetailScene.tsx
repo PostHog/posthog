@@ -4,6 +4,7 @@ import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { NotFound } from 'lib/components/NotFound'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -37,14 +38,7 @@ export function AIGatewayDetailScene(): JSX.Element {
     }
 
     if (!gateway) {
-        return (
-            <SceneContent>
-                <p>Gateway not found.</p>
-                <LemonButton type="secondary" to={urls.aiGateway()} icon={<IconArrowLeft />}>
-                    Back to gateways
-                </LemonButton>
-            </SceneContent>
-        )
+        return <NotFound object="gateway" />
     }
 
     return (
