@@ -996,6 +996,18 @@ def oauth_token(request: Request) -> Response:
         )
 
 
+def _lock_application(application_id: int) -> OAuthApplication | None:
+    """Row-lock the OAuthApplication so direct-mint serializes with revoke_application_sessions.
+
+    The revoke updates this row first and holds the lock for its whole transaction before
+    sweeping tokens, so a mint that takes the same lock is forced into one of two safe orders:
+    it holds the lock and its new tokens land before the revoke's sweep (which then catches
+    them), or the revoke committed first and the caller reads the now-visible
+    `sessions_revoked_at` and rejects. Must be called inside `transaction.atomic()`.
+    """
+    return OAuthApplication.objects.select_for_update().filter(pk=application_id).first()
+
+
 def _exchange_authorization_code(request: Request) -> Response:
     code = request.data.get("code", "")
     if not code:
@@ -1072,58 +1084,64 @@ def _exchange_authorization_code(request: Request) -> Response:
             {"error": "server_error", "error_description": "OAuth application is not configured"}, status=500
         )
 
-    # Provisioning auth codes live in the cache, not OAuthGrant, so an app-wide
-    # session revoke can't sweep them — reject codes issued before the stamp here.
-    # Codes minted before `issued_at` shipped lack the field; fail closed — they are
-    # at most AUTH_CODE_TTL_SECONDS old and the client can re-run the flow.
-    sessions_revoked_at = oauth_app.sessions_revoked_at if oauth_app else None
-    if sessions_revoked_at is not None:
-        issued_at_raw = code_data.get("issued_at")
-        issued_at = datetime.fromisoformat(issued_at_raw) if issued_at_raw else None
-        if issued_at is None or issued_at < sessions_revoked_at:
-            _capture_provisioning_event("token_exchange", "sessions_revoked", grant_type="authorization_code")
+    # Lock the app row before reading the revoke stamp and minting, so this serializes
+    # with revoke_application_sessions (see _lock_application). Provisioning auth codes
+    # live in the cache, not OAuthGrant, so the revoke's sweep can't reach them — the
+    # `issued_at` carried on the code is what a revoke is checked against. Codes minted
+    # before `issued_at` shipped lack the field; fail closed (they expire in
+    # AUTH_CODE_TTL_SECONDS and the client can re-run the flow).
+    with transaction.atomic():
+        locked_app = _lock_application(oauth_app.pk) if oauth_app else None
+        sessions_revoked_at = locked_app.sessions_revoked_at if locked_app else None
+        if sessions_revoked_at is not None:
+            issued_at_raw = code_data.get("issued_at")
+            issued_at = datetime.fromisoformat(issued_at_raw) if issued_at_raw else None
+            if issued_at is None or issued_at < sessions_revoked_at:
+                _capture_provisioning_event("token_exchange", "sessions_revoked", grant_type="authorization_code")
+                return Response(
+                    {"error": "invalid_grant", "error_description": "Application sessions were revoked; re-authorize."},
+                    status=400,
+                )
+
+        # Direct-mint bypasses /authorize's OAuthValidator, so the per-app scope
+        # ceiling has to be enforced here before the token is created by hand.
+        requested_scopes = scopes if scopes else StripeIntegration.SCOPES.split()
+        app_scopes = locked_app.scopes if locked_app else []
+        if not scopes_within_ceiling(requested_scopes, app_scopes):
+            _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="authorization_code")
             return Response(
-                {"error": "invalid_grant", "error_description": "Application sessions were revoked; re-authorize."},
+                {
+                    "error": "invalid_scope",
+                    "error_description": "Requested scopes exceed the application's allowed scopes",
+                },
                 status=400,
             )
+        scope_str = " ".join(requested_scopes)
 
-    # Direct-mint bypasses /authorize's OAuthValidator, so the per-app scope
-    # ceiling has to be enforced here before the token is created by hand.
-    requested_scopes = scopes if scopes else StripeIntegration.SCOPES.split()
-    app_scopes = oauth_app.scopes if oauth_app else []
-    if not scopes_within_ceiling(requested_scopes, app_scopes):
-        _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="authorization_code")
-        return Response(
-            {
-                "error": "invalid_scope",
-                "error_description": "Requested scopes exceed the application's allowed scopes",
-            },
-            status=400,
+        token_expiry = (
+            PARTNER_TOKEN_EXPIRY_SECONDS
+            if oauth_app and oauth_app.is_provisioning_partner
+            else ACCESS_TOKEN_EXPIRY_SECONDS
         )
-    scope_str = " ".join(requested_scopes)
 
-    token_expiry = (
-        PARTNER_TOKEN_EXPIRY_SECONDS if oauth_app and oauth_app.is_provisioning_partner else ACCESS_TOKEN_EXPIRY_SECONDS
-    )
+        access_token_value = generate_random_oauth_access_token(None)
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            token=access_token_value,
+            user=user,
+            expires=timezone.now() + timedelta(seconds=token_expiry),
+            scope=scope_str,
+            scoped_teams=[team_id],
+        )
 
-    access_token_value = generate_random_oauth_access_token(None)
-    access_token = OAuthAccessToken.objects.create(
-        application=oauth_app,
-        token=access_token_value,
-        user=user,
-        expires=timezone.now() + timedelta(seconds=token_expiry),
-        scope=scope_str,
-        scoped_teams=[team_id],
-    )
-
-    refresh_token_value = generate_random_oauth_refresh_token(None)
-    OAuthRefreshToken.objects.create(
-        application=oauth_app,
-        token=refresh_token_value,
-        user=user,
-        access_token=access_token,
-        scoped_teams=[team_id],
-    )
+        refresh_token_value = generate_random_oauth_refresh_token(None)
+        OAuthRefreshToken.objects.create(
+            application=oauth_app,
+            token=refresh_token_value,
+            user=user,
+            access_token=access_token,
+            scoped_teams=[team_id],
+        )
 
     account_id = str(code_data.get("org_id", ""))
 
@@ -1152,15 +1170,21 @@ def _exchange_refresh_token(request: Request) -> Response:
         _capture_provisioning_event("token_exchange", "missing_refresh_token", grant_type="refresh_token")
         return Response({"error": "invalid_request", "error_description": "refresh_token is required"}, status=400)
 
-    # Lock the refresh-token row so the rotate-and-mint below serializes against
-    # revoke_application_sessions' bulk sweep — a refresh that validated its token
-    # before the sweep committed must not mint fresh tokens after it. Locking only
-    # `self` avoids deadlocking with the sweep, which updates the application row
-    # first. Mirrors the DOT path (OAuthValidator._reject_refresh_racing_revoke).
+    # Lock the app row first (revoke_application_sessions locks it before sweeping tokens),
+    # then re-read the refresh token under that lock, so the rotate-and-mint serializes with
+    # the revoke: either we hold the lock and our new tokens land before its sweep, or it
+    # committed first and we see the token already revoked (or the stamp) and reject. Looking
+    # the app up by id first (without locking the token row) keeps the lock order app→token,
+    # matching the revoke, so the two can't deadlock.
     with transaction.atomic():
+        application_id = (
+            OAuthRefreshToken.objects.filter(token=refresh_token_value, revoked__isnull=True)
+            .values_list("application_id", flat=True)
+            .first()
+        )
+        locked_app = _lock_application(application_id) if application_id else None
         old_refresh = (
-            OAuthRefreshToken.objects.select_for_update(of=("self",))
-            .select_related("user", "application", "access_token")
+            OAuthRefreshToken.objects.select_related("user", "access_token")
             .filter(token=refresh_token_value, revoked__isnull=True)
             .first()
         )
@@ -1170,18 +1194,12 @@ def _exchange_refresh_token(request: Request) -> Response:
                 {"error": "invalid_grant", "error_description": "Invalid or revoked refresh token"}, status=400
             )
 
-        oauth_app = old_refresh.application
+        oauth_app = locked_app
         user = old_refresh.user
         scoped_teams = old_refresh.scoped_teams
         old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
 
-        # Re-read the revoke stamp in a fresh statement: the joined application row
-        # above comes from the pre-lock snapshot, so it can miss a revoke we waited on.
-        sessions_revoked_at = (
-            OAuthApplication.objects.filter(pk=oauth_app.pk).values_list("sessions_revoked_at", flat=True).first()
-            if oauth_app
-            else None
-        )
+        sessions_revoked_at = locked_app.sessions_revoked_at if locked_app else None
         if sessions_revoked_at is not None and old_refresh.created < sessions_revoked_at:
             _capture_provisioning_event("token_exchange", "sessions_revoked", grant_type="refresh_token")
             return Response(
