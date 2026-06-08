@@ -70,6 +70,24 @@ test.describe('Workflows hidden built-in templates load', () => {
             skip_onboarding: true,
             no_demo_data: true,
         })
+        // Playwright CI doesn't run sync_hog_function_templates, so the templates table is
+        // empty. Seed the one this test references with status='hidden' — that's the regression
+        // class we want to catch (a server-side filter that strips hidden templates).
+        await playwrightSetup.seedHogFunctionTemplate({
+            template_id: 'template-posthog-capture',
+            name: 'Capture a PostHog event',
+            status: 'hidden',
+            template_type: 'destination',
+            inputs_schema: [
+                {
+                    key: 'event',
+                    type: 'string',
+                    label: 'Event name',
+                    required: true,
+                    description: 'The name of the event to capture.',
+                },
+            ],
+        })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
