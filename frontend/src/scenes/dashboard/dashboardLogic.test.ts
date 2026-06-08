@@ -9,11 +9,12 @@ import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/uti
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic, RefreshDashboardItemsAction } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -1041,6 +1042,73 @@ describe('dashboardLogic', () => {
                             total: 1,
                         },
                     })
+            })
+
+            it('auto-refresh skips tiles that returned a 403, but a user refresh retries them', async () => {
+                const dashboard = dashboards[5]
+                const forbiddenInsight = {
+                    ...dashboard.tiles[0].insight!,
+                    cache_target_age: now().subtract(1, 'minute').toISOString(),
+                }
+                const okInsight = {
+                    ...dashboard.tiles[1].insight!,
+                    cache_target_age: now().subtract(1, 'minute').toISOString(),
+                }
+                dashboard.tiles[0].insight = forbiddenInsight
+                dashboard.tiles[1].insight = okInsight
+
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(async (_teamId, insight) => {
+                        if (insight.id === forbiddenInsight.id) {
+                            throw new ApiError('Forbidden', 403)
+                        }
+                        return insight
+                    })
+                const refreshedShortIds = (): (string | undefined)[] =>
+                    getInsightWithRetrySpy.mock.calls.map((c) => c[1].short_id)
+
+                try {
+                    // initial load records the 403 in the circuit breaker
+                    await expectLogic(logic, () => {
+                        logic.actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
+                    })
+                        .toDispatchActions([
+                            'refreshDashboardItems',
+                            (a) =>
+                                a.type === logic.actionTypes.setRefreshError &&
+                                a.payload.shortId === forbiddenInsight.short_id,
+                        ])
+                        .toFinishAllListeners()
+
+                    expect(logic.values.forbiddenTiles[forbiddenInsight.short_id]).toBe(true)
+
+                    // an automatic refresh must not re-request the forbidden tile
+                    getInsightWithRetrySpy.mockClear()
+                    await expectLogic(logic, () => {
+                        logic.actions.refreshDashboardItems({
+                            action: RefreshDashboardItemsAction.Refresh,
+                            forceRefresh: true,
+                            isAutoRefresh: true,
+                        })
+                    }).toFinishAllListeners()
+
+                    expect(refreshedShortIds()).toContain(okInsight.short_id)
+                    expect(refreshedShortIds()).not.toContain(forbiddenInsight.short_id)
+
+                    // a user-initiated refresh clears the breaker and tries the tile again
+                    getInsightWithRetrySpy.mockClear()
+                    await expectLogic(logic, () => {
+                        logic.actions.refreshDashboardItems({
+                            action: RefreshDashboardItemsAction.Refresh,
+                            forceRefresh: true,
+                        })
+                    }).toFinishAllListeners()
+
+                    expect(refreshedShortIds()).toContain(forbiddenInsight.short_id)
+                } finally {
+                    getInsightWithRetrySpy.mockRestore()
+                }
             })
         })
 

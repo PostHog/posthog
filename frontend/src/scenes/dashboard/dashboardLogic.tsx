@@ -263,6 +263,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         refreshDashboardItems: (payload: {
             action: RefreshDashboardItemsAction | DashboardLoadAction
             forceRefresh?: boolean
+            /** True only for the periodic auto-refresh interval, so it can skip permanently-forbidden tiles. */
+            isAutoRefresh?: boolean
         }) => payload,
         refreshDashboardWidgets: (payload: { tileIds: number[]; forceRefresh?: boolean }) => payload,
         setWidgetRunResults: (results: Record<number, DashboardWidgetRunResultApi>) => ({ results }),
@@ -1030,6 +1032,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 refreshDashboardItems: () => ({}),
                 abortQuery: () => ({}),
                 cancelDashboardRefresh: () => ({}),
+            },
+        ],
+        /**
+         * Short IDs of insight tiles that returned a permanent permission error (401/403).
+         * The periodic auto-refresh skips these so an open tab doesn't re-request forbidden
+         * tiles forever. Cleared on full dashboard load and on any user-initiated refresh,
+         * so a genuine access change is picked up the next time the user acts.
+         */
+        forbiddenTiles: [
+            {} as Record<string, boolean>,
+            {
+                setRefreshError: (state, { shortId, error }) =>
+                    error instanceof ApiError && (error.status === 403 || error.status === 401)
+                        ? { ...state, [shortId]: true }
+                        : state,
+                loadDashboardSuccess: () => ({}),
+                refreshDashboardItems: (state, { isAutoRefresh }) => (isAutoRefresh ? state : {}),
             },
         ],
         columns: [
@@ -2322,7 +2341,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.setRefreshError(insight.short_id, e)
             }
         },
-        refreshDashboardItems: async ({ action, forceRefresh }, breakpoint) => {
+        refreshDashboardItems: async ({ action, forceRefresh, isAutoRefresh }, breakpoint) => {
             const dashboardRefreshStartTime = performance.now()
             const isInitialLoad =
                 action === DashboardLoadAction.InitialLoad || action === DashboardLoadAction.InitialLoadWithVariables
@@ -2346,6 +2365,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         !t.insight.cache_target_age ||
                         dayjs(t.insight.cache_target_age).isBefore(dayjs())
                 )
+                // circuit breaker: the periodic auto-refresh skips tiles that returned a
+                // permission error, so an open tab doesn't re-request forbidden tiles forever
+                .filter((t) => !isAutoRefresh || !values.forbiddenTiles[t.insight.short_id])
 
             const tilesStaleCount = sortedTilesToRefresh.length
             let tilesRefreshedCount = 0
@@ -2742,6 +2764,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.refreshDashboardItems({
                         action: RefreshDashboardItemsAction.Refresh,
                         forceRefresh: true,
+                        isAutoRefresh: true,
                     })
                 }
                 cache.disposables.add(() => {
@@ -2749,6 +2772,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         actions.refreshDashboardItems({
                             action: RefreshDashboardItemsAction.Refresh,
                             forceRefresh: true,
+                            isAutoRefresh: true,
                         })
                     }, values.autoRefresh.interval * 1000)
                     return () => clearInterval(intervalId)
