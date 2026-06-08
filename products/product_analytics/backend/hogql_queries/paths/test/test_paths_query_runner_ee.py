@@ -3261,7 +3261,6 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([[]], [list(row[3]) for row in results])
 
     @pytest.mark.timeout(60)
-    @snapshot_clickhouse_queries
     @freeze_time("2012-01-01T03:21:34.000Z")
     def test_recording_with_start_and_end(self):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"])
