@@ -413,6 +413,9 @@ class Task(DeletedMetaFields, models.Model):
         if sandbox_env is not None:
             extra_state["sandbox_environment_id"] = str(sandbox_env.id)
 
+        if branch:
+            extra_state["pr_base_branch"] = branch
+
         if model:
             extra_state["model"] = model
 

@@ -95,6 +95,7 @@ class SignalTeamConfig(UUIDModel):
     )
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P0)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
+    autostart_base_branches = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -418,9 +419,10 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # `signals-scout-foo` gets a row (on the default schedule) on the next tick.
     skill_name = models.CharField(max_length=200)
     enabled = models.BooleanField(default=True, db_default=True)
-    # Dry-run vs emit. When False the scout runs and logs but `emit_finding` writes
-    # nothing — lets a scout be validated on a team before its findings reach the inbox.
-    emit = models.BooleanField(default=False, db_default=False)
+    # Dry-run vs emit. Defaults emit-on so a freshly authored scout is live from its first
+    # tick. Flip to False for dry-run — the scout runs and logs but `emit_finding` writes
+    # nothing — to validate it on a team before its findings reach the inbox.
+    emit = models.BooleanField(default=True, db_default=True)
     # Minutes between runs. The coordinator dispatches this scout when
     # `last_run_at is None or now - last_run_at >= run_interval_minutes`. Deterministic —
     # no sampling. Floor of 10 keeps one scout from monopolising the worker pool; default

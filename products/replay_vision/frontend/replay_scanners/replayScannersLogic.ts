@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -31,10 +31,6 @@ import {
 
 // Filter fields whose change shifts the result set; auto-reset page unless the caller passes a new one.
 const FILTER_RESET_KEYS = ['search', 'enabledFilter', 'scannerTypeFilter', 'createdByFilter', 'sort'] as const
-
-export interface ReplayScannersLogicProps {
-    tabId: string
-}
 
 // Keep in sync with `SCANNER_ORDER_FIELDS` in products/replay_vision/backend/api/scanners.py.
 export const SORTABLE_COLUMN_KEYS = [
@@ -146,7 +142,6 @@ function parseSortParam(value: unknown): ScannersSorting | null {
 
 export const replayScannersLogic = kea<replayScannersLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'replayScannersLogic']),
-    props({} as ReplayScannersLogicProps),
 
     actions({
         loadScanners: true,

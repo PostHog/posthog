@@ -2,7 +2,7 @@ import { dayjs } from 'lib/dayjs'
 
 import type { VisionQuotaApi } from '../generated/api.schemas'
 
-export const QUOTA_WARN_THRESHOLD = 0.8
+export const QUOTA_WARN_THRESHOLD = 0.85
 
 const MIN_DAYS_FOR_PROJECTED_DATE = 3
 
@@ -45,7 +45,7 @@ export function projectQuota(
     const periodLengthDays = periodStart && periodEnd ? Math.max(periodEnd.diff(periodStart, 'day', true), 1) : 30
     const daysElapsed = periodStart ? Math.max(now.diff(periodStart, 'day', true), 0) : 0
     const daysRemaining = periodEnd ? Math.max(periodEnd.diff(now, 'day', true), 0) : 0
-    const resetsOn = periodEnd ? periodEnd.format('MMM D') : null
+    const resetsOn = periodEnd ? periodEnd.format('MMMM D') : null
     const projectionConfident = daysElapsed >= MIN_DAYS_FOR_PROJECTED_DATE
 
     const historicalDailyBurn = daysElapsed > 0 ? used / daysElapsed : 0

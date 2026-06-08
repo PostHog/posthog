@@ -22,6 +22,7 @@ from posthog.scopes import (
     get_oauth_scopes_supported,
     get_scope_descriptions,
     narrow_scopes_to_ceiling,
+    scopes_outside_ceiling,
     scopes_within_ceiling,
 )
 
@@ -269,6 +270,28 @@ class TestScopesWithinCeiling(SimpleTestCase):
     def test_effective_ceiling(self) -> None:
         assert effective_ceiling([]) == UNPRIVILEGED_SCOPES
         assert effective_ceiling(["query:read", "insight:read"]) == frozenset({"query:read", "insight:read"})
+
+
+class TestScopesOutsideCeiling(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("subset_within_ceiling_none_rejected", ["query:read"], ["query:read", "insight:read"], []),
+            ("isolates_offender_from_grantable", ["query:read", "insight:write"], ["query:read"], ["insight:write"]),
+            ("privileged_rejected_without_ceiling", ["llm_gateway:read"], [], ["llm_gateway:read"]),
+            ("wildcard_rejected_under_explicit_ceiling", ["query:read", "*"], ["query:read"], ["*"]),
+            ("oidc_never_rejected", ["openid", "insight:write"], ["query:read"], ["insight:write"]),
+        ]
+    )
+    def test_resolution(self, _name: str, requested: list[str], app_scopes: list[str], expected: list[str]) -> None:
+        assert scopes_outside_ceiling(requested, app_scopes) == expected
+
+    def test_inverse_of_within_ceiling(self) -> None:
+        # The two helpers must never disagree: empty offender list iff within ceiling.
+        cases = [(["query:read", "insight:write"], ["query:read"]), (["query:read"], []), (["*"], [])]
+        for requested, app_scopes in cases:
+            within = scopes_within_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
+            outside = scopes_outside_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
+            assert within is (outside == [])
 
 
 class TestNarrowScopesToCeiling(SimpleTestCase):

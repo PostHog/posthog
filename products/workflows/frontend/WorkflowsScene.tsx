@@ -36,7 +36,6 @@ export type WorkflowsSceneTab = (typeof WORKFLOW_SCENE_TABS)[number]
 
 export type WorkflowsSceneProps = {
     tab?: WorkflowsSceneTab
-    tabId?: string
 }
 
 export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
@@ -143,7 +142,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         {
             label: 'Workflows',
             key: 'workflows',
-            content: <WorkflowsTable {...props} />,
+            content: <WorkflowsTable />,
             link: urls.workflows(),
         },
         {
