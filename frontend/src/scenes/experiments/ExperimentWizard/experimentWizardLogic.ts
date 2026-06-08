@@ -258,7 +258,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         loadFeatureFlagsSuccess: ({
             featureFlags,
         }: {
-            featureFlags: { results: FeatureFlagType[]; count: number }
+            featureFlags: { results: FeatureFlagType[]; hasMore: boolean }
         }) => {
             // Only auto-link on the first load. The
             // selectExistingFeatureFlagModalLogic is a shared singleton, so a
