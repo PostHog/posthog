@@ -31,6 +31,21 @@ export enum SignalSourceType {
     ALERT_STATE_CHANGE = 'alert_state_change',
 }
 
+// ── Shared optional remediation ──────────────────────────────────────────────────
+// A known fix attached to a signal. Optional and separate from `extra`: `extra` is product-specific
+// evidence; `remediation` is guidance for the research agent. When present, the signal is treated as
+// actionable and the agent follows the guidance rather than investigating from scratch — it still
+// runs, produces findings, and writes the human-facing report. Every variant may carry it.
+
+export interface SignalRemediation {
+    /** Agent-facing guidance: how to investigate (which MCP tools to call) and, where the fix lives
+     *  in the user's codebase, how to apply it. The research agent treats this as authoritative — it
+     *  still investigates and produces findings, but follows this instead of starting cold. */
+    agent: string
+    /** Suggested report priority (advisory — the research agent may override). */
+    priority?: 'P0' | 'P1' | 'P2' | 'P3' | 'P4'
+}
+
 // ── Per-product signal extras & inputs ──────────────────────────────────────────
 
 // Session replay problem (emitted per-session for problem-indicating segments)
@@ -65,6 +80,7 @@ export interface SessionProblemSignalInput {
     description: string
     weight: number
     extra: SessionProblemSignalExtra
+    remediation?: SignalRemediation
 }
 
 /** @deprecated No longer emitted. */
@@ -119,6 +135,7 @@ export interface LlmEvaluationSignalInput {
     description: string
     weight: number
     extra: LlmEvalSignalExtra
+    remediation?: SignalRemediation
 }
 
 // LLM evaluation report (one signal per report run, distilled from many results)
@@ -140,6 +157,7 @@ export interface LlmEvaluationReportSignalInput {
     description: string
     weight: number
     extra: LlmEvalReportSignalExtra
+    remediation?: SignalRemediation
 }
 
 // Zendesk ticket
@@ -160,6 +178,7 @@ export interface ZendeskTicketSignalInput {
     description: string
     weight: number
     extra: ZendeskTicketSignalExtra
+    remediation?: SignalRemediation
 }
 
 // GitHub issue
@@ -181,6 +200,7 @@ export interface GithubIssueSignalInput {
     description: string
     weight: number
     extra: GithubIssueSignalExtra
+    remediation?: SignalRemediation
 }
 
 // Linear issue
@@ -206,6 +226,7 @@ export interface LinearIssueSignalInput {
     description: string
     weight: number
     extra: LinearIssueSignalExtra
+    remediation?: SignalRemediation
 }
 
 // Conversations ticket
@@ -227,6 +248,7 @@ export interface ConversationsTicketSignalInput {
     description: string
     weight: number
     extra: ConversationsTicketSignalExtra
+    remediation?: SignalRemediation
 }
 
 // Error tracking
@@ -242,6 +264,7 @@ export interface ErrorTrackingSignalInput {
     description: string
     weight: number
     extra: ErrorTrackingSignalExtra
+    remediation?: SignalRemediation
 }
 
 // pganalyze issue (database performance finding)
@@ -269,6 +292,7 @@ export interface PgAnalyzeIssueSignalInput {
     description: string
     weight: number
     extra: PgAnalyzeIssueSignalExtra
+    remediation?: SignalRemediation
 }
 
 // Endpoint execution failure
@@ -289,6 +313,7 @@ export interface EndpointExecutionFailedSignalInput {
     description: string
     weight: number
     extra: EndpointExecutionFailedSignalExtra
+    remediation?: SignalRemediation
 }
 
 // Signals scout — cross-source findings emitted by the headless Signals scout harness.
@@ -333,6 +358,7 @@ export interface SignalsScoutSignalInput {
     description: string
     weight: number
     extra: SignalsScoutSignalExtra
+    remediation?: SignalRemediation
 }
 
 // Logs alert notification (firing / broken)
@@ -357,6 +383,7 @@ export interface LogsAlertStateChangeSignalInput {
     description: string
     weight: number
     extra: LogsAlertStateChangeSignalExtra
+    remediation?: SignalRemediation
 }
 
 // ── Report reviewer types ────────────────────────────────────────────────────────

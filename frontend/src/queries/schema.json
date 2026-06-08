@@ -11775,6 +11775,9 @@
                 "extra": {
                     "$ref": "#/definitions/ConversationsTicketSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -15921,6 +15924,9 @@
                 "extra": {
                     "$ref": "#/definitions/EndpointExecutionFailedSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -17478,6 +17484,9 @@
                 },
                 "extra": {
                     "$ref": "#/definitions/ErrorTrackingSignalExtra"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
                 },
                 "source_id": {
                     "type": "string"
@@ -21840,6 +21849,9 @@
                 "extra": {
                     "$ref": "#/definitions/GithubIssueSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -24492,6 +24504,9 @@
                 "extra": {
                     "$ref": "#/definitions/LinearIssueSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -24592,6 +24607,9 @@
                 "extra": {
                     "$ref": "#/definitions/LlmEvalReportSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -24618,6 +24636,9 @@
                 },
                 "extra": {
                     "$ref": "#/definitions/LlmEvalSignalExtra"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
                 },
                 "source_id": {
                     "type": "string"
@@ -25111,6 +25132,9 @@
                 },
                 "extra": {
                     "$ref": "#/definitions/LogsAlertStateChangeSignalExtra"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
                 },
                 "source_id": {
                     "type": "string"
@@ -29136,6 +29160,9 @@
                 },
                 "extra": {
                     "$ref": "#/definitions/PgAnalyzeIssueSignalExtra"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
                 },
                 "source_id": {
                     "type": "string"
@@ -38548,6 +38575,9 @@
                 "extra": {
                     "$ref": "#/definitions/SessionProblemSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -39206,6 +39236,22 @@
                 }
             ]
         },
+        "SignalRemediation": {
+            "additionalProperties": false,
+            "properties": {
+                "agent": {
+                    "description": "Agent-facing guidance: how to investigate (which MCP tools to call) and, where the fix lives in the user's codebase, how to apply it. The research agent treats this as authoritative — it still investigates and produces findings, but follows this instead of starting cold.",
+                    "type": "string"
+                },
+                "priority": {
+                    "description": "Suggested report priority (advisory — the research agent may override).",
+                    "enum": ["P0", "P1", "P2", "P3", "P4"],
+                    "type": "string"
+                }
+            },
+            "required": ["agent"],
+            "type": "object"
+        },
         "SignalReviewerUserInfo": {
             "additionalProperties": false,
             "properties": {
@@ -39361,6 +39407,9 @@
                 },
                 "extra": {
                     "$ref": "#/definitions/SignalsScoutSignalExtra"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
                 },
                 "source_id": {
                     "type": "string"
@@ -44649,6 +44698,9 @@
                 },
                 "extra": {
                     "$ref": "#/definitions/ZendeskTicketSignalExtra"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
                 },
                 "source_id": {
                     "type": "string"

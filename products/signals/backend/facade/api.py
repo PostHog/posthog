@@ -9,7 +9,7 @@ import structlog
 import temporalio
 import posthoganalytics
 
-from posthog.schema import SignalInput
+from posthog.schema import SignalInput, SignalRemediation
 
 from posthog.event_usage import groups
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
@@ -87,7 +87,7 @@ async def emit_signal(
     description: str,
     weight: float = 0.5,
     extra: dict | None = None,
-    remediation: str | None = None,
+    remediation: SignalRemediation | None = None,
 ) -> None:
     """
     Emit a signal for grouping and potential report generation, fire-and-forget.
@@ -108,9 +108,10 @@ async def emit_signal(
             `_telemetry_props_from_extra` — so per-source attribution (e.g. the scout harness's
             `scout_run_id` / `skill_name`) is queryable downstream without a schema change.
             Nested lists/dicts are never forwarded.
-        remediation: Optional top-level fix hint (separate from extra). When set, it is surfaced to the
-            investigating agent, which treats the signal as actionable and follows it. Not required by
-            any existing source.
+        remediation: Optional fix guidance (separate from extra), validated against the
+            `SignalRemediation` schema. When set, the signal is treated as actionable: the guidance
+            is surfaced to the research agent as authoritative direction, which it follows instead of
+            investigating from scratch. Not required by any existing source.
 
     Example:
         await emit_signal(
@@ -161,8 +162,10 @@ async def emit_signal(
                 }
             ],
         )
-    # `remediation` is an optional top-level field; only include it in the payload when set so
-    # variants that don't declare it (every source except health checks today) still validate.
+    # Carry the remediation as a plain dict from here on (like `extra`) so it survives the
+    # Temporal/S3 JSON round-trip; `model_validate` below re-checks it against the variant's
+    # declared `remediation: SignalRemediation | None` field.
+    remediation_dict = remediation.model_dump(mode="json", exclude_none=True) if remediation is not None else None
     payload_to_validate: dict = {
         "source_product": source_product,
         "source_type": source_type,
@@ -170,9 +173,8 @@ async def emit_signal(
         "description": description,
         "weight": weight,
         "extra": extra or {},
+        "remediation": remediation_dict,
     }
-    if remediation is not None:
-        payload_to_validate["remediation"] = remediation
     variant_model.model_validate(payload_to_validate)
 
     # Fire a "started" marker so direct callers (error tracking, AI observability evals, etc.)
@@ -209,7 +211,7 @@ async def emit_signal(
         description=description,
         weight=weight,
         extra=extra or {},
-        remediation=remediation,
+        remediation=remediation_dict,
     )
 
     # Ensure the buffer workflow is running (idempotent)

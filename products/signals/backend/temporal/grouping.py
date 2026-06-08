@@ -654,7 +654,7 @@ class AssignAndEmitSignalInput:
     match_result: MatchResult
     timestamp: Optional[datetime] = None
     updated_title: Optional[str] = None
-    remediation: Optional[str] = None
+    remediation: Optional[dict] = None
 
 
 @dataclass
