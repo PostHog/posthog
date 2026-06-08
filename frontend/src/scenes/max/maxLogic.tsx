@@ -133,11 +133,17 @@ function updateInactiveTab(tabId: string, props: Partial<SceneTab>): void {
     }
 }
 
+export interface MaxLogicProps {
+    tabId?: string
+    // Marks the instance that backs the floating side panel chat. It isn't a scene tab:
+    // it stays mounted across navigation and must never own or rewrite the scene route.
+    sidePanel?: boolean
+    onAcceptSessionFilters?: (filters: RecordingUniversalFilters) => void
+}
+
 export const maxLogic = kea<maxLogicType>([
-    props(
-        {} as { tabId?: string | 'sidepanel'; onAcceptSessionFilters?: (filters: RecordingUniversalFilters) => void }
-    ),
-    key((props) => props.tabId || 'scene'),
+    props({} as MaxLogicProps),
+    key((props) => (props.sidePanel ? 'sidepanel' : props.tabId || 'scene')),
     path((key) => ['scenes', 'max', 'maxLogic', key]),
 
     connect(() => ({
@@ -276,6 +282,7 @@ export const maxLogic = kea<maxLogicType>([
 
     selectors({
         tabId: [() => [(_, props) => props?.tabId || ''], (tabId) => tabId],
+        sidePanel: [() => [(_, props) => !!props?.sidePanel], (sidePanel) => sidePanel],
         onAcceptSessionFilters: [
             () => [
                 (_, props) =>
@@ -368,9 +375,10 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         threadLogicProps: [
-            (s) => [s.tabId, s.conversation, s.threadLogicKey],
-            (tabId, conversation, threadLogicKey) => ({
+            (s) => [s.tabId, s.sidePanel, s.conversation, s.threadLogicKey],
+            (tabId, sidePanel, conversation, threadLogicKey) => ({
                 tabId,
+                sidePanel,
                 conversationId: threadLogicKey,
                 conversation,
             }),
@@ -430,7 +438,7 @@ export const maxLogic = kea<maxLogicType>([
             // Side panel Max stays mounted across the whole app, so its question reducer
             // already survives navigation — and there's no removeTab cleanup for it,
             // which would turn the persisted draft into a memory leak.
-            if (props.tabId && props.tabId !== 'sidepanel') {
+            if (props.tabId && !props.sidePanel) {
                 actions.setChatDraftForTab(props.tabId, question)
             }
         },
@@ -569,7 +577,7 @@ export const maxLogic = kea<maxLogicType>([
         startNewConversation: () => {
             actions.resetContext()
             actions.focusInput()
-            if (props.tabId && props.tabId !== 'sidepanel') {
+            if (props.tabId && !props.sidePanel) {
                 actions.setChatDraftForTab(props.tabId, '')
             }
         },
@@ -588,7 +596,7 @@ export const maxLogic = kea<maxLogicType>([
     afterMount(({ actions, values, props }) => {
         // Restore per-tab chat draft (typed but unsent input that should survive scene unmount).
         // Side panel Max is excluded — it stays mounted globally, doesn't go through removeTab cleanup.
-        if (!values.question && props.tabId && props.tabId !== 'sidepanel') {
+        if (!values.question && props.tabId && !props.sidePanel) {
             const draft = values.chatDraftFor(props.tabId)
             if (draft) {
                 actions.setQuestion(draft)
@@ -674,30 +682,38 @@ export const maxLogic = kea<maxLogicType>([
         },
     })),
 
-    trackedActionToUrl(({ values }) => ({
-        toggleConversationHistory: () => {
-            if (values.conversationHistoryVisible) {
-                return [urls.aiHistory(), {}, router.values.location.hash]
-            } else if (values.conversationId) {
-                return [urls.ai(values.conversationId), {}, router.values.location.hash]
-            }
-            return [urls.ai(), {}, router.values.location.hash]
-        },
-        startNewConversation: () => {
-            return [urls.ai(), {}, router.values.location.hash]
-        },
-        openConversation: ({ conversationId }) => {
-            return [urls.ai(conversationId), {}, router.values.location.hash]
-        },
-        setConversationId: ({ conversationId }) => {
-            // Only set the URL parameter if this is a new conversation (using frontendConversationId)
-            if (conversationId && conversationId === values.frontendConversationId) {
-                return [urls.ai(conversationId), {}, router.values.location.hash, { replace: true }]
-            }
-            // Return undefined to not update URL for existing conversations
-            return undefined
-        },
-    })),
+    trackedActionToUrl(({ values, props }) => {
+        // The side panel chat floats over whatever page you're on, so it must never rewrite the
+        // scene route — only the scene instance (which owns the /ai route) syncs the URL. Without
+        // this guard, opening Max from e.g. an insight navigates you to /ai#panel=max.
+        if (props.sidePanel) {
+            return {}
+        }
+        return {
+            toggleConversationHistory: () => {
+                if (values.conversationHistoryVisible) {
+                    return [urls.aiHistory(), {}, router.values.location.hash]
+                } else if (values.conversationId) {
+                    return [urls.ai(values.conversationId), {}, router.values.location.hash]
+                }
+                return [urls.ai(), {}, router.values.location.hash]
+            },
+            startNewConversation: () => {
+                return [urls.ai(), {}, router.values.location.hash]
+            },
+            openConversation: ({ conversationId }) => {
+                return [urls.ai(conversationId), {}, router.values.location.hash]
+            },
+            setConversationId: ({ conversationId }) => {
+                // Only set the URL parameter if this is a new conversation (using frontendConversationId)
+                if (conversationId && conversationId === values.frontendConversationId) {
+                    return [urls.ai(conversationId), {}, router.values.location.hash, { replace: true }]
+                }
+                // Return undefined to not update URL for existing conversations
+                return undefined
+            },
+        }
+    }),
 ])
 
 export function getScrollableContainer(element?: Element | null): HTMLElement | null {
