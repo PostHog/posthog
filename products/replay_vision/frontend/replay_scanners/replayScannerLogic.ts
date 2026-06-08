@@ -213,7 +213,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         requestScannerEstimate: true,
         loadScannerEstimate: true,
         loadScannerEstimateSuccess: (estimate: EstimateResponseApi) => ({ estimate }),
-        loadScannerEstimateFailure: true,
+        loadScannerEstimateFailure: (error: string | null = null) => ({ error }),
     }),
 
     forms(({ props, values, actions }) => ({
@@ -367,6 +367,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             {
                 loadScannerEstimateSuccess: (_, { estimate }) => estimate,
                 loadScannerEstimateFailure: () => null,
+            },
+        ],
+        scannerEstimateError: [
+            null as string | null,
+            {
+                requestScannerEstimate: () => null,
+                loadScannerEstimateSuccess: () => null,
+                loadScannerEstimateFailure: (_, { error }) => error,
             },
         ],
         scannerEstimateLoading: [
@@ -626,7 +634,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         return
                     }
                     actions.loadScannerEstimateSuccess(response)
-                } catch (error) {
+                } catch (error: any) {
                     if (error instanceof Error && isBreakpoint(error)) {
                         throw error
                     }
@@ -635,7 +643,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     if (values.estimateRequestVersion !== version) {
                         return
                     }
-                    actions.loadScannerEstimateFailure()
+                    const detail = typeof error?.detail === 'string' ? error.detail : null
+                    const message = typeof error?.message === 'string' ? error.message : null
+                    actions.loadScannerEstimateFailure(detail ?? message)
                 }
             },
 

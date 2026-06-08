@@ -191,7 +191,7 @@
         }
     },
     "actions-get-all": {
-        "description": "Get all actions in the project. Actions are reusable event definitions that can combine multiple trigger conditions (page views, clicks, form submissions) into a single trackable event for use in insights and funnels. Supports pagination with limit and offset parameters. Note: Search/filtering by name is not supported on this endpoint.",
+        "description": "Get actions in the project. Actions are reusable event definitions that can combine multiple trigger conditions (page views, clicks, form submissions) into a single trackable event for use in insights and funnels. Supports pagination with `limit` and `offset`, and case-insensitive name filtering with `search`. Projects can have thousands of actions, so pass `limit` (and `search` when looking for a specific action by name) rather than fetching every action at once.",
         "category": "Actions",
         "feature": "actions",
         "summary": "Get all actions",
@@ -786,7 +786,7 @@
         }
     },
     "cohorts-add-persons-to-static-cohort-partial-update": {
-        "description": "Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).",
+        "description": "Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).\n\nIntended for small, ad-hoc additions — pass at most ~20 person UUIDs per call. To build or grow a static cohort from a larger set, do NOT loop this tool over many UUIDs; instead create the cohort from a query ('cohorts-create' with 'is_static: true' and a 'query'), or add to an existing static cohort by setting a 'query' on it via 'cohorts-partial-update'. The server then runs the query and inserts every matching person in a single call, with no row limit.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Add persons to static cohort",
@@ -800,7 +800,7 @@
         }
     },
     "cohorts-create": {
-        "description": "Create a new cohort. For dynamic cohorts, provide 'filters' with AND/OR groups of property conditions (person properties, behavioral filters, or cohort references). For static cohorts, set 'is_static: true' then use the 'cohorts-add-persons-to-static-cohort-partial-update' tool to add person UUIDs.",
+        "description": "Create a cohort (a saved group of persons). Two kinds:\n\n- Dynamic cohort (default): provide 'filters' with AND/OR groups of property conditions (person properties, behavioral filters, or cohort references). Membership is recalculated automatically.\n- Static cohort ('is_static: true'): a fixed snapshot of persons. PREFER populating it from a 'query' (see below) — the server runs the query and inserts every matching person in a single call, with no row limit. Only use 'cohorts-add-persons-to-static-cohort-partial-update' for tiny, ad-hoc additions (up to ~20 people).\n\nPopulate a static cohort from a query by setting BOTH 'is_static: true' and 'query'. 'query' accepts a HogQLQuery (raw SQL) or an ActorsQuery (the actors behind a product-analytics insight such as trends or funnels). The query MUST expose the person identifier under one of these column names, checked in this order: 'person_id', 'actor_id', 'id', or 'distinct_id'. Selecting from the 'events' or 'persons' tables resolves the actor automatically. If none of those columns is present the call fails with \"Could not find a person_id, actor_id, id, or distinct_id column in the query\".\n\nALWAYS validate the query before saving it: run a HogQLQuery through the 'execute-sql' tool, and an ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors', 'query-lifecycle-actors'). Only pass a 'query' that returned successfully — this catches column-name and syntax errors before they fail cohort population.\n\nExample — from SQL (HogQLQuery), alias the id column as person_id:\n{\"name\": \"Power users\", \"is_static\": true, \"query\": {\"kind\": \"HogQLQuery\", \"query\": \"SELECT person_id FROM events WHERE event = '$pageview' GROUP BY person_id HAVING count() > 100\"}}\n\nExample — from a product-analytics trends insight (ActorsQuery):\n{\"name\": \"Viewed pricing last 7d\", \"is_static\": true, \"query\": {\"kind\": \"ActorsQuery\", \"source\": {\"kind\": \"InsightActorsQuery\", \"source\": {\"kind\": \"TrendsQuery\", \"series\": [{\"kind\": \"EventsNode\", \"event\": \"$pageview\"}], \"dateRange\": {\"date_from\": \"-7d\"}}}}}",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Create cohort",
@@ -828,7 +828,7 @@
         }
     },
     "cohorts-partial-update": {
-        "description": "Update an existing cohort's name, description, or filters. Changing filters on a dynamic cohort triggers recalculation. To soft-delete a cohort, set 'deleted: true'.",
+        "description": "Update an existing cohort's name, description, or filters. Changing filters on a dynamic cohort triggers recalculation. To soft-delete a cohort, set 'deleted: true'.\n\nTo add more people to an existing STATIC cohort in bulk, set a 'query' (HogQLQuery or ActorsQuery) on it — the server runs the query and inserts every newly matched person (existing members are skipped), with no row limit. The query must expose the person id under one of these column names, checked in order: 'person_id', 'actor_id', 'id', or 'distinct_id' (selecting from the 'events' or 'persons' tables resolves the actor automatically). Validate the query before saving it — run a HogQLQuery through 'execute-sql' and an ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that returned successfully. Prefer this over 'cohorts-add-persons-to-static-cohort-partial-update' for anything beyond a handful (~20) of people.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Update cohort",
@@ -5146,9 +5146,9 @@
         }
     },
     "subscriptions-create": {
-        "description": "Create a new subscription to receive scheduled deliveries of an insight or dashboard. Requires either an insight ID or dashboard ID. Set target_type to email, slack, or webhook and target_value to the recipient(s). For email: comma-separated addresses. For slack: requires an integration_id for a connected Slack workspace plus a channel name in target_value. For webhook: a URL. Set frequency (daily, weekly, monthly, yearly) and interval (the multiplier, e.g. 2 with weekly means every 2 weeks; required, minimum 1 — use 1 for no multiplier). byweekday, start_date, and until_date are optional. Dashboard subscriptions also require dashboard_export_insights (list of insight IDs from that dashboard, max 6).",
-        "category": "Core",
-        "feature": "core",
+        "description": "Create a recurring subscription. The kind is inferred from which field you populate and returned as the read-only `resource_type`:\n(1) set `insight` — schedule periodic snapshots of one insight (`resource_type: \"insight\"`).\n(2) set `dashboard` and `dashboard_export_insights` (the subset of the dashboard's insights to include, max 6) — schedule periodic snapshots of one dashboard (`resource_type: \"dashboard\"`).\n(3) set `prompt` (≤4000 chars, with no insight or dashboard) — schedule a recurring LLM-generated report (`resource_type: \"ai_prompt\"`). Available on PostHog Cloud (self-hosted production is not eligible) once the organization has approved AI data processing and prompt subscriptions are enabled for it; otherwise create is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.\nDelivery is set by `target_type` — `email` or `slack`.\nThe kind is fixed at create time — a PATCH that would change the populated relation to a different kind is rejected.",
+        "category": "Subscriptions",
+        "feature": "subscriptions",
         "summary": "Create subscription",
         "title": "Create subscription",
         "required_scopes": ["subscription:write"],
@@ -5159,10 +5159,24 @@
             "readOnlyHint": false
         }
     },
+    "subscriptions-delete": {
+        "description": "Soft-delete a subscription. Stops all future deliveries and returns the subscription with `deleted: true`. One-way via MCP — there is no restore tool, so re-create the subscription if you need it back. Deleting an prompt subscription additionally requires the `query:read` scope (the backend gates every write touching a prompt subscription on query access).",
+        "category": "Subscriptions",
+        "feature": "subscriptions",
+        "summary": "Delete subscription",
+        "title": "Delete subscription",
+        "required_scopes": ["subscription:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "subscriptions-deliveries-list": {
         "description": "List delivery history for a subscription — one row per send attempt. Each entry includes status (starting, completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at, finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated newest first. content_snapshot, recipient_results, and error are excluded to match what the web UI exposes and to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII.",
-        "category": "Core",
-        "feature": "core",
+        "category": "Subscriptions",
+        "feature": "subscriptions",
         "summary": "List subscription deliveries",
         "title": "List subscription deliveries",
         "required_scopes": ["subscription:read"],
@@ -5175,8 +5189,8 @@
     },
     "subscriptions-deliveries-retrieve": {
         "description": "Fetch a single subscription delivery attempt by id. Returns status, trigger_type, target_type, target_value, timestamps, workflow/idempotency metadata, and exported_asset_ids. content_snapshot (the frozen dashboard/insight state at send time) is not returned — use the insight/dashboard tools for current state. recipient_results and error are also excluded to match what the web UI exposes and to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII.",
-        "category": "Core",
-        "feature": "core",
+        "category": "Subscriptions",
+        "feature": "subscriptions",
         "summary": "Get subscription delivery",
         "title": "Get subscription delivery",
         "required_scopes": ["subscription:read"],
@@ -5188,9 +5202,9 @@
         }
     },
     "subscriptions-list": {
-        "description": "List subscriptions for the project. Returns scheduled email, Slack, or webhook deliveries of insight or dashboard snapshots. Each subscription includes its schedule (frequency, interval, byweekday), next_delivery_date, and a human-readable summary.",
-        "category": "Core",
-        "feature": "core",
+        "description": "List the team's subscriptions. Use `search` to filter by title, insight name (including the auto-generated name of an unnamed insight), or dashboard name. Prompt subscriptions are only matched on their `title` — the `prompt` text is not searchable.",
+        "category": "Subscriptions",
+        "feature": "subscriptions",
         "summary": "List subscriptions",
         "title": "List subscriptions",
         "required_scopes": ["subscription:read"],
@@ -5202,23 +5216,23 @@
         }
     },
     "subscriptions-partial-update": {
-        "description": "Update an existing subscription by ID. Can change target_type, target_value, frequency, interval, byweekday, start_date, until_date, title, or deleted status. Set deleted to true to deactivate a subscription (subscriptions are soft-deleted). Changing target_value triggers notifications to new recipients.",
-        "category": "Core",
-        "feature": "core",
+        "description": "Update a subscription's mutable fields (title, target, schedule, the `prompt` for prompt subscriptions, `enabled`). The kind (`resource_type`) is fixed at create — a PATCH that would introduce another kind's field (e.g. a `prompt` on an insight sub) is rejected with 400. For prompt subs, re-enabling a previously auto-disabled sub requires both a valid `prompt` (already persisted or supplied in the PATCH body) and that the original creator is still an active user; otherwise it is rejected with 400. Editing or re-enabling a prompt subscription additionally requires the `query:read` scope. Use `subscriptions-delete` to soft-delete — `deleted` is not settable here.",
+        "category": "Subscriptions",
+        "feature": "subscriptions",
         "summary": "Update subscription",
         "title": "Update subscription",
         "required_scopes": ["subscription:write"],
         "annotations": {
-            "destructiveHint": true,
+            "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         }
     },
     "subscriptions-retrieve": {
-        "description": "Get a specific subscription by ID. Returns the full subscription configuration including target type and value, schedule details, next delivery date, and associated insight or dashboard.",
-        "category": "Core",
-        "feature": "core",
+        "description": "Retrieve a single subscription by ID.",
+        "category": "Subscriptions",
+        "feature": "subscriptions",
         "summary": "Get subscription",
         "title": "Get subscription",
         "required_scopes": ["subscription:read"],
@@ -5230,14 +5244,14 @@
         }
     },
     "subscriptions-test-delivery-create": {
-        "description": "Trigger an immediate test delivery of a subscription to its configured target(s) (email, Slack, or webhook). Runs the same pipeline as a scheduled delivery but with trigger_type=manual, producing a real delivery record you can inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202 Accepted once the delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same subscription is already in flight.",
-        "category": "Core",
-        "feature": "core",
+        "description": "Trigger an immediate test delivery of a subscription to its configured target(s) (email or Slack). Runs the same pipeline as a scheduled delivery but with trigger_type=manual, producing a real delivery record you can inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202 Accepted once the delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same subscription is already in flight, or if the subscription is disabled (re-enable it first); 404 if it has been deleted. Test-delivering a prompt subscription additionally requires the `query:read` scope (it runs the AI HogQL pipeline).",
+        "category": "Subscriptions",
+        "feature": "subscriptions",
         "summary": "Send test delivery",
         "title": "Send test delivery",
         "required_scopes": ["subscription:write"],
         "annotations": {
-            "destructiveHint": true,
+            "destructiveHint": false,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
