@@ -127,6 +127,73 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["status"], expected_status)
 
+    def _create_experiment_with_metric_event(self, name: str, flag_key: str, event: str) -> Experiment:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key=flag_key,
+            name=f"Flag for {flag_key}",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        return Experiment.objects.create(
+            team=self.team,
+            name=name,
+            feature_flag=flag,
+            metrics=[
+                {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": event}}
+            ],
+        )
+
+    def test_can_filter_experiments_by_event(self) -> None:
+        purchase_experiment = self._create_experiment_with_metric_event("Purchase", "purchase-flag", "purchase")
+        self._create_experiment_with_metric_event("Signup", "signup-flag", "signup")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/?event=purchase")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], purchase_experiment.id)
+
+    def test_filter_by_event_resolves_actions(self) -> None:
+        action = Action.objects.create(team=self.team, name="Checked out", steps_json=[{"event": "checkout"}])
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="action-flag",
+            name="Flag for action-flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Action experiment",
+            feature_flag=flag,
+            metrics=[
+                {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "ActionsNode", "id": action.id}}
+            ],
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/?event=checkout")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], experiment.id)
+
     def test_getting_experiments_is_not_nplus1(self) -> None:
         self.client.post(
             f"/api/projects/{self.team.id}/experiments/",

@@ -31,6 +31,7 @@ from posthog.utils import str_to_bool
 from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
+from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids, resolve_action_events
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment,
@@ -2251,6 +2252,35 @@ class ExperimentService:
     # Experiment list/querying
     # ------------------------------------------------------------------
 
+    def _experiments_matching_event(self, queryset: QuerySet[Experiment], event: str) -> list[int]:
+        """Return PKs of experiments whose metrics reference the given event.
+
+        Collects every event/action reference across all experiments first, then
+        resolves all referenced actions in a single query to avoid an N+1.
+        """
+        per_experiment: list[tuple[int, set[str], set[int]]] = []
+        all_action_ids: set[int] = set()
+        for experiment in queryset:
+            metrics: list[dict[str, Any]] = [
+                *(experiment.metrics or []),
+                *(experiment.metrics_secondary or []),
+                *(saved_metric.query for saved_metric in experiment.saved_metrics.all() if saved_metric.query),
+            ]
+            events, action_ids = collect_metric_events_and_action_ids(metrics)
+            per_experiment.append((experiment.pk, events, action_ids))
+            all_action_ids |= action_ids
+
+        action_events = resolve_action_events(all_action_ids, self.team)
+
+        matching_ids: list[int] = []
+        for pk, events, action_ids in per_experiment:
+            resolved = set(events)
+            for action_id in action_ids:
+                resolved |= action_events.get(action_id, set())
+            if event in resolved:
+                matching_ids.append(pk)
+        return matching_ids
+
     def filter_experiments_queryset(
         self,
         queryset: QuerySet[Experiment],
@@ -2331,6 +2361,12 @@ class ExperimentService:
             prompt_name = query_params.get("prompt_name")
             if prompt_name:
                 queryset = queryset.filter(parameters__prompt_metadata__name=prompt_name)
+
+            event = query_params.get("event")
+            if event:
+                # Event references live deep in the metrics JSON, so filter in Python and
+                # narrow the queryset by primary key to preserve ordering and pagination.
+                queryset = queryset.filter(pk__in=self._experiments_matching_event(queryset, event))
 
         search = query_params.get("search")
         if search:

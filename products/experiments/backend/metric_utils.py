@@ -135,3 +135,61 @@ def _update_action_names(obj: Any, actions_by_id: dict[int, str]) -> None:
     elif isinstance(obj, list):
         for item in obj:
             _update_action_names(item, actions_by_id)
+
+
+def _collect_event_names_and_action_ids(obj: Any, event_names: set[str], action_ids: set[int]) -> None:
+    """Recursively collect EventsNode event names and ActionsNode IDs from a metric query."""
+    if isinstance(obj, dict):
+        kind = obj.get("kind")
+        if kind == "EventsNode":
+            event = obj.get("event")
+            # A null event means "all events" and references no specific custom event.
+            if event:
+                event_names.add(event)
+        elif kind == "ActionsNode" and "id" in obj:
+            try:
+                action_ids.add(int(obj["id"]))
+            except (ValueError, TypeError):
+                logger.warning("Invalid action ID in ActionsNode: %s", obj["id"])
+        for value in obj.values():
+            _collect_event_names_and_action_ids(value, event_names, action_ids)
+    elif isinstance(obj, list):
+        for item in obj:
+            _collect_event_names_and_action_ids(item, event_names, action_ids)
+
+
+def collect_metric_events_and_action_ids(metrics: list[dict[str, Any]]) -> tuple[set[str], set[int]]:
+    """Collect direct event names and referenced action IDs from metric queries (no DB access).
+
+    Kept DB-free so callers handling many experiments can resolve every action in a
+    single batched query rather than one query per experiment.
+    """
+    event_names: set[str] = set()
+    action_ids: set[int] = set()
+    for metric in metrics:
+        _collect_event_names_and_action_ids(metric, event_names, action_ids)
+    return event_names, action_ids
+
+
+def resolve_action_events(action_ids: set[int], team: Team) -> dict[int, set[str]]:
+    """Resolve action IDs to their step event names in a single query."""
+    if not action_ids:
+        return {}
+    return {
+        action.id: {event for event in action.get_step_events() if event}
+        for action in Action.objects.filter(id__in=action_ids, team=team, deleted=False)
+    }
+
+
+def extract_event_names_from_metrics(metrics: list[dict[str, Any]], team: Team) -> set[str]:
+    """Return every event name referenced by a list of experiment metric queries.
+
+    Walks each metric query collecting events from EventsNode entries and resolving
+    ActionsNode references to their underlying step events, mirroring how insights
+    expand actions to events. Powers the "experiments using event" lookup on the
+    event definition page.
+    """
+    event_names, action_ids = collect_metric_events_and_action_ids(metrics)
+    for events in resolve_action_events(action_ids, team).values():
+        event_names |= events
+    return event_names

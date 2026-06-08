@@ -121,6 +121,12 @@ export const ExperimentsListParams = /* @__PURE__ */ zod.object({
 export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
     archived: zod.boolean().optional().describe('Filter by archived state. Defaults to non-archived experiments only.'),
     created_by_id: zod.number().optional().describe('Filter to experiments created by the given user ID.'),
+    event: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.'
+        ),
     feature_flag_id: zod.number().optional().describe('Filter to experiments linked to the given feature flag ID.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
