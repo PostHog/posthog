@@ -117,12 +117,12 @@
             "type": "string"
         },
         "target_type": {
-            "description": "Delivery channel: email, slack, or webhook.\n\n* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook",
-            "enum": ["email", "slack", "webhook"],
+            "description": "Delivery channel: email or slack.\n\n* `email` - Email\n* `slack` - Slack",
+            "enum": ["email", "slack"],
             "type": "string"
         },
         "target_value": {
-            "description": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.",
+            "description": "Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack.",
             "type": "string"
         },
         "title": {
