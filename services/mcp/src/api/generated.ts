@@ -46555,6 +46555,8 @@ export namespace Schemas {
     * `Ticket` - Ticket
     * `InstanceSetting` - InstanceSetting
     * `SignalScoutConfig` - SignalScoutConfig
+    * `AgentApplication` - AgentApplication
+    * `AgentRevision` - AgentRevision
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -46634,6 +46636,8 @@ export namespace Schemas {
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
       SignalScoutConfig: 'SignalScoutConfig',
+      AgentApplication: 'AgentApplication',
+      AgentRevision: 'AgentRevision',
     } as const;
 
     /**
@@ -46699,6 +46703,8 @@ export namespace Schemas {
     * `Ticket` - Ticket
     * `InstanceSetting` - InstanceSetting
     * `SignalScoutConfig` - SignalScoutConfig
+    * `AgentApplication` - AgentApplication
+    * `AgentRevision` - AgentRevision
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -46766,6 +46772,8 @@ export namespace Schemas {
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
       SignalScoutConfig: 'SignalScoutConfig',
+      AgentApplication: 'AgentApplication',
+      AgentRevision: 'AgentRevision',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
