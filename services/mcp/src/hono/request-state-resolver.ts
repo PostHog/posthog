@@ -6,6 +6,7 @@ import type { McpMode } from '@/lib/utils'
 import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
 import type { Context, Tool, Env, State, ZodObjectAny } from '@/tools/types'
 
+import { FeatureFlagCache } from './cache/FeatureFlagCache'
 import type { RedisLike } from './cache/RedisCache'
 import {
     buildMCPRequestContext,
@@ -64,11 +65,13 @@ export class RequestStateResolver {
     private readonly catalog: ToolCatalog
     private readonly redis: RedisLike
     private readonly env: Env
+    private readonly flagCache: FeatureFlagCache
 
     constructor(catalog: ToolCatalog, redis: RedisLike, env: Env) {
         this.catalog = catalog
         this.redis = redis
         this.env = env
+        this.flagCache = new FeatureFlagCache(redis)
     }
 
     async resolve(props: RequestProperties): Promise<ResolvedState> {
@@ -206,7 +209,13 @@ export class RequestStateResolver {
         }
         try {
             const distinctId = await reqCtx.getDistinctId()
-            return await evaluateFeatureFlags(flagKeys, distinctId, groups)
+            const cached = await this.flagCache.get(distinctId, flagKeys, groups)
+            if (cached) {
+                return cached
+            }
+            const flags = await evaluateFeatureFlags(flagKeys, distinctId, groups)
+            await this.flagCache.set(distinctId, flagKeys, flags, groups)
+            return flags
         } catch {
             return {}
         }
