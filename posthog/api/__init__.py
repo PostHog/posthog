@@ -50,6 +50,7 @@ from . import (
     organization_integration,
     organization_invite,
     organization_member,
+    organization_personal_api_key,
     personal_api_key,
     project_secret_api_key,
     proxy_record,
@@ -344,6 +345,12 @@ organizations_router.register(
     r"domains",
     organization_domain.OrganizationDomainViewset,
     "organization_domains",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"personal_api_keys",
+    organization_personal_api_key.OrganizationPersonalAPIKeyViewSet,
+    "organization_personal_api_keys",
     ["organization_id"],
 )
 organizations_router.register(
