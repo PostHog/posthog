@@ -37,17 +37,19 @@ jobs:
                   ./.bin/actionlint -version
 
             - name: Run actionlint
-              # actionlint exits non-zero when findings exist; capture JSON and keep the step green
-              # so the summarize/upload steps still run — the "Fail if findings exist" step gates at
-              # the end. SHELLCHECK_OPTS scopes shellcheck integration to actual errors —
-              # info/warning/style findings on workflow run-blocks are too noisy.
+              # actionlint exits 1 when findings exist, which fails this job — that is the gate.
+              # The JSON output is written before the non-zero exit, so the always()-guarded
+              # summary/upload steps below still run. SHELLCHECK_OPTS scopes the shellcheck
+              # integration to actual errors — info/warning/style findings on workflow run-blocks
+              # are too noisy.
               env:
                   SHELLCHECK_OPTS: --severity=error
               run: |
                   set -euo pipefail
-                  ./.bin/actionlint -format '{{json .}}' > actionlint.json || true
+                  ./.bin/actionlint -format '{{json .}}' > actionlint.json
 
             - name: Summarize findings
+              if: always()
               run: |
                   set -euo pipefail
                   {
@@ -68,10 +70,3 @@ jobs:
                   name: actionlint-findings
                   path: actionlint.json
                   retention-days: 14
-
-            - name: Fail if findings exist
-              run: |
-                  set -euo pipefail
-                  count=$(jq length actionlint.json)
-                  echo "actionlint findings: $count"
-                  [ "$count" -eq 0 ]
