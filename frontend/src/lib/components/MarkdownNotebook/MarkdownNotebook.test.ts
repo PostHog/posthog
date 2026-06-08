@@ -89,6 +89,12 @@ function fireHistoryBeforeInput(element: HTMLElement, inputType: 'historyUndo' |
     fireEvent(element, event)
 }
 
+function createTouchList(touches: Touch[]): TouchList {
+    const touchList = touches as unknown as TouchList & { item: (index: number) => Touch | null }
+    touchList.item = (index: number): Touch | null => touches[index] ?? null
+    return touchList
+}
+
 describe('MarkdownNotebook', () => {
     it('round-trips supported markdown blocks and inline formatting', () => {
         const markdown = `# Heading
@@ -1802,6 +1808,249 @@ Second paragraph`,
 
         expect(textBlocks[0].getAttribute('contenteditable')).toEqual('true')
         expect(textBlocks[1].getAttribute('contenteditable')).toEqual('true')
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: originalCaretRangeFromPoint,
+        })
+        Object.defineProperty(document, 'elementFromPoint', {
+            configurable: true,
+            value: originalElementFromPoint,
+        })
+    })
+
+    it('supports touch drag selection across text blocks', () => {
+        act(() => {
+            window.getSelection()?.removeAllRanges()
+        })
+        jest.useFakeTimers()
+        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
+        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
+        const originalElementFromPoint = document.elementFromPoint
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `First paragraph
+
+Second paragraph`,
+            })
+        )
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const secondTextNode = textBlocks[1].firstChild
+
+        expect(secondTextNode).toBeInstanceOf(Text)
+
+        const staleAnchorRange = document.createRange()
+        staleAnchorRange.setStart(secondTextNode as Text, 4)
+        staleAnchorRange.collapse(true)
+
+        Object.defineProperty(textBlocks[0], 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({
+                bottom: 24,
+                height: 24,
+                left: 0,
+                right: 200,
+                top: 0,
+                width: 200,
+                x: 0,
+                y: 0,
+                toJSON: () => ({}),
+            }),
+        })
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: jest.fn(() => staleAnchorRange),
+        })
+        Object.defineProperty(document, 'elementFromPoint', {
+            configurable: true,
+            value: jest.fn((_clientX: number, clientY: number) => (clientY === 40 ? textBlocks[1] : textBlocks[0])),
+        })
+
+        const startTouch = { identifier: 1, clientX: 40, clientY: 40 } as Touch
+        const moveTouch = { identifier: 1, clientX: 10, clientY: 4 } as Touch
+
+        fireEvent.touchStart(textBlocks[1], {
+            touches: createTouchList([startTouch]),
+            changedTouches: createTouchList([startTouch]),
+        })
+
+        act(() => {
+            jest.advanceTimersByTime(300)
+        })
+
+        expect(
+            fireEvent.touchMove(window.document, {
+                touches: createTouchList([moveTouch]),
+                changedTouches: createTouchList([moveTouch]),
+            })
+        ).toBe(false)
+
+        fireEvent.touchEnd(window.document, {
+            touches: createTouchList([]),
+            changedTouches: createTouchList([moveTouch]),
+        })
+
+        const selectedText = window.getSelection()?.toString() ?? ''
+        expect(selectedText).toContain('First paragraph')
+        expect(selectedText).toContain('Seco')
+        expect(textBlocks[0].getAttribute('contenteditable')).toEqual('false')
+        expect(textBlocks[1].getAttribute('contenteditable')).toEqual('false')
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: originalCaretRangeFromPoint,
+        })
+        Object.defineProperty(document, 'elementFromPoint', {
+            configurable: true,
+            value: originalElementFromPoint,
+        })
+        jest.useRealTimers()
+    })
+
+    it('supports delayed touch drag selection within a text block', () => {
+        act(() => {
+            window.getSelection()?.removeAllRanges()
+        })
+        jest.useFakeTimers()
+        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
+        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
+        const originalElementFromPoint = document.elementFromPoint
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `First paragraph
+
+Second paragraph`,
+            })
+        )
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const firstTextNode = textBlocks[0].firstChild
+
+        expect(firstTextNode).toBeInstanceOf(Text)
+
+        const anchorRange = document.createRange()
+        anchorRange.setStart(firstTextNode as Text, 10)
+        anchorRange.collapse(true)
+        const focusRange = document.createRange()
+        focusRange.setStart(firstTextNode as Text, 2)
+        focusRange.collapse(true)
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: jest.fn((clientX: number) => (clientX === 80 ? anchorRange : focusRange)),
+        })
+        Object.defineProperty(document, 'elementFromPoint', {
+            configurable: true,
+            value: jest.fn(() => textBlocks[0]),
+        })
+
+        const startTouch = { identifier: 1, clientX: 80, clientY: 10 } as Touch
+        const moveTouch = { identifier: 1, clientX: 20, clientY: 10 } as Touch
+
+        fireEvent.touchStart(textBlocks[0], {
+            touches: createTouchList([startTouch]),
+            changedTouches: createTouchList([startTouch]),
+        })
+
+        act(() => {
+            jest.advanceTimersByTime(300)
+        })
+
+        expect(
+            fireEvent.touchMove(window.document, {
+                touches: createTouchList([moveTouch]),
+                changedTouches: createTouchList([moveTouch]),
+            })
+        ).toBe(false)
+
+        fireEvent.touchEnd(window.document, {
+            touches: createTouchList([]),
+            changedTouches: createTouchList([moveTouch]),
+        })
+
+        expect(window.getSelection()?.toString()).toEqual('rst para')
+        expect(textBlocks[0].getAttribute('contenteditable')).toEqual('true')
+        expect(textBlocks[1].getAttribute('contenteditable')).toEqual('true')
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: originalCaretRangeFromPoint,
+        })
+        Object.defineProperty(document, 'elementFromPoint', {
+            configurable: true,
+            value: originalElementFromPoint,
+        })
+        jest.useRealTimers()
+    })
+
+    it('lets touch movement scroll before cross-block selection is ready', () => {
+        act(() => {
+            window.getSelection()?.removeAllRanges()
+        })
+        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
+        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
+        const originalElementFromPoint = document.elementFromPoint
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `First paragraph
+
+Second paragraph`,
+            })
+        )
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const secondTextNode = textBlocks[1].firstChild
+
+        expect(secondTextNode).toBeInstanceOf(Text)
+
+        const staleAnchorRange = document.createRange()
+        staleAnchorRange.setStart(secondTextNode as Text, 4)
+        staleAnchorRange.collapse(true)
+
+        Object.defineProperty(textBlocks[0], 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({
+                bottom: 24,
+                height: 24,
+                left: 0,
+                right: 200,
+                top: 0,
+                width: 200,
+                x: 0,
+                y: 0,
+                toJSON: () => ({}),
+            }),
+        })
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: jest.fn(() => staleAnchorRange),
+        })
+        Object.defineProperty(document, 'elementFromPoint', {
+            configurable: true,
+            value: jest.fn((_clientX: number, clientY: number) => (clientY === 40 ? textBlocks[1] : textBlocks[0])),
+        })
+
+        const startTouch = { identifier: 1, clientX: 40, clientY: 40 } as Touch
+        const moveTouch = { identifier: 1, clientX: 10, clientY: 4 } as Touch
+
+        fireEvent.touchStart(textBlocks[1], {
+            touches: createTouchList([startTouch]),
+            changedTouches: createTouchList([startTouch]),
+        })
+
+        expect(
+            fireEvent.touchMove(window.document, {
+                touches: createTouchList([moveTouch]),
+                changedTouches: createTouchList([moveTouch]),
+            })
+        ).toBe(true)
+
+        expect(window.getSelection()?.toString() ?? '').toEqual('')
+        expect(textBlocks[0].getAttribute('contenteditable')).toEqual('true')
+        expect(textBlocks[1].getAttribute('contenteditable')).toEqual('true')
+
+        fireEvent.touchEnd(window.document, {
+            touches: createTouchList([]),
+            changedTouches: createTouchList([moveTouch]),
+        })
 
         Object.defineProperty(document, 'caretRangeFromPoint', {
             configurable: true,

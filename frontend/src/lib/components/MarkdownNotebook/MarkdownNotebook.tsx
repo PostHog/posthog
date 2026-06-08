@@ -11,7 +11,9 @@ import {
     KeyboardEvent,
     MouseEvent as ReactMouseEvent,
     MutableRefObject,
+    PointerEvent as ReactPointerEvent,
     ReactNode,
+    TouchEvent as ReactTouchEvent,
     memo,
     useCallback,
     useEffect,
@@ -157,8 +159,18 @@ type CrossBlockSelectionDragState = {
     anchorEditableElement: HTMLElement | null
     originX: number
     originY: number
+    source: 'mouse' | 'pointer' | 'touch'
+    pointerId?: number
+    touchIdentifier?: number
+    isTouchSelectionReady?: boolean
+    touchSelectionDelayTimeout?: number
     isDragging: boolean
 }
+
+type CrossBlockSelectionStartEvent =
+    | ReactMouseEvent<HTMLElement>
+    | ReactPointerEvent<HTMLElement>
+    | ReactTouchEvent<HTMLElement>
 
 type EditableBlockContentEditableState = {
     element: HTMLElement
@@ -231,6 +243,8 @@ const INSERTED_COMPONENT_PANEL_VISIBILITY: ComponentPanelVisibility = {
 
 const FLOATING_TOOLBAR_ESTIMATED_HEIGHT = 36
 const CROSS_BLOCK_SELECTION_DRAG_THRESHOLD = 4
+const TOUCH_CROSS_BLOCK_SELECTION_DELAY_MS = 300
+const TOUCH_SCROLL_CANCEL_THRESHOLD = 8
 const INSERT_MENU_GAP = 12
 const INSERT_MENU_MAX_HEIGHT = 448
 const INSERT_MENU_MIN_HEIGHT = 120
@@ -878,6 +892,7 @@ export function MarkdownNotebook({
         if (mode !== 'edit') {
             setFloatingToolbar(null)
             setSelectedComponentNodeIds(new Set())
+            clearTouchSelectionDelay(crossBlockSelectionRef.current)
             crossBlockSelectionRef.current = null
             restoreEditableBlocksForCrossBlockSelection()
             return
@@ -903,7 +918,7 @@ export function MarkdownNotebook({
             updateSelectedComponentBlocksFromSelection()
         }
 
-        const handleDocumentMouseDown = (event: MouseEvent): void => {
+        const handleDocumentPointerStart = (event: MouseEvent | PointerEvent | TouchEvent): void => {
             if (!crossBlockSelectionEditableStateRef.current) {
                 return
             }
@@ -916,13 +931,17 @@ export function MarkdownNotebook({
         }
 
         window.document.addEventListener('selectionchange', handleDocumentSelectionChange)
-        window.document.addEventListener('mousedown', handleDocumentMouseDown, true)
+        window.document.addEventListener('mousedown', handleDocumentPointerStart, true)
+        window.document.addEventListener('pointerdown', handleDocumentPointerStart, true)
+        window.document.addEventListener('touchstart', handleDocumentPointerStart, true)
         window.addEventListener('resize', handleDocumentSelectionChange)
         window.addEventListener('scroll', handleDocumentSelectionChange, true)
 
         return () => {
             window.document.removeEventListener('selectionchange', handleDocumentSelectionChange)
-            window.document.removeEventListener('mousedown', handleDocumentMouseDown, true)
+            window.document.removeEventListener('mousedown', handleDocumentPointerStart, true)
+            window.document.removeEventListener('pointerdown', handleDocumentPointerStart, true)
+            window.document.removeEventListener('touchstart', handleDocumentPointerStart, true)
             window.removeEventListener('resize', handleDocumentSelectionChange)
             window.removeEventListener('scroll', handleDocumentSelectionChange, true)
         }
@@ -939,48 +958,72 @@ export function MarkdownNotebook({
 
     useEffect(() => {
         if (mode !== 'edit') {
+            clearTouchSelectionDelay(crossBlockSelectionRef.current)
             crossBlockSelectionRef.current = null
             return
         }
 
-        const handleMouseMove = (event: MouseEvent): void => {
+        const updateCrossBlockSelectionDrag = (
+            clientX: number,
+            clientY: number,
+            preventDefault: () => void
+        ): boolean => {
             const dragState = crossBlockSelectionRef.current
             const notebookElement = notebookRef.current
             if (!dragState || !notebookElement) {
-                return
+                return false
             }
 
-            const distance = Math.hypot(event.clientX - dragState.originX, event.clientY - dragState.originY)
+            const distance = Math.hypot(clientX - dragState.originX, clientY - dragState.originY)
             if (distance < CROSS_BLOCK_SELECTION_DRAG_THRESHOLD) {
-                return
+                return false
             }
 
-            let focusRange = getNotebookBlockCaretRangeFromPoint(event.clientX, event.clientY, notebookElement)
+            let focusRange = getNotebookBlockCaretRangeFromPoint(clientX, clientY, notebookElement)
             if (!focusRange) {
-                return
+                return false
             }
 
             const focusEditableElement = getEditableBlockElementForRange(focusRange)
-            if (dragState.anchorEditableElement && focusEditableElement === dragState.anchorEditableElement) {
-                return
+            const isSameEditableElement =
+                dragState.anchorEditableElement && focusEditableElement === dragState.anchorEditableElement
+            if (isSameEditableElement && dragState.source !== 'touch') {
+                return false
             }
 
             dragState.isDragging = true
-            if (!crossBlockSelectionEditableStateRef.current) {
+            if (!isSameEditableElement && !crossBlockSelectionEditableStateRef.current) {
                 disableEditableBlocksForCrossBlockSelection()
-                focusRange = getNotebookBlockCaretRangeFromPoint(event.clientX, event.clientY, notebookElement)
+                focusRange = getNotebookBlockCaretRangeFromPoint(clientX, clientY, notebookElement)
                 if (!focusRange) {
-                    return
+                    dragState.isDragging = false
+                    restoreEditableBlocksForCrossBlockSelection()
+                    return false
                 }
             }
-            event.preventDefault()
+            preventDefault()
             selectBetweenRanges(dragState.anchorRange, focusRange)
             setFloatingToolbar(null)
             updateSelectedComponentBlocksFromSelection()
+            return true
+        }
+
+        const handleMouseMove = (event: MouseEvent): void => {
+            const dragState = crossBlockSelectionRef.current
+            if (!dragState || dragState.source !== 'mouse') {
+                return
+            }
+
+            updateCrossBlockSelectionDrag(event.clientX, event.clientY, () => event.preventDefault())
         }
 
         const handleMouseUp = (): void => {
             const dragState = crossBlockSelectionRef.current
+            if (dragState && dragState.source !== 'mouse') {
+                return
+            }
+
+            clearTouchSelectionDelay(dragState)
             crossBlockSelectionRef.current = null
             if (dragState?.isDragging) {
                 updateFloatingToolbarFromSelection()
@@ -988,38 +1031,172 @@ export function MarkdownNotebook({
             }
         }
 
+        const handlePointerMove = (event: PointerEvent): void => {
+            const dragState = crossBlockSelectionRef.current
+            if (!dragState || dragState.source !== 'pointer' || dragState.pointerId !== event.pointerId) {
+                return
+            }
+
+            updateCrossBlockSelectionDrag(event.clientX, event.clientY, () => event.preventDefault())
+        }
+
+        const handlePointerEnd = (event: PointerEvent): void => {
+            const dragState = crossBlockSelectionRef.current
+            if (!dragState || dragState.source !== 'pointer' || dragState.pointerId !== event.pointerId) {
+                return
+            }
+
+            crossBlockSelectionRef.current = null
+            if (dragState.isDragging) {
+                updateFloatingToolbarFromSelection()
+                updateSelectedComponentBlocksFromSelection()
+            }
+        }
+
+        const handleTouchMove = (event: TouchEvent): void => {
+            const dragState = crossBlockSelectionRef.current
+            if (!dragState || dragState.source !== 'touch') {
+                return
+            }
+
+            const touch = getTouchByIdentifier(event.touches, dragState.touchIdentifier)
+            if (!touch) {
+                return
+            }
+
+            if (!dragState.isTouchSelectionReady) {
+                const distance = Math.hypot(touch.clientX - dragState.originX, touch.clientY - dragState.originY)
+                if (distance >= TOUCH_SCROLL_CANCEL_THRESHOLD) {
+                    clearTouchSelectionDelay(dragState)
+                    crossBlockSelectionRef.current = null
+                }
+                return
+            }
+
+            updateCrossBlockSelectionDrag(touch.clientX, touch.clientY, () => event.preventDefault())
+        }
+
+        const handleTouchEnd = (event: TouchEvent): void => {
+            const dragState = crossBlockSelectionRef.current
+            if (!dragState || dragState.source !== 'touch') {
+                return
+            }
+
+            if (!hasTouchWithIdentifier(event.changedTouches, dragState.touchIdentifier) && event.touches.length > 0) {
+                return
+            }
+
+            clearTouchSelectionDelay(dragState)
+            crossBlockSelectionRef.current = null
+            if (dragState.isDragging) {
+                updateFloatingToolbarFromSelection()
+                updateSelectedComponentBlocksFromSelection()
+            }
+        }
+
+        const touchMoveOptions: AddEventListenerOptions = { capture: true, passive: false }
+
         window.document.addEventListener('mousemove', handleMouseMove, true)
         window.document.addEventListener('mouseup', handleMouseUp)
+        window.document.addEventListener('pointermove', handlePointerMove, true)
+        window.document.addEventListener('pointerup', handlePointerEnd, true)
+        window.document.addEventListener('pointercancel', handlePointerEnd, true)
+        window.document.addEventListener('touchmove', handleTouchMove, touchMoveOptions)
+        window.document.addEventListener('touchend', handleTouchEnd, true)
+        window.document.addEventListener('touchcancel', handleTouchEnd, true)
 
         return () => {
+            clearTouchSelectionDelay(crossBlockSelectionRef.current)
             window.document.removeEventListener('mousemove', handleMouseMove, true)
             window.document.removeEventListener('mouseup', handleMouseUp)
+            window.document.removeEventListener('pointermove', handlePointerMove, true)
+            window.document.removeEventListener('pointerup', handlePointerEnd, true)
+            window.document.removeEventListener('pointercancel', handlePointerEnd, true)
+            window.document.removeEventListener('touchmove', handleTouchMove, true)
+            window.document.removeEventListener('touchend', handleTouchEnd, true)
+            window.document.removeEventListener('touchcancel', handleTouchEnd, true)
         }
     }, [
         disableEditableBlocksForCrossBlockSelection,
         mode,
+        restoreEditableBlocksForCrossBlockSelection,
         updateFloatingToolbarFromSelection,
         updateSelectedComponentBlocksFromSelection,
     ])
 
-    const startCrossBlockSelection = (event: ReactMouseEvent<HTMLElement>): void => {
+    const beginCrossBlockSelection = (
+        clientX: number,
+        clientY: number,
+        currentTarget: HTMLElement,
+        source: CrossBlockSelectionDragState['source'],
+        options: Pick<CrossBlockSelectionDragState, 'pointerId' | 'touchIdentifier'> = {}
+    ): void => {
         const notebookElement = notebookRef.current
-        if (mode !== 'edit' || event.button !== 0 || !notebookElement) {
+        if (mode !== 'edit' || !notebookElement) {
             return
         }
 
-        const anchorRange = getNotebookBlockCaretRangeFromPoint(event.clientX, event.clientY, notebookElement)
+        const anchorRange = getNotebookBlockCaretRangeFromPoint(clientX, clientY, notebookElement)
         if (!anchorRange) {
             return
         }
 
-        crossBlockSelectionRef.current = {
+        clearTouchSelectionDelay(crossBlockSelectionRef.current)
+
+        const dragState: CrossBlockSelectionDragState = {
             anchorRange: anchorRange.cloneRange(),
-            anchorEditableElement: getClosestEditableBlockElement(event.currentTarget),
-            originX: event.clientX,
-            originY: event.clientY,
+            anchorEditableElement: getClosestEditableBlockElement(currentTarget),
+            originX: clientX,
+            originY: clientY,
+            source,
+            ...options,
             isDragging: false,
         }
+
+        crossBlockSelectionRef.current = dragState
+
+        if (source === 'touch') {
+            dragState.isTouchSelectionReady = false
+            dragState.touchSelectionDelayTimeout = window.setTimeout(() => {
+                if (crossBlockSelectionRef.current !== dragState) {
+                    return
+                }
+
+                dragState.isTouchSelectionReady = true
+                dragState.touchSelectionDelayTimeout = undefined
+            }, TOUCH_CROSS_BLOCK_SELECTION_DELAY_MS)
+        }
+    }
+
+    const startCrossBlockSelection = (event: CrossBlockSelectionStartEvent): void => {
+        if ('touches' in event) {
+            if (event.touches.length !== 1) {
+                return
+            }
+
+            const touch = event.touches[0]
+            beginCrossBlockSelection(touch.clientX, touch.clientY, event.currentTarget, 'touch', {
+                touchIdentifier: touch.identifier,
+            })
+            return
+        }
+
+        if ('pointerId' in event) {
+            if (!event.isPrimary || event.pointerType === 'touch' || event.button !== 0) {
+                return
+            }
+
+            beginCrossBlockSelection(event.clientX, event.clientY, event.currentTarget, 'pointer', {
+                pointerId: event.pointerId,
+            })
+            return
+        }
+
+        if ((window as Window & { PointerEvent?: typeof PointerEvent }).PointerEvent || event.button !== 0) {
+            return
+        }
+
+        beginCrossBlockSelection(event.clientX, event.clientY, event.currentTarget, 'mouse')
     }
 
     const copyMarkdownToNotebookClipboard = (markdown: string): void => {
@@ -2136,7 +2313,7 @@ function renderNode({
     submitInsertMenuSelection: (queryOverride?: string) => boolean
     submitAIPrompt: (queryOverride?: string) => boolean
     handleSelectionChange: () => void
-    startCrossBlockSelection: (event: ReactMouseEvent<HTMLElement>) => void
+    startCrossBlockSelection: (event: CrossBlockSelectionStartEvent) => void
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
 }): JSX.Element {
     if (node.type === 'component') {
@@ -2258,7 +2435,7 @@ function EditableListBlock({
         offset: number
     ) => boolean
     handleSelectionChange: () => void
-    startCrossBlockSelection: (event: ReactMouseEvent<HTMLElement>) => void
+    startCrossBlockSelection: (event: CrossBlockSelectionStartEvent) => void
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
 }): JSX.Element {
     const renderedItems = useMemo(() => buildRenderedListItems(node.items), [node.items])
@@ -2440,7 +2617,7 @@ function EditableListItemContent({
         offset: number
     ) => boolean
     handleSelectionChange: () => void
-    startCrossBlockSelection: (event: ReactMouseEvent<HTMLElement>) => void
+    startCrossBlockSelection: (event: CrossBlockSelectionStartEvent) => void
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
 }): JSX.Element {
     const elementRef = useRef<HTMLDivElement | null>(null)
@@ -2605,6 +2782,8 @@ function EditableListItemContent({
             onPaste={handlePaste}
             onKeyDown={handleKeyDown}
             onMouseDown={startCrossBlockSelection}
+            onPointerDown={startCrossBlockSelection}
+            onTouchStart={startCrossBlockSelection}
             onMouseUp={handleSelectionChange}
             onKeyUp={handleSelectionChange}
         />
@@ -2690,7 +2869,7 @@ function EditableTableBlock({
         offset: number
     ) => boolean
     handleSelectionChange: () => void
-    startCrossBlockSelection: (event: ReactMouseEvent<HTMLElement>) => void
+    startCrossBlockSelection: (event: CrossBlockSelectionStartEvent) => void
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
 }): JSX.Element {
     const columnCount = getTableColumnCount(node)
@@ -3202,7 +3381,7 @@ function EditableTableCellContent({
     ) => boolean
     handleTableCellEnter: (position: TableCellPosition) => void
     handleSelectionChange: () => void
-    startCrossBlockSelection: (event: ReactMouseEvent<HTMLElement>) => void
+    startCrossBlockSelection: (event: CrossBlockSelectionStartEvent) => void
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
 }): JSX.Element {
     const elementRef = useRef<HTMLDivElement | null>(null)
@@ -3327,6 +3506,8 @@ function EditableTableCellContent({
             onPaste={handlePaste}
             onKeyDown={handleKeyDown}
             onMouseDown={startCrossBlockSelection}
+            onPointerDown={startCrossBlockSelection}
+            onTouchStart={startCrossBlockSelection}
             onMouseUp={handleSelectionChange}
             onKeyUp={handleSelectionChange}
         />
@@ -3383,7 +3564,7 @@ function EditableTextBlock({
     submitInsertMenuSelection: (queryOverride?: string) => boolean
     submitAIPrompt: (queryOverride?: string) => boolean
     handleSelectionChange: () => void
-    startCrossBlockSelection: (event: ReactMouseEvent<HTMLElement>) => void
+    startCrossBlockSelection: (event: CrossBlockSelectionStartEvent) => void
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
 }): JSX.Element {
     const elementRef = useRef<HTMLElement | null>(null)
@@ -3907,6 +4088,8 @@ function EditableTextBlock({
                 onBlur={handleBlur}
                 onKeyDown={handleKeyDown}
                 onMouseDown={startCrossBlockSelection}
+                onPointerDown={startCrossBlockSelection}
+                onTouchStart={startCrossBlockSelection}
                 onMouseUp={handleSelectionChange}
                 onKeyUp={handleSelectionChange}
             />
@@ -5177,6 +5360,34 @@ function getClosestEditableBlockElement(element: Element | null): HTMLElement | 
 
 function getEditableBlockElementForRange(range: Range): HTMLElement | null {
     return getClosestEditableBlockElement(getElementForNode(range.startContainer))
+}
+
+function clearTouchSelectionDelay(dragState: CrossBlockSelectionDragState | null): void {
+    if (dragState?.touchSelectionDelayTimeout === undefined) {
+        return
+    }
+
+    window.clearTimeout(dragState.touchSelectionDelayTimeout)
+    dragState.touchSelectionDelayTimeout = undefined
+}
+
+function getTouchByIdentifier(touches: TouchList, identifier: number | undefined): Touch | null {
+    if (identifier === undefined) {
+        return touches[0] ?? null
+    }
+
+    for (let index = 0; index < touches.length; index++) {
+        const touch = typeof touches.item === 'function' ? touches.item(index) : (touches as unknown as Touch[])[index]
+        if (touch?.identifier === identifier) {
+            return touch
+        }
+    }
+
+    return null
+}
+
+function hasTouchWithIdentifier(touches: TouchList, identifier: number | undefined): boolean {
+    return getTouchByIdentifier(touches, identifier) !== null
 }
 
 function selectBetweenRanges(anchorRange: Range, focusRange: Range): void {
