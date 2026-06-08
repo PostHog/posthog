@@ -181,8 +181,8 @@ export const manifest: ProductManifest = {
         '/ai-evals/evaluations/:id': ['AIObservabilityEvaluation', 'aiObservabilityEvaluation'],
         '/prompt-management/prompts': ['AIObservabilityPrompts', 'aiObservabilityPrompts'],
         '/prompt-management/prompts/:name': ['AIObservabilityPrompt', 'aiObservabilityPrompt'],
-        '/prompt-management/skills': ['AIObservabilitySkills', 'aiObservabilitySkills'],
-        '/prompt-management/skills/:name': ['AIObservabilitySkill', 'aiObservabilitySkill'],
+        '/skills': ['AIObservabilitySkills', 'aiObservabilitySkills'],
+        '/skills/:name': ['AIObservabilitySkill', 'aiObservabilitySkill'],
     },
     redirects: {
         '/ai-observability': (_params, searchParams, hashParams) =>
@@ -286,6 +286,10 @@ export const manifest: ProductManifest = {
             combineUrl(urls.aiObservabilityPrompts(), searchParams, hashParams).url,
         '/llm-analytics/prompts/:name': (params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityPrompt(params.name), searchParams, hashParams).url,
+        '/prompt-management/skills': (_params, searchParams, hashParams) =>
+            combineUrl(urls.aiObservabilitySkills(), searchParams, hashParams).url,
+        '/prompt-management/skills/:name': (params, searchParams, hashParams) =>
+            combineUrl(urls.aiObservabilitySkill(params.name), searchParams, hashParams).url,
         '/llm-analytics/skills': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilitySkills(), searchParams, hashParams).url,
         '/llm-analytics/skills/:name': (params, searchParams, hashParams) =>
@@ -356,9 +360,9 @@ export const manifest: ProductManifest = {
         aiObservabilityEvaluation: (id: string): string => `/ai-evals/evaluations/${id}`,
         aiObservabilityPrompts: (): string => '/prompt-management/prompts',
         aiObservabilityPrompt: (name: string): string => `/prompt-management/prompts/${name}`,
-        aiObservabilitySkills: (): string => '/prompt-management/skills',
+        aiObservabilitySkills: (): string => '/skills',
         aiObservabilitySkill: (name: string, params?: { file?: string; version?: number }): string =>
-            combineUrl(`/prompt-management/skills/${name}`, params).url,
+            combineUrl(`/skills/${name}`, params).url,
         aiObservabilityClusters: (runId?: string): string =>
             runId ? `/ai-observability/clusters/${encodeURIComponent(runId)}` : '/ai-observability/clusters',
         aiObservabilityCluster: (runId: string, clusterId: number | string): string =>
