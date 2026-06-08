@@ -24778,7 +24778,8 @@
                 "pinterest-ads",
                 "customerio-app",
                 "customerio-webhook",
-                "customerio-track"
+                "customerio-track",
+                "postgresql"
             ],
             "type": "string"
         },

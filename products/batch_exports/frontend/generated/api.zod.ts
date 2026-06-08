@@ -15,6 +15,9 @@ export const batchExportsCreateBodyDestinationOneTwoConfigPrefixDefault = ``
 export const batchExportsCreateBodyDestinationOneTwoConfigFileFormatDefault = `JSONLines`
 export const batchExportsCreateBodyDestinationOneThreeConfigTableIdDefault = `events`
 export const batchExportsCreateBodyDestinationOneThreeConfigUseJsonTypeDefault = false
+export const batchExportsCreateBodyDestinationOneFourConfigSchemaDefault = `public`
+export const batchExportsCreateBodyDestinationOneFourConfigTableNameDefault = `events`
+export const batchExportsCreateBodyDestinationOneFourConfigHasSelfSignedCertDefault = false
 export const batchExportsCreateBodyOffsetDayMin = 0
 export const batchExportsCreateBodyOffsetDayMax = 6
 
@@ -142,6 +145,39 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating a BigQuery batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Postgres']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of a postgresql-kind Integration providing connection credentials. Optional: omit to configure credentials inline (legacy). Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('PostgreSQL database name to connect to.'),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsCreateBodyDestinationOneFourConfigSchemaDefault)
+                                    .describe('PostgreSQL schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsCreateBodyDestinationOneFourConfigTableNameDefault)
+                                    .describe('PostgreSQL table name to write exported rows into.'),
+                                has_self_signed_cert: zod
+                                    .boolean()
+                                    .default(batchExportsCreateBodyDestinationOneFourConfigHasSelfSignedCertDefault)
+                                    .describe(
+                                        'Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration.'
+                                    ),
+                                type: zod.enum(['Postgres']),
+                            })
+                            .describe(
+                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a PostgreSQL batch-export destination.'),
             ])
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
         interval: zod
@@ -434,6 +470,9 @@ export const batchExportsUpdateBodyDestinationOneTwoConfigPrefixDefault = ``
 export const batchExportsUpdateBodyDestinationOneTwoConfigFileFormatDefault = `JSONLines`
 export const batchExportsUpdateBodyDestinationOneThreeConfigTableIdDefault = `events`
 export const batchExportsUpdateBodyDestinationOneThreeConfigUseJsonTypeDefault = false
+export const batchExportsUpdateBodyDestinationOneFourConfigSchemaDefault = `public`
+export const batchExportsUpdateBodyDestinationOneFourConfigTableNameDefault = `events`
+export const batchExportsUpdateBodyDestinationOneFourConfigHasSelfSignedCertDefault = false
 export const batchExportsUpdateBodyOffsetDayMin = 0
 export const batchExportsUpdateBodyOffsetDayMax = 6
 
@@ -561,6 +600,39 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating a BigQuery batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Postgres']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of a postgresql-kind Integration providing connection credentials. Optional: omit to configure credentials inline (legacy). Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('PostgreSQL database name to connect to.'),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsUpdateBodyDestinationOneFourConfigSchemaDefault)
+                                    .describe('PostgreSQL schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsUpdateBodyDestinationOneFourConfigTableNameDefault)
+                                    .describe('PostgreSQL table name to write exported rows into.'),
+                                has_self_signed_cert: zod
+                                    .boolean()
+                                    .default(batchExportsUpdateBodyDestinationOneFourConfigHasSelfSignedCertDefault)
+                                    .describe(
+                                        'Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration.'
+                                    ),
+                                type: zod.enum(['Postgres']),
+                            })
+                            .describe(
+                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a PostgreSQL batch-export destination.'),
             ])
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
         interval: zod
@@ -606,6 +678,9 @@ export const batchExportsPartialUpdateBodyDestinationOneTwoConfigPrefixDefault =
 export const batchExportsPartialUpdateBodyDestinationOneTwoConfigFileFormatDefault = `JSONLines`
 export const batchExportsPartialUpdateBodyDestinationOneThreeConfigTableIdDefault = `events`
 export const batchExportsPartialUpdateBodyDestinationOneThreeConfigUseJsonTypeDefault = false
+export const batchExportsPartialUpdateBodyDestinationOneFourConfigSchemaDefault = `public`
+export const batchExportsPartialUpdateBodyDestinationOneFourConfigTableNameDefault = `events`
+export const batchExportsPartialUpdateBodyDestinationOneFourConfigHasSelfSignedCertDefault = false
 export const batchExportsPartialUpdateBodyOffsetDayMin = 0
 export const batchExportsPartialUpdateBodyOffsetDayMax = 6
 
@@ -733,6 +808,41 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating a BigQuery batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Postgres']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of a postgresql-kind Integration providing connection credentials. Optional: omit to configure credentials inline (legacy). Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('PostgreSQL database name to connect to.'),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneFourConfigSchemaDefault)
+                                    .describe('PostgreSQL schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneFourConfigTableNameDefault)
+                                    .describe('PostgreSQL table name to write exported rows into.'),
+                                has_self_signed_cert: zod
+                                    .boolean()
+                                    .default(
+                                        batchExportsPartialUpdateBodyDestinationOneFourConfigHasSelfSignedCertDefault
+                                    )
+                                    .describe(
+                                        'Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration.'
+                                    ),
+                                type: zod.enum(['Postgres']),
+                            })
+                            .describe(
+                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a PostgreSQL batch-export destination.'),
             ])
             .optional()
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
@@ -783,6 +893,9 @@ export const batchExportsPauseCreateBodyDestinationOneConfigOneTwoPrefixDefault 
 export const batchExportsPauseCreateBodyDestinationOneConfigOneTwoFileFormatDefault = `JSONLines`
 export const batchExportsPauseCreateBodyDestinationOneConfigOneThreeTableIdDefault = `events`
 export const batchExportsPauseCreateBodyDestinationOneConfigOneThreeUseJsonTypeDefault = false
+export const batchExportsPauseCreateBodyDestinationOneConfigOneFourSchemaDefault = `public`
+export const batchExportsPauseCreateBodyDestinationOneConfigOneFourTableNameDefault = `events`
+export const batchExportsPauseCreateBodyDestinationOneConfigOneFourHasSelfSignedCertDefault = false
 export const batchExportsPauseCreateBodyOffsetDayMin = 0
 export const batchExportsPauseCreateBodyOffsetDayMax = 6
 
@@ -909,20 +1022,44 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                             .describe(
                                 'Typed configuration for a BigQuery batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors the\nnon-credential fields of `BigQueryBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
+                        zod
+                            .object({
+                                database: zod.string().describe('PostgreSQL database name to connect to.'),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsPauseCreateBodyDestinationOneConfigOneFourSchemaDefault)
+                                    .describe('PostgreSQL schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsPauseCreateBodyDestinationOneConfigOneFourTableNameDefault)
+                                    .describe('PostgreSQL table name to write exported rows into.'),
+                                has_self_signed_cert: zod
+                                    .boolean()
+                                    .default(
+                                        batchExportsPauseCreateBodyDestinationOneConfigOneFourHasSelfSignedCertDefault
+                                    )
+                                    .describe(
+                                        'Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration.'
+                                    ),
+                                type: zod.enum(['Postgres']),
+                            })
+                            .describe(
+                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                            ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; optional for Postgres; unused for other types.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).\nOther destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres).\nOther destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod
@@ -982,6 +1119,9 @@ export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneTwoPrefixDe
 export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneTwoFileFormatDefault = `JSONLines`
 export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneThreeTableIdDefault = `events`
 export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneThreeUseJsonTypeDefault = false
+export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneFourSchemaDefault = `public`
+export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneFourTableNameDefault = `events`
+export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneFourHasSelfSignedCertDefault = false
 export const batchExportsRunTestStepCreateBodyOffsetDayMin = 0
 export const batchExportsRunTestStepCreateBodyOffsetDayMax = 6
 
@@ -1116,20 +1256,46 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                             .describe(
                                 'Typed configuration for a BigQuery batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors the\nnon-credential fields of `BigQueryBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
+                        zod
+                            .object({
+                                database: zod.string().describe('PostgreSQL database name to connect to.'),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsRunTestStepCreateBodyDestinationOneConfigOneFourSchemaDefault)
+                                    .describe('PostgreSQL schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(
+                                        batchExportsRunTestStepCreateBodyDestinationOneConfigOneFourTableNameDefault
+                                    )
+                                    .describe('PostgreSQL table name to write exported rows into.'),
+                                has_self_signed_cert: zod
+                                    .boolean()
+                                    .default(
+                                        batchExportsRunTestStepCreateBodyDestinationOneConfigOneFourHasSelfSignedCertDefault
+                                    )
+                                    .describe(
+                                        'Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration.'
+                                    ),
+                                type: zod.enum(['Postgres']),
+                            })
+                            .describe(
+                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                            ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; optional for Postgres; unused for other types.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).\nOther destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres).\nOther destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod
@@ -1192,6 +1358,9 @@ export const batchExportsUnpauseCreateBodyDestinationOneConfigOneTwoPrefixDefaul
 export const batchExportsUnpauseCreateBodyDestinationOneConfigOneTwoFileFormatDefault = `JSONLines`
 export const batchExportsUnpauseCreateBodyDestinationOneConfigOneThreeTableIdDefault = `events`
 export const batchExportsUnpauseCreateBodyDestinationOneConfigOneThreeUseJsonTypeDefault = false
+export const batchExportsUnpauseCreateBodyDestinationOneConfigOneFourSchemaDefault = `public`
+export const batchExportsUnpauseCreateBodyDestinationOneConfigOneFourTableNameDefault = `events`
+export const batchExportsUnpauseCreateBodyDestinationOneConfigOneFourHasSelfSignedCertDefault = false
 export const batchExportsUnpauseCreateBodyOffsetDayMin = 0
 export const batchExportsUnpauseCreateBodyOffsetDayMax = 6
 
@@ -1322,20 +1491,44 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                             .describe(
                                 'Typed configuration for a BigQuery batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors the\nnon-credential fields of `BigQueryBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
+                        zod
+                            .object({
+                                database: zod.string().describe('PostgreSQL database name to connect to.'),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsUnpauseCreateBodyDestinationOneConfigOneFourSchemaDefault)
+                                    .describe('PostgreSQL schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsUnpauseCreateBodyDestinationOneConfigOneFourTableNameDefault)
+                                    .describe('PostgreSQL table name to write exported rows into.'),
+                                has_self_signed_cert: zod
+                                    .boolean()
+                                    .default(
+                                        batchExportsUnpauseCreateBodyDestinationOneConfigOneFourHasSelfSignedCertDefault
+                                    )
+                                    .describe(
+                                        'Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration.'
+                                    ),
+                                type: zod.enum(['Postgres']),
+                            })
+                            .describe(
+                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                            ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; optional for Postgres; unused for other types.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).\nOther destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres).\nOther destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod
@@ -1395,6 +1588,9 @@ export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneTwoPrefi
 export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneTwoFileFormatDefault = `JSONLines`
 export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneThreeTableIdDefault = `events`
 export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneThreeUseJsonTypeDefault = false
+export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneFourSchemaDefault = `public`
+export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneFourTableNameDefault = `events`
+export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneFourHasSelfSignedCertDefault = false
 export const batchExportsRunTestStepNewCreateBodyOffsetDayMin = 0
 export const batchExportsRunTestStepNewCreateBodyOffsetDayMax = 6
 
@@ -1531,20 +1727,48 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                             .describe(
                                 'Typed configuration for a BigQuery batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors the\nnon-credential fields of `BigQueryBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
+                        zod
+                            .object({
+                                database: zod.string().describe('PostgreSQL database name to connect to.'),
+                                schema: zod
+                                    .string()
+                                    .default(
+                                        batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneFourSchemaDefault
+                                    )
+                                    .describe('PostgreSQL schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(
+                                        batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneFourTableNameDefault
+                                    )
+                                    .describe('PostgreSQL table name to write exported rows into.'),
+                                has_self_signed_cert: zod
+                                    .boolean()
+                                    .default(
+                                        batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneFourHasSelfSignedCertDefault
+                                    )
+                                    .describe(
+                                        'Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration.'
+                                    ),
+                                type: zod.enum(['Postgres']),
+                            })
+                            .describe(
+                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                            ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; optional for Postgres; unused for other types.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).\nOther destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres).\nOther destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod

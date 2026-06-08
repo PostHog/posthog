@@ -35,6 +35,9 @@ export const batchExportsCreateBodyDestinationOneTwoConfigPrefixDefault = ``
 export const batchExportsCreateBodyDestinationOneTwoConfigFileFormatDefault = `JSONLines`
 export const batchExportsCreateBodyDestinationOneThreeConfigTableIdDefault = `events`
 export const batchExportsCreateBodyDestinationOneThreeConfigUseJsonTypeDefault = false
+export const batchExportsCreateBodyDestinationOneFourConfigSchemaDefault = `public`
+export const batchExportsCreateBodyDestinationOneFourConfigTableNameDefault = `events`
+export const batchExportsCreateBodyDestinationOneFourConfigHasSelfSignedCertDefault = false
 export const batchExportsCreateBodyOffsetDayMin = 0
 export const batchExportsCreateBodyOffsetDayMax = 6
 
@@ -159,6 +162,38 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating a BigQuery batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Postgres']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of a postgresql-kind Integration providing connection credentials. Optional: omit to configure credentials inline (legacy). Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('PostgreSQL database name to connect to.'),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsCreateBodyDestinationOneFourConfigSchemaDefault)
+                                    .describe('PostgreSQL schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsCreateBodyDestinationOneFourConfigTableNameDefault)
+                                    .describe('PostgreSQL table name to write exported rows into.'),
+                                has_self_signed_cert: zod
+                                    .boolean()
+                                    .default(batchExportsCreateBodyDestinationOneFourConfigHasSelfSignedCertDefault)
+                                    .describe(
+                                        'Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration.'
+                                    ),
+                            })
+                            .describe(
+                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a PostgreSQL batch-export destination.'),
             ])
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
         interval: zod
@@ -217,6 +252,9 @@ export const batchExportsPartialUpdateBodyDestinationOneTwoConfigPrefixDefault =
 export const batchExportsPartialUpdateBodyDestinationOneTwoConfigFileFormatDefault = `JSONLines`
 export const batchExportsPartialUpdateBodyDestinationOneThreeConfigTableIdDefault = `events`
 export const batchExportsPartialUpdateBodyDestinationOneThreeConfigUseJsonTypeDefault = false
+export const batchExportsPartialUpdateBodyDestinationOneFourConfigSchemaDefault = `public`
+export const batchExportsPartialUpdateBodyDestinationOneFourConfigTableNameDefault = `events`
+export const batchExportsPartialUpdateBodyDestinationOneFourConfigHasSelfSignedCertDefault = false
 export const batchExportsPartialUpdateBodyOffsetDayMin = 0
 export const batchExportsPartialUpdateBodyOffsetDayMax = 6
 
@@ -341,6 +379,40 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating a BigQuery batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Postgres']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of a postgresql-kind Integration providing connection credentials. Optional: omit to configure credentials inline (legacy). Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('PostgreSQL database name to connect to.'),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneFourConfigSchemaDefault)
+                                    .describe('PostgreSQL schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneFourConfigTableNameDefault)
+                                    .describe('PostgreSQL table name to write exported rows into.'),
+                                has_self_signed_cert: zod
+                                    .boolean()
+                                    .default(
+                                        batchExportsPartialUpdateBodyDestinationOneFourConfigHasSelfSignedCertDefault
+                                    )
+                                    .describe(
+                                        'Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration.'
+                                    ),
+                            })
+                            .describe(
+                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a PostgreSQL batch-export destination.'),
             ])
             .optional()
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
