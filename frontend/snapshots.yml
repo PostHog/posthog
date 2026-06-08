@@ -1485,9 +1485,9 @@ snapshots:
     components-verticalnesteddnd--base--light:
         hash: v1.k794b7964.b210ce352a085f9ed57aed4675cc78d23db5d2312f276ec790040b2ce27e293a.duU6Lgj4ID4h_Qo76s2bErUZYu2IuRIHoy4D7_tCGT4
     dashboards-dashboard-widgets-overview--all-widget-types--dark:
-        hash: v1.k794b7964.df644170c7e3b94a3ee029ce20a13f3748017c1679ae6ce3b653bc252f5ee272.czpDUOb7VbwR1ai5GFTonORmHxeonG1_8vostqsUeY4
+        hash: v1.k794b7964.d8fb73a9d12018dabe304134e94103565a858b3e07b2f8629fee870ab0299d21.3MD1OvLnswqhNYqUY5R1XXeOVqZkGR8Si688strKe6g
     dashboards-dashboard-widgets-overview--all-widget-types--light:
-        hash: v1.k794b7964.27c34dd030497662e0054c74af15da59ec9919f8d3d11abbe027dafd5d6b8647.p02F6ZeldXRYLORbR39-qwdrCgnkam5DP6eG58vnuVc
+        hash: v1.k794b7964.c83be8c292d11f14670cbd097912d6d37aa3071e1386152113ba7bcb13166e2a.vFeA7LlQU1EddQ5yACEWeaLfK9HE911ZvL9CUBTUm4Q
     dashboards-dashboard-widgets-widget-types-error-tracking-top-issues--empty--dark:
         hash: v1.k794b7964.37b0f3093591c5d717106e98dc91ca4288d2562cdb240750c1223ae2bce4f8af.K92XY4q1UjFlYZ0DhQ8G02rowmJ7Ed0FxirKIANkTog
     dashboards-dashboard-widgets-widget-types-error-tracking-top-issues--empty--light:
