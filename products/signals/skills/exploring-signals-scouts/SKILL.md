@@ -45,6 +45,22 @@ The orienting fifth is `signals-scout-project-profile-get` — the deterministic
 true about this project" that every scout cold-starts from. When a scout found nothing, this is
 usually why.
 
+## Output handling: expect to offload to a file
+
+Two of these tools — `signals-scout-runs-list` and especially
+`tasks-runs-session-logs-retrieve` — routinely return payloads that **overflow an MCP client's
+token budget and get spilled to a file**. This is the normal path, not an error. Plan for it up
+front rather than discovering it after a failed call:
+
+- **Keep `limit` small** on `signals-scout-runs-list` (~10–15). Each row carries a long prose
+  `summary`, and runs come back newest-first across the _whole_ fleet, so even a modest page is
+  large.
+- **Session logs are large by nature.** A single run's log is hundreds of KB to a few MB. Fetch it
+  with **`call --json`** (so the saved file is real JSON, not the pretty text format — `jq`-able)
+  and read the saved file with `jq` / a script rather than inline.
+- **Don't hand-parse the session log.** The bundled [`scripts/`](#helper-scripts) do the
+  reconstruction for you — see below.
+
 ## Start here: is the fleet even set up?
 
 Don't assume the project has scouts. The fleet only runs on teams enrolled via the `signals-scout`
@@ -150,10 +166,19 @@ the list row, so to learn _why_ it failed you need the transcript.
 You don't have to open the UI for that: **`tasks-runs-session-logs-retrieve` returns the run's
 session log (every tool call, message, and reasoning step) as data** — handy when you're
 diagnosing a failure or want to trace exactly what a run did without leaving the conversation. Pass
-the run's `task_run_id` as `id` and its `task_id` (both are on the run row). The raw stream is
-large and dominated by incremental `tool_call_update` chunks, so filter to keep it readable — e.g.
-`exclude_types: "tool_call_update,usage_update,_posthog/console,agent_thought_chunk"` leaves just
-the `tool_call` and `agent_message` events, which is enough to reconstruct the run's timeline.
+the run's `task_run_id` as `id` and its `task_id` (both are on the run row).
+
+The raw stream is large (hundreds of KB to a few MB) and will overflow inline, so **fetch it with
+`call --json` and let it spill to a file**, then run it through
+[`scripts/render_run_report.py`](#helper-scripts) rather than parsing it by hand.
+
+⚠️ **Do not reach for `exclude_types: "tool_call_update,…"` to slim it down.** It is tempting —
+the stream is dominated by incremental `tool_call_update` chunks — but each tool's **actual input
+lives only in those chunks**: the base `tool_call` event carries an empty `rawInput`, and the
+streamed updates build the input (and the final `rawOutput`) token by token. Excluding them leaves
+you with tool _names_ but no idea what the scout actually queried. Fetch the **full** log and let
+the script reassemble each call (it groups by `toolCallId`, keeps the richest `rawInput`, and
+attaches the completion's `rawOutput`/`status`).
 
 **Telling whether a run emitted is not as direct as you'd hope.** The run row carries no emit
 flag and no finding count — the only readily-available signal is the prose `summary`, which says
@@ -247,6 +272,82 @@ below. The full playbook, including how to read each signal and the common failu
   suppressed? Cross-check emitted findings against `inbox-reports-list` report states.
 - **Memory growth** — a healthy scout accumulates `pattern:` / `noise:` / `dedupe:` entries over
   time. A scout with an empty scratchpad after many runs isn't learning.
+
+## Helper scripts
+
+The skill bundles three **pure formatters** under [`scripts/`](scripts/) for the most common asks.
+They do **no network I/O** — they are the back half of an "agent fetches, script formats" split.
+The pattern is always the same:
+
+1. Fetch each payload with the MCP using **`call --json`** (raw JSON, not the pretty text format)
+   and save it to a file. For the big ones (`runs-list`, `tasks-runs-session-logs-retrieve`) this
+   is mandatory anyway — they overflow inline and spill to a file you can point the script at.
+2. Run the script over those files.
+
+All three are stdlib-only Python 3.11+ and print **plain text** to stdout (or `--out`) — designed
+to read well in a terminal, so save them as `.txt`.
+
+### `scripts/render_run_report.py` — drill into one run
+
+Produces the kind of detailed write-up you'd want when inspecting a single run: header
+(status, duration, posture), a **narrated timeline that interleaves the agent's narration with
+each tool call _and its real input_**, the end-of-run summary, and any scratchpad memory.
+
+```bash
+# fetch (note --json), saving each to a file:
+#   call --json signals-scout-runs-retrieve { "id": "<run_id>" }            -> run.json
+#   call --json tasks-runs-session-logs-retrieve { "id": "<task_run_id>", "task_id": "<task_id>", "offset": 0 }  -> log.json   (FULL — no exclude_types)
+#   (optional) call --json signals-scout-scratchpad-search { ... }          -> mem.json
+#   (optional) call --json signals-scout-config-list {}                     -> cfg.json
+python scripts/render_run_report.py --run run.json --log log.json \
+    --scratchpad mem.json --config cfg.json --out report.txt
+```
+
+Modes (`--mode`, default `detailed`):
+
+| Mode       | Contains                                                           | `--log` needed? |
+| ---------- | ------------------------------------------------------------------ | --------------- |
+| `summary`  | header + posture + close-out prose                                 | no              |
+| `detailed` | + narrated timeline with tool **inputs** + tool tally + scratchpad | yes             |
+| `full`     | + each tool call's (truncated) **output** inline                   | yes             |
+
+Other flags: `--show-output` (outputs in detailed mode), `--input-width` / `--output-width`
+(truncation), `--no-art` (skip the hedgehog banner), `--base-url` (defaults to `us.posthog.com`).
+
+### `scripts/fleet_survey.py` — survey the whole fleet
+
+One scannable table — scout, enabled, posture, cadence, last run, last outcome — with a "worth a
+look" section that flags never-run, stuck-in-dry-run, and last-run-failed scouts.
+
+```bash
+#   call --json signals-scout-config-list {}                 -> cfg.json
+#   (optional) call --json signals-scout-runs-list { "limit": 30 }  -> runs.json   (small limit!)
+python scripts/fleet_survey.py --config cfg.json --runs runs.json --now <current-ISO-time>
+```
+
+Pass `--now` (the current time, ISO-8601) to get relative "ago" columns; the emit/quiet column is
+a **heuristic** on each run's summary prose — confirm against the summary before trusting it.
+
+### `scripts/assess_health.py` — health over a window of runs
+
+Implements the "assess health and performance" workflow above: a per-scout table (runs, success
+%, emit %, cadence gap vs interval, adherence, median duration, memory growth) plus a "worth a
+look" section flagging all-failed scouts, timeout-shaped failures, cadence stalls, staleness, and
+empty scratchpads.
+
+```bash
+#   call --json signals-scout-runs-list { "limit": 100, "date_from": "<ISO>" }  -> runs.json
+#   (optional) call --json signals-scout-config-list {}                          -> cfg.json
+#   (optional) call --json signals-scout-scratchpad-search {}                    -> mem.json
+python scripts/assess_health.py --runs runs.json --config cfg.json \
+    --scratchpad mem.json --now <current-ISO-time> [--skill signals-scout-general]
+```
+
+`--config` is what lets it score cadence adherence (the expected interval) and staleness (the
+authoritative `last_run_at`, which the windowed runs can miss when the 100-row cap truncates the
+newest runs). Without `--scratchpad` the memory column shows `n/a` and no memory flags fire. The
+emit % is the same summary-prose heuristic — cross-check signal-to-noise against
+`inbox-reports-list`.
 
 ## Tips
 
