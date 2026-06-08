@@ -68,18 +68,24 @@ const createMockPersonRepository = (): jest.Mocked<PersonReadRepository> => ({
 jest.mock('./cymbal', () => ({
     CymbalClient: jest.fn().mockImplementation(() => ({
         processExceptions: jest.fn().mockImplementation((items) =>
-            // Return a valid response for each item, preserving input properties
-            items.map((item: any) => ({
-                uuid: item.request.uuid,
-                event: item.request.event,
-                team_id: item.request.team_id,
-                timestamp: item.request.timestamp,
-                properties: {
-                    ...item.request.properties,
-                    $exception_fingerprint: `fingerprint-${item.request.uuid}`,
-                    $exception_issue_id: `issue-${item.request.uuid}`,
-                },
-            }))
+            items.map((item: any) => {
+                const signature = (item.request.properties?.$exception_list ?? [])
+                    .flatMap((exc: any) => exc?.stacktrace?.frames ?? [])
+                    .map((frame: any) => frame?.function ?? '')
+                    .join('|')
+                const issueKey = signature || item.request.uuid
+                return {
+                    uuid: item.request.uuid,
+                    event: item.request.event,
+                    team_id: item.request.team_id,
+                    timestamp: item.request.timestamp,
+                    properties: {
+                        ...item.request.properties,
+                        $exception_fingerprint: `fingerprint-${issueKey}`,
+                        $exception_issue_id: `issue-${issueKey}`,
+                    },
+                }
+            })
         ),
     })),
 }))
@@ -603,8 +609,8 @@ describe('ErrorTrackingConsumer', () => {
 
                 expect(producedCount()).toBe(5)
 
-                // foo with different `value` → same key as foo's burst (value is
-                // dropped from the hash when a stack exists) → bucket already empty,
+                // foo with different `value` → same Cymbal-resolved issue as foo's burst
+                // (the message doesn't affect issue grouping) → bucket already empty,
                 // request denied.
                 await send('foo', 'different')
                 await drainProduces()

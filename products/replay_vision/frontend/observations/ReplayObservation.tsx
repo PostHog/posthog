@@ -39,9 +39,9 @@ import {
     scannerTypeLabel,
 } from '../replay_scanners/types'
 import { replayObservationLogic } from './replayObservationLogic'
-import { ReplayObservationSceneLogicProps, replayObservationSceneLogic } from './replayObservationSceneLogic'
+import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
-export const scene: SceneExport<ReplayObservationSceneLogicProps> = {
+export const scene: SceneExport = {
     component: ReplayObservationSceneComponent,
     logic: replayObservationSceneLogic,
     productKey: ProductKey.REPLAY_VISION,
@@ -90,17 +90,17 @@ function AutoSeekToTime({
     return null
 }
 
-export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): JSX.Element {
+export function ReplayObservationSceneComponent(): JSX.Element {
     const { observationId } = useValues(replayObservationSceneLogic)
     const [recordingExpanded, setRecordingExpanded] = useState(true)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
 
-    const observationLogic = replayObservationLogic({ id: observationId, tabId })
+    const observationLogic = replayObservationLogic({ id: observationId })
     useAttachedLogic(observationLogic, replayObservationSceneLogic)
 
     const { observation, observationLoading } = useValues(observationLogic)
 
-    if (observationLoading) {
+    if (observationLoading && !observation) {
         return (
             <SceneContent>
                 <SceneTitleSection name="Loading…" resourceType={{ type: 'replay_vision' }} />
