@@ -266,7 +266,10 @@ RUN apt-get update && \
 # Note: no MS SQL ODBC driver is installed — the data-warehouse MSSQL source uses pymssql, which
 # bundles FreeTDS in its wheel and does not use msodbcsql18/unixodbc (there is no pyodbc in the tree).
 
-# Install Node.js 24.13.0 for standalone scripts with architecture detection and verification
+# Install Node.js 24.13.0 for standalone scripts with architecture detection and verification.
+# Only the `node` binary is used at runtime (the plugin transpiler subprocess), so npm/npx/corepack/
+# headers are stripped after install. Note: the dev-only `create_channel_definitions_file` management
+# command shells out to `npx prettier` to regenerate a checked-in file; it is not run in this image.
 ENV NODE_VERSION 24.13.0
 
 RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
@@ -330,7 +333,8 @@ ENV PATH=/python-runtime/bin:$PATH \
 # (CHROME_BIN) — the same engine the selenium image-export path uses — so we avoid shipping a
 # second, duplicate ~170MB browser. (See _launch_local_browser in heatmap_screenshot.py.)
 USER root
-RUN /python-runtime/bin/python -m playwright install-deps chromium
+RUN /python-runtime/bin/python -m playwright install-deps chromium && \
+    rm -rf /var/lib/apt/lists/*
 USER posthog
 
 # frontend/dist is read at runtime (Django template DIR in settings/web.py + the array.js disk
