@@ -1,6 +1,6 @@
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
-from products.batch_exports.backend.models.batch_imports import BatchImport
+from products.managed_migrations.backend.models.batch_imports import BatchImport
 
 
 class TestBatchImportActivityLogging(ActivityLogTestHelper):
