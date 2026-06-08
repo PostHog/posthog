@@ -133,10 +133,6 @@ pub enum UnsupportedVariant {
     /// bucket state would diverge from the existing calendar-day-granular pipeline.
     #[error("performed_event_multiple sub-day window is unsupported")]
     HourlyDeferred,
-    /// A `performed_event_multiple` whose window exceeds 180 days — beyond the dense daily-bucket
-    /// range.
-    #[error("performed_event_multiple window over 180 days is unsupported")]
-    CompressedDeferred,
     #[error("performed_event leaf has no resolvable window")]
     MissingWindow,
     /// Handled defensively so the match is total — the classifier drops these earlier.
@@ -152,13 +148,14 @@ pub fn pick_state_variant(
         BehavioralValue::PerformedEvent => {
             Ok((StateVariant::BehavioralSingle, Some(eviction_window(leaf)?)))
         }
-        // `None` eviction window: daily buckets derive their deadline from the bucket array, not a
-        // relative window. `day,1` (2 buckets) is daily — the existing pipeline is calendar-day
-        // granular, so daily is the parity-faithful representation of a 1-day window.
+        // `None` eviction window: the bucket variants derive their deadline from the stored counts,
+        // not a relative window. `day,1` (2 buckets) is daily — the existing pipeline is calendar-day
+        // granular, so daily is the parity-faithful representation of a 1-day window. A window over
+        // 180 days is the same calendar-day semantics in sparse run-length storage (compressed).
         BehavioralValue::PerformedEventMultiple => match effective_window_days(leaf) {
             0 => Err(UnsupportedVariant::HourlyDeferred),
             1..=180 => Ok((StateVariant::BehavioralDailyBuckets, None)),
-            _ => Err(UnsupportedVariant::CompressedDeferred),
+            _ => Ok((StateVariant::BehavioralCompressedHistory, None)),
         },
         BehavioralValue::PerformedEventFirstTime
         | BehavioralValue::PerformedEventSequence
@@ -297,8 +294,10 @@ mod tests {
     #[test]
     fn performed_event_multiple_routes_by_effective_window_days() {
         use BehavioralValue::PerformedEventMultiple as Multiple;
-        // (time_value, time_interval) → expected routing, exercising the 1 and 180 daily boundaries.
+        // (time_value, time_interval) → expected routing, exercising the 1 and 180 daily boundaries
+        // and the >180-day compressed routing.
         let daily = Ok((StateVariant::BehavioralDailyBuckets, None));
+        let compressed = Ok((StateVariant::BehavioralCompressedHistory, None));
         let cases = [
             (
                 Some(1),
@@ -312,7 +311,7 @@ mod tests {
             (
                 Some(181),
                 "day",
-                Err(UnsupportedVariant::CompressedDeferred),
+                compressed,
                 "day,181 → compressed (just over the boundary)",
             ),
             (
@@ -330,13 +329,13 @@ mod tests {
             (
                 Some(1),
                 "year",
-                Err(UnsupportedVariant::CompressedDeferred),
+                compressed,
                 "D8: year,1 = 365 days → compressed",
             ),
             (
                 Some(365),
                 "day",
-                Err(UnsupportedVariant::CompressedDeferred),
+                compressed,
                 "day,365 = 365 days → compressed, same as 1 year",
             ),
         ];

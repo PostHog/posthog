@@ -266,7 +266,8 @@ fn collect_leaf_meta(
                 // `effective_window_days` is the function the picker routed on, so `window_days`
                 // matches the chosen variant.
                 let (window_days, predicate_op) = match variant {
-                    StateVariant::BehavioralDailyBuckets => (
+                    StateVariant::BehavioralDailyBuckets
+                    | StateVariant::BehavioralCompressedHistory => (
                         Some(effective_window_days(leaf)),
                         Some(PredicateOp::from_leaf(
                             leaf.operator.as_deref(),
@@ -519,6 +520,30 @@ mod tests {
             frozen.behavioral_conditions.contains(&HASH),
             "the multiple leaf's conditionHash is behavioral",
         );
+    }
+
+    #[test]
+    fn freeze_compressed_leaf_carries_window_days_and_op() {
+        // A >180-day multiple routes to compressed but recovers the same meta the daily arm does.
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event_multiple(
+                    1, "year", "gte", 3,
+                )]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        let lsk = frozen.by_condition_to_lsk[&HASH][0];
+        let meta = frozen.by_lsk[&lsk];
+        assert_eq!(meta.variant, StateVariant::BehavioralCompressedHistory);
+        assert_eq!(meta.window, None, "compressed carries no relative window");
+        assert_eq!(meta.window_days, Some(365), "year = 365 days");
+        assert_eq!(meta.predicate_op, Some(PredicateOp::Gte(3)));
+        assert!(frozen.behavioral_conditions.contains(&HASH));
     }
 
     #[test]

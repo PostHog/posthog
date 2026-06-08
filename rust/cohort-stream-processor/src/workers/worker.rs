@@ -429,7 +429,8 @@ fn reschedule_team(
 /// A `BehavioralSingle` `Left` is only ever produced by the sweep (the event path never clears a
 /// match), so it carries the `behavioral_left` label to keep the sweep's conservation story uniform.
 /// A daily slide emits either direction — `behavioral_daily_left`, or `behavioral_daily_entered` when
-/// a falling count enters an `eq`/`lte`/`lt` range.
+/// a falling count enters an `eq`/`lte`/`lt` range; the compressed (>180-day) variant mirrors it with
+/// `behavioral_compressed_left` / `behavioral_compressed_entered`.
 fn transition_metric_label(
     filters: &TeamFilters,
     transition: &LeafTransition,
@@ -443,6 +444,12 @@ fn transition_metric_label(
         }
         (StateVariant::BehavioralDailyBuckets, TransitionKind::Left) => {
             Some("behavioral_daily_left")
+        }
+        (StateVariant::BehavioralCompressedHistory, TransitionKind::Entered) => {
+            Some("behavioral_compressed_entered")
+        }
+        (StateVariant::BehavioralCompressedHistory, TransitionKind::Left) => {
+            Some("behavioral_compressed_left")
         }
         (StateVariant::PersonProperty, TransitionKind::Entered) => Some("person_entered"),
         (StateVariant::PersonProperty, TransitionKind::Left) => Some("person_left"),

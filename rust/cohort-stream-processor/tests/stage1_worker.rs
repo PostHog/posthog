@@ -36,6 +36,8 @@ const PARTITION_ID: u16 = 0;
 const BEHAVIORAL_HASH: [u8; 16] = *b"0123456789abcdef";
 const PERSON_HASH: [u8; 16] = *b"fedcba9876543210";
 const BASE_TS: &str = "2026-05-26 12:34:56.789000";
+/// A window over 180 days routes `performed_event_multiple` to the compressed history variant.
+const COMPRESSED_WINDOW_DAYS: i64 = 365;
 
 fn temp_store() -> (TempDir, CohortStore) {
     let dir = TempDir::new().unwrap();
@@ -272,6 +274,28 @@ fn window_count(state: &Stage1State) -> u32 {
     daily_state(state).0.iter().sum()
 }
 
+/// The compressed-history state's `(entries, window_start_day, earliest_eviction_at_ms)`.
+fn compressed_state(state: &Stage1State) -> (&[(i32, u32)], i32, i64) {
+    match state {
+        Stage1State::BehavioralCompressedHistory {
+            entries,
+            window_start_day,
+            earliest_eviction_at_ms,
+            ..
+        } => (entries, *window_start_day, *earliest_eviction_at_ms),
+        other => panic!("expected BehavioralCompressedHistory, got {other:?}"),
+    }
+}
+
+/// The compressed window's matching-event count — the entries' count sum.
+fn compressed_count(state: &Stage1State) -> u32 {
+    compressed_state(state)
+        .0
+        .iter()
+        .map(|&(_, count)| count)
+        .sum()
+}
+
 /// The `stage1_transitions_total{kind}` label for a transition, resolved through the snapshot — the
 /// same mapping the worker emits.
 fn transition_kind(filters: &TeamFilters, transition: &LeafTransition) -> &'static str {
@@ -283,6 +307,12 @@ fn transition_kind(filters: &TeamFilters, transition: &LeafTransition) -> &'stat
             "behavioral_daily_entered"
         }
         (StateVariant::BehavioralDailyBuckets, TransitionKind::Left) => "behavioral_daily_left",
+        (StateVariant::BehavioralCompressedHistory, TransitionKind::Entered) => {
+            "behavioral_compressed_entered"
+        }
+        (StateVariant::BehavioralCompressedHistory, TransitionKind::Left) => {
+            "behavioral_compressed_left"
+        }
         (StateVariant::PersonProperty, TransitionKind::Entered) => "person_entered",
         (StateVariant::PersonProperty, TransitionKind::Left) => "person_left",
     }
@@ -1434,5 +1464,356 @@ async fn daily_multiple_single_leaf_cohort_emits_entered_then_left_to_the_sink()
     assert_eq!(
         tracker.committable_offsets().get(&(PARTITION_ID as i32)),
         Some(&4),
+    );
+}
+
+// ── performed_event_multiple compressed history (>180-day windows, M2) ────────────
+// These exercise the `BehavioralCompressedHistory` fold — the sparse run-length analog of the daily
+// buckets — over a 365-day window: enter on threshold, event-driven `Left` from a window slide, sparse
+// multi-day accumulation, the late-BEHIND ignore, replay-safety, and the end-to-end
+// sweep→Delete→late-event-re-creates cycle (which also closes the lone PR-2.4 gap).
+
+fn day_of(ts: &str) -> i32 {
+    day_idx_in_tz(clickhouse_timestamp_to_millis(ts).unwrap(), UTC)
+}
+
+#[test]
+fn compressed_multiple_enters_when_count_crosses_threshold() {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(
+        CohortId(1),
+        cohort(vec![behavioral_leaf_multiple(
+            COMPRESSED_WINDOW_DAYS,
+            "gte",
+            3,
+        )]),
+    )]);
+    let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    assert_eq!(
+        filters.by_lsk[&lsk].variant,
+        StateVariant::BehavioralCompressedHistory,
+        "a 365-day window routes to compressed history",
+    );
+    let alice = person(1);
+
+    // Three matching events on three different days, all inside the 365-day window.
+    let days = [
+        "2026-01-10 10:00:00.000000",
+        "2026-03-15 11:00:00.000000",
+        "2026-05-20 09:30:00.000000",
+    ];
+    for (offset, ts) in days[..2].iter().enumerate() {
+        let out = process_event(
+            PARTITION_ID,
+            &store,
+            &filters,
+            &event_at(alice, ts, 1, offset as i64),
+        )
+        .unwrap();
+        assert!(out.transitions.is_empty(), "count below 3 → no transition");
+    }
+    assert_eq!(compressed_count(&state_at(&store, lsk, alice).unwrap()), 2);
+
+    // The third event crosses `gte 3`.
+    let out = process_event(
+        PARTITION_ID,
+        &store,
+        &filters,
+        &event_at(alice, days[2], 1, 2),
+    )
+    .unwrap();
+    assert_eq!(out.transitions.len(), 1);
+    assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
+    assert_eq!(
+        transition_kind(&filters, &out.transitions[0]),
+        "behavioral_compressed_entered",
+    );
+    assert_eq!(compressed_count(&state_at(&store, lsk, alice).unwrap()), 3);
+}
+
+#[test]
+fn compressed_multiple_slide_drops_contributing_day_and_emits_left() {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(
+        CohortId(1),
+        cohort(vec![behavioral_leaf_multiple(
+            COMPRESSED_WINDOW_DAYS,
+            "gte",
+            3,
+        )]),
+    )]);
+    let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    let alice = person(1);
+
+    // Three matches on the same day → one entry of count 3 → Entered on the third.
+    let day = "2025-01-10 10:00:00.000000";
+    for offset in 0..3 {
+        let out = process_event(
+            PARTITION_ID,
+            &store,
+            &filters,
+            &event_at(alice, day, 1, offset),
+        )
+        .unwrap();
+        if offset < 2 {
+            assert!(out.transitions.is_empty());
+        } else {
+            assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
+        }
+    }
+    assert_eq!(
+        compressed_count(&state_at(&store, lsk, alice).unwrap()),
+        3,
+        "all three accumulate in one day-entry",
+    );
+
+    // A match well over 365 days later slides the whole window past that entry: it falls out, and the
+    // slide event itself only contributes 1 → count 1 < 3 → Left.
+    let slide_ts = "2026-06-01 10:00:00.000000";
+    let out = process_event(
+        PARTITION_ID,
+        &store,
+        &filters,
+        &event_at(alice, slide_ts, 1, 3),
+    )
+    .unwrap();
+    assert_eq!(out.transitions.len(), 1);
+    assert_eq!(out.transitions[0].kind, TransitionKind::Left);
+    assert_eq!(
+        transition_kind(&filters, &out.transitions[0]),
+        "behavioral_compressed_left",
+    );
+    let state = state_at(&store, lsk, alice).unwrap();
+    assert_eq!(
+        compressed_count(&state),
+        1,
+        "only the slide event remains in the window",
+    );
+    assert_eq!(
+        compressed_state(&state).0,
+        &[(day_of(slide_ts), 1)],
+        "the aged-out day entry was pruned, leaving only the slide day",
+    );
+}
+
+#[test]
+fn compressed_multiple_accumulates_sparsely_across_days() {
+    // Proves the compressed state stores one entry per matching day (sparse), counts repeats in place,
+    // and stays sorted — a dense array would hold 366 slots for the same data.
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(
+        CohortId(1),
+        cohort(vec![behavioral_leaf_multiple(
+            COMPRESSED_WINDOW_DAYS,
+            "gte",
+            10,
+        )]), // high: inspect, no flip
+    )]);
+    let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    let alice = person(1);
+
+    let day_a = "2026-01-10 10:00:00.000000";
+    let day_b = "2026-02-20 11:00:00.000000";
+    let day_c = "2026-04-05 09:00:00.000000";
+    // day_a ×2, day_b ×1, day_c ×3 (count 6) — sent interleaved to exercise the sorted in-place insert.
+    for (offset, ts) in [day_a, day_c, day_b, day_a, day_c, day_c]
+        .iter()
+        .enumerate()
+    {
+        let out = process_event(
+            PARTITION_ID,
+            &store,
+            &filters,
+            &event_at(alice, ts, 1, offset as i64),
+        )
+        .unwrap();
+        assert!(out.transitions.is_empty(), "count 6 stays under gte 10");
+    }
+
+    let state = state_at(&store, lsk, alice).unwrap();
+    assert_eq!(
+        compressed_state(&state).0,
+        &[(day_of(day_a), 2), (day_of(day_b), 1), (day_of(day_c), 3)],
+        "one sorted entry per matching day, repeats counted in place",
+    );
+    assert_eq!(compressed_count(&state), 6);
+}
+
+#[test]
+fn compressed_multiple_late_behind_event_records_offset_without_counting() {
+    // The compressed mirror of the daily late-BEHIND case: an event older than the window's lower
+    // bound does not count (its day already slid out), but its offset is still recorded so a later true
+    // replay of it is skipped.
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(
+        CohortId(1),
+        cohort(vec![behavioral_leaf_multiple(
+            COMPRESSED_WINDOW_DAYS,
+            "gte",
+            1,
+        )]),
+    )]);
+    let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    let alice = person(1);
+
+    // Newest event first (offset 10) on 2026-05-27 → window covers [2025-05-27 ..= 2026-05-27].
+    let out = process_event(
+        PARTITION_ID,
+        &store,
+        &filters,
+        &event_at(alice, "2026-05-27 12:00:00.000000", 1, 10),
+    )
+    .unwrap();
+    assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
+    let before = record_at(&store, lsk, alice).unwrap();
+
+    // A late event well before the window's lower bound (2024-01-01 ≪ 2025-05-27): behind the window,
+    // so it does not count — but it is a genuine new offset and must be recorded.
+    let out = process_event(
+        PARTITION_ID,
+        &store,
+        &filters,
+        &event_at(alice, "2024-01-01 12:00:00.000000", 1, 11),
+    )
+    .unwrap();
+    assert!(
+        out.transitions.is_empty(),
+        "a behind-window event flips nothing"
+    );
+
+    let after = record_at(&store, lsk, alice).unwrap();
+    assert_eq!(
+        after.state, before.state,
+        "the behind-window event left the entries, window, deadline, and newest-event all unchanged",
+    );
+    assert_high_water(&after.applied_offsets, 1, 11);
+}
+
+#[test]
+fn compressed_multiple_cross_partition_replay_after_slide_is_byte_identical() {
+    // The compressed analog of the daily non-idempotent-fold replay test: a replay from one source
+    // partition is skipped even after a later event from a different source partition slid the window.
+    // Skip vs re-fold are not state-identical here, so byte-identity proves the `is_replay` guard fired.
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(
+        CohortId(1),
+        cohort(vec![behavioral_leaf_multiple(
+            COMPRESSED_WINDOW_DAYS,
+            "gte",
+            1,
+        )]),
+    )]);
+    let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    let p = person(1);
+
+    // Event from partition 10 (offset 5) on 2025-01-10, then a later event from partition 20 (offset
+    // 10) on 2025-04-15 that slides the window forward (both days stay inside the 365-day window).
+    process_event(
+        PARTITION_ID,
+        &store,
+        &filters,
+        &event_at(p, "2025-01-10 10:00:00.000000", 10, 5),
+    )
+    .unwrap();
+    process_event(
+        PARTITION_ID,
+        &store,
+        &filters,
+        &event_at(p, "2025-04-15 10:00:00.000000", 20, 10),
+    )
+    .unwrap();
+
+    let before = record_at(&store, lsk, p).unwrap();
+    assert_high_water(&before.applied_offsets, 10, 5);
+    assert_high_water(&before.applied_offsets, 20, 10);
+    assert_eq!(
+        compressed_count(&before.state),
+        2,
+        "both days are inside the window",
+    );
+
+    // Replay partition 10's original event (offset 5 ≤ 5): is_replay fires regardless of the slide.
+    let out = process_event(
+        PARTITION_ID,
+        &store,
+        &filters,
+        &event_at(p, "2025-01-10 10:00:00.000000", 10, 5),
+    )
+    .unwrap();
+    assert!(out.transitions.is_empty(), "a replay flips nothing");
+
+    let after = record_at(&store, lsk, p).unwrap();
+    assert_eq!(
+        after, before,
+        "the replay neither re-folded its entry nor disturbed partition 20's high-water mark",
+    );
+}
+
+#[tokio::test]
+async fn compressed_sweep_deletes_then_a_late_event_recreates_the_state() {
+    // End-to-end through the worker: a compressed member is swept to Left + Delete on full window
+    // expiry, then a fresh event re-creates the state from its own timestamp and re-enters. This is the
+    // sweep→Delete→re-create cycle (also the lone outstanding PR-2.4 end-to-end gap).
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(
+        CohortId(1),
+        cohort(vec![behavioral_leaf_multiple(
+            COMPRESSED_WINDOW_DAYS,
+            "gte",
+            1,
+        )]),
+    )]);
+    let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    let catalog = catalog_of(filters);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+
+    let (tx, rx) = mpsc::channel(16);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        rx,
+        store.clone(),
+        catalog,
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    let alice = person(1);
+    let first_ts = "2025-01-15 10:00:00.000000";
+    let first_day = day_of(first_ts);
+
+    // The match enters the cohort and schedules eviction at start of day first_day + 365 + 1.
+    dispatch_to_worker(&tracker, &tx, event_at(alice, first_ts, 1, 0), 0).await;
+    // A sweep whose cutoff is past that deadline drains the lone entry → Left + delete.
+    let cutoff = start_of_day_ms_in_tz(first_day + COMPRESSED_WINDOW_DAYS as i32 + 2, UTC);
+    tx.send(vec![ShuffleMessage::Sweep {
+        due_before_ms: cutoff,
+    }])
+    .await
+    .unwrap();
+    // A fresh event, well after the delete, re-creates the state from its own day and re-enters.
+    let late_ts = "2026-06-01 10:00:00.000000";
+    dispatch_to_worker(&tracker, &tx, event_at(alice, late_ts, 1, 1), 1).await;
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let statuses: Vec<MembershipStatus> =
+        sink.changes().iter().map(|change| change.status).collect();
+    assert_eq!(
+        statuses,
+        vec![
+            MembershipStatus::Entered, // first event
+            MembershipStatus::Left,    // sweep drains the window
+            MembershipStatus::Entered, // the late event re-creates and re-enters
+        ],
+        "the sweep deletes the compressed state and a later event re-creates it",
+    );
+
+    // The re-created state holds only the late event's day, anchored at its own window.
+    let state = state_at(&store, lsk, alice).expect("re-created by the late event");
+    assert_eq!(
+        compressed_state(&state).0,
+        &[(day_of(late_ts), 1)],
+        "re-created from the late event's own timestamp, not the deleted window",
     );
 }

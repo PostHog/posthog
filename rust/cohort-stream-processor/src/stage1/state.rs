@@ -18,6 +18,10 @@ pub enum StateVariant {
     ///
     /// [`PredicateOp`]: crate::stage1::pick_state::PredicateOp
     BehavioralDailyBuckets,
+    /// `performed_event_multiple` with a window over 180 days: sparse run-length per-calendar-day
+    /// counts in the team timezone (the compressed analog of [`Self::BehavioralDailyBuckets`]), with
+    /// the same count comparator on their sum.
+    BehavioralCompressedHistory,
     /// A person-property filter: a last-write-wins boolean.
     PersonProperty,
 }
@@ -28,6 +32,7 @@ impl StateVariant {
         match self {
             Self::BehavioralSingle => "behavioral_single",
             Self::BehavioralDailyBuckets => "behavioral_daily_buckets",
+            Self::BehavioralCompressedHistory => "behavioral_compressed_history",
             Self::PersonProperty => "person_property",
         }
     }
@@ -62,6 +67,25 @@ pub enum Stage1State {
         /// deadline. Computed and stored but not yet read; the event path never reads a wall clock.
         earliest_eviction_at_ms: i64,
     },
+    /// `performed_event_multiple` over a window exceeding 180 days, stored as sparse run-length
+    /// entries — the compressed analog of [`Self::BehavioralDailyBuckets`]. Membership is derived from
+    /// the entries' count sum and the leaf's `PredicateOp` (on the catalog meta, not here).
+    BehavioralCompressedHistory {
+        /// Sparse per-day counts: `(day_idx, count)` for each calendar day (team tz) with at least one
+        /// matching event, sorted ascending by day with no zero-count entries. The sparse form of
+        /// [`Self::BehavioralDailyBuckets`]'s dense array — bounded by `window_days + 1` entries, far
+        /// fewer for a typical user.
+        entries: Vec<(i32, u32)>,
+        /// [`DayIdx`](crate::stage1::bucket_tz::DayIdx) of the window's inclusive lower bound (the
+        /// `window_start_day` anchor). Monotonic non-decreasing as the window slides forward; the
+        /// "now" day is `window_start_day + window_days` (`window_days` lives on the meta, not here).
+        window_start_day: i32,
+        /// Most recent matching event time (epoch ms), `max`-folded across events.
+        last_event_at_ms: i64,
+        /// Earliest time (epoch ms) the oldest entry leaves the window — its eviction deadline
+        /// ([`i64::MAX`] when empty).
+        earliest_eviction_at_ms: i64,
+    },
     /// A person-property filter: last-write-wins, tie-broken by event-time argMax
     /// (`argMax(matches, (_timestamp, _offset))`).
     PersonProperty {
@@ -78,6 +102,7 @@ impl Stage1State {
         match self {
             Self::BehavioralSingle { .. } => StateVariant::BehavioralSingle,
             Self::BehavioralDailyBuckets { .. } => StateVariant::BehavioralDailyBuckets,
+            Self::BehavioralCompressedHistory { .. } => StateVariant::BehavioralCompressedHistory,
             Self::PersonProperty { .. } => StateVariant::PersonProperty,
         }
     }
@@ -193,9 +218,21 @@ mod tests {
         }
     }
 
+    fn compressed() -> StatefulRecord {
+        StatefulRecord {
+            state: Stage1State::BehavioralCompressedHistory {
+                entries: vec![(20_240, 2), (20_400, 1), (20_605, 5)],
+                window_start_day: 20_240,
+                last_event_at_ms: 1_700_000_000_000,
+                earliest_eviction_at_ms: 1_700_000_000_000 + 365 * 86_400 * 1000,
+            },
+            applied_offsets: applied(&[(4, 7), (9, 2)]),
+        }
+    }
+
     #[test]
     fn round_trips_every_variant() {
-        for record in [behavioral(), person(), daily()] {
+        for record in [behavioral(), person(), daily(), compressed()] {
             let bytes = record.encode();
             assert_eq!(StatefulRecord::decode(&bytes).unwrap(), record);
         }
@@ -221,6 +258,24 @@ mod tests {
         });
         let bytes = serde_json::to_vec(&on_disk).unwrap();
         assert_eq!(StatefulRecord::decode(&bytes).unwrap(), daily());
+    }
+
+    #[test]
+    fn compressed_history_decodes_from_its_on_disk_shape() {
+        // Entries serialize as nested `[day, count]` arrays; pin the on-disk form so a future codec
+        // change is caught.
+        let on_disk = serde_json::json!({
+            "state": {
+                "v": "BehavioralCompressedHistory",
+                "entries": [[20_240, 2], [20_400, 1], [20_605, 5]],
+                "window_start_day": 20_240,
+                "last_event_at_ms": 1_700_000_000_000_i64,
+                "earliest_eviction_at_ms": 1_700_000_000_000_i64 + 365 * 86_400 * 1000,
+            },
+            "applied_offsets": { "4": 7, "9": 2 },
+        });
+        let bytes = serde_json::to_vec(&on_disk).unwrap();
+        assert_eq!(StatefulRecord::decode(&bytes).unwrap(), compressed());
     }
 
     #[test]
@@ -383,6 +438,10 @@ mod tests {
             daily().state.variant(),
             StateVariant::BehavioralDailyBuckets
         );
+        assert_eq!(
+            compressed().state.variant(),
+            StateVariant::BehavioralCompressedHistory
+        );
     }
 
     #[test]
@@ -391,6 +450,10 @@ mod tests {
         assert_eq!(
             StateVariant::BehavioralDailyBuckets.as_str(),
             "behavioral_daily_buckets"
+        );
+        assert_eq!(
+            StateVariant::BehavioralCompressedHistory.as_str(),
+            "behavioral_compressed_history"
         );
         assert_eq!(StateVariant::PersonProperty.as_str(), "person_property");
     }

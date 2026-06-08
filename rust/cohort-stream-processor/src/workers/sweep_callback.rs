@@ -22,9 +22,10 @@ use crate::observability::metrics::{
     STAGE1_STATE_DECODE_ERROR, STAGE1_UNSUPPORTED_VARIANT_SKIPPED,
 };
 use crate::stage1::bucket_tz::{daily_bucket_len, day_idx_in_tz};
+use crate::stage1::compressed_history;
 use crate::stage1::daily::{daily_eviction_deadline, slide_window_forward};
 use crate::stage1::key::Stage1Key;
-use crate::stage1::predicate::{daily_predicate, predicate};
+use crate::stage1::predicate::{compressed_predicate, daily_predicate, predicate};
 use crate::stage1::state::{Stage1State, StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::{CohortStore, StoreError};
@@ -144,6 +145,9 @@ pub(crate) fn sweep_evict(
             StateVariant::BehavioralSingle => evict_single(key, meta, record),
             StateVariant::BehavioralDailyBuckets => {
                 evict_daily(key, meta, record, filters.timezone, due_before_ms)
+            }
+            StateVariant::BehavioralCompressedHistory => {
+                evict_compressed(key, meta, record, filters.timezone, due_before_ms)
             }
             // Person-property leaves carry no eviction deadline, so they are never scheduled; defend
             // against a stale schedule by dropping.
@@ -281,10 +285,101 @@ fn evict_daily(
     })
 }
 
+/// Evict a `performed_event_multiple` compressed (>180-day) window — the sparse analog of
+/// [`evict_daily`], identical in shape but over run-length entries. Slide forward to
+/// `day_idx(due_before_ms)` (the same AHEAD slide the event path does, minus the per-event insert),
+/// recompute the count predicate, and emit the membership flip the slide implies — `Left` on
+/// true→false, or `Entered` on false→true (a falling count can enter an `Eq`/`Lte`/`Lt` range,
+/// mirroring the event path). Rewrites the advanced state with its new deadline while any entry
+/// survives; deletes once every entry has drained.
+///
+/// As with daily, only the *net* flip across a multi-boundary slide is emitted, not each intermediate
+/// crossing — the same discrete recompute the old pipeline and the event path do.
+fn evict_compressed(
+    key: Stage1Key,
+    meta: &LeafStateMeta,
+    record: StatefulRecord,
+    tz: Tz,
+    due_before_ms: i64,
+) -> Result<EvictionResult, SweepDropReason> {
+    // A compressed leaf carries both by construction; absence is a catalog desync — drop.
+    let (Some(window_days), Some(op)) = (meta.window_days, meta.predicate_op) else {
+        counter!(STAGE1_UNSUPPORTED_VARIANT_SKIPPED, "variant" => StateVariant::BehavioralCompressedHistory.as_str())
+            .increment(1);
+        return Err(SweepDropReason::UnsupportedVariant);
+    };
+    let StatefulRecord {
+        state,
+        applied_offsets,
+    } = record;
+    let Stage1State::BehavioralCompressedHistory {
+        mut entries,
+        mut window_start_day,
+        last_event_at_ms,
+        ..
+    } = state
+    else {
+        // The LSK pins the variant; a non-compressed value here is corruption — drop.
+        counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
+        return Err(SweepDropReason::Decode);
+    };
+
+    let predicate_before = compressed_predicate(&entries, op);
+    let target_now_day = day_idx_in_tz(due_before_ms, tz);
+    compressed_history::slide_window_forward(
+        &mut entries,
+        &mut window_start_day,
+        window_days,
+        target_now_day,
+    );
+    let predicate_after = compressed_predicate(&entries, op);
+    // A drain only lowers the count, but the comparator is not monotonic: Gte/Gt can only flip
+    // true→false (Left), while Eq/Lte/Lt can flip false→true as the count falls (Entered). Mirror the
+    // event path's bidirectional detection so the sweep stays consistent with it.
+    let kind = match (predicate_before, predicate_after) {
+        (false, true) => Some(TransitionKind::Entered),
+        (true, false) => Some(TransitionKind::Left),
+        _ => None,
+    };
+    let transition = kind.map(|kind| transition_for(key, meta, kind));
+
+    let new_deadline = compressed_history::compressed_eviction_deadline(&entries, window_days, tz);
+    let (action, reschedule) = if new_deadline == i64::MAX {
+        // Every entry drained: nothing left to evict, so delete. A compressed key drains ≥180 days
+        // after its last matching event — far past the source topic's 24 h retention — so no
+        // replayable event remains to spuriously re-create the state.
+        (EvictionAction::Delete, None)
+    } else {
+        let advanced = StatefulRecord {
+            state: Stage1State::BehavioralCompressedHistory {
+                entries,
+                window_start_day,
+                last_event_at_ms,
+                earliest_eviction_at_ms: new_deadline,
+            },
+            applied_offsets,
+        };
+        (EvictionAction::Write(advanced.encode()), Some(new_deadline))
+    };
+    // Same still-member invariant as daily: `predicate_after` ⟹ `count >= 1` ⟹ a surviving entry ⟹ a
+    // finite deadline ⟹ the `Write` branch, so an `Entered`/still-member `Left` never deletes.
+    debug_assert!(
+        !predicate_after || matches!(action, EvictionAction::Write(_)),
+        "a still-member eviction must rewrite + reschedule, not delete (relies on compressed_predicate's count>=1 floor)",
+    );
+    Ok(EvictionResult {
+        key,
+        variant: StateVariant::BehavioralCompressedHistory,
+        transition,
+        action,
+        reschedule,
+    })
+}
+
 /// Build the membership transition for an evicted key. The sweep starts from a [`Stage1Key`] +
 /// catalog meta rather than an event, so `condition_hash` comes from [`LeafStateMeta`]. `kind` is
 /// always `Left` for a single (its `has_match` is never cleared, so it only ever expires) and either
-/// direction for a daily slide.
+/// direction for a daily or compressed slide.
 fn transition_for(key: Stage1Key, meta: &LeafStateMeta, kind: TransitionKind) -> LeafTransition {
     LeafTransition {
         team_id: TeamId(key.team_id as i32),
@@ -316,6 +411,8 @@ mod tests {
     const PARTITION: u16 = 0;
     const WINDOW_DAYS: u32 = 7;
     const LEN: usize = WINDOW_DAYS as usize + 1;
+    /// A >180-day window routes to the compressed variant.
+    const COMPRESSED_WINDOW_DAYS: u32 = 365;
 
     fn temp_store() -> (TempDir, CohortStore) {
         let dir = TempDir::new().unwrap();
@@ -346,6 +443,17 @@ mod tests {
     }
 
     fn daily_leaf(window_days: i64, op: &str, value: i64) -> Value {
+        json!({
+            "type": "behavioral", "value": "performed_event_multiple", "key": "$pageview",
+            "time_value": window_days, "time_interval": "day",
+            "operator": op, "operator_value": value,
+            "conditionHash": "0123456789abcdef",
+            "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
+        })
+    }
+
+    /// A `performed_event_multiple` leaf over a >180-day window, routed to the compressed variant.
+    fn compressed_leaf(window_days: i64, op: &str, value: i64) -> Value {
         json!({
             "type": "behavioral", "value": "performed_event_multiple", "key": "$pageview",
             "time_value": window_days, "time_interval": "day",
@@ -596,6 +704,212 @@ mod tests {
         );
 
         let cutoff = start_of_day_ms_in_tz(window_start + WINDOW_DAYS as i32 + 1, UTC);
+        let results = sweep_evict(&filters, &[key], &store, cutoff)
+            .unwrap()
+            .results;
+        assert_eq!(results.len(), 1);
+        let result = &results[0];
+        assert_eq!(
+            result
+                .transition
+                .as_ref()
+                .expect("a falling count enters lte 2")
+                .kind,
+            TransitionKind::Entered,
+            "lte 2 flips false→true as the count drops to 2",
+        );
+        assert!(matches!(result.action, EvictionAction::Write(_)));
+        assert!(result.reschedule.is_some());
+    }
+
+    #[test]
+    fn compressed_all_entries_drain_emits_left_and_deletes() {
+        let (_dir, store) = temp_store();
+        let filters = freeze(vec![compressed_leaf(
+            COMPRESSED_WINDOW_DAYS as i64,
+            "gte",
+            3,
+        )]);
+        let key = key_for(&filters, 1);
+
+        // Three matches on one day → a lone entry of count 3, window anchored that day.
+        let day = day_of("2026-05-20 10:00:00.000000");
+        let entries = vec![(day, 3u32)];
+        let window_start = day - COMPRESSED_WINDOW_DAYS as i32;
+        let deadline =
+            compressed_history::compressed_eviction_deadline(&entries, COMPRESSED_WINDOW_DAYS, UTC);
+        write(
+            &store,
+            &key,
+            Stage1State::BehavioralCompressedHistory {
+                entries,
+                window_start_day: window_start,
+                last_event_at_ms: 1_700_000_000_000,
+                earliest_eviction_at_ms: deadline,
+            },
+        );
+
+        // Slide to the day the lone entry leaves the window: every entry drains.
+        let cutoff = start_of_day_ms_in_tz(day + COMPRESSED_WINDOW_DAYS as i32 + 1, UTC);
+        let results = sweep_evict(&filters, &[key], &store, cutoff)
+            .unwrap()
+            .results;
+        assert_eq!(results.len(), 1);
+        let result = &results[0];
+        assert_eq!(result.variant, StateVariant::BehavioralCompressedHistory);
+        assert_eq!(
+            result.transition.as_ref().unwrap().kind,
+            TransitionKind::Left,
+        );
+        assert_eq!(result.action, EvictionAction::Delete);
+        assert_eq!(result.reschedule, None);
+    }
+
+    #[test]
+    fn compressed_drops_oldest_entry_keeps_member_and_reschedules_later() {
+        let (_dir, store) = temp_store();
+        let filters = freeze(vec![compressed_leaf(
+            COMPRESSED_WINDOW_DAYS as i64,
+            "gte",
+            1,
+        )]);
+        let key = key_for(&filters, 1);
+
+        // Two matches 100 days apart, both inside the 365-day window. Sliding past the oldest still
+        // leaves the later entry, so the person stays a member (gte 1) — a rewrite, not a delete.
+        let now_day = day_of("2026-05-27 10:00:00.000000");
+        let window_start = now_day - COMPRESSED_WINDOW_DAYS as i32;
+        let entries = vec![(window_start, 1u32), (window_start + 100, 1u32)];
+        let deadline =
+            compressed_history::compressed_eviction_deadline(&entries, COMPRESSED_WINDOW_DAYS, UTC);
+        write(
+            &store,
+            &key,
+            Stage1State::BehavioralCompressedHistory {
+                entries,
+                window_start_day: window_start,
+                last_event_at_ms: 1_700_000_000_000,
+                earliest_eviction_at_ms: deadline,
+            },
+        );
+
+        // Slide one day past the window's current now-day so only the oldest entry leaves.
+        let cutoff = start_of_day_ms_in_tz(window_start + COMPRESSED_WINDOW_DAYS as i32 + 1, UTC);
+        let results = sweep_evict(&filters, &[key], &store, cutoff)
+            .unwrap()
+            .results;
+        assert_eq!(results.len(), 1);
+        let result = &results[0];
+        assert!(result.transition.is_none(), "still ≥ 1 match → no Left");
+
+        let EvictionAction::Write(bytes) = &result.action else {
+            panic!("a surviving entry rewrites, not deletes");
+        };
+        let advanced = StatefulRecord::decode(bytes).unwrap();
+        match advanced.state {
+            Stage1State::BehavioralCompressedHistory {
+                entries,
+                last_event_at_ms,
+                earliest_eviction_at_ms,
+                ..
+            } => {
+                assert_eq!(
+                    entries,
+                    vec![(window_start + 100, 1)],
+                    "the oldest entry dropped"
+                );
+                assert_eq!(
+                    last_event_at_ms, 1_700_000_000_000,
+                    "preserved across the slide"
+                );
+                assert_eq!(earliest_eviction_at_ms, result.reschedule.unwrap());
+            }
+            other => panic!("expected compressed history, got {other:?}"),
+        }
+        assert!(
+            result.reschedule.unwrap() > deadline,
+            "the surviving later entry pushes the deadline forward",
+        );
+    }
+
+    #[test]
+    fn compressed_eq_slide_into_range_emits_entered() {
+        let (_dir, store) = temp_store();
+        let filters = freeze(vec![compressed_leaf(
+            COMPRESSED_WINDOW_DAYS as i64,
+            "eq",
+            1,
+        )]);
+        let key = key_for(&filters, 1);
+
+        // Count 2 (two entries) is not `eq 1`. Sliding past the oldest entry lowers the count to 1,
+        // flipping false→true — the bidirectional Enter a `gte`-only sweep would have dropped.
+        let now_day = day_of("2026-05-27 10:00:00.000000");
+        let window_start = now_day - COMPRESSED_WINDOW_DAYS as i32;
+        let entries = vec![(window_start, 1u32), (window_start + 100, 1u32)];
+        let deadline =
+            compressed_history::compressed_eviction_deadline(&entries, COMPRESSED_WINDOW_DAYS, UTC);
+        write(
+            &store,
+            &key,
+            Stage1State::BehavioralCompressedHistory {
+                entries,
+                window_start_day: window_start,
+                last_event_at_ms: 1_700_000_000_000,
+                earliest_eviction_at_ms: deadline,
+            },
+        );
+
+        let cutoff = start_of_day_ms_in_tz(window_start + COMPRESSED_WINDOW_DAYS as i32 + 1, UTC);
+        let results = sweep_evict(&filters, &[key], &store, cutoff)
+            .unwrap()
+            .results;
+        assert_eq!(results.len(), 1);
+        let result = &results[0];
+        assert_eq!(
+            result
+                .transition
+                .as_ref()
+                .expect("a falling count enters eq 1")
+                .kind,
+            TransitionKind::Entered,
+            "eq 1 flips false→true as the count drops to 1",
+        );
+        assert!(
+            matches!(result.action, EvictionAction::Write(_)),
+            "a still-member eviction rewrites the advanced state",
+        );
+        assert!(result.reschedule.is_some());
+    }
+
+    #[test]
+    fn compressed_lte_slide_into_range_emits_entered() {
+        let (_dir, store) = temp_store();
+        let filters = freeze(vec![compressed_leaf(
+            COMPRESSED_WINDOW_DAYS as i64,
+            "lte",
+            2,
+        )]);
+        let key = key_for(&filters, 1);
+
+        // Count 3 is above `lte 2`. Dropping the oldest entry lowers it to 2 → member.
+        let now_day = day_of("2026-05-27 10:00:00.000000");
+        let window_start = now_day - COMPRESSED_WINDOW_DAYS as i32;
+        let entries = vec![(window_start, 1u32), (window_start + 100, 2u32)];
+        let deadline =
+            compressed_history::compressed_eviction_deadline(&entries, COMPRESSED_WINDOW_DAYS, UTC);
+        write(
+            &store,
+            &key,
+            Stage1State::BehavioralCompressedHistory {
+                entries,
+                window_start_day: window_start,
+                last_event_at_ms: 1_700_000_000_000,
+                earliest_eviction_at_ms: deadline,
+            },
+        );
+
+        let cutoff = start_of_day_ms_in_tz(window_start + COMPRESSED_WINDOW_DAYS as i32 + 1, UTC);
         let results = sweep_evict(&filters, &[key], &store, cutoff)
             .unwrap()
             .results;

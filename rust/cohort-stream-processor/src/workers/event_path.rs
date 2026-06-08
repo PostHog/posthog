@@ -18,9 +18,10 @@ use crate::observability::metrics::{
     STAGE1_UNSUPPORTED_VARIANT_SKIPPED,
 };
 use crate::stage1::bucket_tz::{daily_bucket_len, day_idx_in_tz};
+use crate::stage1::compressed_history;
 use crate::stage1::daily::{daily_eviction_deadline, slide_window_forward};
 use crate::stage1::key::{LeafStateKey, Stage1Key};
-use crate::stage1::predicate::{daily_predicate, predicate};
+use crate::stage1::predicate::{compressed_predicate, daily_predicate, predicate};
 use crate::stage1::state::{AppliedOffsets, Stage1State, StateVariant, StatefulRecord};
 use crate::stage1::time::clickhouse_timestamp_to_millis;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
@@ -206,12 +207,11 @@ pub fn process_event(
         let first_write = prev.is_none();
 
         let mutation = match apply {
-            // Single-bit and daily-bucket leaves both arrive as `Apply::Behavioral`; the variant
-            // picks the fold.
+            // Single-bit, daily-bucket, and compressed-history leaves all arrive as
+            // `Apply::Behavioral`; the variant picks the fold.
             Apply::Behavioral { condition_hash, .. } => {
-                let variant = filters.by_lsk.get(&apply.lsk()).map(|meta| meta.variant);
-                if variant == Some(StateVariant::BehavioralDailyBuckets) {
-                    mutate_behavioral_daily(
+                match filters.by_lsk.get(&apply.lsk()).map(|meta| meta.variant) {
+                    Some(StateVariant::BehavioralDailyBuckets) => mutate_behavioral_daily(
                         filters,
                         apply.lsk(),
                         *condition_hash,
@@ -219,9 +219,19 @@ pub fn process_event(
                         event,
                         event_ms,
                         prev,
-                    )
-                } else {
-                    mutate_behavioral(
+                    ),
+                    Some(StateVariant::BehavioralCompressedHistory) => {
+                        mutate_behavioral_compressed(
+                            filters,
+                            apply.lsk(),
+                            *condition_hash,
+                            person_id,
+                            event,
+                            event_ms,
+                            prev,
+                        )
+                    }
+                    _ => mutate_behavioral(
                         filters,
                         apply.lsk(),
                         *condition_hash,
@@ -229,7 +239,7 @@ pub fn process_event(
                         event,
                         event_ms,
                         prev,
-                    )
+                    ),
                 }
             }
             Apply::Person {
@@ -314,6 +324,10 @@ fn schedule_deadline(state: &Stage1State) -> Option<i64> {
         | Stage1State::BehavioralDailyBuckets {
             earliest_eviction_at_ms,
             ..
+        }
+        | Stage1State::BehavioralCompressedHistory {
+            earliest_eviction_at_ms,
+            ..
         } => *earliest_eviction_at_ms,
         Stage1State::PersonProperty { .. } => return None,
     };
@@ -343,7 +357,11 @@ fn collect_applies(
             };
             for &lsk in lsks {
                 match filters.by_lsk.get(&lsk).map(|meta| meta.variant) {
-                    Some(StateVariant::BehavioralSingle | StateVariant::BehavioralDailyBuckets) => {
+                    Some(
+                        StateVariant::BehavioralSingle
+                        | StateVariant::BehavioralDailyBuckets
+                        | StateVariant::BehavioralCompressedHistory,
+                    ) => {
                         applies.push(Apply::Behavioral {
                             lsk,
                             condition_hash: hash,
@@ -578,6 +596,138 @@ fn mutate_behavioral_daily(
         applied_offsets: applied,
     };
     // A fold crossing the threshold gives `Entered`; a slide draining the buckets gives `Left`.
+    let kind = match (predicate_before, predicate_after) {
+        (false, true) => Some(TransitionKind::Entered),
+        (true, false) => Some(TransitionKind::Left),
+        _ => None,
+    };
+    let transition = kind.map(|kind| LeafTransition {
+        team_id: TeamId(event.team_id),
+        leaf_state_key: lsk,
+        person_id,
+        condition_hash,
+        kind,
+    });
+    Some((record, transition))
+}
+
+/// Fold a `performed_event_multiple` match into a leaf's sparse compressed-history state — the
+/// over-180-day analog of [`mutate_behavioral_daily`], structurally identical but over run-length
+/// entries instead of a dense bucket array. A window slide that drains the contributing day(s) can
+/// drop the count below the threshold and emit `Left`.
+///
+/// The apply path reads **no wall clock**: the event's own calendar day positions it against the
+/// stored window, and `window_start_day` only moves forward. [`None`] skips the leaf (replay, a meta
+/// desync, or an unexpected stored variant).
+fn mutate_behavioral_compressed(
+    filters: &TeamFilters,
+    lsk: LeafStateKey,
+    condition_hash: [u8; 16],
+    person_id: Uuid,
+    event: &CohortStreamEvent,
+    event_ms: i64,
+    prev: Option<StatefulRecord>,
+) -> Option<(StatefulRecord, Option<LeafTransition>)> {
+    // `window_days` and the count comparator live on the meta, and are `Some` for a compressed leaf by
+    // construction; a `None` is a catalog desync — skip rather than panic.
+    let (Some(window_days), Some(op)) = filters
+        .by_lsk
+        .get(&lsk)
+        .map_or((None, None), |meta| (meta.window_days, meta.predicate_op))
+    else {
+        counter!(STAGE1_UNSUPPORTED_VARIANT_SKIPPED, "variant" => StateVariant::BehavioralCompressedHistory.as_str())
+            .increment(1);
+        return None;
+    };
+    let tz = filters.timezone;
+
+    // Taken by value so the prior entries and offset map move into the new record instead of cloning
+    // on this per-event path.
+    let (prior_entries, prior_window_start_day, prev_last_event, mut applied) = match prev {
+        None => (None, 0_i32, i64::MIN, AppliedOffsets::default()),
+        Some(record) => match record.state {
+            Stage1State::BehavioralCompressedHistory {
+                entries,
+                window_start_day,
+                last_event_at_ms,
+                ..
+            } => (
+                Some(entries),
+                window_start_day,
+                last_event_at_ms,
+                record.applied_offsets,
+            ),
+            // The LSK pins the variant; a non-compressed value here means corruption, skip it.
+            _ => {
+                counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
+                return None;
+            }
+        },
+    };
+
+    // Replay guard FIRST — the insert/increment fold is not idempotent, so a redelivered offset must
+    // skip before it is folded.
+    if applied.is_replay(event.source_partition, event.source_offset) {
+        counter!(STAGE1_REPLAY_SKIPPED, "variant" => StateVariant::BehavioralCompressedHistory.as_str())
+            .increment(1);
+        return None;
+    }
+    applied.record(event.source_partition, event.source_offset);
+
+    // `None` prior ⇒ a fresh leaf, so the window anchors on this event's day (mirrors daily's
+    // `buckets.is_empty()` seed); an existing record keeps its anchor even if its entries drained.
+    let first_write = prior_entries.is_none();
+    let mut entries = prior_entries.unwrap_or_default();
+
+    // Membership before this fold; an absent/empty prior is `count == 0` ⇒ not a member.
+    let predicate_before = compressed_predicate(&entries, op);
+
+    let event_day = day_idx_in_tz(event_ms, tz);
+    let window_days_idx = window_days as i32;
+    let mut window_start_day = if first_write {
+        // First event for this leaf: anchor the window so its "now" day is the event's day, landing
+        // the fold below in-window (WITHIN, since cur_now_day == event_day).
+        event_day - window_days_idx
+    } else {
+        prior_window_start_day
+    };
+
+    let cur_now_day = window_start_day + window_days_idx;
+    if event_day > cur_now_day {
+        // AHEAD: the event is newer than the window's "now" day. Slide the entries forward to the
+        // event's day (dropping aged-out days), then count it. The sweep performs the same slide minus
+        // this insert.
+        compressed_history::slide_window_forward(
+            &mut entries,
+            &mut window_start_day,
+            window_days,
+            event_day,
+        );
+        compressed_history::insert_event(&mut entries, event_day);
+    } else if event_day < window_start_day {
+        // BEHIND: the event predates the window's lower bound — its day already slid out, so it does
+        // not count. Its offset is recorded above, so a replay is still skipped.
+    } else {
+        // WITHIN: count the event on its day.
+        compressed_history::insert_event(&mut entries, event_day);
+    }
+
+    // Newest matching event; a late (BEHIND) event must not pull it earlier.
+    let last_event_at_ms = prev_last_event.max(event_ms);
+    let earliest_eviction_at_ms =
+        compressed_history::compressed_eviction_deadline(&entries, window_days, tz);
+    let predicate_after = compressed_predicate(&entries, op);
+
+    let record = StatefulRecord {
+        state: Stage1State::BehavioralCompressedHistory {
+            entries,
+            window_start_day,
+            last_event_at_ms,
+            earliest_eviction_at_ms,
+        },
+        applied_offsets: applied,
+    };
+    // A fold crossing the threshold gives `Entered`; a slide draining the entries gives `Left`.
     let kind = match (predicate_before, predicate_after) {
         (false, true) => Some(TransitionKind::Entered),
         (true, false) => Some(TransitionKind::Left),

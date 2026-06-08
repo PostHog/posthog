@@ -3,6 +3,7 @@
 //! alone, because the bytecode omits the window and threshold.
 
 pub mod bucket_tz;
+pub mod compressed_history;
 pub mod daily;
 pub mod key;
 pub mod pick_state;
@@ -14,7 +15,7 @@ pub mod transition;
 pub use pick_state::{
     pick_state_variant, EvictionWindow, PredicateOp, TimeInterval, UnsupportedVariant,
 };
-pub use predicate::{daily_predicate, predicate};
+pub use predicate::{compressed_predicate, daily_predicate, predicate};
 pub use state::{AppliedOffsets, Stage1State, StateCodecError, StateVariant, StatefulRecord};
 pub use time::clickhouse_timestamp_to_millis;
 pub use transition::{LeafTransition, TransitionKind};

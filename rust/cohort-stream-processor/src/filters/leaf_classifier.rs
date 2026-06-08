@@ -277,12 +277,12 @@ mod tests {
     }
 
     #[test]
-    fn performed_event_multiple_out_of_daily_range_is_dropped() {
-        // Sub-day (hourly-deferred) and over-180-day (compressed-deferred) windows both drop as
-        // unsupported.
+    fn performed_event_multiple_sub_day_window_is_dropped() {
+        // A sub-day (hourly) multiple has no calendar-day representation in the existing pipeline, so
+        // it still drops as unsupported.
         for (time_value, time_interval, why) in [
-            (5, "hour", "sub-day → hourly-deferred"),
-            (1, "year", "365 days → compressed-deferred"),
+            (5, "hour", "hour,5 = 0 whole days"),
+            (30, "minute", "minute,30 = 0 whole days"),
         ] {
             let node = json!({
                 "type": "behavioral",
@@ -300,6 +300,36 @@ mod tests {
                     classify_leaf(&node),
                     LeafClass::Drop(LeafDropReason::UnsupportedStateVariant)
                 ),
+                "{why}",
+            );
+        }
+    }
+
+    #[test]
+    fn performed_event_multiple_over_180_day_window_is_kept_as_compressed() {
+        // A >180-day multiple is now representable as compressed run-length history rather than dropped.
+        for (time_value, time_interval, why) in [
+            (1, "year", "year,1 = 365 days"),
+            (365, "day", "day,365 = 365 days"),
+            (181, "day", "day,181 just over the daily boundary"),
+        ] {
+            let node = json!({
+                "type": "behavioral",
+                "value": "performed_event_multiple",
+                "key": "$pageview",
+                "time_value": time_value,
+                "time_interval": time_interval,
+                "operator": "gte",
+                "operator_value": 3,
+                "conditionHash": HASH,
+                "bytecode": bytecode(),
+            });
+            let LeafClass::Keep(CohortLeaf::Behavioral(leaf)) = classify_leaf(&node) else {
+                panic!("a >180-day multiple is kept as compressed: {why}");
+            };
+            assert_eq!(
+                leaf.state_variant,
+                Some(crate::stage1::state::StateVariant::BehavioralCompressedHistory),
                 "{why}",
             );
         }
