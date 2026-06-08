@@ -4,10 +4,10 @@ import type { ChartDrawArgs, ResolvedSeries } from '../../../core/types'
 import {
     type BarLayout,
     barContainsPointOnBandAxis,
+    barsAtCursor,
     cursorOutsideBarFillExtent,
     findVisibleStackedSegment,
     isStackedLayout,
-    iterBarsAtCursor,
 } from './bars-under-cursor'
 import { stackPillRects } from './stack-pills'
 
@@ -75,7 +75,7 @@ export function resolveBarHoverItems(
             composition += 'b'
         }
     } else {
-        for (const { series: s, bar } of iterBarsAtCursor<ResolvedSeries>({
+        for (const { series: s, bar } of barsAtCursor<ResolvedSeries>({
             series: coloredSeries,
             label: hoveredLabel,
             dataIndex: hoverIndex,
@@ -105,7 +105,7 @@ export function resolveBarHoverItems(
     const hoveredBandPills = roundStackEnds
         ? stackPillRects(
               [
-                  ...iterBarsAtCursor<ResolvedSeries>({
+                  ...barsAtCursor<ResolvedSeries>({
                       series: coloredSeries,
                       label: hoveredLabel,
                       dataIndex: hoverIndex,
