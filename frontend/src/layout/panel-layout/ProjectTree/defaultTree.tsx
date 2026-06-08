@@ -89,7 +89,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     ai_gateway: {
         icon: <IconAIGateway />,
-        iconColor: ['var(--color-product-llm-analytics-light)'],
+        iconColor: ['var(--color-product-ai-gateway-light)', 'var(--color-product-ai-gateway-dark)'],
     },
     product_analytics: {
         icon: <IconGraph />,

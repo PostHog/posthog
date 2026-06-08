@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { ComponentType } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSegmentedButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
@@ -142,7 +142,7 @@ const client = new OpenAI({
     apiKey: '${key}',
 })
 const response = await client.chat.completions.create({
-    model: 'gpt-4o',
+    model: 'gpt-5-mini',
     messages: [{ role: 'user', content: 'Hello' }],
 })`,
             },
@@ -155,7 +155,7 @@ client = OpenAI(
     api_key="${key}",
 )
 client.chat.completions.create(
-    model="gpt-4o",
+    model="gpt-5-mini",
     messages=[{"role": "user", "content": "Hello"}],
 )`,
             },
@@ -165,7 +165,7 @@ client.chat.completions.create(
   -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "gpt-4o",
+    "model": "gpt-5-mini",
     "messages": [{"role": "user", "content": "Hello"}]
   }'`,
             },
@@ -229,6 +229,12 @@ client.messages.create(
 
     return (
         <section className="flex flex-col gap-2">
+            <LemonBanner type="info">
+                Every request through the gateway is automatically tracked in{' '}
+                <Link to={urls.aiObservabilityDashboard()}>AI observability</Link> — traces, tokens, cost, and latency —
+                with no SDK instrumentation needed. If you were already capturing these with a PostHog LLM SDK, you can
+                switch back to the official provider packages so each generation is only counted once.
+            </LemonBanner>
             <LemonSegmentedButton
                 size="small"
                 value={endpointProvider}

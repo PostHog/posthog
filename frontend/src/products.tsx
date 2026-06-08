@@ -1527,7 +1527,10 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.AI_ENGINEERING,
         type: 'ai_gateway',
         iconType: 'ai_gateway' as FileSystemIconType,
-        iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+        iconColor: [
+            'var(--color-product-ai-gateway-light)',
+            'var(--color-product-ai-gateway-dark)',
+        ] as FileSystemIconColor,
         href: urls.aiGateway(),
         flag: FEATURE_FLAGS.AI_GATEWAY,
         tags: ['alpha'],
