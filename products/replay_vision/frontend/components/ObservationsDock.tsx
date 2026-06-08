@@ -27,7 +27,7 @@ function quotaUx(quota: VisionQuotaApi | null): { disabledReason?: string; toolt
     if (!quota || quota.monthly_quota <= 0) {
         return {}
     }
-    const resetsOn = dayjs(quota.period_end).format('MMMM D')
+    const resetsOn = dayjs(quota.period_end).format('MMM D')
     if (quota.exhausted) {
         return { disabledReason: `Monthly observation quota reached. Resets ${resetsOn}.` }
     }

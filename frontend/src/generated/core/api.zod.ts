@@ -33,12 +33,6 @@ export const domainsCreateBodySamlEntityIdMax = 512
 
 export const domainsCreateBodySamlAcsUrlMax = 512
 
-export const domainsCreateBodyIdJagIssuerUrlMax = 512
-
-export const domainsCreateBodyIdJagJwksUrlMax = 512
-
-export const domainsCreateBodyIdJagAllowedClientsItemMax = 256
-
 export const DomainsCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
@@ -47,20 +41,6 @@ export const DomainsCreateBody = /* @__PURE__ */ zod.object({
     saml_acs_url: zod.string().max(domainsCreateBodySamlAcsUrlMax).nullish(),
     saml_x509_cert: zod.string().nullish(),
     scim_enabled: zod.boolean().optional(),
-    id_jag_issuer_url: zod
-        .string()
-        .max(domainsCreateBodyIdJagIssuerUrlMax)
-        .nullish()
-        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
-    id_jag_jwks_url: zod
-        .string()
-        .max(domainsCreateBodyIdJagJwksUrlMax)
-        .nullish()
-        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
-    id_jag_allowed_clients: zod
-        .array(zod.string().max(domainsCreateBodyIdJagAllowedClientsItemMax))
-        .optional()
-        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
 })
 
 export const domainsUpdateBodyDomainMax = 128
@@ -71,12 +51,6 @@ export const domainsUpdateBodySamlEntityIdMax = 512
 
 export const domainsUpdateBodySamlAcsUrlMax = 512
 
-export const domainsUpdateBodyIdJagIssuerUrlMax = 512
-
-export const domainsUpdateBodyIdJagJwksUrlMax = 512
-
-export const domainsUpdateBodyIdJagAllowedClientsItemMax = 256
-
 export const DomainsUpdateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsUpdateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
@@ -85,20 +59,6 @@ export const DomainsUpdateBody = /* @__PURE__ */ zod.object({
     saml_acs_url: zod.string().max(domainsUpdateBodySamlAcsUrlMax).nullish(),
     saml_x509_cert: zod.string().nullish(),
     scim_enabled: zod.boolean().optional(),
-    id_jag_issuer_url: zod
-        .string()
-        .max(domainsUpdateBodyIdJagIssuerUrlMax)
-        .nullish()
-        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
-    id_jag_jwks_url: zod
-        .string()
-        .max(domainsUpdateBodyIdJagJwksUrlMax)
-        .nullish()
-        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
-    id_jag_allowed_clients: zod
-        .array(zod.string().max(domainsUpdateBodyIdJagAllowedClientsItemMax))
-        .optional()
-        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
 })
 
 export const domainsPartialUpdateBodyDomainMax = 128
@@ -109,12 +69,6 @@ export const domainsPartialUpdateBodySamlEntityIdMax = 512
 
 export const domainsPartialUpdateBodySamlAcsUrlMax = 512
 
-export const domainsPartialUpdateBodyIdJagIssuerUrlMax = 512
-
-export const domainsPartialUpdateBodyIdJagJwksUrlMax = 512
-
-export const domainsPartialUpdateBodyIdJagAllowedClientsItemMax = 256
-
 export const DomainsPartialUpdateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsPartialUpdateBodyDomainMax).optional(),
     jit_provisioning_enabled: zod.boolean().optional(),
@@ -123,20 +77,6 @@ export const DomainsPartialUpdateBody = /* @__PURE__ */ zod.object({
     saml_acs_url: zod.string().max(domainsPartialUpdateBodySamlAcsUrlMax).nullish(),
     saml_x509_cert: zod.string().nullish(),
     scim_enabled: zod.boolean().optional(),
-    id_jag_issuer_url: zod
-        .string()
-        .max(domainsPartialUpdateBodyIdJagIssuerUrlMax)
-        .nullish()
-        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
-    id_jag_jwks_url: zod
-        .string()
-        .max(domainsPartialUpdateBodyIdJagJwksUrlMax)
-        .nullish()
-        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
-    id_jag_allowed_clients: zod
-        .array(zod.string().max(domainsPartialUpdateBodyIdJagAllowedClientsItemMax))
-        .optional()
-        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
 })
 
 /**
@@ -150,12 +90,6 @@ export const domainsScimTokenCreateBodySamlEntityIdMax = 512
 
 export const domainsScimTokenCreateBodySamlAcsUrlMax = 512
 
-export const domainsScimTokenCreateBodyIdJagIssuerUrlMax = 512
-
-export const domainsScimTokenCreateBodyIdJagJwksUrlMax = 512
-
-export const domainsScimTokenCreateBodyIdJagAllowedClientsItemMax = 256
-
 export const DomainsScimTokenCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsScimTokenCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
@@ -164,20 +98,6 @@ export const DomainsScimTokenCreateBody = /* @__PURE__ */ zod.object({
     saml_acs_url: zod.string().max(domainsScimTokenCreateBodySamlAcsUrlMax).nullish(),
     saml_x509_cert: zod.string().nullish(),
     scim_enabled: zod.boolean().optional(),
-    id_jag_issuer_url: zod
-        .string()
-        .max(domainsScimTokenCreateBodyIdJagIssuerUrlMax)
-        .nullish()
-        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
-    id_jag_jwks_url: zod
-        .string()
-        .max(domainsScimTokenCreateBodyIdJagJwksUrlMax)
-        .nullish()
-        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
-    id_jag_allowed_clients: zod
-        .array(zod.string().max(domainsScimTokenCreateBodyIdJagAllowedClientsItemMax))
-        .optional()
-        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
 })
 
 export const domainsVerifyCreateBodyDomainMax = 128
@@ -188,12 +108,6 @@ export const domainsVerifyCreateBodySamlEntityIdMax = 512
 
 export const domainsVerifyCreateBodySamlAcsUrlMax = 512
 
-export const domainsVerifyCreateBodyIdJagIssuerUrlMax = 512
-
-export const domainsVerifyCreateBodyIdJagJwksUrlMax = 512
-
-export const domainsVerifyCreateBodyIdJagAllowedClientsItemMax = 256
-
 export const DomainsVerifyCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsVerifyCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
@@ -202,20 +116,6 @@ export const DomainsVerifyCreateBody = /* @__PURE__ */ zod.object({
     saml_acs_url: zod.string().max(domainsVerifyCreateBodySamlAcsUrlMax).nullish(),
     saml_x509_cert: zod.string().nullish(),
     scim_enabled: zod.boolean().optional(),
-    id_jag_issuer_url: zod
-        .string()
-        .max(domainsVerifyCreateBodyIdJagIssuerUrlMax)
-        .nullish()
-        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.'),
-    id_jag_jwks_url: zod
-        .string()
-        .max(domainsVerifyCreateBodyIdJagJwksUrlMax)
-        .nullish()
-        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
-    id_jag_allowed_clients: zod
-        .array(zod.string().max(domainsVerifyCreateBodyIdJagAllowedClientsItemMax))
-        .optional()
-        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
 })
 
 export const invitesCreateBodyTargetEmailMax = 254
@@ -3327,6 +3227,331 @@ export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod.obj
     settings: zod.unknown().optional(),
     password_required: zod.boolean().optional(),
 })
+
+export const subscriptionsCreateBodyIntervalMax = 2147483647
+
+export const subscriptionsCreateBodyBysetposMin = -2147483648
+export const subscriptionsCreateBodyBysetposMax = 2147483647
+
+export const subscriptionsCreateBodyCountMin = -2147483648
+export const subscriptionsCreateBodyCountMax = 2147483647
+
+export const subscriptionsCreateBodyTitleMax = 100
+
+export const subscriptionsCreateBodySummaryPromptGuideMax = 500
+
+export const SubscriptionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        dashboard: zod
+            .number()
+            .nullish()
+            .describe('Dashboard ID to subscribe to (mutually exclusive with insight on create).'),
+        insight: zod
+            .number()
+            .nullish()
+            .describe('Insight ID to subscribe to (mutually exclusive with dashboard on create).'),
+        dashboard_export_insights: zod
+            .array(zod.number())
+            .optional()
+            .describe(
+                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
+            ),
+        target_type: zod
+            .enum(['email', 'slack', 'webhook'])
+            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `webhook` - Webhook')
+            .describe(
+                'Delivery channel: email, slack, or webhook.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `webhook` - Webhook'
+            ),
+        target_value: zod
+            .string()
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or full URL for webhook.'
+            ),
+        frequency: zod
+            .enum(['daily', 'weekly', 'monthly', 'yearly'])
+            .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
+            .describe(
+                'How often to deliver: daily, weekly, monthly, or yearly.\n\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
+            ),
+        interval: zod
+            .number()
+            .min(1)
+            .max(subscriptionsCreateBodyIntervalMax)
+            .describe(
+                'Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.'
+            ),
+        byweekday: zod
+            .array(
+                zod
+                    .enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
+                    .describe(
+                        '\* `monday` - Monday\n\* `tuesday` - Tuesday\n\* `wednesday` - Wednesday\n\* `thursday` - Thursday\n\* `friday` - Friday\n\* `saturday` - Saturday\n\* `sunday` - Sunday'
+                    )
+            )
+            .nullish()
+            .describe(
+                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
+            ),
+        bysetpos: zod
+            .number()
+            .min(subscriptionsCreateBodyBysetposMin)
+            .max(subscriptionsCreateBodyBysetposMax)
+            .nullish()
+            .describe('Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).'),
+        count: zod
+            .number()
+            .min(subscriptionsCreateBodyCountMin)
+            .max(subscriptionsCreateBodyCountMax)
+            .nullish()
+            .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
+        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
+        until_date: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
+        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
+            ),
+        title: zod
+            .string()
+            .max(subscriptionsCreateBodyTitleMax)
+            .nullish()
+            .describe('Human-readable name for this subscription.'),
+        integration_id: zod
+            .number()
+            .nullish()
+            .describe('ID of a connected Slack integration. Required when target_type is slack.'),
+        invite_message: zod
+            .string()
+            .nullish()
+            .describe('Optional message included in the invitation email when adding new recipients.'),
+        summary_enabled: zod.boolean().optional(),
+        summary_prompt_guide: zod.string().max(subscriptionsCreateBodySummaryPromptGuideMax).optional(),
+    })
+    .describe('Standard Subscription serializer.')
+
+export const subscriptionsUpdateBodyIntervalMax = 2147483647
+
+export const subscriptionsUpdateBodyBysetposMin = -2147483648
+export const subscriptionsUpdateBodyBysetposMax = 2147483647
+
+export const subscriptionsUpdateBodyCountMin = -2147483648
+export const subscriptionsUpdateBodyCountMax = 2147483647
+
+export const subscriptionsUpdateBodyTitleMax = 100
+
+export const subscriptionsUpdateBodySummaryPromptGuideMax = 500
+
+export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        dashboard: zod
+            .number()
+            .nullish()
+            .describe('Dashboard ID to subscribe to (mutually exclusive with insight on create).'),
+        insight: zod
+            .number()
+            .nullish()
+            .describe('Insight ID to subscribe to (mutually exclusive with dashboard on create).'),
+        dashboard_export_insights: zod
+            .array(zod.number())
+            .optional()
+            .describe(
+                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
+            ),
+        target_type: zod
+            .enum(['email', 'slack', 'webhook'])
+            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `webhook` - Webhook')
+            .describe(
+                'Delivery channel: email, slack, or webhook.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `webhook` - Webhook'
+            ),
+        target_value: zod
+            .string()
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or full URL for webhook.'
+            ),
+        frequency: zod
+            .enum(['daily', 'weekly', 'monthly', 'yearly'])
+            .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
+            .describe(
+                'How often to deliver: daily, weekly, monthly, or yearly.\n\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
+            ),
+        interval: zod
+            .number()
+            .min(1)
+            .max(subscriptionsUpdateBodyIntervalMax)
+            .describe(
+                'Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.'
+            ),
+        byweekday: zod
+            .array(
+                zod
+                    .enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
+                    .describe(
+                        '\* `monday` - Monday\n\* `tuesday` - Tuesday\n\* `wednesday` - Wednesday\n\* `thursday` - Thursday\n\* `friday` - Friday\n\* `saturday` - Saturday\n\* `sunday` - Sunday'
+                    )
+            )
+            .nullish()
+            .describe(
+                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
+            ),
+        bysetpos: zod
+            .number()
+            .min(subscriptionsUpdateBodyBysetposMin)
+            .max(subscriptionsUpdateBodyBysetposMax)
+            .nullish()
+            .describe('Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).'),
+        count: zod
+            .number()
+            .min(subscriptionsUpdateBodyCountMin)
+            .max(subscriptionsUpdateBodyCountMax)
+            .nullish()
+            .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
+        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
+        until_date: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
+        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
+            ),
+        title: zod
+            .string()
+            .max(subscriptionsUpdateBodyTitleMax)
+            .nullish()
+            .describe('Human-readable name for this subscription.'),
+        integration_id: zod
+            .number()
+            .nullish()
+            .describe('ID of a connected Slack integration. Required when target_type is slack.'),
+        invite_message: zod
+            .string()
+            .nullish()
+            .describe('Optional message included in the invitation email when adding new recipients.'),
+        summary_enabled: zod.boolean().optional(),
+        summary_prompt_guide: zod.string().max(subscriptionsUpdateBodySummaryPromptGuideMax).optional(),
+    })
+    .describe('Standard Subscription serializer.')
+
+export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
+
+export const subscriptionsPartialUpdateBodyBysetposMin = -2147483648
+export const subscriptionsPartialUpdateBodyBysetposMax = 2147483647
+
+export const subscriptionsPartialUpdateBodyCountMin = -2147483648
+export const subscriptionsPartialUpdateBodyCountMax = 2147483647
+
+export const subscriptionsPartialUpdateBodyTitleMax = 100
+
+export const subscriptionsPartialUpdateBodySummaryPromptGuideMax = 500
+
+export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        dashboard: zod
+            .number()
+            .nullish()
+            .describe('Dashboard ID to subscribe to (mutually exclusive with insight on create).'),
+        insight: zod
+            .number()
+            .nullish()
+            .describe('Insight ID to subscribe to (mutually exclusive with dashboard on create).'),
+        dashboard_export_insights: zod
+            .array(zod.number())
+            .optional()
+            .describe(
+                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
+            ),
+        target_type: zod
+            .enum(['email', 'slack', 'webhook'])
+            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `webhook` - Webhook')
+            .optional()
+            .describe(
+                'Delivery channel: email, slack, or webhook.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `webhook` - Webhook'
+            ),
+        target_value: zod
+            .string()
+            .optional()
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or full URL for webhook.'
+            ),
+        frequency: zod
+            .enum(['daily', 'weekly', 'monthly', 'yearly'])
+            .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
+            .optional()
+            .describe(
+                'How often to deliver: daily, weekly, monthly, or yearly.\n\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
+            ),
+        interval: zod
+            .number()
+            .min(1)
+            .max(subscriptionsPartialUpdateBodyIntervalMax)
+            .optional()
+            .describe(
+                'Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.'
+            ),
+        byweekday: zod
+            .array(
+                zod
+                    .enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
+                    .describe(
+                        '\* `monday` - Monday\n\* `tuesday` - Tuesday\n\* `wednesday` - Wednesday\n\* `thursday` - Thursday\n\* `friday` - Friday\n\* `saturday` - Saturday\n\* `sunday` - Sunday'
+                    )
+            )
+            .nullish()
+            .describe(
+                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
+            ),
+        bysetpos: zod
+            .number()
+            .min(subscriptionsPartialUpdateBodyBysetposMin)
+            .max(subscriptionsPartialUpdateBodyBysetposMax)
+            .nullish()
+            .describe('Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).'),
+        count: zod
+            .number()
+            .min(subscriptionsPartialUpdateBodyCountMin)
+            .max(subscriptionsPartialUpdateBodyCountMax)
+            .nullish()
+            .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
+        start_date: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe('When to start delivering (ISO 8601 datetime).'),
+        until_date: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
+        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
+            ),
+        title: zod
+            .string()
+            .max(subscriptionsPartialUpdateBodyTitleMax)
+            .nullish()
+            .describe('Human-readable name for this subscription.'),
+        integration_id: zod
+            .number()
+            .nullish()
+            .describe('ID of a connected Slack integration. Required when target_type is slack.'),
+        invite_message: zod
+            .string()
+            .nullish()
+            .describe('Optional message included in the invitation email when adding new recipients.'),
+        summary_enabled: zod.boolean().optional(),
+        summary_prompt_guide: zod.string().max(subscriptionsPartialUpdateBodySummaryPromptGuideMax).optional(),
+    })
+    .describe('Standard Subscription serializer.')
 
 /**
  * Replace the authenticated user's profile and settings. Pass `@me` as the UUID to update the authenticated user. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided.

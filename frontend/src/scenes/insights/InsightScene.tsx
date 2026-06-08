@@ -12,8 +12,15 @@ import { urls } from 'scenes/urls'
 import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { ItemMode } from '~/types'
 
-export function InsightScene(): JSX.Element {
-    const { insightId, insight, insightLogicRef, insightMode, dashboardId } = useValues(insightSceneLogic)
+export interface InsightSceneProps {
+    tabId?: string
+}
+
+export function InsightScene({ tabId }: InsightSceneProps = {}): JSX.Element {
+    if (!tabId) {
+        throw new Error('<InsightScene /> must receive a tabId prop')
+    }
+    const { insightId, insight, insightLogicRef, insightMode, dashboardId } = useValues(insightSceneLogic({ tabId }))
     useEffect(() => {
         // Redirect data viz nodes to the sql editor
         if (insightId && insight?.query?.kind === NodeKind.DataVisualizationNode && insightMode === ItemMode.Edit) {
@@ -34,7 +41,7 @@ export function InsightScene(): JSX.Element {
             insight?.short_id &&
             (insight?.query?.kind !== NodeKind.DataVisualizationNode || insightMode !== ItemMode.Edit))
     ) {
-        return <InsightAsScene insightId={insightId} attachTo={insightSceneLogic} />
+        return <InsightAsScene insightId={insightId} tabId={tabId} attachTo={insightSceneLogic({ tabId })} />
     }
 
     if (insightLogicRef?.logic?.values?.insightLoading) {

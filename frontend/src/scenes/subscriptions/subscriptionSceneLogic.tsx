@@ -2,18 +2,6 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import {
-    subscriptionsDeliveriesList,
-    subscriptionsPartialUpdate,
-    subscriptionsRetrieve,
-    subscriptionsTestDeliveryCreate,
-} from '@posthog/products-subscriptions/frontend/generated/api'
-import type {
-    PaginatedSubscriptionDeliveryListApi,
-    SubscriptionApi,
-    SubscriptionsDeliveriesListStatus,
-} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
-
 import { runSubscriptionTestDelivery } from 'lib/components/Subscriptions/runSubscriptionTestDelivery'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -23,6 +11,17 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import {
+    subscriptionsDeliveriesList,
+    subscriptionsPartialUpdate,
+    subscriptionsRetrieve,
+    subscriptionsTestDeliveryCreate,
+} from '~/generated/core/api'
+import type {
+    PaginatedSubscriptionDeliveryListApi,
+    SubscriptionApi,
+    SubscriptionsDeliveriesListStatus,
+} from '~/generated/core/api.schemas'
 import { Breadcrumb } from '~/types'
 
 import { subscriptionName } from './components/SubscriptionsTable'

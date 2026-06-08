@@ -105,9 +105,8 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             // This step awaits its DB write, so retry transient persons-Postgres failures
             // (e.g. PgBouncer scale-down) instead of letting them crash the consumer loop.
             .pipeBatchWithRetry(processPersonlessDistinctIdsBatchStep(personsStore, personsPrefetchEnabled), {
-                tries: 5,
+                tries: 3,
                 sleepMs: 100,
-                name: 'personless_distinct_ids',
             })
             // Prefetch hog functions for all teams in the batch
             .pipeBatch(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))

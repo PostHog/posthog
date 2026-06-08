@@ -14,7 +14,6 @@ from django.test import override_settings
 import requests
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.api.oauth.cimd import (
@@ -33,7 +32,6 @@ from posthog.api.oauth.cimd import (
     validate_cimd_url,
 )
 from posthog.models.oauth import OAuthApplication, create_cimd_verification_token
-from posthog.scopes import OAUTH_HIDDEN_SCOPES, PRIVILEGED_SCOPES
 
 
 def generate_rsa_key() -> str:
@@ -49,8 +47,8 @@ def generate_rsa_key() -> str:
 VALID_CIMD_URL = "https://app.example.com/.well-known/oauth-client-metadata.json"
 
 
-def _make_metadata(url: str = VALID_CIMD_URL, com_posthog: dict | None = None, **overrides: object) -> dict:
-    metadata: dict[str, object] = {
+def _make_metadata(url: str = VALID_CIMD_URL, **overrides) -> dict:
+    metadata = {
         "client_id": url,
         "client_name": "Test MCP Client",
         "redirect_uris": ["http://127.0.0.1:3000/callback"],
@@ -58,8 +56,6 @@ def _make_metadata(url: str = VALID_CIMD_URL, com_posthog: dict | None = None, *
         "response_types": ["code"],
         "token_endpoint_auth_method": "none",
     }
-    if com_posthog is not None:
-        metadata["com.posthog"] = com_posthog
     metadata.update(overrides)
     return metadata
 
@@ -872,176 +868,3 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
 
         self.assertEqual(response.status_code, 302)
         self.assertIn("/login", response["Location"])
-
-
-@patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
-class TestCIMDComPostHogNamespace(APIBaseTest):
-    """Tests for the com.posthog namespace: scopes and nested verification_token."""
-
-    # (d) dual-read: both com.posthog.verification_token and the legacy
-    # posthog_verification_token must link the app to the organization.
-    @parameterized.expand(
-        [
-            ("nested",),
-            ("top_level",),
-        ]
-    )
-    @patch("posthog.api.oauth.cimd.requests.get")
-    def test_verification_token_dual_read(self, token_placement, mock_get, _url_mock):
-        token, plaintext = create_cimd_verification_token(
-            organization=self.organization, label="Dual-read partner", created_by=self.user
-        )
-        if token_placement == "nested":
-            metadata = _make_metadata(com_posthog={"verification_token": plaintext})
-        else:
-            metadata = _make_metadata(posthog_verification_token=plaintext)
-
-        mock_get.return_value = _mock_response(metadata, headers={})
-        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
-
-        assert app is not None
-        self.assertEqual(app.organization_id, self.organization.id)
-
-    # (d) continued: an unrecognized nested token falls back to a valid top-level one.
-    @patch("posthog.api.oauth.cimd.requests.get")
-    def test_verification_token_falls_back_when_nested_unrecognized(self, mock_get, _url_mock):
-        _, plaintext = create_cimd_verification_token(
-            organization=self.organization, label="Fallback partner", created_by=self.user
-        )
-        metadata = _make_metadata(
-            posthog_verification_token=plaintext,
-            com_posthog={"verification_token": "phvt_does_not_exist"},
-        )
-        mock_get.return_value = _mock_response(metadata, headers={})
-        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
-
-        assert app is not None
-        self.assertEqual(app.organization_id, self.organization.id)
-
-    # (d) continued: nested token takes precedence over top-level when both present.
-    @patch("posthog.api.oauth.cimd.requests.get")
-    def test_nested_token_takes_precedence_over_top_level(self, mock_get, _url_mock):
-        _, plaintext_nested = create_cimd_verification_token(
-            organization=self.organization, label="Nested partner", created_by=self.user
-        )
-        metadata = _make_metadata(
-            posthog_verification_token="phvt_fake_top_level",
-            com_posthog={"verification_token": plaintext_nested},
-        )
-        mock_get.return_value = _mock_response(metadata, headers={})
-        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
-
-        assert app is not None
-        self.assertEqual(app.organization_id, self.organization.id)
-
-    # (a) + (e) present scopes are written to application.scopes on creation.
-    @parameterized.expand(
-        [
-            ("with_scopes", ["insight:read", "dashboard:write"], ["insight:read", "dashboard:write"]),
-            ("empty", [], []),
-        ]
-    )
-    @patch("posthog.api.oauth.cimd.requests.get")
-    def test_scopes_written_to_app_on_creation(self, _name, input_scopes, expected_scopes, mock_get, _url_mock):
-        metadata = _make_metadata(com_posthog={"scopes": input_scopes})
-        mock_get.return_value = _mock_response(metadata, headers={})
-
-        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
-
-        assert app is not None
-        self.assertEqual(sorted(app.scopes), sorted(expected_scopes))
-
-    # (c) Only UNPRIVILEGED_SCOPES pass — privileged, hidden, and unknown strings are all dropped.
-    @patch("posthog.api.oauth.cimd.requests.get")
-    def test_non_grantable_scopes_stripped(self, mock_get, _url_mock):
-        hidden_scope = next(iter(OAUTH_HIDDEN_SCOPES)) if OAUTH_HIDDEN_SCOPES else None
-        input_scopes = [
-            *sorted(PRIVILEGED_SCOPES),
-            "not_a_real_scope:write",  # unknown / garbage string
-            "insight:read",  # legitimate — must survive
-        ]
-        if hidden_scope:
-            input_scopes.append(hidden_scope)
-
-        metadata = _make_metadata(com_posthog={"scopes": input_scopes})
-        mock_get.return_value = _mock_response(metadata, headers={})
-
-        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
-
-        assert app is not None
-        for privileged_scope in PRIVILEGED_SCOPES:
-            self.assertNotIn(privileged_scope, app.scopes)
-        self.assertNotIn("not_a_real_scope:write", app.scopes)
-        if hidden_scope:
-            self.assertNotIn(hidden_scope, app.scopes)
-        self.assertIn("insight:read", app.scopes)
-
-    # (b) absent com.posthog.scopes on refresh leaves existing scopes untouched.
-    @patch("posthog.api.oauth.cimd.requests.get")
-    def test_absent_scopes_on_refresh_leaves_existing_untouched(self, mock_get, _url_mock):
-        metadata_create = _make_metadata(com_posthog={"scopes": ["insight:read"]})
-        mock_get.return_value = _mock_response(metadata_create, headers={})
-        fetch_and_upsert_cimd_application(VALID_CIMD_URL)
-
-        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
-        # Refresh with metadata that has no com.posthog.scopes.
-        mock_get.return_value = _mock_response(_make_metadata(), headers={})
-        refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
-
-        assert refreshed is not None
-        self.assertIn("insight:read", refreshed.scopes)
-
-    # (a) present scopes on refresh override the existing application.scopes.
-    @patch("posthog.api.oauth.cimd.requests.get")
-    def test_present_scopes_on_refresh_override_existing(self, mock_get, _url_mock):
-        metadata_create = _make_metadata(com_posthog={"scopes": ["insight:read", "dashboard:write"]})
-        mock_get.return_value = _mock_response(metadata_create, headers={})
-        fetch_and_upsert_cimd_application(VALID_CIMD_URL)
-
-        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
-        metadata_refresh = _make_metadata(com_posthog={"scopes": ["survey:read"]})
-        mock_get.return_value = _mock_response(metadata_refresh, headers={})
-        refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
-
-        assert refreshed is not None
-        self.assertEqual(refreshed.scopes, ["survey:read"])
-
-    # Guard for the "scope ceiling bypass" review finding: a CIMD client controls its own
-    # metadata document, but republishing it on refresh can never escalate the ceiling past
-    # the unprivileged allow-list — privileged, hidden, and unknown scopes are stripped on
-    # the refresh path exactly as on creation.
-    @patch("posthog.api.oauth.cimd.requests.get")
-    def test_refresh_cannot_grant_non_grantable_scopes(self, mock_get, _url_mock):
-        mock_get.return_value = _mock_response(_make_metadata(com_posthog={"scopes": ["insight:read"]}), headers={})
-        fetch_and_upsert_cimd_application(VALID_CIMD_URL)
-
-        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
-        hidden_scope = next(iter(OAUTH_HIDDEN_SCOPES)) if OAUTH_HIDDEN_SCOPES else None
-        escalated = [*sorted(PRIVILEGED_SCOPES), "not_a_real_scope:write", "insight:read"]
-        if hidden_scope:
-            escalated.append(hidden_scope)
-        mock_get.return_value = _mock_response(_make_metadata(com_posthog={"scopes": escalated}), headers={})
-        refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
-
-        assert refreshed is not None
-        for privileged_scope in PRIVILEGED_SCOPES:
-            self.assertNotIn(privileged_scope, refreshed.scopes)
-        self.assertNotIn("not_a_real_scope:write", refreshed.scopes)
-        if hidden_scope:
-            self.assertNotIn(hidden_scope, refreshed.scopes)
-        self.assertEqual(refreshed.scopes, ["insight:read"])
-
-    # absent com.posthog.scopes on initial creation → empty scopes list.
-    @patch("posthog.api.oauth.cimd.requests.get")
-    def test_absent_scopes_on_creation_yields_empty_list(self, mock_get, _url_mock):
-        mock_get.return_value = _mock_response(_make_metadata(), headers={})
-        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
-
-        assert app is not None
-        self.assertEqual(app.scopes, [])

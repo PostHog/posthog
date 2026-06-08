@@ -25,6 +25,7 @@ import {
 import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
+import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
 import { DistributionModal, DistributionTable } from '../ExperimentView/DistributionTable'
 import { ExperimentWarningBanner } from '../ExperimentView/ExperimentWarningBanners'
@@ -146,14 +147,19 @@ const VariantsTab = (): JSX.Element => {
  * @deprecated This component exists only to support existing legacy experiments.
  * New experiments use the modern ExperimentView component.
  */
-export function LegacyExperimentView(): JSX.Element {
+export function LegacyExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
+    if (!tabId) {
+        throw new Error('<LegacyExperimentView /> must receive a tabId prop')
+    }
+
     const { experimentLoading, experiment } = useValues(experimentLogic)
-    const { activeTabKey } = useValues(experimentSceneLogic)
-    const { setActiveTabKey } = useActions(experimentSceneLogic)
+    const { activeTabKey } = useValues(experimentSceneLogic({ tabId }))
+    const { setActiveTabKey } = useActions(experimentSceneLogic({ tabId }))
 
     // Props for legacy logic - uses experiment data from parent experimentLogic
     const legacyLogicProps = {
         experiment,
+        tabId,
     }
 
     // Mount the logic and load metrics when experiment is available

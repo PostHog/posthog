@@ -7,6 +7,7 @@ from .batch_export import (
     BatchExportRun,
     DayOfWeek,
 )
+from .batch_imports import BatchImport, ContentType, DateRangeExportSource
 
 __all__ = [
     "BatchExport",
@@ -15,5 +16,8 @@ __all__ = [
     "BatchExportFileDownload",
     "BatchExportOnDemand",
     "BatchExportRun",
+    "BatchImport",
+    "ContentType",
+    "DateRangeExportSource",
     "DayOfWeek",
 ]

@@ -55,7 +55,6 @@ class Command(BaseCommand):
         )
 
         updated_count = 0
-        failed: list[tuple[str, int, bool, str]] = []
         total_found = queryset.count()
         paginator = Paginator(queryset.order_by("id"), 1000)
 
@@ -72,32 +71,15 @@ class Command(BaseCommand):
             )
 
             for destination in page.object_list:
-                if not destination.hog or replaceOption["from_string"] not in destination.hog:
-                    continue
-
-                new_hog = destination.hog.replace(replaceOption["from_string"], replaceOption["to_string"])
-                # A single destination with uncompilable (e.g. hand-edited) hog must not abort the whole run.
-                try:
-                    new_bytecode = compile_hog(new_hog, destination.type)
-                except Exception as e:
-                    failed.append((str(destination.id), destination.team_id, destination.enabled, str(e)))
-                    continue
-
-                updated_count += 1
-                if not dry_run:
-                    destination.hog = new_hog
-                    destination.bytecode = new_bytecode
-                    destination.save(update_fields=["hog", "bytecode"])
+                if destination.hog and replaceOption["from_string"] in destination.hog:
+                    destination.hog = destination.hog.replace(replaceOption["from_string"], replaceOption["to_string"])
+                    destination.bytecode = compile_hog(destination.hog, destination.type)
+                    updated_count += 1
+                    if not dry_run:
+                        destination.save(update_fields=["hog", "bytecode"])
 
         # Output summary
         duration = time.time() - start_time
         self.stdout.write(
-            self.style.SUCCESS(
-                f"Update completed in {duration:.2f}s. Found: {total_found}, Updated: {updated_count}, Failed: {len(failed)}"
-            )
+            self.style.SUCCESS(f"Update completed in {duration:.2f}s. Found: {total_found}, Updated: {updated_count}, ")
         )
-
-        if failed:
-            self.stdout.write(self.style.WARNING(f"{len(failed)} destination(s) failed to compile and were skipped:"))
-            for fn_id, team_id, enabled, error in failed:
-                self.stdout.write(f"  id={fn_id} team={team_id} enabled={enabled} error={error}")

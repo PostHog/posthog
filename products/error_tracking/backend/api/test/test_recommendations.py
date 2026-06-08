@@ -16,13 +16,11 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingRecommendation,
-    ErrorTrackingSettings,
     ErrorTrackingStackFrame,
     sync_issues_to_clickhouse,
 )
 from products.error_tracking.backend.recommendations.alerts import AlertsRecommendation
 from products.error_tracking.backend.recommendations.long_running_issues import LongRunningIssuesRecommendation
-from products.error_tracking.backend.recommendations.rate_limits import RateLimitsRecommendation
 from products.error_tracking.backend.recommendations.source_maps import SourceMapsRecommendation
 
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -79,9 +77,9 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         response = self._list()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 4)
+        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 3)
         types = {r["type"] for r in response.json()["results"]}
-        self.assertEqual(types, {"alerts", "long_running_issues", "rate_limits", "source_maps"})
+        self.assertEqual(types, {"alerts", "long_running_issues", "source_maps"})
 
     @patch(
         "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
@@ -302,41 +300,6 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
     def test_alerts_is_completed_false_when_empty(self):
         self.assertFalse(AlertsRecommendation().is_completed({"alerts": []}))
 
-    def test_rate_limits_recommendation_with_no_settings(self):
-        meta = RateLimitsRecommendation().compute(self.team)
-        by_key = {r["key"]: r["enabled"] for r in meta["rate_limits"]}
-        self.assertFalse(by_key["project"])
-        self.assertFalse(by_key["per_issue"])
-
-    def test_rate_limits_recommendation_detects_set_limits(self):
-        ErrorTrackingSettings.objects.create(
-            team=self.team,
-            project_rate_limit_value=1000,
-            per_issue_rate_limit_value=None,
-        )
-        meta = RateLimitsRecommendation().compute(self.team)
-        by_key = {r["key"]: r["enabled"] for r in meta["rate_limits"]}
-        self.assertTrue(by_key["project"])
-        self.assertFalse(by_key["per_issue"])
-
-    def test_rate_limits_recommendation_ignores_other_teams_settings(self):
-        other_team = self.organization.teams.create(name="other")
-        ErrorTrackingSettings.objects.create(team=other_team, project_rate_limit_value=1000)
-        meta = RateLimitsRecommendation().compute(self.team)
-        by_key = {r["key"]: r["enabled"] for r in meta["rate_limits"]}
-        self.assertFalse(by_key["project"])
-
-    def test_rate_limits_is_completed_when_all_set(self):
-        meta = {"rate_limits": [{"key": "project", "enabled": True}, {"key": "per_issue", "enabled": True}]}
-        self.assertTrue(RateLimitsRecommendation().is_completed(meta))
-
-    def test_rate_limits_is_completed_false_when_any_unset(self):
-        meta = {"rate_limits": [{"key": "project", "enabled": True}, {"key": "per_issue", "enabled": False}]}
-        self.assertFalse(RateLimitsRecommendation().is_completed(meta))
-
-    def test_rate_limits_is_completed_false_when_empty(self):
-        self.assertFalse(RateLimitsRecommendation().is_completed({"rate_limits": []}))
-
     @patch(
         "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
         return_value={"issues": []},
@@ -388,10 +351,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         statuses = {r["type"]: r["status"] for r in response.json()["results"]}
-        self.assertEqual(
-            statuses,
-            {"alerts": "ready", "long_running_issues": "ready", "rate_limits": "ready", "source_maps": "ready"},
-        )
+        self.assertEqual(statuses, {"alerts": "ready", "long_running_issues": "ready", "source_maps": "ready"})
         # Each recommendation row should have been computed exactly once via the celery task path.
         self.assertEqual(mock_alerts.call_count, 1)
         self.assertEqual(mock_long_running.call_count, 1)

@@ -49,7 +49,10 @@ from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.sql import filter_dwh_columns_by_enabled_columns, sql_schema_metadata
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
-from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM, manifest_request_hosts
+from posthog.temporal.data_imports.sources.custom.source import (
+    is_custom_source_available_for_team,
+    manifest_request_hosts,
+)
 from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
 from posthog.temporal.data_imports.sources.postgres.postgres import get_primary_key_columns, source_requires_ssl
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
@@ -362,17 +365,6 @@ def get_postgres_source_table_location(
             "source_table_name": source_schema.source_table_name if source_schema else None,
         },
         default_schema=default_schema,
-    )
-
-
-CUSTOM_SOURCE_LIMIT_MESSAGE = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
-
-
-def count_active_custom_sources(team_id: int) -> int:
-    return (
-        ExternalDataSource.objects.filter(team_id=team_id, source_type=ExternalDataSourceType.CUSTOM)
-        .exclude(deleted=True)
-        .count()
     )
 
 
@@ -1143,13 +1135,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 if isinstance(value, str):
                     payload[key] = value.strip()
         source_type_model = ExternalDataSourceType(source_type)
-        if (
-            source_type_model == ExternalDataSourceType.CUSTOM
-            and count_active_custom_sources(self.team_id) >= MAX_CUSTOM_SOURCES_PER_TEAM
-        ):
+        if source_type_model == ExternalDataSourceType.CUSTOM and not is_custom_source_available_for_team(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": CUSTOM_SOURCE_LIMIT_MESSAGE},
+                data={"message": "Custom REST source is not available for this team."},
             )
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(payload)
@@ -2497,39 +2486,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_serializer = self.get_serializer(external_data_source, context=self.get_serializer_context())
         return Response(source_serializer.data)
 
-    def _compute_missing_webhook_events(
-        self,
-        source: WebhookSource,
-        config: Any,
-        instance: ExternalDataSource,
-        external_status: ExternalWebhookInfo | None,
-    ) -> list[str]:
-        """Desired events not yet on the provider webhook — surfaced so manual-webhook users
-        (or keys lacking webhook-write scope) know what to add."""
-        if not external_status or not external_status.exists or external_status.error:
-            return []
-
-        eligible_schema_names = list(
-            ExternalDataSchema.objects.filter(
-                source=instance,
-                team_id=self.team_id,
-                sync_type=ExternalDataSchema.SyncType.WEBHOOK,
-                should_sync=True,
-            )
-            .exclude(deleted=True)
-            .values_list("name", flat=True)
-        )
-
-        desired = source.get_desired_webhook_events(config, eligible_schema_names)
-        if not desired:
-            return []
-
-        current = set(external_status.enabled_events or [])
-        if "*" in current:
-            return []
-
-        return sorted(e for e in desired if e not in current)
-
     @action(methods=["GET"], detail=True)
     def webhook_info(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
@@ -2564,13 +2520,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         webhook_url = get_webhook_url(hog_function.id)
 
         external_status: ExternalWebhookInfo | None = None
-        missing_events: list[str] = []
 
         if instance.job_inputs:
             try:
                 config = source.parse_config(instance.job_inputs)
                 external_status = source.get_external_webhook_info(config, webhook_url, self.team_id)
-                missing_events = self._compute_missing_webhook_events(source, config, instance, external_status)
             except Exception as e:
                 capture_exception(e)
 
@@ -2598,7 +2552,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "schema_mapping": schema_mapping,
                 "inputs": webhook_inputs,
                 "external_status": dataclasses.asdict(external_status) if external_status else None,
-                "missing_events": missing_events,
             },
         )
 

@@ -62,10 +62,6 @@ services:
                         path /flags
                         path /flags/
                         path /flags/*
-                        # Local evaluation (flag definitions) — mirrors cloud Contour routing to Rust
-                        path /api/feature_flag/local_evaluation
-                        path /api/feature_flag/local_evaluation/
-                        path /api/feature_flag/local_evaluation/*
                     }
 
                     @surveys {

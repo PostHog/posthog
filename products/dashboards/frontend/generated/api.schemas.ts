@@ -7613,40 +7613,6 @@ export const ErrorTrackingIssueStatusEnumApi = {
 } as const
 
 /**
- * * `user` - user
- * `role` - role
- */
-export type AssigneeTypeEnumApi = (typeof AssigneeTypeEnumApi)[keyof typeof AssigneeTypeEnumApi]
-
-export const AssigneeTypeEnumApi = {
-    User: 'user',
-    Role: 'role',
-} as const
-
-export interface ErrorTrackingAssigneeApi {
-    /** User ID or role UUID to filter by. */
-    id: string | number | null
-    /** Assignee target type: user or role.
-
-  * `user` - user
-  * `role` - role */
-    type: AssigneeTypeEnumApi
-}
-
-export interface WidgetFilterConfigEntryApi {
-    /** Filter UUID; must match the widgetFilters map key. */
-    filterId: string
-    /** Event property key (for example $environment). */
-    propertyName: string
-    /** Selected option id from the filter definition. */
-    optionId: string
-    /** Property filter operator (for example exact, is_not, icontains). */
-    operator: string
-    /** Filter value as a string, list of strings, or null. */
-    value?: unknown
-}
-
-/**
  * * `-14d` - -14d
  * `-1h` - -1h
  * `-24h` - -24h
@@ -7680,14 +7646,9 @@ export interface WidgetDateRangeApi {
     date_from?: DateFromEnumApi | null
 }
 
-/**
- * Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here.
- */
-export type ErrorTrackingListWidgetConfigApiWidgetFilters = { [key: string]: WidgetFilterConfigEntryApi }
-
 export interface ErrorTrackingListWidgetConfigApi {
     /**
-     * Maximum number of issues to return (page size).
+     * Maximum number of issues to return.
      * @minimum 1
      * @maximum 25
      */
@@ -7714,11 +7675,7 @@ export interface ErrorTrackingListWidgetConfigApi {
   * `suppressed` - suppressed
   * `all` - all */
     status?: ErrorTrackingIssueStatusEnumApi
-    /** Filter by assignee ({type: user|role, id}). Omit for any assignee. */
-    assignee?: ErrorTrackingAssigneeApi | null
-    /** Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here. */
-    widgetFilters?: ErrorTrackingListWidgetConfigApiWidgetFilters
-    /** Relative date range for issues (date_from only on widgets). */
+    /** Optional relative date range override. */
     dateRange?: WidgetDateRangeApi | null
     /** When omitted, follows the project default for filtering test accounts. */
     filterTestAccounts?: boolean
@@ -7744,11 +7701,6 @@ export const SessionReplayListWidgetConfigOrderByEnumApi = {
     StartTime: 'start_time',
 } as const
 
-/**
- * Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here.
- */
-export type SessionReplayListWidgetConfigApiWidgetFilters = { [key: string]: WidgetFilterConfigEntryApi }
-
 export interface SessionReplayListWidgetConfigApi {
     /**
      * Maximum number of recordings to return.
@@ -7772,8 +7724,6 @@ export interface SessionReplayListWidgetConfigApi {
     orderDirection?: OrderDirectionEnumApi
     /** Optional relative date range override. */
     dateRange?: WidgetDateRangeApi | null
-    /** Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here. */
-    widgetFilters?: SessionReplayListWidgetConfigApiWidgetFilters
     /** When omitted, follows the project default for filtering test accounts. */
     filterTestAccounts?: boolean
 }

@@ -89,16 +89,17 @@ function cleanupKea(...logics: Array<{ unmount: () => void }>): void {
     featureFlagLogic.unmount()
 }
 
-function renderExperimentViewPage(experimentData: ExperimentType): {
-    sceneLogic: ReturnType<typeof experimentSceneLogic>
-} {
+function renderExperimentViewPage(
+    tabId: string,
+    experimentData: ExperimentType
+): { sceneLogic: ReturnType<typeof experimentSceneLogic> } {
     // Set the URL so urlToAction initializes correctly
     router.actions.push('/experiments/123')
-    const sceneLogic = experimentSceneLogic({ experimentId: 123, formMode: FORM_MODES.update })
+    const sceneLogic = experimentSceneLogic({ tabId, experimentId: 123, formMode: FORM_MODES.update })
     sceneLogic.mount()
     sceneLogic.actions.setSceneState(123, FORM_MODES.update)
     sceneLogic.values.experimentLogicRef!.logic.actions.loadExperimentSuccess(experimentData)
-    render(<Experiment />)
+    render(<Experiment tabId={tabId} />)
     return { sceneLogic }
 }
 
@@ -115,12 +116,13 @@ describe('Experiment component', () => {
         useMocks(apiMocks)
         mountKeaLogics()
 
-        const createSceneLogic = experimentSceneLogic({ experimentId: 'new', formMode: FORM_MODES.create })
+        const tabId = 'test-tab-create'
+        const createSceneLogic = experimentSceneLogic({ tabId, experimentId: 'new', formMode: FORM_MODES.create })
         createSceneLogic.mount()
         // Explicitly set create mode since urlToAction may override props default
         createSceneLogic.actions.setSceneState('new', FORM_MODES.create)
 
-        render(<Experiment />)
+        render(<Experiment tabId={tabId} />)
 
         expect(screen.getByTestId('experiment-wizard')).toBeInTheDocument()
         cleanupKea(createSceneLogic)
@@ -132,6 +134,7 @@ describe('Experiment component', () => {
             description: 'draft',
             expectLaunchButton: true,
             expectWarningBanner: false,
+            tabId: 'test-tab-draft-no-metrics',
         },
         {
             experimentOverrides: {
@@ -141,17 +144,18 @@ describe('Experiment component', () => {
             description: 'running experiment',
             expectLaunchButton: false,
             expectWarningBanner: true,
+            tabId: 'test-tab-running-no-metrics',
         },
     ])(
         '$description without metrics shows add metric buttons',
-        async ({ experimentOverrides, expectLaunchButton, expectWarningBanner }) => {
+        async ({ experimentOverrides, expectLaunchButton, expectWarningBanner, tabId }) => {
             const experimentData: ExperimentType = { ...DRAFT_EXPERIMENT, ...experimentOverrides }
             localStorage.clear()
             sessionStorage.clear()
             useMocks(mockApiForExperiment(experimentData))
             mountKeaLogics()
 
-            const { sceneLogic } = renderExperimentViewPage(experimentData)
+            const { sceneLogic } = renderExperimentViewPage(tabId, experimentData)
 
             await waitFor(() => {
                 screen.getAllByText('Add primary metric')

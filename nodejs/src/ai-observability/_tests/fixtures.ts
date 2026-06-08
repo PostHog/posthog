@@ -5,7 +5,6 @@ import { insertRow } from '~/tests/helpers/sql'
 
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
-import { LLMProviderKeyState, ProviderKey } from '../services/provider-key-manager.service'
 import { Evaluation, EvaluationConditionSet, EvaluationStatus, Tagger } from '../types'
 
 export const createEvaluation = (evaluation: Partial<Evaluation>): Evaluation => {
@@ -53,11 +52,8 @@ export const insertEvaluation = async (
         team_id: team_id,
     })
 
-    const row = { ...created }
-    delete row.provider_key_id
-
     const res = await insertRow(postgres, 'llm_analytics_evaluation', {
-        ...row,
+        ...created,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         created_by_id: 1001,
@@ -73,7 +69,6 @@ export const createTagger = (tagger: Partial<Tagger> = {}): Tagger => {
         team_id: 1,
         name: 'Test Tagger',
         enabled: tagger.enabled !== undefined ? tagger.enabled : true,
-        tagger_type: 'llm',
         tagger_config: {
             prompt: 'Tag this',
             tags: [{ name: 'billing' }, { name: 'analytics' }],
@@ -103,11 +98,9 @@ export const insertTagger = async (
         team_id,
     })
 
-    const row = { ...created }
-    delete row.provider_key_id
-
     const res = await insertRow(postgres, 'llm_analytics_tagger', {
-        ...row,
+        ...created,
+        tagger_type: 'llm',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         created_by_id: 1001,
@@ -115,57 +108,6 @@ export const insertTagger = async (
         description: created.description || '',
     })
     return res
-}
-
-export const insertProviderKey = async (
-    postgres: PostgresRouter,
-    team_id: Team['id'],
-    providerKey: Partial<ProviderKey & { provider: string; name: string; error_message: string | null }> = {}
-): Promise<ProviderKey> => {
-    const created = {
-        id: randomUUID(),
-        team_id,
-        provider: 'openai',
-        name: 'Test provider key',
-        state: 'ok' as LLMProviderKeyState,
-        error_message: null,
-        encrypted_config: { api_key: 'sk-test' },
-        created_at: new Date().toISOString(),
-        created_by_id: 1001,
-        last_used_at: null,
-        ...providerKey,
-    }
-
-    return await insertRow(postgres, 'llm_analytics_llmproviderkey', created)
-}
-
-export const insertModelConfiguration = async (
-    postgres: PostgresRouter,
-    team_id: Team['id'],
-    modelConfiguration: Partial<{
-        id: string
-        provider: string
-        model: string
-        provider_key_id: string | null
-    }> = {}
-): Promise<{
-    id: string
-    team_id: Team['id']
-    provider: string
-    model: string
-    provider_key_id: string | null
-}> => {
-    const created = {
-        id: randomUUID(),
-        team_id,
-        provider: 'openai',
-        model: 'gpt-5-mini',
-        provider_key_id: null,
-        created_at: new Date().toISOString(),
-        ...modelConfiguration,
-    }
-
-    return await insertRow(postgres, 'llm_analytics_llmmodelconfiguration', created)
 }
 
 export const createAiGenerationEvent = (teamId: number, data: Partial<RawClickHouseEvent> = {}): RawClickHouseEvent => {

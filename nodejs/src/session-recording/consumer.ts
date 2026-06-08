@@ -33,10 +33,7 @@ import { TeamService } from '../session-replay/shared/teams/team-service'
 import { KeyStore, RecordingEncryptor } from '../session-replay/shared/types'
 import { HealthCheckResult, PluginServerService, RedisPool, ValueMatcher } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
-import {
-    EventIngestionRestrictionManager,
-    EventIngestionRestrictionManagerComponent,
-} from '../utils/event-ingestion-restrictions'
+import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
@@ -79,23 +76,12 @@ export class SessionRecordingIngester {
     private readonly restrictionRedisPool: RedisPool
     private readonly teamService: TeamService
     private readonly fileStorage: SessionBatchFileStorage
-    private readonly eventIngestionRestrictionManagerComponent: EventIngestionRestrictionManagerComponent
-    private eventIngestionRestrictionManager!: EventIngestionRestrictionManager
-    private stopEventIngestionRestrictionManager?: () => Promise<void>
-    private sessionReplayPipeline!: BatchPipelineUnwrapper<
+    private readonly eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    private readonly sessionReplayPipeline: BatchPipelineUnwrapper<
         SessionReplayPipelineInput,
         SessionReplayPipelineOutput,
         { message: Message },
         OverflowOutput
-    >
-    private readonly outputs: IngestionOutputs<
-        | IngestionWarningsOutput
-        | DlqOutput
-        | OverflowOutput
-        | TophogOutput
-        | LogEntriesOutput
-        | ReplayEventsOutput
-        | SessionFeaturesOutput
     >
     private readonly topHog: TopHog
     private readonly keyStore: KeyStore
@@ -132,7 +118,6 @@ export class SessionRecordingIngester {
 
         this.redisPool = redisPool
         this.restrictionRedisPool = restrictionRedisPool
-        this.outputs = outputs
 
         let s3Client: S3Client | null = null
         if (
@@ -165,10 +150,9 @@ export class SessionRecordingIngester {
 
         this.teamService = new TeamService(postgres)
 
-        this.eventIngestionRestrictionManagerComponent = new EventIngestionRestrictionManagerComponent(
-            this.restrictionRedisPool,
-            { pipeline: 'session_recordings' }
-        )
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.restrictionRedisPool, {
+            pipeline: 'session_recordings',
+        })
 
         const retentionService = new RetentionService(this.redisPool, this.teamService)
 
@@ -222,6 +206,17 @@ export class SessionRecordingIngester {
             sessionFilter,
             keyStore: this.keyStore,
             encryptor: this.encryptor,
+        })
+
+        this.sessionReplayPipeline = createSessionReplayPipeline({
+            outputs,
+            eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+            overflowEnabled: this.overflowEnabled(),
+            promiseScheduler: this.promiseScheduler,
+            teamService: this.teamService,
+            topHog: this.topHog,
+            sessionBatchManager: this.sessionBatchManager,
+            isDebugLoggingEnabled: this.isDebugLoggingEnabled,
         })
     }
 
@@ -285,20 +280,6 @@ export class SessionRecordingIngester {
 
         await this.keyStore.start()
         await this.encryptor.start()
-        const started = await this.eventIngestionRestrictionManagerComponent.start()
-        this.eventIngestionRestrictionManager = started.value
-        this.stopEventIngestionRestrictionManager = started.stop
-
-        this.sessionReplayPipeline = createSessionReplayPipeline({
-            outputs: this.outputs,
-            eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
-            overflowEnabled: this.overflowEnabled(),
-            promiseScheduler: this.promiseScheduler,
-            teamService: this.teamService,
-            topHog: this.topHog,
-            sessionBatchManager: this.sessionBatchManager,
-            isDebugLoggingEnabled: this.isDebugLoggingEnabled,
-        })
 
         // Check that the storage backend is healthy before starting the consumer
         // This is especially important in local dev with minio
@@ -356,7 +337,6 @@ export class SessionRecordingIngester {
         const promiseResults = await this.promiseScheduler.waitForAllSettled()
 
         this.keyStore.stop()
-        await this.stopEventIngestionRestrictionManager?.()
         // Note: Kafka producers and Redis pools are owned by the server (IngestionSessionReplayServer),
         // not by the ingester. The server handles their lifecycle in getCleanupResources().
 

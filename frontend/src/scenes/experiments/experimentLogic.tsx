@@ -166,6 +166,7 @@ export interface ExperimentWarning {
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
     formMode?: FormModes
+    tabId?: string
 }
 
 export type ExperimentTriggeredBy = 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
@@ -554,7 +555,10 @@ export type ExperimentSavedMetric = {
 
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
-    key((props) => props.experimentId ?? 'new'),
+    key((props) => {
+        const baseKey = props.experimentId ?? 'new'
+        return `${baseKey}${props.tabId ? `-${props.tabId}` : ''}`
+    }),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
         values: [
@@ -1383,7 +1387,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 const experimentId = response.id
                 refreshTreeItem('experiment', String(experimentId))
                 const navigateToExperiment = (): void => {
-                    const scene = experimentSceneLogic.findMounted()
+                    const tabId = values.props.tabId
+                    const scene = tabId ? experimentSceneLogic.findMounted({ tabId }) : null
                     if (scene) {
                         scene.actions.setSceneState(experimentId, FORM_MODES.update)
                     } else {

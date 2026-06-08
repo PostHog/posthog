@@ -15,7 +15,7 @@ import { Breadcrumb } from '~/types'
 
 import { parseTrialProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
-import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
+import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
 import { evaluationErrorMessage } from './apiErrors'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
@@ -679,7 +679,17 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         evaluationProviderKeyIssue: [
             (s) => [s.evaluation, s.providerKeys],
             (evaluation: EvaluationConfig | null, providerKeys: LLMProviderKey[]): LLMProviderKey | null => {
-                return getUnhealthyProviderKey(providerKeys, evaluation?.model_configuration?.provider_key_id)
+                const providerKeyId = evaluation?.model_configuration?.provider_key_id
+                if (!providerKeyId) {
+                    return null
+                }
+
+                const providerKey = providerKeys.find((key) => key.id === providerKeyId)
+                if (!providerKey || !isUnhealthyProviderKeyState(providerKey.state)) {
+                    return null
+                }
+
+                return providerKey
             },
         ],
 

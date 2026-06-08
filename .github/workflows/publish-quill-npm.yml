@@ -13,7 +13,7 @@ on:
                     - latest
 
 permissions:
-    contents: write
+    contents: read
 
 concurrency:
     group: ${{ github.workflow }}
@@ -26,7 +26,7 @@ jobs:
         timeout-minutes: 15
         environment: Release
         permissions:
-            contents: write
+            contents: read
             id-token: write
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -44,48 +44,22 @@ jobs:
             - name: Ensure modern npm (OIDC trusted publishing support)
               run: npm install -g npm@11.6.4
 
-            - name: Bump versions
-              env:
-                  NPM_TAG: ${{ inputs.tag }}
-              run: |
-                  git config user.name "github-actions[bot]"
-                  git config user.email "github-actions[bot]@users.noreply.github.com"
-                  BUMP_TYPE=$( [ "$NPM_TAG" = "latest" ] && echo "patch" || echo "prerelease" )
-                  cd packages/quill/packages/tokens
-                  npm version "$BUMP_TYPE" --no-git-tag-version
-                  TOKENS_V=$(node -p "require('./package.json').version")
-                  echo "Bumped @posthog/quill-tokens to $TOKENS_V ($BUMP_TYPE)"
-                  cd ../quill
-                  npm version "$BUMP_TYPE" --no-git-tag-version
-                  QUILL_V=$(node -p "require('./package.json').version")
-                  echo "Bumped @posthog/quill to $QUILL_V ($BUMP_TYPE)"
-
             - name: Install dependencies
-              run: pnpm install --frozen-lockfile --filter "@posthog/quill..." --filter "@posthog/quill-tokens" --filter "@posthog/quill-charts..."
+              run: pnpm install --frozen-lockfile --filter "@posthog/quill..." --filter "@posthog/quill-tokens"
 
             - name: Build quill packages
               run: pnpm quill:build
 
-            # Only the public packages get published: -tokens, the @posthog/quill
-            # facade, and -charts (an independent canvas charting library, not
-            # bundled into the facade). The internal workspace members
-            # (-primitives, -components, -blocks) have `private: true` and are
-            # bundled into @posthog/quill at build time. Each public package gets
-            # its own publish + version-capture step so a failure shows up on the
-            # exact step that broke.
-            # `pnpm pack` (not `npm publish` directly) so pnpm's `catalog:` /
-            # `workspace:` protocol specifiers are rewritten to concrete versions
-            # in the tarball manifest. `npm publish <tarball>` then ships that
-            # resolved manifest while preserving OIDC trusted publishing +
-            # provenance. Publishing the package dir with plain `npm publish`
-            # would leak literal `catalog:` strings into the registry and make
-            # the package uninstallable.
+            # Only the public facade packages get published. The internal
+            # workspace members (-primitives, -components, -blocks) have
+            # `private: true` and are bundled into @posthog/quill at build
+            # time. Each public package gets its own publish + version-capture
+            # step so a failure shows up on the exact step that broke.
             - name: Publish @posthog/quill-tokens
               id: publish-tokens
               working-directory: packages/quill/packages/tokens
               run: |
-                  TARBALL="$(pnpm pack | tail -1)"
-                  npm publish "$TARBALL" --tag "$NPM_TAG" --access public
+                  npm publish --tag "$NPM_TAG" --access public
                   VERSION=$(node -p "require('./package.json').version")
                   echo "version=$VERSION" >> $GITHUB_OUTPUT
               env:
@@ -104,21 +78,7 @@ jobs:
               id: publish-quill
               working-directory: packages/quill/packages/quill
               run: |
-                  TARBALL="$(pnpm pack | tail -1)"
-                  npm publish "$TARBALL" --tag "$NPM_TAG" --access public
-                  VERSION=$(node -p "require('./package.json').version")
-                  echo "version=$VERSION" >> $GITHUB_OUTPUT
-              env:
-                  NODE_AUTH_TOKEN: ''
-                  NPM_CONFIG_PROVENANCE: true
-                  NPM_TAG: ${{ inputs.tag }}
-
-            - name: Publish @posthog/quill-charts
-              id: publish-charts
-              working-directory: packages/quill/packages/charts
-              run: |
-                  TARBALL="$(pnpm pack | tail -1)"
-                  npm publish "$TARBALL" --tag "$NPM_TAG" --access public
+                  npm publish --tag "$NPM_TAG" --access public
                   VERSION=$(node -p "require('./package.json').version")
                   echo "version=$VERSION" >> $GITHUB_OUTPUT
               env:
@@ -135,19 +95,8 @@ jobs:
                   # defense-in-depth hazard, even when the upstream value is trusted.
                   TOKENS_VERSION: ${{ steps.publish-tokens.outputs.version }}
                   QUILL_VERSION: ${{ steps.publish-quill.outputs.version }}
-                  CHARTS_VERSION: ${{ steps.publish-charts.outputs.version }}
               run: |
-                  echo "summary=@posthog/quill-tokens@${TOKENS_VERSION}, @posthog/quill@${QUILL_VERSION}, @posthog/quill-charts@${CHARTS_VERSION}" >> $GITHUB_OUTPUT
-
-            - name: Commit version bump
-              run: |
-                  git add packages/quill/packages/tokens/package.json packages/quill/packages/quill/package.json
-                  TOKENS_V=$(node -p "require('./packages/quill/packages/tokens/package.json').version")
-                  QUILL_V=$(node -p "require('./packages/quill/packages/quill/package.json').version")
-                  git commit -m "chore(quill): bump quill-tokens to $TOKENS_V, quill to $QUILL_V [skip ci]"
-                  if ! git push; then
-                    echo "::warning::git push failed (likely branch protection). Versions were published successfully but package.json not updated in repo. A manual bump or PR may be needed."
-                  fi
+                  echo "summary=@posthog/quill-tokens@${TOKENS_VERSION}, @posthog/quill@${QUILL_VERSION}" >> $GITHUB_OUTPUT
 
             - name: Notify Slack
               if: ${{ !cancelled() }}

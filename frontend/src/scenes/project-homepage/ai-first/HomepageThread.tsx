@@ -13,8 +13,8 @@ import { HOMEPAGE_TAB_ID } from './constants'
 
 export function HomepageThread(): JSX.Element {
     const { query } = useValues(aiFirstHomepageLogic)
-    const { threadLogicKey, conversation } = useValues(maxLogic({ panelId: HOMEPAGE_TAB_ID }))
-    const { askMax, setQuestion } = useActions(maxLogic({ panelId: HOMEPAGE_TAB_ID }))
+    const { threadLogicKey, conversation } = useValues(maxLogic({ tabId: HOMEPAGE_TAB_ID }))
+    const { askMax, setQuestion } = useActions(maxLogic({ tabId: HOMEPAGE_TAB_ID }))
 
     const scrollRef = useRef<HTMLDivElement | null>(null)
 
@@ -37,13 +37,13 @@ export function HomepageThread(): JSX.Element {
     }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
     const threadProps: MaxThreadLogicProps = {
-        panelId: HOMEPAGE_TAB_ID,
+        tabId: HOMEPAGE_TAB_ID,
         conversationId: threadLogicKey || uuid(),
         conversation,
     }
 
     return (
-        <BindLogic logic={maxLogic} props={{ panelId: HOMEPAGE_TAB_ID }}>
+        <BindLogic logic={maxLogic} props={{ tabId: HOMEPAGE_TAB_ID }}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
                 <ScrollableShadows direction="vertical" styledScrollbars className="grow min-h-0" scrollRef={scrollRef}>
                     <ThreadAutoScroller>

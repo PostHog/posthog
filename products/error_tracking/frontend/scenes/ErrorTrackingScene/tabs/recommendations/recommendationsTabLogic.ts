@@ -11,7 +11,6 @@ import type {
     AlertsRecommendation,
     ErrorTrackingRecommendation,
     LongRunningIssuesRecommendation,
-    RateLimitsRecommendation,
     SourceMapsRecommendation,
 } from './types'
 
@@ -22,10 +21,6 @@ export const isAlertsRecommendation = (
 export const isLongRunningIssuesRecommendation = (
     recommendation: ErrorTrackingRecommendation
 ): recommendation is LongRunningIssuesRecommendation => recommendation.type === 'long_running_issues'
-
-export const isRateLimitsRecommendation = (
-    recommendation: ErrorTrackingRecommendation
-): recommendation is RateLimitsRecommendation => recommendation.type === 'rate_limits'
 
 export const isSourceMapsRecommendation = (
     recommendation: ErrorTrackingRecommendation

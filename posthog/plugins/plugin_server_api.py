@@ -58,11 +58,6 @@ def reload_taggers_on_workers(team_id: int, tagger_ids: list[str]):
     publish_message("reload-taggers", {"teamId": team_id, "taggerIds": tagger_ids})
 
 
-def reload_provider_keys_on_workers(team_id: int, provider_key_ids: list[str]):
-    logger.info(f"Reloading provider keys {provider_key_ids} on workers")
-    publish_message("reload-provider-keys", {"teamId": team_id, "providerKeyIds": provider_key_ids})
-
-
 def reload_all_hog_functions_on_workers():
     logger.info(f"Reloading all hog functions on workers")
     publish_message("reload-all-hog-functions", {})

@@ -1,3 +1,8 @@
+export {
+    createClientIngestionWarningSubpipeline,
+    type ClientIngestionWarningSubpipelineInput,
+} from './client-ingestion-warning-subpipeline'
+
 export { createEventSubpipeline, type EventSubpipelineConfig, type EventSubpipelineInput } from './event-subpipeline'
 
 export {

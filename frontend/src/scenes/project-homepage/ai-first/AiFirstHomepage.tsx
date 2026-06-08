@@ -22,7 +22,7 @@ function phaseAtLeast(current: string, target: string): boolean {
 
 export function AiFirstHomepage(): JSX.Element {
     const { mode, animationPhase, query, threadStarted } = useValues(aiFirstHomepageLogic)
-    const { conversationId } = useValues(maxLogic({ panelId: HOMEPAGE_TAB_ID }))
+    const { conversationId } = useValues(maxLogic({ tabId: HOMEPAGE_TAB_ID }))
 
     const isIdle = mode === 'idle'
     const isAi = mode === 'ai'
@@ -30,7 +30,7 @@ export function AiFirstHomepage(): JSX.Element {
     const isContent = animationPhase === 'content'
 
     return (
-        <BindLogic logic={maxLogic} props={{ panelId: HOMEPAGE_TAB_ID }}>
+        <BindLogic logic={maxLogic} props={{ tabId: HOMEPAGE_TAB_ID }}>
             <Search.Root
                 logicKey="homepage"
                 showAskAiLink={false}

@@ -41,8 +41,8 @@ interface VisualizationArtifactAnswerProps {
     activeSceneId?: string | null
 }
 
-function InsightSuggestionButton(): JSX.Element {
-    const { insight } = useValues(insightSceneLogic)
+function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
+    const { insight } = useValues(insightSceneLogic({ tabId }))
     const insightProps = { dashboardItemId: insight?.short_id }
     const { suggestedQuery, previousQuery } = useValues(insightLogic(insightProps))
     const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
@@ -142,7 +142,9 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                     </h5>
                 )}
                 <div className="flex items-center gap-1.5">
-                    {isEditingInsight && activeTabId && activeSceneId === Scene.Insight && <InsightSuggestionButton />}
+                    {isEditingInsight && activeTabId && activeSceneId === Scene.Insight && (
+                        <InsightSuggestionButton tabId={activeTabId} />
+                    )}
                     {!isEditingInsight && (
                         <LemonButton
                             to={

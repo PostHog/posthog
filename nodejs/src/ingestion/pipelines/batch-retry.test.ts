@@ -2,8 +2,6 @@ import { BatchProcessingStep } from './base-batch-pipeline'
 import { withBatchRetry } from './batch-retry'
 import { newBatchPipelineBuilder } from './builders'
 import { createOkContext } from './helpers'
-import { pipelineRetryAttemptsHistogram } from './metrics'
-import { getRetryAttempts } from './metrics.test-utils'
 import { drop, isDlqResult, isDropResult, isOkResult, ok } from './results'
 
 // Suppress logger output during tests
@@ -36,7 +34,6 @@ function createTestBatch<T>(values: T[]) {
 describe('withBatchRetry', () => {
     beforeEach(() => {
         jest.useFakeTimers()
-        pipelineRetryAttemptsHistogram.reset()
     })
 
     afterEach(() => {
@@ -169,77 +166,5 @@ describe('withBatchRetry', () => {
     ])('preserves step name for $description', ({ step, expectedName }) => {
         const wrapped = withBatchRetry(step)
         expect(wrapped.name).toBe(expectedName)
-    })
-
-    describe('retry attempts metric', () => {
-        it('records the attempt count and "completed" outcome when it succeeds after retries', async () => {
-            let attempts = 0
-            const step: BatchProcessingStep<number, string> = (values) => {
-                attempts++
-                if (attempts < 3) {
-                    throw new RetriableError('Temporary failure')
-                }
-                return Promise.resolve(values.map((v) => ok(String(v))))
-            }
-
-            const pipeline = newBatchPipelineBuilder<number>()
-                .pipeBatchWithRetry(step, { tries: 5, sleepMs: 100, name: 'test_batch' })
-                .gather()
-                .build()
-
-            pipeline.feed(createTestBatch([1]))
-            const resultPromise = pipeline.next()
-            await jest.advanceTimersByTimeAsync(300) // 100ms + 200ms for two retries
-            await resultPromise
-
-            expect(await getRetryAttempts('test_batch', 'completed')).toEqual({ count: 1, sum: 3 })
-        })
-
-        it('records "exhausted" outcome with the full attempt count when retries run out', async () => {
-            jest.useRealTimers() // promise rejections + fake timers don't mix well here
-
-            const step: BatchProcessingStep<number, string> = (_values) => {
-                throw new RetriableError('Always fails')
-            }
-
-            const pipeline = newBatchPipelineBuilder<number>()
-                .pipeBatchWithRetry(step, { tries: 2, sleepMs: 1, name: 'test_batch' })
-                .gather()
-                .build()
-
-            pipeline.feed(createTestBatch([1]))
-            await expect(pipeline.next()).rejects.toThrow('Always fails')
-
-            expect(await getRetryAttempts('test_batch', 'exhausted')).toEqual({ count: 1, sum: 2 })
-        })
-
-        it('records "non_retriable" outcome with a single attempt', async () => {
-            const step: BatchProcessingStep<number, string> = (_values) => {
-                throw new NonRetriableError('Validation failed')
-            }
-
-            const pipeline = newBatchPipelineBuilder<number>()
-                .pipeBatchWithRetry(step, { tries: 3, sleepMs: 100, name: 'test_batch' })
-                .gather()
-                .build()
-
-            pipeline.feed(createTestBatch([1, 2]))
-            await pipeline.next()
-
-            expect(await getRetryAttempts('test_batch', 'non_retriable')).toEqual({ count: 1, sum: 1 })
-        })
-
-        it('defaults the metric name to the step name', async () => {
-            const namedStep: BatchProcessingStep<number, string> = function geoipStep(values) {
-                return Promise.resolve(values.map((v) => ok(String(v))))
-            }
-
-            const pipeline = newBatchPipelineBuilder<number>().pipeBatchWithRetry(namedStep).gather().build()
-
-            pipeline.feed(createTestBatch([1]))
-            await pipeline.next()
-
-            expect(await getRetryAttempts('geoipStep', 'completed')).toEqual({ count: 1, sum: 1 })
-        })
     })
 })

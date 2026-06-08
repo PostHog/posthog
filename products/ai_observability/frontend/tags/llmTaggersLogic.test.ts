@@ -50,15 +50,6 @@ const mockTaggers: Tagger[] = [
     }),
 ]
 
-const providerKeyMocks = {
-    '/api/environments/:team_id/llm_analytics/provider_keys/': { results: [] },
-    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-        trial_eval_limit: 100,
-        trial_evals_used: 0,
-        trial_evals_remaining: 100,
-    },
-}
-
 describe('llmTaggersLogic', () => {
     let logic: ReturnType<typeof llmTaggersLogic.build>
 
@@ -66,7 +57,6 @@ describe('llmTaggersLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    ...providerKeyMocks,
                     '/api/environments/:team_id/taggers/': { results: mockTaggers },
                 },
             })
@@ -105,7 +95,6 @@ describe('llmTaggersLogic', () => {
             let firstGet = true
             useMocks({
                 get: {
-                    ...providerKeyMocks,
                     '/api/environments/:team_id/taggers/': () => {
                         if (firstGet) {
                             firstGet = false
@@ -144,7 +133,6 @@ describe('llmTaggersLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    ...providerKeyMocks,
                     '/api/environments/:team_id/taggers/': { results: mockTaggers },
                 },
             })
@@ -218,7 +206,6 @@ describe('llmTaggersLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    ...providerKeyMocks,
                     '/api/environments/:team_id/taggers/': { results: mockTaggers },
                     '/api/environments/:team_id/taggers/:id/': mockTaggers[0],
                 },

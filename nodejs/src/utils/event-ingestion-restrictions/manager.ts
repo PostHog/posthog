@@ -7,17 +7,9 @@ import { logger } from '../logger'
 import { REDIS_KEY_PREFIX, RedisRestrictionArraySchema, RedisRestrictionType, toRestrictionRule } from './redis-schema'
 import { EventContext, RestrictionFilters, RestrictionMap, RestrictionRule, RestrictionType } from './rules'
 
-export type IngestionPipeline = 'analytics' | 'session_recordings' | 'errortracking' | 'clientwarnings'
+export type IngestionPipeline = 'analytics' | 'session_recordings' | 'errortracking'
 
 const EMPTY_RESTRICTIONS: ReadonlySet<RestrictionType> = new Set()
-
-export interface EventIngestionRestrictionManagerOptions {
-    pipeline?: IngestionPipeline
-    staticDropEventTokens?: string[]
-    staticSkipPersonTokens?: string[]
-    staticForceOverflowTokens?: string[]
-    staticRedirectToDlqTokens?: string[]
-}
 
 /*
  * Events can be restricted for ingestion through static and dynamic configs.
@@ -34,10 +26,6 @@ export interface EventIngestionRestrictionManagerOptions {
  * - AND between filter types (distinct_ids AND session_ids AND event_names AND event_uuids)
  * - OR within each filter type (value in set)
  * - Empty filter = matches all (neutral in AND)
- *
- * The constructor does not prime the cache; call `prime()` (or wrap
- * construction in `EventIngestionRestrictionManagerComponent`) to await
- * the initial load.
  */
 export class EventIngestionRestrictionManager {
     private redisPool: GenericPool<Redis>
@@ -45,7 +33,16 @@ export class EventIngestionRestrictionManager {
     private staticRestrictionMap: RestrictionMap = new RestrictionMap()
     private dynamicConfigRefresher: BackgroundRefresher<RestrictionMap>
 
-    constructor(redisPool: GenericPool<Redis>, options: EventIngestionRestrictionManagerOptions = {}) {
+    constructor(
+        redisPool: GenericPool<Redis>,
+        options: {
+            pipeline?: IngestionPipeline
+            staticDropEventTokens?: string[]
+            staticSkipPersonTokens?: string[]
+            staticForceOverflowTokens?: string[]
+            staticRedirectToDlqTokens?: string[]
+        } = {}
+    ) {
         const {
             pipeline = 'analytics',
             staticDropEventTokens = [],
@@ -66,12 +63,9 @@ export class EventIngestionRestrictionManager {
             logger.debug('🔁', 'ingestion_event_restriction_manager - refreshing dynamic config in the background')
             return await this.buildRestrictionMap()
         })
-    }
 
-    async prime(): Promise<void> {
-        // Failures are logged but don't surface — static restrictions still
-        // apply, and `tryGet` will retry in the background on subsequent reads.
-        await this.dynamicConfigRefresher.get().catch((error) => {
+        // Initialize the restriction manager (includes static restrictions)
+        void this.dynamicConfigRefresher.get().catch((error) => {
             logger.error('Failed to initialize event ingestion restriction config', { error })
         })
     }
@@ -184,24 +178,5 @@ export class EventIngestionRestrictionManager {
         }
 
         return rules
-    }
-}
-
-/**
- * Scope entry for `EventIngestionRestrictionManager`. `start()` constructs
- * the manager from the supplied options and awaits the initial cache
- * prime before handing it back. Stop is a no-op — the manager doesn't
- * hold lifetime-bound resources directly.
- */
-export class EventIngestionRestrictionManagerComponent {
-    constructor(
-        private readonly redisPool: GenericPool<Redis>,
-        private readonly options: EventIngestionRestrictionManagerOptions = {}
-    ) {}
-
-    async start(): Promise<{ value: EventIngestionRestrictionManager; stop: () => Promise<void> }> {
-        const manager = new EventIngestionRestrictionManager(this.redisPool, this.options)
-        await manager.prime()
-        return { value: manager, stop: () => Promise.resolve() }
     }
 }

@@ -65,7 +65,7 @@ export interface BarAtCursor<S> {
 /** Yields the renderable `{ series, bar }` for every visible series at `(label, dataIndex)`.
  *  Single source of truth shared by drawHover, tooltip narrowing, and click routing —
  *  encapsulates visibility skip, stacked-band lookup, and `computeBarAtIndex`. */
-export function* barsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>>(
+export function* iterBarsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>>(
     args: Omit<BarsAtCursorArgs, 'series'> & { series: readonly S[] }
 ): Generator<BarAtCursor<S>> {
     const { series, label, dataIndex, scales, layout, isHorizontal, stackedData, topStackedKeyByAxis } = args
@@ -108,7 +108,7 @@ export function resolveBarsAtCursor(
     const { cursor, isHorizontal } = args
     const hits = new Set<string>()
     let strictHit: string | null = null
-    for (const { series: s, bar } of barsAtCursor(args)) {
+    for (const { series: s, bar } of iterBarsAtCursor(args)) {
         if (barContainsPointOnBandAxis(bar, cursor, isHorizontal)) {
             hits.add(s.key)
         }
@@ -170,7 +170,7 @@ export function findVisibleStackedSegment<S extends Pick<Series, 'key' | 'visibi
         if (labels[dataIndex] !== hoveredLabel) {
             continue
         }
-        for (const { series: s, bar } of barsAtCursor({ ...args, label: labels[dataIndex], dataIndex })) {
+        for (const { series: s, bar } of iterBarsAtCursor({ ...args, label: labels[dataIndex], dataIndex })) {
             const extent = isHorizontal ? bar.width : bar.height
             if (extent <= 0) {
                 continue

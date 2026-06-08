@@ -61,7 +61,7 @@ export function createFlushBatchStoresStep<TOutput, COutput, CBatch, R extends s
             personsStore.reset()
             groupStore.reset()
 
-            return ok(input, producePromises)
+            return ok({ elements: input.elements, batchContext: input.batchContext }, producePromises)
         } catch (error) {
             // If flush fails, the error will bubble up and fail the entire batch
             // This maintains the existing behavior where flush errors are fatal

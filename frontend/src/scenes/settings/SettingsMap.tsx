@@ -140,7 +140,6 @@ import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationAITrainingOptOut } from './organization/OrgAITraining'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
-import { OrganizationPersonalAPIKeys } from './organization/OrganizationPersonalAPIKeys'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
@@ -362,7 +361,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     "Add recipes that normalize provider message shapes the built-in recipes don't cover. They apply when rendering traces.",
                 component: <ParserRecipesSettings />,
-                flag: 'LLM_ANALYTICS_CUSTOM_PARSERS',
+                flag: 'LLM_ANALYTICS_RECIPE_NORMALIZER',
                 keywords: ['parser', 'recipe', 'normalize', 'trace', 'provider', 'custom parsing', 'content'],
             },
         ],
@@ -1717,7 +1716,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'organization',
         id: 'organization-security',
         title: 'Security',
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
         settings: [
             {
                 id: 'organization-security',
@@ -1726,14 +1724,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Configure organization-wide security policies including public sharing, session timeouts, and password requirements.',
                 component: <OrganizationSecuritySettings />,
                 keywords: ['password', 'session', 'timeout', 'compliance', 'sharing', 'public'],
-            },
-            {
-                id: 'organization-personal-api-keys',
-                title: 'Personal API key access',
-                description:
-                    "See which members' personal API keys can reach this organization or its projects, who owns them, and the scopes they grant.",
-                component: <OrganizationPersonalAPIKeys />,
-                keywords: ['api key', 'personal', 'token', 'access', 'audit'],
             },
         ],
     },

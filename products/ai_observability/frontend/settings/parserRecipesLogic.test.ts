@@ -23,7 +23,7 @@ const mockList = llmAnalyticsParserRecipesList as jest.MockedFunction<typeof llm
 const mockCreate = llmAnalyticsParserRecipesCreate as jest.MockedFunction<typeof llmAnalyticsParserRecipesCreate>
 const mockDestroy = llmAnalyticsParserRecipesDestroy as jest.MockedFunction<typeof llmAnalyticsParserRecipesDestroy>
 
-const FLAG = FEATURE_FLAGS.LLM_ANALYTICS_CUSTOM_PARSERS
+const FLAG = FEATURE_FLAGS.LLM_ANALYTICS_RECIPE_NORMALIZER
 
 describe('parserRecipesLogic', () => {
     let logic: ReturnType<typeof parserRecipesLogic.build>

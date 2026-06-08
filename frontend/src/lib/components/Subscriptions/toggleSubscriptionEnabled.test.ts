@@ -1,6 +1,6 @@
-import * as generatedApi from '@posthog/products-subscriptions/frontend/generated/api'
-
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
+import * as generatedApi from '~/generated/core/api'
 
 import { toggleSubscriptionEnabled } from './toggleSubscriptionEnabled'
 

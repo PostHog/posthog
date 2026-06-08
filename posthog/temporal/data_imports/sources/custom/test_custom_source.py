@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.sources.custom.source import (
     CustomSource,
     ManifestValidationError,
     _read_capped_text,
+    is_custom_source_available_for_team,
     manifest_request_hosts,
     validate_manifest,
     validate_manifest_urls,
@@ -689,6 +690,22 @@ class TestManifestRequestHosts(SimpleTestCase):
     @parameterized.expand([("not json", "{nope}"), ("non_string", 123), ("none", None), ("json_array", "[1, 2]")])
     def test_unparseable_returns_empty(self, _name, raw):
         assert manifest_request_hosts(raw) == frozenset()
+
+
+class TestIsCustomSourceAvailableForTeam(SimpleTestCase):
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_allows_pilot_team_on_us_cloud(self):
+        assert is_custom_source_available_for_team(2) is True
+
+    @parameterized.expand([("EU",), ("DEV",), ("E2E",), ("",), (None,)])
+    def test_rejects_non_us_deployment(self, deployment):
+        with override_settings(CLOUD_DEPLOYMENT=deployment):
+            assert is_custom_source_available_for_team(2) is False
+
+    @parameterized.expand([(1,), (3,), (999,), (None,)])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_rejects_other_teams_even_on_us(self, team_id):
+        assert is_custom_source_available_for_team(team_id) is False
 
 
 class TestCustomSourceSourceForPipeline(SimpleTestCase):

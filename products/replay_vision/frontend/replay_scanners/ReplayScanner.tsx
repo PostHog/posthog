@@ -268,7 +268,7 @@ function QuotaBanner(): JSX.Element | null {
     if (!quota || quota.monthly_quota <= 0) {
         return null
     }
-    const resetsOn = dayjs(quota.period_end).format('MMMM D')
+    const resetsOn = dayjs(quota.period_end).format('MMM D')
     if (quota.exhausted) {
         return (
             <LemonBanner type="warning">

@@ -17,40 +17,17 @@ class ThreadedWorker(Worker):
     """
 
     @contextmanager
-    def run_in_thread(self, *, startup_timeout: float = 30.0):
+    def run_in_thread(self):
         """Run a Temporal Worker in a thread.
 
         Don't use this outside of tests. Once PostHog is fully async we can get rid of this.
         """
         loop = asyncio.new_event_loop()
-        startup_error: list[Exception] = []
-
-        def run() -> None:
-            try:
-                self.run_using_loop(loop)
-            except Exception as e:
-                # Capture so the main thread can fail fast on a startup crash, and re-raise so a
-                # worker that dies *after* startup still surfaces its traceback (threading.excepthook).
-                startup_error.append(e)
-                raise
-
-        t = threading.Thread(target=run, daemon=True)
+        t = threading.Thread(target=self.run_using_loop, daemon=True, args=(loop,))
         t.start()
 
         try:
-            # Bound the wait for the worker to come up. If the worker thread dies or
-            # never reports running, fail fast with a clear error — a silent spin here
-            # would otherwise consume the entire CI job timeout.
-            deadline = time.monotonic() + startup_timeout
             while not self.is_running:
-                if not t.is_alive() or startup_error:
-                    # A crashing worker appends to startup_error before its thread exits, so
-                    # surface that cause rather than a bare "exited before it started" message.
-                    if startup_error:
-                        raise RuntimeError("Temporal test worker failed to start") from startup_error[0]
-                    raise RuntimeError("Temporal test worker thread exited before it started running")
-                if time.monotonic() >= deadline:
-                    raise TimeoutError(f"Temporal test worker did not start within {startup_timeout:g}s")
                 time.sleep(0.1)
             yield
         finally:

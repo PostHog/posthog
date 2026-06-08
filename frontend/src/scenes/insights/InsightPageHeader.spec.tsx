@@ -22,6 +22,7 @@ jest.mock('scenes/max/useMaxTool', () => ({
     useMaxTool: (...args: unknown[]) => mockUseMaxTool(...args),
 }))
 
+const TAB_ID = 'test-tab'
 const SAVED_INSIGHT_ID = 'abc123' as InsightShortId
 
 const MOCK_INSIGHT_BASE: QueryBasedInsightModel = {
@@ -96,7 +97,7 @@ describe('InsightPageHeader', () => {
         const { insightMode, dashboardItemId, insight } = opts
         const insightData = insight ?? makeInsight({ user_access_level: AccessControlLevel.Editor })
 
-        const sceneLogic = insightSceneLogic()
+        const sceneLogic = insightSceneLogic({ tabId: TAB_ID })
         sceneLogic.mount()
         sceneLogic.actions.setSceneState(
             (dashboardItemId === 'new' ? 'new' : dashboardItemId) as InsightShortId,
@@ -119,7 +120,7 @@ describe('InsightPageHeader', () => {
         mountedLogics.push(iLogic, sceneLogic)
 
         render(
-            <BindLogic logic={insightSceneLogic} props={{}}>
+            <BindLogic logic={insightSceneLogic} props={{ tabId: TAB_ID }}>
                 <InsightPageHeader insightLogicProps={insightLogicProps} />
             </BindLogic>
         )

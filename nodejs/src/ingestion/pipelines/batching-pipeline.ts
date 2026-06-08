@@ -27,16 +27,10 @@ export interface AfterBatchInput<TOutput, COutput, CBatch, R extends string = ne
     batchId: number
 }
 
-/**
- * What an afterBatch pipeline produces. Structurally the same as
- * `AfterBatchInput` — extending it means a passthrough step (one that
- * returns its input untouched) satisfies the afterBatch contract without
- * needing an explicit Input→Output transformer in front. The runtime
- * downstream of `afterPipeline.process(...)` only reads `elements`, so
- * carrying `batchId` through is harmless.
- */
-export interface AfterBatchOutput<TOutput, COutput, CBatch, R extends string = never>
-    extends AfterBatchInput<TOutput, COutput, CBatch, R> {}
+export interface AfterBatchOutput<TOutput, COutput, CBatch, R extends string = never> {
+    elements: BatchPipelineResultWithContext<TOutput, COutput, R>
+    batchContext: CBatch
+}
 
 export type BeforeBatchStep<TInput, CInput, CBatch> = (
     input: BeforeBatchInput<TInput, CInput>

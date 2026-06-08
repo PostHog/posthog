@@ -715,9 +715,6 @@ importers:
       '@posthog/products-session-summaries':
         specifier: workspace:*
         version: link:../products/session_summaries
-      '@posthog/products-subscriptions':
-        specifier: workspace:*
-        version: link:../products/subscriptions
       '@posthog/products-surveys':
         specifier: workspace:*
         version: link:../products/surveys
@@ -1960,21 +1957,12 @@ importers:
       '@types/react-dom':
         specifier: 18.3.7
         version: 18.3.7(@types/react@18.3.27)
-      '@vitejs/plugin-react':
-        specifier: ^5.1.1
-        version: 5.2.0(vite@6.4.2(@types/node@25.8.0)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
       jest:
         specifier: ^29.7.0
         version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       typescript:
         specifier: 6.0.3
         version: 6.0.3
-      vite:
-        specifier: ^6.3.5
-        version: 6.4.2(@types/node@25.8.0)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0)
-      vite-plugin-dts:
-        specifier: ^4.5.4
-        version: 4.5.4(@types/node@25.8.0)(rollup@4.60.4)(typescript@6.0.3)(vite@6.4.2(@types/node@25.8.0)(jiti@2.6.1)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
 
   packages/quill/packages/components:
     dependencies:
@@ -2076,6 +2064,9 @@ importers:
 
   packages/quill/packages/quill:
     dependencies:
+      '@base-ui/react':
+        specifier: 'catalog:'
+        version: 1.4.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -2101,9 +2092,6 @@ importers:
         specifier: ^4.0.0
         version: 4.2.2
     devDependencies:
-      '@base-ui/react':
-        specifier: 'catalog:'
-        version: 1.4.0(@date-fns/tz@1.4.1)(@types/react@18.3.27)(date-fns@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/quill-blocks':
         specifier: workspace:*
         version: link:../blocks
@@ -3465,8 +3453,6 @@ importers:
   products/slack_app: {}
 
   products/streamlit_apps: {}
-
-  products/subscriptions: {}
 
   products/surveys:
     dependencies:

@@ -66,10 +66,6 @@ services:
                     @flags {
                         path /flags
                         path /flags*
-                        # Local evaluation (flag definitions) — mirrors cloud Contour routing to Rust
-                        path /api/feature_flag/local_evaluation
-                        path /api/feature_flag/local_evaluation/
-                        path /api/feature_flag/local_evaluation/*
                     }
 
                     @surveys {
@@ -488,7 +484,6 @@ services:
                     events_plugin_ingestion_dlq \
                     events_plugin_ingestion_overflow \
                     events_plugin_ingestion_async \
-                    ingestion-clientwarnings-main-1 \
                     clickhouse_groups \
                     clickhouse_person \
                     clickhouse_person_distinct_id \

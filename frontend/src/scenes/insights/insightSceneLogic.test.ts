@@ -20,6 +20,7 @@ const Insight42 = '42' as InsightShortId
 
 describe('insightSceneLogic', () => {
     let logic: ReturnType<typeof insightSceneLogic.build>
+    let tabId: string = ''
     beforeEach(async () => {
         useMocks({
             get: {
@@ -39,11 +40,12 @@ describe('insightSceneLogic', () => {
         })
         initKeaTests()
         sceneLogic.mount()
+        tabId = sceneLogic.values.activeTabId || ''
     })
 
     it('keeps url /insight/new', async () => {
         router.actions.push(urls.insightNew())
-        logic = insightSceneLogic()
+        logic = insightSceneLogic({ tabId })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(router)
@@ -55,7 +57,7 @@ describe('insightSceneLogic', () => {
 
     it('redirects maintaining url params when opening /insight/new with insight type in theurl', async () => {
         router.actions.push(urls.insightNew({ type: InsightType.FUNNELS }))
-        logic = insightSceneLogic()
+        logic = insightSceneLogic({ tabId })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -66,7 +68,7 @@ describe('insightSceneLogic', () => {
 
     it('tags new default insights with product_analytics productKey', async () => {
         router.actions.push(urls.insightNew())
-        logic = insightSceneLogic()
+        logic = insightSceneLogic({ tabId })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -76,7 +78,7 @@ describe('insightSceneLogic', () => {
 
     it('tags new typed insights with product_analytics productKey', async () => {
         router.actions.push(urls.insightNew({ type: InsightType.FUNNELS }))
-        logic = insightSceneLogic()
+        logic = insightSceneLogic({ tabId })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -96,7 +98,7 @@ describe('insightSceneLogic', () => {
                 } as InsightVizNode,
             })
         )
-        logic = insightSceneLogic()
+        logic = insightSceneLogic({ tabId })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -113,13 +115,13 @@ describe('insightSceneLogic', () => {
                 } as InsightVizNode,
             })
         )
-        logic = insightSceneLogic()
+        logic = insightSceneLogic({ tabId })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['upgradeQuery']).toFinishAllListeners()
     })
 
     it('persists edit mode in the url', async () => {
-        logic = insightSceneLogic()
+        logic = insightSceneLogic({ tabId })
         logic.mount()
         const viewUrl = combineUrl(urls.insightView(Insight42))
         const editUrl = combineUrl(urls.insightEdit(Insight42))
@@ -139,7 +141,7 @@ describe('insightSceneLogic', () => {
 
     it('resets insight state when navigating to /insights/new again after previous visit', async () => {
         router.actions.push(urls.insightNew({ type: InsightType.TRENDS, dashboardId: 6 }))
-        logic = insightSceneLogic()
+        logic = insightSceneLogic({ tabId })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -162,13 +164,13 @@ describe('insightSceneLogic', () => {
             { logic: insightSceneLogic, component: () => null as any },
             Scene.Insight,
             'insightNew',
-            sceneLogic.values.activeTabId || '',
+            tabId,
             { params: {}, searchParams: {}, hashParams: {} }
         )
         sceneLogic.actions.setScene(
             Scene.Insight,
             'insightNew',
-            sceneLogic.values.activeTabId || '',
+            tabId,
             { params: {}, searchParams: {}, hashParams: {} },
             false
         )
@@ -214,7 +216,7 @@ describe('insightSceneLogic', () => {
             },
         })
 
-        logic = insightSceneLogic()
+        logic = insightSceneLogic({ tabId })
         logic.mount()
 
         router.actions.push(urls.insightEdit(Insight42))
@@ -262,7 +264,7 @@ describe('insightSceneLogic', () => {
             },
         })
 
-        logic = insightSceneLogic()
+        logic = insightSceneLogic({ tabId })
         logic.mount()
 
         router.actions.push(urls.insightView(Insight42))
@@ -275,13 +277,13 @@ describe('insightSceneLogic', () => {
             { logic: insightSceneLogic, component: () => null as any },
             Scene.Insight,
             'insightView',
-            sceneLogic.values.activeTabId || '',
+            tabId,
             { params: {}, searchParams: {}, hashParams: {} }
         )
         sceneLogic.actions.setScene(
             Scene.Insight,
             'insightView',
-            sceneLogic.values.activeTabId || '',
+            tabId,
             { params: {}, searchParams: {}, hashParams: {} },
             false
         )
@@ -303,7 +305,7 @@ describe('insightSceneLogic', () => {
     ])(
         'updates itemId when navigating from subscriptions list to %s',
         async (_label, subscriptionId, expectedItemId) => {
-            logic = insightSceneLogic()
+            logic = insightSceneLogic({ tabId })
             logic.mount()
 
             router.actions.push(urls.insightSubcriptions(Insight42))
@@ -317,13 +319,13 @@ describe('insightSceneLogic', () => {
                 { logic: insightSceneLogic, component: () => null as any },
                 Scene.Insight,
                 'insightSubcriptions',
-                sceneLogic.values.activeTabId || '',
+                tabId,
                 { params: {}, searchParams: {}, hashParams: {} }
             )
             sceneLogic.actions.setScene(
                 Scene.Insight,
                 'insightSubcriptions',
-                sceneLogic.values.activeTabId || '',
+                tabId,
                 { params: {}, searchParams: {}, hashParams: {} },
                 false
             )
@@ -350,7 +352,7 @@ describe('insightSceneLogic', () => {
             },
         })
 
-        logic = insightSceneLogic()
+        logic = insightSceneLogic({ tabId })
         logic.mount()
 
         router.actions.push(urls.insightView(Insight42))

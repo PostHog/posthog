@@ -2,37 +2,19 @@ import { actions, events, kea, key, listeners, path, props, reducers } from 'kea
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
-import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isEmail } from 'lib/utils'
+import { isEmail, isURL } from 'lib/utils'
 import { getInsightId } from 'scenes/insights/utils'
 
-import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, SubscriptionType } from '~/types'
+import { ExportedAssetType, ExporterFormat, SubscriptionType } from '~/types'
 
 import type { subscriptionLogicType } from './subscriptionLogicType'
 import { subscriptionsLogic } from './subscriptionsLogic'
-import { AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, urlForSubscription } from './utils'
-
-function validatePrompt(
-    resource_type: SubscriptionType['resource_type'],
-    prompt: string | null | undefined
-): string | undefined {
-    if (resource_type !== SubscriptionResourceTypes.AiPrompt) {
-        return undefined
-    }
-    const trimmedPrompt = prompt?.trim()
-    if (!trimmedPrompt) {
-        return 'A prompt is required for prompt subscriptions'
-    }
-    if (trimmedPrompt.length > AI_PROMPT_MAX_LENGTH) {
-        return `Prompt cannot exceed ${AI_PROMPT_MAX_LENGTH} characters`
-    }
-    return undefined
-}
+import { SubscriptionBaseProps, urlForSubscription } from './utils'
 
 function subscriptionSaveErrorMessage(error: unknown): string {
     if (error instanceof ApiError) {
@@ -46,7 +28,6 @@ function subscriptionSaveErrorMessage(error: unknown): string {
 }
 
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
-    resource_type: SubscriptionResourceTypes.Insight,
     frequency: 'weekly',
     interval: 1,
     start_date: dayjs().hour(9).minute(0).second(0).toISOString(),
@@ -74,7 +55,6 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         setPreviewLoading: (loading: boolean) => ({ loading }),
         setPreviewError: (error: string | null) => ({ error }),
         setPreviewImageUrl: (url: string | null) => ({ url }),
-        selectAiExamplePrompt: (prompt: string, label: string) => ({ prompt, label }),
     }),
 
     reducers({
@@ -133,15 +113,14 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 title,
                 start_date,
                 dashboard_export_insights,
-                resource_type,
-                prompt,
             }) => ({
                 frequency: !frequency ? 'You need to set a schedule frequency' : undefined,
                 title: !title ? 'You need to give your subscription a name' : undefined,
                 interval: !interval ? 'You need to set an interval' : undefined,
                 start_date: !start_date ? 'You need to set a delivery time' : undefined,
-                target_type: !['slack', 'email'].includes(target_type) ? 'Unsupported target type' : undefined,
-                prompt: validatePrompt(resource_type, prompt),
+                target_type: !['slack', 'email', 'webhook'].includes(target_type)
+                    ? 'Unsupported target type'
+                    : undefined,
                 target_value: !target_value
                     ? 'This field is required.'
                     : target_type == 'email'
@@ -154,28 +133,23 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         ? !target_value
                             ? 'A channel is required'
                             : undefined
-                        : undefined,
+                        : target_type == 'webhook'
+                          ? !isURL(target_value)
+                              ? 'Must be a valid URL'
+                              : undefined
+                          : undefined,
                 dashboard_export_insights:
-                    resource_type !== SubscriptionResourceTypes.AiPrompt &&
-                    props.dashboardId &&
-                    (!dashboard_export_insights || dashboard_export_insights.length === 0)
+                    props.dashboardId && (!dashboard_export_insights || dashboard_export_insights.length === 0)
                         ? ('Select at least one insight' as any)
                         : undefined,
             }),
             submit: async (subscription, breakpoint) => {
-                const isAi = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
-                const insightId = !isAi && props.insightShortId ? await getInsightId(props.insightShortId) : undefined
+                const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
 
                 const payload = {
                     ...subscription,
-                    insight: isAi ? undefined : insightId,
-                    dashboard: isAi ? undefined : props.dashboardId,
-                    // AI subscriptions have no dashboard, so a carried-over insight selection would
-                    // trip the backend's "insights without a dashboard" guard. Clear it.
-                    dashboard_export_insights: isAi ? [] : subscription.dashboard_export_insights,
-                    // Only AI subscriptions carry a prompt; a stale one on a non-AI sub (e.g. after
-                    // toggling resource_type back) would be rejected by the backend, so drop it.
-                    prompt: isAi ? subscription.prompt?.trim() : undefined,
+                    insight: insightId,
+                    dashboard: props.dashboardId,
                 }
 
                 breakpoint()
@@ -191,11 +165,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     router.actions.replace(urlForSubscription(updatedSub.id, props))
                 }
 
-                // If a subscriptionsLogic for this insight/dashboard is mounted already, refresh both
-                // its resource-scoped list and the AI subscriptions section so new entries show up
-                const mountedSubscriptionsLogic = subscriptionsLogic.findMounted(props)
-                mountedSubscriptionsLogic?.actions.loadSubscriptions()
-                mountedSubscriptionsLogic?.actions.loadAiSubscriptions()
+                // If a subscriptionsLogic for this insight/dashboard is mounted already, let's make sure
+                // this change is propagated to `subscriptions` there
+                subscriptionsLogic.findMounted(props)?.actions.loadSubscriptions()
                 actions.loadSubscriptionSuccess(updatedSub)
                 actions.loadSummaryQuota()
                 lemonToast.success(`Subscription saved.`)
@@ -210,10 +182,6 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             if (subscription?.target_type === 'slack' && subscription.target_value && subscription.integration_id) {
                 recordRecentSlackChannel(subscription.integration_id, slackChannelId(subscription.target_value))
             }
-        },
-        selectAiExamplePrompt: ({ prompt, label }) => {
-            posthog.capture('subscription_ai_example_prompt_selected', { label })
-            actions.setSubscriptionValue('prompt', prompt)
         },
         submitSubscriptionFailure: ({ error }) => {
             // Kea-forms emits this when client validation fails; fields already show errors.
@@ -348,15 +316,6 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             }
         },
         '/*/*/subscriptions/:id': () => {
-            actions.loadSubscription()
-        },
-        '/subscriptions/new': (_, searchParams) => {
-            actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION, resource_type: SubscriptionResourceTypes.AiPrompt })
-            if (searchParams.target_type) {
-                actions.setSubscriptionValue('target_type', searchParams.target_type)
-            }
-        },
-        '/subscriptions/:id/edit': () => {
             actions.loadSubscription()
         },
     })),

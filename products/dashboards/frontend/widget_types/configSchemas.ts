@@ -1,7 +1,5 @@
 import { z } from 'zod'
 
-import { PropertyOperator } from '~/types'
-
 /** Shared widget config fields inherited by all widget types. */
 export const baseWidgetConfigSchema = z.object({
     filterTestAccounts: z.boolean().optional(),
@@ -65,39 +63,13 @@ export const widgetLimitFieldSchema = z
 
 export const widgetOrderDirectionSchema = z.enum(['ASC', 'DESC']).default('DESC')
 
-const errorTrackingWidgetAssigneeSchema = z
-    .object({
-        type: z.enum(['user', 'role']),
-        id: z.union([z.number(), z.string()]),
-    })
-    .nullable()
-    .optional()
-
-/** Persisted filter selection on dashboard widget `config.widgetFilters`. */
-export const widgetFilterEntrySchema = z.object({
-    filterId: z.string(),
-    propertyName: z.string(),
-    optionId: z.string(),
-    value: z.union([z.string(), z.array(z.string()), z.null()]).optional(),
-    operator: z.nativeEnum(PropertyOperator),
-})
-
-export const widgetFiltersSchema = z.record(z.string(), widgetFilterEntrySchema).optional()
-
-export type WidgetFilterConfigEntry = z.infer<typeof widgetFilterEntrySchema>
-export type WidgetFilterConfigRecord = Record<string, WidgetFilterConfigEntry>
-/** Alias used in widget config validation and tile filter bar. */
-export type StoredWidgetFilter = WidgetFilterConfigEntry
-
 // New widget types: add per-type schemas here — CONTRIBUTING.md
 export const errorTrackingWidgetConfigSchema = baseWidgetConfigSchema.extend({
     limit: widgetLimitFieldSchema.default(10),
     orderBy: z.enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions']).default('occurrences'),
     orderDirection: widgetOrderDirectionSchema,
-    status: z.enum(['active', 'resolved', 'suppressed', 'all', 'archived', 'pending_release']).default('active'),
+    status: z.enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed', 'all']).default('active'),
     dateRange: widgetDateRangeSchema,
-    assignee: errorTrackingWidgetAssigneeSchema,
-    widgetFilters: widgetFiltersSchema,
 })
 
 export type ErrorTrackingWidgetConfig = z.infer<typeof errorTrackingWidgetConfigSchema>
@@ -129,7 +101,6 @@ export const sessionReplayWidgetConfigSchema = baseWidgetConfigSchema.extend({
         .default('start_time'),
     orderDirection: widgetOrderDirectionSchema,
     dateRange: widgetDateRangeSchema,
-    widgetFilters: widgetFiltersSchema,
 })
 
 export type SessionReplayWidgetConfig = z.infer<typeof sessionReplayWidgetConfigSchema>

@@ -1,7 +1,6 @@
 import { LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { findEventWithParents } from './aiObservabilityTraceDataLogic'
-import { normalizeMessages } from './messageNormalization'
 import type { SearchMatch } from './searchUtils'
 import {
     containsSearchQuery,
@@ -13,6 +12,7 @@ import {
     findSidebarOccurrences,
     findTraceOccurrences,
 } from './searchUtils'
+import { normalizeMessages } from './utils'
 
 describe('searchUtils', () => {
     describe('findSearchMatches', () => {

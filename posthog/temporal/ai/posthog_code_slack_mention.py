@@ -16,7 +16,6 @@ from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.storage import object_storage
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
@@ -285,6 +284,14 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if not user_id:
                 return
 
+            # Commands (including `rules add` and its repo picker) are dispatched
+            # by PostHogCodeSlackMentionCommandWorkflow. The patch marker is
+            # preserved via `deprecate_patch` so any straggler workflow that
+            # recorded the pre-patch path on its first task can still replay
+            # deterministically. Drop the `deprecate_patch` call once the next
+            # drain completes.
+            workflow.deprecate_patch("posthog-code-mention-skip-rules-command")
+
             thread_messages = await _execute_posthog_code_activity(
                 collect_posthog_code_thread_messages_activity,
                 inputs,
@@ -294,18 +301,35 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if not thread_messages:
                 return
 
+            # Cascade fast-path before the discovery agent. The patch marker is
+            # preserved via `deprecate_patch` so any straggler workflow that
+            # recorded the pre-patch (`select_posthog_code_repository_activity`)
+            # path on its first task can still replay deterministically. Drop the
+            # `deprecate_patch` call once the next drain completes.
+            workflow.deprecate_patch("posthog-code-repo-discovery-agent-2026-05")
+
             repository: str | None
             # Set only on the ambiguous path that runs the discovery sandbox
             repo_research_task_id: str | None = None
             repo_research_run_id: str | None = None
 
-            workflow.deprecate_patch("posthog-code-slack-user-github-2026-06")
-            cascade = await _execute_posthog_code_activity(
-                cascade_posthog_code_repository_activity,
-                inputs,
-                event.get("text", ""),
-                user_id,
-            )
+            # The cascade activity gained `user_id` and a new `needs_user_github`
+            # outcome. Gate the new shape so in-flight workflows that recorded
+            # the 2-arg cascade command keep matching history on replay; new
+            # workflows record the 3-arg shape and can take the new branch.
+            if workflow.patched("posthog-code-slack-user-github-2026-06"):
+                cascade = await _execute_posthog_code_activity(
+                    cascade_posthog_code_repository_activity,
+                    inputs,
+                    event.get("text", ""),
+                    user_id,
+                )
+            else:
+                cascade = await _execute_posthog_code_activity(
+                    cascade_posthog_code_repository_activity,
+                    inputs,
+                    event.get("text", ""),
+                )
 
             if cascade.mode == "auto":
                 repository = cascade.repository
@@ -316,26 +340,29 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 # answer with no repo; coding asks surface the connect-personal-
                 # GitHub prompt instead of silently no-op'ing.
                 repository = None
-                workflow.deprecate_patch("posthog-code-classify-before-gate-2026-06")
-                needs_repo = await _execute_posthog_code_activity(
-                    classify_posthog_code_task_needs_repo_activity,
-                    event.get("text", ""),
-                    thread_messages,
-                )
-                if needs_repo:
-                    blocked = await _execute_posthog_code_activity(
-                        block_posthog_code_task_if_no_personal_github_activity,
-                        inputs,
-                        channel,
-                        thread_ts,
-                        user_id,
+                if workflow.patched("posthog-code-classify-before-gate-2026-06"):
+                    needs_repo = await _execute_posthog_code_activity(
+                        classify_posthog_code_task_needs_repo_activity,
+                        event.get("text", ""),
+                        thread_messages,
                     )
-                    if blocked:
-                        return
+                    if needs_repo:
+                        blocked = await _execute_posthog_code_activity(
+                            block_posthog_code_task_if_no_personal_github_activity,
+                            inputs,
+                            channel,
+                            thread_ts,
+                            user_id,
+                        )
+                        if blocked:
+                            return
             elif cascade.mode == "needs_user_github":
                 # Team has GitHub, but the mentioning user hasn't connected their
                 # personal install. Fire the gate so they get the Connect button
-                # instead of a silently no-repo task.
+                # instead of a silently no-repo task. Only reachable on the patched
+                # path — the cascade activity never emits this outcome when called
+                # without `user_id`, so pre-patch workflows on replay don't see a
+                # new activity command appear in history.
                 await _execute_posthog_code_activity(
                     block_posthog_code_task_if_no_personal_github_activity,
                     inputs,
@@ -375,18 +402,31 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                         # Agent crashed/timed out/hallucinated — italicize its reason
                         # above the picker guidance so the user sees why.
                         picker_guidance = f"_{outcome.reason}_\n\n{POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE}"
-                        await _execute_posthog_code_activity(
-                            post_posthog_code_repo_picker_activity,
-                            inputs,
-                            channel,
-                            thread_ts,
-                            slack_user_id,
-                            event,
-                            workflow.info().workflow_id,
-                            picker_guidance,
-                            True,
-                            user_id,
-                        )
+                        if workflow.patched("posthog-code-slack-user-github-2026-06"):
+                            await _execute_posthog_code_activity(
+                                post_posthog_code_repo_picker_activity,
+                                inputs,
+                                channel,
+                                thread_ts,
+                                slack_user_id,
+                                event,
+                                workflow.info().workflow_id,
+                                picker_guidance,
+                                True,
+                                user_id,
+                            )
+                        else:
+                            await _execute_posthog_code_activity(
+                                post_posthog_code_repo_picker_activity,
+                                inputs,
+                                channel,
+                                thread_ts,
+                                slack_user_id,
+                                event,
+                                workflow.info().workflow_id,
+                                picker_guidance,
+                                True,
+                            )
                         try:
                             await workflow.wait_condition(
                                 lambda: self._repo_selection_resolved,
@@ -442,7 +482,13 @@ async def _gate_on_personal_github(
     thread_ts: str,
     user_id: int,
 ) -> bool:
-    """Return True when the workflow must abort because the mentioner has no personal GitHub."""
+    """Return True when the workflow must abort because the mentioner has no personal GitHub.
+
+    The patch marker is preserved via `deprecate_patch` so any straggler workflow
+    that recorded the pre-patch path on its first task can still replay
+    deterministically. Drop the `deprecate_patch` call once the next drain completes.
+    """
+    workflow.deprecate_patch("posthog-code-block-no-personal-github-2026-05")
     return await _execute_posthog_code_activity(
         block_posthog_code_task_if_no_personal_github_activity,
         inputs,
@@ -478,7 +524,6 @@ async def _execute_posthog_code_agent_activity(activity_fn: Any, *args: Any) -> 
 
 
 @activity.defn
-@close_db_connections
 def resolve_posthog_code_slack_user_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -496,7 +541,6 @@ def resolve_posthog_code_slack_user_activity(
 
 
 @activity.defn
-@close_db_connections
 def handle_posthog_code_rules_command_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -534,7 +578,6 @@ def handle_posthog_code_rules_command_activity(
 
 
 @activity.defn
-@close_db_connections
 def collect_posthog_code_thread_messages_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -554,7 +597,6 @@ def collect_posthog_code_thread_messages_activity(
 
 
 @activity.defn
-@close_db_connections
 def cascade_posthog_code_repository_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     event_text: str,
@@ -612,7 +654,6 @@ def cascade_posthog_code_repository_activity(
 
 
 @activity.defn
-@close_db_connections
 async def discover_posthog_code_repository_via_agent_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -736,7 +777,6 @@ def classify_posthog_code_task_needs_repo_activity(
 
 
 @activity.defn
-@close_db_connections
 def enforce_posthog_code_billing_quota_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -769,7 +809,6 @@ def enforce_posthog_code_billing_quota_activity(
 
 
 @activity.defn
-@close_db_connections
 def post_posthog_code_no_repos_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
@@ -790,7 +829,6 @@ def post_posthog_code_no_repos_activity(
 
 
 @activity.defn
-@close_db_connections
 def post_posthog_code_repo_picker_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -846,7 +884,6 @@ def post_posthog_code_repo_picker_activity(
 
 
 @activity.defn
-@close_db_connections
 def block_posthog_code_task_if_no_personal_github_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -921,7 +958,6 @@ def block_posthog_code_task_if_no_personal_github_activity(
 
 
 @activity.defn
-@close_db_connections
 def create_posthog_code_task_for_repo_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -1070,7 +1106,6 @@ def create_posthog_code_task_for_repo_activity(
 
 
 @activity.defn
-@close_db_connections
 def create_posthog_code_routing_rule_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -1126,7 +1161,6 @@ def create_posthog_code_routing_rule_activity(
 
 
 @activity.defn
-@close_db_connections
 def forward_posthog_code_followup_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
@@ -1592,7 +1626,6 @@ def _parse_iso_datetime(value: Any) -> datetime | None:
 
 
 @activity.defn
-@close_db_connections
 def post_posthog_code_picker_timeout_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
@@ -1631,7 +1664,6 @@ def post_posthog_code_picker_timeout_activity(
 
 
 @activity.defn
-@close_db_connections
 def post_posthog_code_internal_error_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:

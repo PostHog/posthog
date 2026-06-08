@@ -18,13 +18,15 @@ const SHOW_GUIDE_DEFAULT = true
 
 const WIZARD_STEPS: ExperimentWizardStep[] = ['about', 'variants', 'analytics']
 
-export function stepStorageKey(): string {
-    return 'experiment-wizard-step'
+export function stepStorageKey(tabId: string): string {
+    return `tab-${tabId}-experiment-wizard-step`
 }
 
-function readStoredStep(): ExperimentWizardStep {
+// Writing step to storage is needed to support multiple in-app tabs open
+// while keeping its step state isolated.
+function readStoredStep(tabId: string): ExperimentWizardStep {
     try {
-        const stored = sessionStorage.getItem(stepStorageKey())
+        const stored = sessionStorage.getItem(stepStorageKey(tabId))
         if (stored && WIZARD_STEPS.includes(stored as ExperimentWizardStep)) {
             return stored as ExperimentWizardStep
         }
@@ -40,18 +42,20 @@ export const STEP_ORDER: Record<ExperimentWizardStep, number> = {
     analytics: 2,
 }
 
-export interface ExperimentWizardLogicProps {}
+export interface ExperimentWizardLogicProps {
+    tabId: string
+}
 
 export const experimentWizardLogic = kea<experimentWizardLogicType>([
     path(['scenes', 'experiments', 'wizard', 'experimentWizardLogic']),
 
     props({} as ExperimentWizardLogicProps),
 
-    key(() => 'create-experiment'),
+    key((props) => `${props.tabId}-create-experiment`),
 
-    connect(() => ({
+    connect((props: ExperimentWizardLogicProps) => ({
         values: [
-            createExperimentLogic(),
+            createExperimentLogic({ tabId: props.tabId }),
             [
                 'experiment',
                 'sharedMetrics',
@@ -61,7 +65,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             ],
         ],
         actions: [
-            createExperimentLogic(),
+            createExperimentLogic({ tabId: props.tabId }),
             [
                 'setExperiment',
                 'setExperimentValue',
@@ -71,7 +75,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                 'saveExperiment',
                 'saveExperimentSuccess',
             ],
-            variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false }),
+            variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: props.tabId }),
             ['validateFeatureFlagKey', 'clearFeatureFlagKeyValidation'],
             selectExistingFeatureFlagModalLogic,
             ['loadFeatureFlagsForAutocomplete', 'loadFeatureFlagsSuccess'],
@@ -94,9 +98,9 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
     }),
 
-    reducers(() => ({
+    reducers(({ props }: { props: ExperimentWizardLogicProps }) => ({
         // Tracks whether the initial flag auto-link check has been performed.
-        // Prevents repeated auto-linking when loadFeatureFlagsSuccess fires again
+        // Prevents repeated auto-linking when other tabs trigger loadFeatureFlagsSuccess
         // on the shared selectExistingFeatureFlagModalLogic singleton.
         initialFlagCheckDone: [
             false,
@@ -120,7 +124,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             },
         ],
         currentStep: [
-            readStoredStep(),
+            readStoredStep(props.tabId),
             {
                 _applyStep: (_, { step }) => step,
                 resetWizard: () => 'about',
@@ -225,24 +229,24 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, props, values }) => ({
         _applyStep: ({ step }) => {
             try {
-                sessionStorage.setItem(stepStorageKey(), step)
+                sessionStorage.setItem(stepStorageKey(props.tabId), step)
             } catch {
                 // ignore
             }
         },
         resetWizard: () => {
             try {
-                sessionStorage.removeItem(stepStorageKey())
+                sessionStorage.removeItem(stepStorageKey(props.tabId))
             } catch {
                 // ignore
             }
         },
         saveExperimentSuccess: () => {
             try {
-                sessionStorage.removeItem(stepStorageKey())
+                sessionStorage.removeItem(stepStorageKey(props.tabId))
             } catch {
                 // ignore
             }
@@ -260,9 +264,9 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         }: {
             featureFlags: { results: FeatureFlagType[]; count: number }
         }) => {
-            // Only auto-link on the first load. The
-            // selectExistingFeatureFlagModalLogic is a shared singleton, so a
-            // later flag load elsewhere would otherwise trigger auto-linking here.
+            // Only auto-link on the first load for this tab. The
+            // selectExistingFeatureFlagModalLogic is a singleton, so other
+            // tabs loading flags would otherwise trigger auto-linking here.
             if (values.initialFlagCheckDone) {
                 return
             }
@@ -314,8 +318,8 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             actions.reportExperimentWizardStarted(values.showGuide)
             actions.loadFeatureFlagsForAutocomplete()
             // Re-validate the feature flag key if one is already set.
-            // variantsPanelLogic unmounts when leaving the form, so validation
-            // state is lost and needs to be re-checked on remount.
+            // The per-tab variantsPanelLogic unmounts when switching tabs,
+            // so validation state is lost and needs to be re-checked.
             const key = values.experiment?.feature_flag_key
             if (key) {
                 actions.validateFeatureFlagKey(key)

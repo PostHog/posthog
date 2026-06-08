@@ -95,7 +95,6 @@ class SignalTeamConfig(UUIDModel):
     )
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P0)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
-    autostart_base_branches = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

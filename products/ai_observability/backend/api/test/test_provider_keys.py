@@ -4,7 +4,6 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.utils import timezone
 
 from rest_framework import status
 
@@ -16,7 +15,6 @@ from products.ai_observability.backend.models.evaluation_config import Evaluatio
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
-from products.ai_observability.backend.models.taggers import Tagger
 
 
 def _setup_team():
@@ -295,45 +293,6 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
 
         key.refresh_from_db()
         self.assertEqual(key.state, LLMProviderKey.State.OK)
-
-    def test_provider_key_state_change_reloads_scheduler_cache(self):
-        key = LLMProviderKey.objects.create(
-            team=self.team,
-            provider="openai",
-            name="My Key",
-            state=LLMProviderKey.State.OK,
-            encrypted_config={"api_key": "sk-test-key"},
-            created_by=self.user,
-        )
-
-        with patch(
-            "products.ai_observability.backend.models.provider_keys.reload_provider_keys_on_workers"
-        ) as mock_reload:
-            key.state = LLMProviderKey.State.ERROR
-            key.error_message = "Provider request failed"
-            with self.captureOnCommitCallbacks(execute=True):
-                key.save(update_fields=["state", "error_message"])
-
-        mock_reload.assert_called_once_with(team_id=self.team.id, provider_key_ids=[str(key.id)])
-
-    def test_provider_key_last_used_update_does_not_reload_scheduler_cache(self):
-        key = LLMProviderKey.objects.create(
-            team=self.team,
-            provider="openai",
-            name="My Key",
-            state=LLMProviderKey.State.OK,
-            encrypted_config={"api_key": "sk-test-key"},
-            created_by=self.user,
-        )
-
-        with patch(
-            "products.ai_observability.backend.models.provider_keys.reload_provider_keys_on_workers"
-        ) as mock_reload:
-            key.last_used_at = timezone.now()
-            with self.captureOnCommitCallbacks(execute=True):
-                key.save(update_fields=["last_used_at"])
-
-        mock_reload.assert_not_called()
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_validate_updates_state_on_failure(self, mock_validate):
@@ -657,88 +616,6 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(cache.get(cache_key))
-
-    def test_assign_reloads_model_config_dependents(self):
-        key = LLMProviderKey.objects.create(
-            team=self.team,
-            provider="openai",
-            name="My Key",
-            state=LLMProviderKey.State.OK,
-            encrypted_config={"api_key": "sk-test-key"},
-            created_by=self.user,
-        )
-        model_config = LLMModelConfiguration.objects.create(
-            team=self.team,
-            provider="openai",
-            model="gpt-5-mini",
-        )
-        evaluation = Evaluation.objects.create(
-            team=self.team,
-            name="Test evaluation",
-            evaluation_type="llm_judge",
-            evaluation_config={"prompt": "Is this useful?"},
-            output_type="boolean",
-            output_config={},
-            model_configuration=model_config,
-            created_by=self.user,
-            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
-        )
-
-        with (
-            patch("products.ai_observability.backend.api.provider_keys.reload_evaluations_on_workers") as mock_evals,
-            patch("products.ai_observability.backend.api.provider_keys.reload_taggers_on_workers") as mock_taggers,
-            self.captureOnCommitCallbacks(execute=True),
-        ):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/assign/",
-                {"evaluation_ids": [str(evaluation.id)]},
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_evals.assert_called_once_with(team_id=self.team.id, evaluation_ids=[str(evaluation.id)])
-        mock_taggers.assert_not_called()
-
-    def test_destroy_reloads_tagger_model_config_dependents(self):
-        key = LLMProviderKey.objects.create(
-            team=self.team,
-            provider="openai",
-            name="My Key",
-            state=LLMProviderKey.State.OK,
-            encrypted_config={"api_key": "sk-test-key"},
-            created_by=self.user,
-        )
-        model_config = LLMModelConfiguration.objects.create(
-            team=self.team,
-            provider="openai",
-            model="gpt-5-mini",
-            provider_key=key,
-        )
-        tagger = Tagger.objects.create(
-            team=self.team,
-            name="Test tagger",
-            enabled=True,
-            tagger_config={
-                "prompt": "Tag this generation",
-                "tags": [{"name": "billing"}],
-                "min_tags": 0,
-                "max_tags": 1,
-            },
-            model_configuration=model_config,
-            created_by=self.user,
-            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
-        )
-
-        with (
-            patch("products.ai_observability.backend.api.provider_keys.reload_evaluations_on_workers") as mock_evals,
-            patch("products.ai_observability.backend.api.provider_keys.reload_taggers_on_workers") as mock_taggers,
-            self.captureOnCommitCallbacks(execute=True),
-        ):
-            response = self.client.delete(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/")
-
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        mock_evals.assert_not_called()
-        mock_taggers.assert_called_once_with(team_id=self.team.id, tagger_ids=[str(tagger.id)])
 
     def test_keys_ordered_by_created_at_descending(self):
         key1 = LLMProviderKey.objects.create(

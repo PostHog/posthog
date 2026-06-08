@@ -92,15 +92,11 @@ export class InsightPage {
     async save(): Promise<void> {
         const originalUrl = this.page.url()
         const originalPathname = new URL(originalUrl).pathname
-
-        // Wait for any in-progress query to finish — the save button uses aria-disabled while queries run
-        await expect(this.saveButton).not.toHaveAttribute('aria-disabled', 'true', { timeout: 60000 })
-
         const saveRequestPromise = this.page.waitForResponse(
             (response) =>
                 /\/api\/(?:projects|environments)\/\d+\/insights(?:\/\d+)?\/?(?:\?.*)?$/.test(response.url()) &&
                 ['POST', 'PATCH'].includes(response.request().method()),
-            { timeout: 30000 }
+            { timeout: 60000 }
         )
 
         await this.saveButton.click()

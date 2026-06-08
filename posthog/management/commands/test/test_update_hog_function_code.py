@@ -152,44 +152,6 @@ class TestUpdateHogFunctionCode(BaseTest):
         self.assertIn("Updated: 1", output)
         self.assertIn("Update completed", output)
 
-    @patch("posthog.management.commands.update_hog_function_code.compile_hog")
-    def test_update_skips_destinations_that_fail_to_compile(self, mock_compile_hog):
-        """A destination with uncompilable hog is skipped and logged, not fatal to the whole run."""
-        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
-            bad_function = HogFunction.objects.create(
-                team=self.team,
-                name="Meta Ads Broken",
-                type="destination",
-                template_id="template-meta-ads",
-                description="Broken hog",
-                hog="let res := fetch(f'https://graph.facebook.com/v21.0/{inputs.pixelId}/events BROKEN', {}); return event;",
-                enabled=True,
-            )
-
-        def fake_compile(hog, hog_type):
-            if "BROKEN" in hog:
-                raise Exception("unexpected character '&'")
-            return "compiled_bytecode"
-
-        mock_compile_hog.side_effect = fake_compile
-
-        out = StringIO()
-        call_command("update_hog_function_code", replace_key="meta-ads-api-version-update", stdout=out)
-
-        # The healthy function is still migrated
-        self.meta_ads_function1.refresh_from_db()
-        assert "graph.facebook.com/v25.0/" in self.meta_ads_function1.hog
-
-        # The uncompilable one is left untouched, not partially written
-        bad_function.refresh_from_db()
-        assert "graph.facebook.com/v21.0/" in bad_function.hog
-
-        output = out.getvalue()
-        self.assertIn("Found 3 destinations to process", output)
-        self.assertIn("Updated: 1", output)
-        self.assertIn("Failed: 1", output)
-        self.assertIn(str(bad_function.id), output)
-
     @patch("posthog.cdp.validation.compile_hog")
     def test_invalid_replace_key(self, mock_compile_hog):
         """Test handling of invalid replace key."""

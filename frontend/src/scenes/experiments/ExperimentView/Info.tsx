@@ -16,6 +16,7 @@ import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic, previousRefreshAnalytics } from '../experimentLogic'
+import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { getExperimentStatus, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { ExperimentDuration } from './ExperimentDuration'
@@ -23,7 +24,7 @@ import { ExperimentReloadAction } from './ExperimentReloadAction'
 import { RunningTime } from './RunningTime'
 import { StatusTag } from './StatusTag'
 
-export function Info(): JSX.Element {
+export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
     const {
         experiment,
         primaryMetricsResults,
@@ -198,11 +199,14 @@ export function Info(): JSX.Element {
                     {/* Row 2: Running time, Last refreshed, Created by */}
                     <div className="flex flex-col overflow-hidden items-start min-[1100px]:items-end">
                         <div className="flex flex-wrap gap-x-8 gap-y-2 justify-end">
-                            <RunningTime
-                                experiment={experiment}
-                                onClick={openRunningTimeConfigModal}
-                                isExperimentDraft={isExperimentDraft}
-                            />
+                            {tabId && (
+                                <RunningTime
+                                    experiment={experiment}
+                                    tabId={tabId}
+                                    onClick={openRunningTimeConfigModal}
+                                    isExperimentDraft={isExperimentDraft}
+                                />
+                            )}
                             {status !== ExperimentStatus.Draft && (
                                 <ExperimentReloadAction
                                     isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}

@@ -2,45 +2,6 @@ import { z, type ZodError, type ZodType } from 'zod'
 
 import { ApiError } from 'lib/api-error'
 
-import { FilterLogicalOperator, PropertyFilterType, type UniversalFiltersGroup } from '~/types'
-
-import {
-    widgetFilterEntrySchema,
-    type StoredWidgetFilter,
-    type WidgetFilterConfigRecord,
-} from '../widget_types/configSchemas'
-
-/** Converts persisted widget `config.widgetFilters` into a HogQL/universal filter group. */
-export function buildFilterGroupFromWidgetFilters(
-    widgetFilters: WidgetFilterConfigRecord | undefined
-): UniversalFiltersGroup | undefined {
-    const selections = widgetFilters ? Object.values(widgetFilters) : []
-    if (selections.length === 0) {
-        return undefined
-    }
-
-    const filtersFromWidgetFilters = selections.map((entry) => {
-        const filterValue = entry.value === null ? undefined : Array.isArray(entry.value) ? entry.value : [entry.value]
-
-        return {
-            type: PropertyFilterType.Event,
-            key: entry.propertyName,
-            operator: entry.operator,
-            ...(filterValue !== undefined && { value: filterValue }),
-        }
-    })
-
-    return {
-        type: FilterLogicalOperator.And,
-        values: [
-            {
-                type: FilterLogicalOperator.And,
-                values: filtersFromWidgetFilters,
-            },
-        ],
-    } as UniversalFiltersGroup
-}
-
 export function fieldErrorsFromZodError<TField extends string>(error: ZodError): Partial<Record<TField, string>> {
     const { fieldErrors } = z.flattenError(error)
 
@@ -61,21 +22,6 @@ export type WidgetListFormInput = {
     orderBy: string
     dateFrom: string
     filterTestAccounts: boolean
-}
-
-export type WidgetListFormInputWithWidgetFilters = WidgetListFormInput & {
-    widgetFilters: Record<string, StoredWidgetFilter>
-}
-
-/** Validated `widgetFilters` patch for widget config builders (omit key when empty). */
-export function widgetFiltersPatchFromForm(widgetFilters: Record<string, StoredWidgetFilter>): {
-    widgetFilters?: Record<string, StoredWidgetFilter>
-} {
-    const widgetFiltersParsed = widgetFilterEntrySchema.array().safeParse(Object.values(widgetFilters))
-    if (!widgetFiltersParsed.success || Object.keys(widgetFilters).length === 0) {
-        return {}
-    }
-    return { widgetFilters }
 }
 
 export function buildWidgetConfigFromForm<TConfig>(

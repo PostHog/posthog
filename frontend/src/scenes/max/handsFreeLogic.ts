@@ -18,7 +18,8 @@ export type HandsFreeConnection = 'idle' | 'connecting' | 'connected' | 'reconne
 const SCRIBE_REALTIME_MODEL_ID = 'scribe_v2_realtime'
 
 export interface HandsFreeLogicProps {
-    panelId?: string // identifies the MaxLogic instance backing this panel (scene tab id or side panel)
+    tabId?: string
+    sidePanel?: boolean // set instead of tabId for the floating side panel chat
 }
 
 interface ScribeConnection {
@@ -67,11 +68,11 @@ async function loadScribeSdk(): Promise<{
 
 export const handsFreeLogic = kea<handsFreeLogicType>([
     props({} as HandsFreeLogicProps),
-    key((props) => props.panelId as string),
+    key((props) => (props.sidePanel ? 'sidepanel' : props.tabId) as string),
     path((key) => ['scenes', 'max', 'handsFreeLogic', key]),
 
-    connect(({ panelId }: HandsFreeLogicProps) => ({
-        values: [maxLogic({ panelId }), ['threadLogicKey']],
+    connect(({ tabId, sidePanel }: HandsFreeLogicProps) => ({
+        values: [maxLogic({ tabId, sidePanel }), ['threadLogicKey']],
     })),
 
     actions({
@@ -390,7 +391,8 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
             const threadKey = values.threadLogicKey
             const threadLogic = threadKey
                 ? maxThreadLogic.findMounted({
-                      panelId: props.panelId,
+                      tabId: props.tabId,
+                      sidePanel: props.sidePanel,
                       conversationId: threadKey,
                   })
                 : null

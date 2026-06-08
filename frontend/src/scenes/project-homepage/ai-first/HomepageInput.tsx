@@ -32,7 +32,7 @@ function IdleInput(): JSX.Element {
     const { setQuery, submitQuery, enterAiMode, startHandsFreeChat } = useActions(aiFirstHomepageLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const handsFreeFlag = useFeatureFlag('MAX_HANDS_FREE')
-    const { canUseHandsFree } = useValues(handsFreeLogic({ panelId: HOMEPAGE_TAB_ID }))
+    const { canUseHandsFree } = useValues(handsFreeLogic({ tabId: HOMEPAGE_TAB_ID }))
     const inputRef = useRef<HTMLTextAreaElement>(null)
 
     const handsFreeAvailable = handsFreeFlag && canUseHandsFree && dataProcessingAccepted
@@ -169,7 +169,7 @@ function HomepageAiInput(): JSX.Element {
 
     const fallbackConversationId = useMemo(() => uuid(), [])
     const threadProps: MaxThreadLogicProps = {
-        panelId: HOMEPAGE_TAB_ID,
+        tabId: HOMEPAGE_TAB_ID,
         conversationId: threadLogicKey || fallbackConversationId,
         conversation,
     }

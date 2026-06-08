@@ -501,45 +501,6 @@ describe('batchExportConfigFormLogic', () => {
         })
     })
 
-    describe('Redshift COPY → INSERT drops the staging copy_inputs', () => {
-        // Loading a COPY export flattens copy_inputs into redshift_* form fields. Switching the
-        // mode to INSERT must null out copy_inputs (matching a native INSERT export) rather than
-        // leaking the original nested staging object back into the payload.
-        it('nulls copy_inputs in the saved config when switching to INSERT', async () => {
-            await initLogic({ service: null, id: REDSHIFT_COPY_IAM_BATCH_EXPORT.id })
-
-            logic.actions.setConfigurationValues({
-                ...logic.values.configuration,
-                mode: 'INSERT',
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.submitConfiguration()
-            })
-                .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
-                .toFinishAllListeners()
-
-            const body = patchBodiesById[REDSHIFT_COPY_IAM_BATCH_EXPORT.id]
-            expect(body.destination).toEqual({
-                type: 'Redshift',
-                config: {
-                    user: 'rs-user',
-                    password: 'rs-pass',
-                    host: 'rs-host',
-                    port: 5439,
-                    database: 'rs-db',
-                    schema: 'public',
-                    table_name: 'events',
-                    properties_data_type: 'SUPER',
-                    mode: 'INSERT',
-                    copy_inputs: null,
-                    exclude_events: [],
-                    include_events: [],
-                },
-            })
-        })
-    })
-
     describe('successful update', () => {
         it('sends changed field plus untouched fixture defaults', async () => {
             await initLogic({ service: null, id: S3_BATCH_EXPORT.id })

@@ -178,36 +178,6 @@ class OrganizationAdminWritePermissions(BasePermission):
         return membership.level >= OrganizationMembership.Level.ADMIN
 
 
-class OrganizationAdminReadPermissions(BasePermission):
-    """
-    Require organization admin or owner level for ALL access, including reads.
-    Unlike `OrganizationAdminWritePermissions`, this does not allow plain members read access.
-    Must always be used **after** `OrganizationMemberPermissions` (which is always required).
-    """
-
-    message = "Your organization access level is insufficient."
-
-    def has_permission(self, request: Request, view) -> bool:
-        organization = get_organization_from_view(view)
-
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
-
-        return membership.level >= OrganizationMembership.Level.ADMIN
-
-    def has_object_permission(self, request: Request, view, object: Model) -> bool:
-        organization = extract_organization(object, view)
-
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
-        except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
-
-        return membership.level >= OrganizationMembership.Level.ADMIN
-
-
 class TeamMemberAccessPermission(BasePermission):
     """Require effective project membership for any access at all."""
 

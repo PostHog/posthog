@@ -6,8 +6,7 @@ from typing import Any, cast
 from django.db import connection
 from django.db.models import Count
 
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, extend_schema, extend_schema_field
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action as drf_action
 from rest_framework.renderers import BaseRenderer
@@ -560,51 +559,10 @@ class ActionViewSet(
         refs = find_action_references(action_obj.id, action_obj.team)
         return Response(ActionReferenceSerializer(refs, many=True).data)
 
-    @staticmethod
-    def _parse_non_negative_int(raw: str | None) -> int | None:
-        if raw is None:
-            return None
-        try:
-            value = int(raw)
-        except (TypeError, ValueError):
-            return None
-        return value if value >= 0 else None
-
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "limit", OpenApiTypes.INT, description="Maximum number of actions to return. Omit to return all."
-            ),
-            OpenApiParameter(
-                "offset", OpenApiTypes.INT, description="Number of actions to skip before returning results."
-            ),
-            OpenApiParameter(
-                "search", OpenApiTypes.STR, description="Case-insensitive substring match on the action name."
-            ),
-        ]
-    )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         # :HACKY: we need to override this viewset method until actions support
-        # better pagination in the taxonomic filter and on the actions page.
-        #
-        # `limit`/`offset`/`search` are opt-in: with no params we still return the
-        # full, ordered list so the actions page and taxonomic filter keep working
-        # unchanged. API/MCP consumers can pass them to avoid pulling every action
-        # at once (a project can have thousands), which otherwise overflows the
-        # context window of LLM clients calling the `actions-get-all` MCP tool.
+        # better pagination in the taxonomic filter and on the actions page
         actions = self.filter_queryset(self.get_queryset())
-
-        search = request.query_params.get("search")
-        if search:
-            actions = actions.filter(name__icontains=search)
-
-        offset = self._parse_non_negative_int(request.query_params.get("offset")) or 0
-        limit = self._parse_non_negative_int(request.query_params.get("limit"))
-        if limit is not None:
-            actions = actions[offset : offset + limit]
-        elif offset:
-            actions = actions[offset:]
-
         actions_list: list[dict[Any, Any]] = self.serializer_class(
             actions, many=True, context={"request": request, "view": self}
         ).data  # type: ignore

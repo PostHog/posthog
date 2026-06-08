@@ -84,13 +84,13 @@ def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = Non
     from posthog.hogql.parser import parse_select
     from posthog.hogql.query import execute_hogql_query
 
-    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+    from posthog.clickhouse.query_tagging import Product, tags_context
     from posthog.models import Team
 
     team = Team.objects.get(id=team_id)
     query = parse_select(query_str)
 
-    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team_id):
+    with tags_context(product=Product.LLM_ANALYTICS):
         result = execute_hogql_query(
             query_type="EvalReportAgent",
             query=query,
@@ -112,21 +112,19 @@ def _execute_hogql_via_ai_events(team: "Team", query_str: str, placeholders: dic
     """
     from posthog.hogql.parser import parse_select
 
-    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
 
     query = parse_select(query_str)
 
-    # `execute_with_ai_events_fallback` sets `product=Product.LLM_ANALYTICS`
-    # internally but not `feature`, so supply it here to keep these eval-report
-    # agent reads attributed to background enrichment.
-    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team.pk):
-        result = execute_with_ai_events_fallback(
-            query=query,
-            placeholders=placeholders or {},
-            team=team,
-            query_type="EvalReportAgent",
-        )
+    # `execute_with_ai_events_fallback` wraps its own
+    # `tags_context(product=Product.LLM_ANALYTICS)` internally; no need to
+    # double-wrap here.
+    result = execute_with_ai_events_fallback(
+        query=query,
+        placeholders=placeholders or {},
+        team=team,
+        query_type="EvalReportAgent",
+    )
 
     return result.results or []
 

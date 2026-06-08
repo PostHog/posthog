@@ -51,6 +51,8 @@ import type {
     PaginatedPersistedFolderListApi,
     PaginatedProjectBackwardCompatBasicListApi,
     PaginatedProjectSecretAPIKeyListApi,
+    PaginatedSubscriptionDeliveryListApi,
+    PaginatedSubscriptionListApi,
     PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
     PatchedEnterprisePropertyDefinitionApi,
@@ -61,6 +63,7 @@ import type {
     PatchedPersistedFolderApi,
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
+    PatchedSubscriptionApi,
     PatchedUserApi,
     PersistedFolderApi,
     PersistedFolderListParams,
@@ -70,6 +73,11 @@ import type {
     PromotedProductIntentApi,
     PropertyDefinitionsListParams,
     SharingConfigurationApi,
+    SubscriptionApi,
+    SubscriptionDeliveryApi,
+    SubscriptionsDeliveriesListParams,
+    SubscriptionsListParams,
+    SubscriptionsSummaryQuotaRetrieve200,
     UserApi,
     UserGitHubLinkStartRequestApi,
     UserGitHubLinkStartResponseApi,
@@ -98,6 +106,65 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getSubscriptionsDeliveriesListUrl = (
+    projectId: string,
+    subscriptionId: number,
+    params?: SubscriptionsDeliveriesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/subscriptions/${subscriptionId}/deliveries/?${stringifiedParams}`
+        : `/api/environments/${projectId}/subscriptions/${subscriptionId}/deliveries/`
+}
+
+/**
+ * Paginated delivery history for a subscription. Requires premium subscriptions.
+ * @summary List subscription deliveries
+ */
+export const subscriptionsDeliveriesList = async (
+    projectId: string,
+    subscriptionId: number,
+    params?: SubscriptionsDeliveriesListParams,
+    options?: RequestInit
+): Promise<PaginatedSubscriptionDeliveryListApi> => {
+    return apiMutator<PaginatedSubscriptionDeliveryListApi>(
+        getSubscriptionsDeliveriesListUrl(projectId, subscriptionId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getSubscriptionsDeliveriesRetrieveUrl = (projectId: string, subscriptionId: number, id: string) => {
+    return `/api/environments/${projectId}/subscriptions/${subscriptionId}/deliveries/${id}/`
+}
+
+/**
+ * Fetch one delivery row by id.
+ * @summary Retrieve subscription delivery
+ */
+export const subscriptionsDeliveriesRetrieve = async (
+    projectId: string,
+    subscriptionId: number,
+    id: string,
+    options?: RequestInit
+): Promise<SubscriptionDeliveryApi> => {
+    return apiMutator<SubscriptionDeliveryApi>(getSubscriptionsDeliveriesRetrieveUrl(projectId, subscriptionId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getCimdVerificationTokensListUrl = (organizationId: string, params?: CimdVerificationTokensListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -2753,6 +2820,144 @@ export const sessionRecordingsSharingRefreshCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sharingConfigurationApi),
+    })
+}
+
+export const getSubscriptionsListUrl = (projectId: string, params?: SubscriptionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/subscriptions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/subscriptions/`
+}
+
+export const subscriptionsList = async (
+    projectId: string,
+    params?: SubscriptionsListParams,
+    options?: RequestInit
+): Promise<PaginatedSubscriptionListApi> => {
+    return apiMutator<PaginatedSubscriptionListApi>(getSubscriptionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSubscriptionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/subscriptions/`
+}
+
+export const subscriptionsCreate = async (
+    projectId: string,
+    subscriptionApi: NonReadonly<SubscriptionApi>,
+    options?: RequestInit
+): Promise<SubscriptionApi> => {
+    return apiMutator<SubscriptionApi>(getSubscriptionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(subscriptionApi),
+    })
+}
+
+export const getSubscriptionsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/subscriptions/${id}/`
+}
+
+export const subscriptionsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<SubscriptionApi> => {
+    return apiMutator<SubscriptionApi>(getSubscriptionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSubscriptionsUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/subscriptions/${id}/`
+}
+
+export const subscriptionsUpdate = async (
+    projectId: string,
+    id: number,
+    subscriptionApi: NonReadonly<SubscriptionApi>,
+    options?: RequestInit
+): Promise<SubscriptionApi> => {
+    return apiMutator<SubscriptionApi>(getSubscriptionsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(subscriptionApi),
+    })
+}
+
+export const getSubscriptionsPartialUpdateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/subscriptions/${id}/`
+}
+
+export const subscriptionsPartialUpdate = async (
+    projectId: string,
+    id: number,
+    patchedSubscriptionApi?: NonReadonly<PatchedSubscriptionApi>,
+    options?: RequestInit
+): Promise<SubscriptionApi> => {
+    return apiMutator<SubscriptionApi>(getSubscriptionsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSubscriptionApi),
+    })
+}
+
+export const getSubscriptionsDestroyUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/subscriptions/${id}/`
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export const subscriptionsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<unknown> => {
+    return apiMutator<unknown>(getSubscriptionsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getSubscriptionsTestDeliveryCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/subscriptions/${id}/test-delivery/`
+}
+
+export const subscriptionsTestDeliveryCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSubscriptionsTestDeliveryCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSubscriptionsSummaryQuotaRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/subscriptions/summary_quota/`
+}
+
+export const subscriptionsSummaryQuotaRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SubscriptionsSummaryQuotaRetrieve200> => {
+    return apiMutator<SubscriptionsSummaryQuotaRetrieve200>(getSubscriptionsSummaryQuotaRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

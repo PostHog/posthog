@@ -11,7 +11,6 @@ import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writ
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { EventFilterManager } from '../common/event-filters'
 import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
-import { createDenyEventsStep } from '../common/steps/deny-events'
 import {
     EventFiltersBatchContext,
     createEventFiltersBatchAppMetricsBeforeBatchStep,
@@ -20,6 +19,7 @@ import {
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
     createApplyEventRestrictionsStep,
+    createDropExceptionEventsStep,
     createEnrichSurveyPersonPropertiesStep,
     createParseHeadersStep,
     createParseKafkaMessageStep,
@@ -213,15 +213,12 @@ export function createJoinedIngestionPipeline<
                         // Header-only steps: parse Kafka headers and apply token-level restrictions.
                         // Cheap; runs per-event before we touch the body.
                         .sequentially((b) =>
-                            b
-                                .pipe(createParseHeadersStep())
-                                .pipe(createDenyEventsStep(['$exception', '$$client_ingestion_warning']))
-                                .pipe(
-                                    createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                                        overflowEnabled,
-                                        preservePartitionLocality,
-                                    })
-                                )
+                            b.pipe(createParseHeadersStep()).pipe(
+                                createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
+                                    overflowEnabled,
+                                    preservePartitionLocality,
+                                })
+                            )
                         )
                         // Rate-limit non-cookieless events to overflow before parsing the body.
                         // Cookieless events (headers.distinct_id === sentinel) pass through and are
@@ -237,6 +234,7 @@ export function createJoinedIngestionPipeline<
                         .sequentially((b) =>
                             b
                                 .pipe(createParseKafkaMessageStep())
+                                .pipe(createDropExceptionEventsStep())
                                 .pipe(createResolveTeamStep(teamManager))
                                 .pipe(createValidateHistoricalMigrationStep())
                                 .pipe(createValidateAiEventTokensStep())

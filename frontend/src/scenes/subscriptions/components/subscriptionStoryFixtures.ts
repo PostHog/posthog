@@ -1,11 +1,10 @@
 import {
-    ResourceTypeEnumApi,
     SubscriptionDeliveryStatusEnumApi,
     SubscriptionFrequencyEnumApi,
     TargetTypeEnumApi,
     type SubscriptionApi,
     type SubscriptionDeliveryApi,
-} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
+} from '~/generated/core/api.schemas'
 
 export const MOCK_SUBSCRIPTION_USER = {
     id: 1,
@@ -18,7 +17,6 @@ export const MOCK_SUBSCRIPTION_USER = {
 
 export const MOCK_SUBSCRIPTION_INSIGHT: SubscriptionApi = {
     id: 1,
-    resource_type: ResourceTypeEnumApi.Insight,
     insight: 101,
     dashboard: null,
     insight_short_id: 'abc123',
@@ -49,7 +47,6 @@ export const MOCK_SUBSCRIPTION_INSIGHT_MANY_DESTINATIONS: SubscriptionApi = {
 
 export const MOCK_SUBSCRIPTION_DASHBOARD: SubscriptionApi = {
     id: 2,
-    resource_type: ResourceTypeEnumApi.Dashboard,
     insight: null,
     dashboard: 501,
     insight_short_id: null,

@@ -18,6 +18,17 @@ from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
 from posthog.settings import EE_AVAILABLE
 
+import products.alerts.backend.api.alert as alert
+from products.annotations.backend.api import annotation
+from products.batch_exports.backend.api import (
+    batch_export as batch_exports,
+    file_download,
+)
+from products.batch_exports.backend.api.batch_imports import BatchImportViewSet
+from products.dashboards.backend.api import dashboard, dashboard_templates
+from products.exports.backend.api import exports
+from products.notebooks.backend.api.notebook import NotebookViewSet
+
 from ee.api.quota_limits import QuotaLimitsViewSet
 from ee.api.session_summaries import SessionGroupSummaryViewSet, SingleSessionSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
@@ -50,7 +61,6 @@ from . import (
     organization_integration,
     organization_invite,
     organization_member,
-    organization_personal_api_key,
     personal_api_key,
     project_secret_api_key,
     proxy_record,
@@ -93,12 +103,19 @@ router = DefaultRouterPlusPlus()
 routers = RouterRegistry()
 routers.set_root(router)
 
+# Legacy endpoints shared (to be removed eventually)
+router.register(r"dashboard", dashboard.LegacyDashboardsViewSet, "legacy_dashboards")  # Should be completely unused now
+router.register(
+    r"dashboard_item", dashboard.LegacyInsightViewSet, "legacy_insights"
+)  # To be deleted - unified into insight viewset
+
 # Nested endpoints shared
 projects_router = routers.add("projects", router.register(r"projects", project.RootProjectViewSet, "projects"))
 projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
 environments_router = routers.add(
     "environments", router.register(r"environments", team.RootTeamViewSet, "environments")
 )
+project_notebooks_router = projects_router.register(r"notebooks", NotebookViewSet, "project_notebooks", ["project_id"])
 
 
 def register_legacy_dual_route_team_nested_viewset(
@@ -139,6 +156,7 @@ def register_legacy_dual_route_team_nested_viewset(
     return routers.register_legacy_dual_route(prefix, viewset, basename, parents_query_lookups)
 
 
+projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["project_id"])
 projects_router.register(r"sdk_health", SdkHealthViewSet, "project_sdk_health", ["project_id"])
 projects_router.register(
     r"activity_log",
@@ -173,6 +191,17 @@ projects_router.register(
     ["team_id"],
 )
 
+# product-local route registration via RouterRegistry).
+projects_router.register(
+    r"dashboard_templates",
+    dashboard_templates.DashboardTemplateViewSet,
+    "project_dashboard_templates",
+    ["project_id"],
+)
+legacy_project_dashboards_router, environment_dashboards_router = register_legacy_dual_route_team_nested_viewset(
+    r"dashboards", dashboard.DashboardsViewSet, "environment_dashboards", ["team_id"]
+)
+
 register_legacy_dual_route_team_nested_viewset(
     r"column_configurations",
     ColumnConfigurationViewSet,
@@ -202,6 +231,9 @@ register_legacy_dual_route_team_nested_viewset(
 )
 
 
+register_legacy_dual_route_team_nested_viewset(
+    r"exports", exports.ExportedAssetViewSet, "environment_exports", ["team_id"]
+)
 register_legacy_dual_route_team_nested_viewset(
     r"integrations", integration.IntegrationViewSet, "environment_integrations", ["team_id"]
 )
@@ -274,6 +306,38 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
+legacy_project_batch_exports_router, environment_batch_exports_router = register_legacy_dual_route_team_nested_viewset(
+    r"batch_exports", batch_exports.BatchExportViewSet, "environment_batch_exports", ["team_id"]
+)
+
+register_legacy_dual_route_team_nested_viewset(
+    r"file_download_batch_exports",
+    file_download.FileDownloadBatchExportOnDemandViewSet,
+    "environment_file_download_batch_exports",
+    ["team_id"],
+)
+
+environment_batch_exports_router.register(
+    r"runs", batch_exports.BatchExportRunViewSet, "environment_batch_export_runs", ["team_id", "batch_export_id"]
+)
+legacy_project_batch_exports_router.register(
+    r"runs", batch_exports.BatchExportRunViewSet, "project_batch_export_runs", ["team_id", "batch_export_id"]
+)
+
+environment_batch_exports_router.register(
+    r"backfills",
+    batch_exports.BatchExportBackfillViewSet,
+    "environment_batch_export_backfills",
+    ["team_id", "batch_export_id"],
+)
+legacy_project_batch_exports_router.register(
+    r"backfills",
+    batch_exports.BatchExportBackfillViewSet,
+    "project_batch_export_backfills",
+    ["team_id", "batch_export_id"],
+)
+
+
 projects_router.register(
     r"event_definitions",
     event_definition.EventDefinitionViewSet,
@@ -330,6 +394,9 @@ organizations_router.register(
     ["organization_id"],
 )
 organizations_router.register(
+    r"batch_exports", batch_exports.BatchExportOrganizationViewSet, "batch_exports", ["organization_id"]
+)
+organizations_router.register(
     r"members",
     organization_member.OrganizationMemberViewSet,
     "organization_members",
@@ -345,12 +412,6 @@ organizations_router.register(
     r"domains",
     organization_domain.OrganizationDomainViewset,
     "organization_domains",
-    ["organization_id"],
-)
-organizations_router.register(
-    r"personal_api_keys",
-    organization_personal_api_key.OrganizationPersonalAPIKeyViewSet,
-    "organization_personal_api_keys",
     ["organization_id"],
 )
 organizations_router.register(
@@ -435,6 +496,9 @@ from posthog.api.event import EventViewSet, LegacyEventViewSet  # noqa: E402
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet  # noqa: E402
 from posthog.api.web_experiment import WebExperimentViewSet  # noqa: E402
 
+from products.product_analytics.backend.api.insight import InsightViewSet  # noqa: E402
+from products.product_analytics.backend.api.insight_variable import InsightVariableViewSet  # noqa: E402
+
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
 router.register(r"element", LegacyElementViewSet, basename="element")
@@ -478,15 +542,30 @@ register_legacy_dual_route_team_nested_viewset(
 register_legacy_dual_route_team_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 
 if EE_AVAILABLE:
+    from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
+
+    from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutViewSet
+    from ee.clickhouse.views.experiment_saved_metrics import ExperimentSavedMetricViewSet
     from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet, GroupUsageMetricViewSet
+    from ee.clickhouse.views.insights import EnterpriseInsightsViewSet
     from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
 
+    projects_router.register(r"experiments", EnterpriseExperimentsViewSet, "project_experiments", ["project_id"])
+    projects_router.register(
+        r"experiment_holdouts", ExperimentHoldoutViewSet, "project_experiment_holdouts", ["project_id"]
+    )
+    projects_router.register(
+        r"experiment_saved_metrics", ExperimentSavedMetricViewSet, "project_experiment_saved_metrics", ["project_id"]
+    )
     register_legacy_dual_route_team_nested_viewset(r"groups", GroupsViewSet, "environment_groups", ["team_id"])
     group_types_router = projects_router.register(
         r"groups_types", GroupsTypesViewSet, "project_groups_types", ["project_id"]
     )
     group_types_router.register(
         r"metrics", GroupUsageMetricViewSet, "project_groups_metrics", ["project_id", "group_type_index"]
+    )
+    legacy_project_insights_router, environment_insights_router = register_legacy_dual_route_team_nested_viewset(
+        r"insights", EnterpriseInsightsViewSet, "environment_insights", ["team_id"]
     )
     register_legacy_dual_route_team_nested_viewset(
         r"persons", EnterprisePersonViewSet, "environment_persons", ["team_id"]
@@ -515,11 +594,51 @@ if EE_AVAILABLE:
     )
 
 else:
+    legacy_project_insights_router, environment_insights_router = register_legacy_dual_route_team_nested_viewset(
+        r"insights", InsightViewSet, "environment_insights", ["team_id"]
+    )
     register_legacy_dual_route_team_nested_viewset(r"persons", PersonViewSet, "environment_persons", ["team_id"])
     router.register(r"person", LegacyPersonViewSet, "persons")
 
-# session_recordings sharing nest stays central — the session_recordings viewsets
-# still live under posthog/session_recordings/ rather than in a product folder.
+environment_dashboards_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "environment_dashboard_sharing",
+    ["team_id", "dashboard_id"],
+)
+legacy_project_dashboards_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_dashboard_sharing",
+    ["team_id", "dashboard_id"],
+)
+
+environment_insights_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "environment_insight_sharing",
+    ["team_id", "insight_id"],
+)
+legacy_project_insights_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_insight_sharing",
+    ["team_id", "insight_id"],
+)
+
+environment_insights_router.register(
+    "thresholds",
+    alert.ThresholdViewSet,
+    "environment_insight_thresholds",
+    ["team_id", "insight_id"],
+)
+legacy_project_insights_router.register(
+    "thresholds",
+    alert.ThresholdViewSet,
+    "project_insight_thresholds",
+    ["team_id", "insight_id"],
+)
+
 environment_sessions_recordings_router.register(
     r"sharing",
     sharing.SharingConfigurationViewSet,
@@ -531,6 +650,14 @@ legacy_project_session_recordings_router.register(
     sharing.SharingConfigurationViewSet,
     "project_recording_sharing",
     ["team_id", "recording_id"],
+)
+
+
+project_notebooks_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_notebook_sharing",
+    ["project_id", "notebook_id"],
 )
 
 projects_router.register(
@@ -564,6 +691,13 @@ projects_router.register(
 
 
 projects_router.register(
+    r"managed_migrations",
+    BatchImportViewSet,
+    "project_managed_migrations",
+    ["project_id"],
+)
+
+projects_router.register(
     r"hog",
     hog.HogViewSet,
     "hog",
@@ -574,6 +708,20 @@ register_legacy_dual_route_team_nested_viewset(
     r"metalytics",
     metalytics.MetalyticsViewSet,
     "environment_metalytics",
+    ["team_id"],
+)
+
+register_legacy_dual_route_team_nested_viewset(
+    r"insight_variables",
+    InsightVariableViewSet,
+    "environment_insight_variables",
+    ["team_id"],
+)
+
+register_legacy_dual_route_team_nested_viewset(
+    r"alerts",
+    alert.AlertViewSet,
+    "environment_alerts",
     ["team_id"],
 )
 

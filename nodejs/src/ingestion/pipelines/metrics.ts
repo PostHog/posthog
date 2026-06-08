@@ -12,10 +12,3 @@ export const pipelineStepDurationHistogram = new Histogram({
     labelNames: ['step_name', 'step_type', 'result'],
     buckets: exponentialBuckets(0.001, 2, 15), // 1ms -> ~16s
 })
-
-export const pipelineRetryAttemptsHistogram = new Histogram({
-    name: 'ingestion_pipeline_retry_attempts',
-    help: 'Attempts a retrying pipeline wrapper made before completing, exhausting retries, or hitting a non-retriable error',
-    labelNames: ['name', 'outcome'],
-    buckets: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-})

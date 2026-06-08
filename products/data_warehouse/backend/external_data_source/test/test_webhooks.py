@@ -4,13 +4,12 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.models import Organization, Team
-from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult, WebhookSyncResult
+from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
     get_or_create_webhook_hog_function,
-    reconcile_webhook_events,
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -376,39 +375,3 @@ class TestCreateAndRegisterWebhook:
         result = create_and_register_webhook(webhook_source, config, hog_fn_result, team.id)
 
         assert result.pending_inputs == []
-
-
-class TestReconcileWebhookEvents:
-    def test_delegates_to_sync_webhook_events(self):
-        _, team = _create_org_and_team()
-        _create_hog_function_template()
-        webhook_source = _make_webhook_source()
-        ext_source = _create_external_data_source(team)
-        schemas = _create_schemas(team, ext_source, ["Customers"])
-
-        hog_fn_result = get_or_create_webhook_hog_function(team, webhook_source, "source-123", schemas)
-        webhook_source.sync_webhook_events.return_value = WebhookSyncResult(success=True)
-
-        config = MagicMock()
-        result = reconcile_webhook_events(webhook_source, config, hog_fn_result, team.id, ["Customers"])
-
-        assert result.success is True
-        webhook_source.sync_webhook_events.assert_called_once_with(
-            config, hog_fn_result.webhook_url, team.id, ["Customers"]
-        )
-
-    def test_propagates_failure_without_raising(self):
-        _, team = _create_org_and_team()
-        _create_hog_function_template()
-        webhook_source = _make_webhook_source()
-        ext_source = _create_external_data_source(team)
-        schemas = _create_schemas(team, ext_source, ["Customers"])
-
-        hog_fn_result = get_or_create_webhook_hog_function(team, webhook_source, "source-123", schemas)
-        webhook_source.sync_webhook_events.return_value = WebhookSyncResult(success=False, error="add Write permission")
-
-        config = MagicMock()
-        result = reconcile_webhook_events(webhook_source, config, hog_fn_result, team.id, ["Customers"])
-
-        assert result.success is False
-        assert result.error == "add Write permission"

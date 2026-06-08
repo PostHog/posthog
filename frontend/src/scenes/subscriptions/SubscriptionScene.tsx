@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
-import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { NotFound } from 'lib/components/NotFound'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -10,6 +9,7 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import type { SubscriptionApi } from '~/generated/core/api.schemas'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 

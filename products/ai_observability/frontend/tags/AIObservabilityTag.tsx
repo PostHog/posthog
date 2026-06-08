@@ -1,9 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 
-import { IconArrowLeft, IconCopy, IconPlus, IconTrash, IconWarning } from '@posthog/icons'
+import { IconArrowLeft, IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import {
-    LemonBanner,
     LemonButton,
     LemonInput,
     LemonSelect,
@@ -33,15 +32,8 @@ import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-ge
 
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
-import { LLMProviderKey } from '../settings/llmProviderKeysLogic'
-import {
-    getUnhealthyProviderKey,
-    providerKeyStateIssueDescription,
-    providerLabel,
-} from '../settings/providerKeyStateUtils'
 import { HOG_TAGGER_EXAMPLES } from './hogTaggerExamples'
 import { HogTestResult, TagRun, llmTaggerLogic } from './llmTaggerLogic'
-import { Tagger, TaggerConditionSet } from './types'
 
 const DEFAULT_HOG_SOURCE = `// Return a list of tag names that apply to this generation
 // Available globals: input, output, properties, event, tags
@@ -51,6 +43,7 @@ if (output ilike '%billing%') {
     print('Found: billing')
 }
 return result`
+import { TaggerConditionSet } from './types'
 
 export const scene: SceneExport = {
     component: AIObservabilityTagScene,
@@ -721,20 +714,11 @@ function TagRunsTable({ id }: { id: string }): JSX.Element {
     )
 }
 
-function getTaggerProviderKeyIssue(tagger: Tagger | null, providerKeys: LLMProviderKey[]): LLMProviderKey | null {
-    if (!tagger || tagger.tagger_type === 'hog') {
-        return null
-    }
-
-    return getUnhealthyProviderKey(providerKeys, tagger.model_configuration?.provider_key_id)
-}
-
 export function AIObservabilityTagScene({ id }: { id?: string }): JSX.Element {
     const taggerId = id || 'new'
     const isNew = taggerId === 'new'
-    const { tagger, taggerLoading, activeTab, providerKeys } = useValues(llmTaggerLogic({ id: taggerId }))
+    const { tagger, taggerLoading, activeTab } = useValues(llmTaggerLogic({ id: taggerId }))
     const { setActiveTab } = useActions(llmTaggerLogic({ id: taggerId }))
-    const providerKeyIssue = tagger?.enabled ? getTaggerProviderKeyIssue(tagger, providerKeys) : null
 
     if (taggerLoading) {
         return (
@@ -756,11 +740,6 @@ export function AIObservabilityTagScene({ id }: { id?: string }): JSX.Element {
                                 <LemonTag type={tagger.enabled ? 'success' : 'default'}>
                                     {tagger.enabled ? 'Enabled' : 'Disabled'}
                                 </LemonTag>
-                                {providerKeyIssue && (
-                                    <LemonTag type="warning" icon={<IconWarning />}>
-                                        Key issue
-                                    </LemonTag>
-                                )}
                             </div>
                         )}
                     </div>
@@ -768,23 +747,6 @@ export function AIObservabilityTagScene({ id }: { id?: string }): JSX.Element {
                         Back
                     </LemonButton>
                 </div>
-
-                {providerKeyIssue && (
-                    <LemonBanner type="warning">
-                        <div className="space-y-2">
-                            <p>
-                                This tagger is paused because API key{' '}
-                                <span className="font-semibold">{providerKeyIssue.name}</span> (
-                                {providerLabel(providerKeyIssue.provider)}){' '}
-                                {providerKeyStateIssueDescription(providerKeyIssue.state)}.
-                            </p>
-                            <p>Error: {providerKeyIssue.error_message || 'Unknown error'}</p>
-                            <Link to={urls.settings('project-ai-observability', 'ai-observability-byok')}>
-                                Go to settings to fix this key.
-                            </Link>
-                        </div>
-                    </LemonBanner>
-                )}
 
                 <LemonTabs
                     activeKey={isNew ? 'configuration' : activeTab}

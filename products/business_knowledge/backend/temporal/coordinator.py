@@ -21,7 +21,6 @@ no bespoke concurrency cap here.
 import json
 import asyncio
 import dataclasses
-from collections import defaultdict
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
@@ -30,17 +29,11 @@ import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.api.embedding_worker import emit_embedding_request
-from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
 from .. import logic, safety
-from ..constants import BK_EMBEDDING_DOCUMENT_TYPE, BK_EMBEDDING_MODEL, BK_EMBEDDING_PRODUCT, BK_EMBEDDING_RENDERING
 from ..models import SafetyVerdict
 
 logger = structlog.get_logger(__name__)
@@ -86,130 +79,6 @@ async def classify_pending_documents_activity() -> dict[str, Any]:
             )
     unsafe = sum(1 for r in results if r.verdict == SafetyVerdict.UNSAFE)
     return {"classified": len(results), "unsafe": unsafe}
-
-
-def _emit_one_document(doc: logic.DocumentToEmbed) -> int:
-    """
-    Produce every chunk of one SAFE doc to the embedding pipeline, then stamp
-    the doc as emitted. Runs in a worker thread (sync Kafka produce + DB write).
-
-    If any chunk produce raises, the exception propagates BEFORE the stamp, so
-    the doc stays unstamped and the next pass retries the whole doc. Re-emitting
-    chunks that already landed is harmless — the shared table dedupes on
-    (chunk_id, stable timestamp) via ReplacingMergeTree.
-    """
-    for chunk in doc.chunks:
-        emit_embedding_request(
-            content=chunk.content,
-            team_id=doc.team_id,
-            product=BK_EMBEDDING_PRODUCT,
-            document_type=BK_EMBEDDING_DOCUMENT_TYPE,
-            rendering=BK_EMBEDDING_RENDERING,
-            document_id=str(chunk.chunk_id),
-            models=[BK_EMBEDDING_MODEL],
-            # Stable timestamp so re-emits collapse onto one ClickHouse sort key.
-            timestamp=doc.timestamp,
-            # `document_id` lets the read path group a doc's chunk vectors and
-            # re-join to Postgres; the chunk's own id is the embedding row's id.
-            metadata={"document_id": str(doc.document_id)},
-        )
-    logic.mark_document_embeddings_emitted(team_id=doc.team_id, document_id=doc.document_id)
-    return len(doc.chunks)
-
-
-@activity.defn
-async def emit_pending_embeddings_activity() -> dict[str, Any]:
-    """
-    Produce embeddings for SAFE documents that haven't been embedded yet.
-
-    Bounded by ``PENDING_EMBEDDING_SCAN_CAP``; the hourly coordinator drains the
-    backlog (and the initial cross-team backfill) over many passes. Per-doc
-    failures are logged and skipped without stamping, so they retry next pass.
-    """
-    docs = await database_sync_to_async(logic.list_documents_pending_embedding, thread_sensitive=False)()
-    documents_embedded = 0
-    chunks_emitted = 0
-    for doc in docs:
-        try:
-            written = await database_sync_to_async(_emit_one_document, thread_sensitive=False)(doc)
-        except Exception:
-            logger.exception(
-                "business_knowledge.embedding.emit_failed",
-                team_id=doc.team_id,
-                document_id=str(doc.document_id),
-            )
-            continue
-        documents_embedded += 1
-        chunks_emitted += written
-    return {"documents_embedded": documents_embedded, "chunks_emitted": chunks_emitted}
-
-
-def _present_chunk_ids_in_clickhouse(team_id: int, chunk_ids: list[UUID]) -> set[str]:
-    """Return the subset of ``chunk_ids`` that already have a vector row in the
-    shared ClickHouse embeddings table for this team + model. HogQL auto-scopes
-    to the team, so no manual team_id filter is needed."""
-    if not chunk_ids:
-        return set()
-    team = Team.objects.get(pk=team_id)
-    query = """
-        SELECT DISTINCT document_id
-        FROM document_embeddings
-        WHERE product = {product}
-          AND document_type = {document_type}
-          AND model_name = {model_name}
-          AND document_id IN {chunk_ids}
-    """
-    result = execute_hogql_query(
-        query=query,
-        team=team,
-        placeholders={
-            "product": ast.Constant(value=BK_EMBEDDING_PRODUCT),
-            "document_type": ast.Constant(value=BK_EMBEDDING_DOCUMENT_TYPE),
-            "model_name": ast.Constant(value=BK_EMBEDDING_MODEL),
-            "chunk_ids": ast.Constant(value=[str(c) for c in chunk_ids]),
-        },
-    )
-    return {row[0] for row in (result.results or [])}
-
-
-@activity.defn
-async def reconcile_embeddings_activity() -> dict[str, Any]:
-    """
-    Re-verify that already-emitted SAFE docs actually landed in ClickHouse.
-
-    ``embeddings_emitted_at`` only means "produced to Kafka". If a produce was
-    lost or the worker dropped it, the doc would silently serve FTS-only forever.
-    This bounded pass re-checks the oldest-emitted docs and, when NONE of a doc's
-    chunk vectors are present, clears the stamp so the pending pass re-emits.
-
-    Conservative on purpose: we only re-null when zero vectors are present (a
-    clear "never landed" signal). Partial loss is left for a follow-up so a
-    chunk the worker legitimately skips can't drive an endless re-emit loop.
-    """
-    docs = await database_sync_to_async(logic.list_documents_for_embedding_reconciliation, thread_sensitive=False)()
-
-    # One ClickHouse query per team, not per doc: HogQL auto-scopes to a single
-    # team so we can't batch across teams, but within a team we union every doc's
-    # chunk_ids into one IN-list and compare the returned present-set in Python.
-    docs_by_team: dict[int, list[logic.EmittedDocument]] = defaultdict(list)
-    for doc in docs:
-        docs_by_team[doc.team_id].append(doc)
-
-    re_nulled = 0
-    for team_id, team_docs in docs_by_team.items():
-        chunk_ids = [chunk_id for doc in team_docs for chunk_id in doc.chunk_ids]
-        present = await database_sync_to_async(_present_chunk_ids_in_clickhouse, thread_sensitive=False)(
-            team_id, chunk_ids
-        )
-        for doc in team_docs:
-            # Conservative: only re-null when NONE of the doc's chunks landed.
-            if any(str(chunk_id) in present for chunk_id in doc.chunk_ids):
-                continue
-            await database_sync_to_async(logic.clear_document_embeddings_emitted, thread_sensitive=False)(
-                team_id=team_id, document_id=doc.document_id
-            )
-            re_nulled += 1
-    return {"reconciled": len(docs), "re_nulled": re_nulled}
 
 
 @activity.defn
@@ -390,21 +259,6 @@ class BusinessKnowledgeRefreshCoordinatorWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
-        # Reconcile first so any "emitted but never landed in ClickHouse" docs are
-        # un-stamped, then the emit pass re-produces them alongside the newly-SAFE
-        # docs classified just above — all in this one pass.
-        reconciled = await workflow.execute_activity(
-            reconcile_embeddings_activity,
-            start_to_close_timeout=timedelta(minutes=10),
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
-
-        embedded = await workflow.execute_activity(
-            emit_pending_embeddings_activity,
-            start_to_close_timeout=timedelta(minutes=10),
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
-
         return {
             "tombstoned_deleted": swept,
             "sources_due": len(due),
@@ -413,10 +267,6 @@ class BusinessKnowledgeRefreshCoordinatorWorkflow(PostHogWorkflow):
             "sources_failed": failed,
             "documents_classified": classified.get("classified", 0),
             "documents_unsafe": classified.get("unsafe", 0),
-            "embeddings_reconciled": reconciled.get("reconciled", 0),
-            "embeddings_re_nulled": reconciled.get("re_nulled", 0),
-            "documents_embedded": embedded.get("documents_embedded", 0),
-            "chunks_emitted": embedded.get("chunks_emitted", 0),
         }
 
     @staticmethod

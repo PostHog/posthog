@@ -6,7 +6,7 @@ from django.db.models import F, Q
 
 import structlog
 
-from posthog.schema import CachedTeamTaxonomyQueryResponse, SubscriptionAIPromptMaxLength, TeamTaxonomyQuery
+from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyQuery
 
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -26,11 +26,7 @@ from ee.hogai.llm import MaxChatOpenAI
 logger = structlog.get_logger(__name__)
 
 
-# Single source of truth lives in the generated schema (frontend/src/queries/schema/schema-general.ts),
-# so the backend limit and the frontend's cannot drift. Read the field default rather than
-# instantiating: the generated RootModel carries a Field() default, which the pydantic mypy plugin
-# treats as a required __init__ arg.
-PROMPT_MAX_LENGTH: int = int(SubscriptionAIPromptMaxLength.model_fields["root"].default)
+PROMPT_MAX_LENGTH = 4000
 EVENT_NAMES_SAMPLE_LIMIT = 20
 # bounds the Postgres scan + context size for the dormant-events list
 NO_DATA_EVENT_NAMES_LIMIT = 25

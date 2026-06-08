@@ -11,7 +11,8 @@ import { cn } from 'lib/utils/css-classes'
 import { HandsFreeStatus, handsFreeLogic } from '../handsFreeLogic'
 
 interface HandsFreeSurfaceProps {
-    panelId?: string
+    tabId?: string
+    sidePanel?: boolean
 }
 
 const STATUS_LABEL: Record<HandsFreeStatus, string> = {
@@ -43,15 +44,17 @@ const STATUS_HINT: Record<HandsFreeStatus, string> = {
 }
 
 function HandsFreeTopline({
-    panelId,
+    tabId,
+    sidePanel,
     status,
     isReconnecting,
 }: {
-    panelId?: string
+    tabId?: string
+    sidePanel?: boolean
     status: HandsFreeStatus
     isReconnecting: boolean
 }): JSX.Element {
-    const { partialTranscript, error } = useValues(handsFreeLogic({ panelId }))
+    const { partialTranscript, error } = useValues(handsFreeLogic({ tabId, sidePanel }))
     const hint = isReconnecting ? 'Reconnecting your microphone' : STATUS_HINT[status]
     return (
         <div className="hands-free-surface__top">
@@ -65,9 +68,9 @@ function HandsFreeTopline({
     )
 }
 
-export function HandsFreeSurface({ panelId }: HandsFreeSurfaceProps): JSX.Element | null {
-    const { status, connection, error } = useValues(handsFreeLogic({ panelId }))
-    const { toggleHandsFree } = useActions(handsFreeLogic({ panelId }))
+export function HandsFreeSurface({ tabId, sidePanel }: HandsFreeSurfaceProps): JSX.Element | null {
+    const { status, connection, error } = useValues(handsFreeLogic({ tabId, sidePanel }))
+    const { toggleHandsFree } = useActions(handsFreeLogic({ tabId, sidePanel }))
 
     // Register the v-then-m exit shortcut while the surface is mounted.
     // HandsFreeButton owns the same shortcut for the "enter" path; same-name
@@ -104,7 +107,7 @@ export function HandsFreeSurface({ panelId }: HandsFreeSurfaceProps): JSX.Elemen
             data-status={status}
             data-connection={connection}
         >
-            <HandsFreeTopline panelId={panelId} status={status} isReconnecting={isReconnecting} />
+            <HandsFreeTopline tabId={tabId} sidePanel={sidePanel} status={status} isReconnecting={isReconnecting} />
 
             <button
                 type="button"

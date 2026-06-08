@@ -1,15 +1,9 @@
-import { EventFilterManager, EventFilterManagerComponent } from './manager'
+import { EventFilterManager } from './manager'
 
 describe('EventFilterManager', () => {
     const mockPostgres = {
         query: jest.fn(),
-    }
-
-    async function buildManager(): Promise<{ manager: EventFilterManager; stop: () => Promise<void> }> {
-        const scope = new EventFilterManagerComponent(mockPostgres as any)
-        const started = await scope.start()
-        return { manager: started.value, stop: started.stop }
-    }
+    } as any
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -17,9 +11,9 @@ describe('EventFilterManager', () => {
 
     it('returns null for unknown team', async () => {
         mockPostgres.query.mockResolvedValue({ rows: [] })
-        const { manager, stop } = await buildManager()
+        const manager = new EventFilterManager(mockPostgres)
+        await new Promise((r) => setTimeout(r, 100))
         expect(manager.getFilter(999)).toBeNull()
-        await stop()
     })
 
     it('returns filter for team in live mode', async () => {
@@ -36,14 +30,13 @@ describe('EventFilterManager', () => {
                 },
             ],
         })
-        const { manager, stop } = await buildManager()
+        const manager = new EventFilterManager(mockPostgres)
+        await new Promise((r) => setTimeout(r, 100))
 
         const filter = manager.getFilter(1)
         expect(filter).not.toBeNull()
         expect(filter!.id).toBe('filter-1')
         expect(filter!.mode).toBe('live')
-
-        await stop()
     })
 
     it('returns filter for team in dry_run mode', async () => {
@@ -62,13 +55,12 @@ describe('EventFilterManager', () => {
                 },
             ],
         })
-        const { manager, stop } = await buildManager()
+        const manager = new EventFilterManager(mockPostgres)
+        await new Promise((r) => setTimeout(r, 100))
 
         const filter = manager.getFilter(1)
         expect(filter).not.toBeNull()
         expect(filter!.mode).toBe('dry_run')
-
-        await stop()
     })
 
     it('returns null for filter with no conditions (empty tree)', async () => {
@@ -82,11 +74,10 @@ describe('EventFilterManager', () => {
                 },
             ],
         })
-        const { manager, stop } = await buildManager()
+        const manager = new EventFilterManager(mockPostgres)
+        await new Promise((r) => setTimeout(r, 100))
 
         expect(manager.getFilter(1)).toBeNull()
-
-        await stop()
     })
 
     it('skips rows with invalid filter_tree', async () => {
@@ -111,13 +102,12 @@ describe('EventFilterManager', () => {
                 },
             ],
         })
-        const { manager, stop } = await buildManager()
+        const manager = new EventFilterManager(mockPostgres)
+        await new Promise((r) => setTimeout(r, 100))
 
         expect(manager.getFilter(1)).toBeNull()
         expect(manager.getFilter(2)).not.toBeNull()
         expect(manager.getFilter(2)!.id).toBe('good-filter')
-
-        await stop()
     })
 
     it('skips rows with empty condition value', async () => {
@@ -136,11 +126,10 @@ describe('EventFilterManager', () => {
                 },
             ],
         })
-        const { manager, stop } = await buildManager()
+        const manager = new EventFilterManager(mockPostgres)
+        await new Promise((r) => setTimeout(r, 100))
 
         expect(manager.getFilter(1)).toBeNull()
-
-        await stop()
     })
 
     it('handles multiple teams', async () => {
@@ -160,12 +149,11 @@ describe('EventFilterManager', () => {
                 },
             ],
         })
-        const { manager, stop } = await buildManager()
+        const manager = new EventFilterManager(mockPostgres)
+        await new Promise((r) => setTimeout(r, 100))
 
         expect(manager.getFilter(1)!.id).toBe('f1')
         expect(manager.getFilter(2)!.id).toBe('f2')
         expect(manager.getFilter(3)).toBeNull()
-
-        await stop()
     })
 })

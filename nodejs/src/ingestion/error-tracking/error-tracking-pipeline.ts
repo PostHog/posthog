@@ -91,10 +91,14 @@ export interface ErrorTrackingPipelineConfig {
     /** Service for refreshing TTLs on overflow lane events. */
     overflowLaneTTLRefreshService?: OverflowRedirectService
     /**
-     * Rate limiter step specs to apply post-Cymbal. Each becomes its own batch step in
+     * Rate limiter step specs to apply pre-Cymbal. Each becomes its own batch step in
      * the pipeline, run in array order. Empty / undefined → no rate limiting.
+     *
+     * Pre-Cymbal placement saves symbolication cost on dropped events. If a future
+     * limiter needs Cymbal-derived data (e.g. the proper exception fingerprint), add
+     * a `postCymbalRateLimiters` slot rather than reorder this one.
      */
-    postCymbalRateLimiters?: KeyedRateLimiterStepOptions<PostCymbalRateLimiterInput>[]
+    preCymbalRateLimiters?: KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[]
     /**
      * When provided, an error-tracking-settings load step runs before the rate limiter
      * chain so per-team overrides can be read synchronously from the input.
@@ -105,17 +109,17 @@ export interface ErrorTrackingPipelineConfig {
 }
 
 /**
- * Shape consumed by post-Cymbal rate limiter step specs. The pipeline guarantees these
- * fields are present at the insertion point (after Cymbal, before enrichment).
+ * Shape consumed by pre-Cymbal rate limiter step specs. The pipeline guarantees these
+ * fields are present at the insertion point (after team resolution, before Cymbal).
  */
-export interface PostCymbalRateLimiterInput {
+export interface PreCymbalRateLimiterInput {
     team: { id: number }
     event: PluginEvent
     errorTrackingSettings?: ErrorTrackingSettings | null
 }
 
 /**
- * Apply each rate limiter spec as its own post-Cymbal batch step. The chain's TOutput
+ * Apply each rate limiter spec as its own pre-Cymbal batch step. The chain's TOutput
  * is wider than the spec's input type, but `KeyedRateLimiterStepOptions<T>` is
  * contravariant in T, so a narrower spec assigns into the wider chain context.
  */
@@ -139,8 +143,8 @@ function applyKeyedRateLimiters<TInput, TOutput, CInput, COutput, R extends stri
  *  6. Apply cookieless processing - Rewrite distinct_id for cookieless events
  *  7. Only-cookieless rate limit - Redirect cookieless rate-limited events to overflow
  *     using the hashed distinct_id from step 6
- *  8. Cymbal processing - Symbolicate, fingerprint, and link issues
- *  9. Team-global rate limit - Drop events that exceed per-team caps (optional)
+ *  8. Team-global rate limit - Drop events that exceed per-team caps (optional)
+ *  9. Cymbal processing - Symbolicate, fingerprint, and link issues
  * 10. Person properties - Fetch person by distinct_id (read-only)
  * 11. Hog transformations - Run team transformations (including GeoIP if enabled)
  * 12. Prepare event - Convert to PreIngestionEvent format, track if person found
@@ -175,7 +179,7 @@ export function createErrorTrackingPipeline(
         preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
-        postCymbalRateLimiters,
+        preCymbalRateLimiters,
         errorTrackingSettingsManager,
         topHog,
     } = config
@@ -253,26 +257,28 @@ export function createErrorTrackingPipeline(
                                             overflowRedirectService
                                         )
                                     )
-                                const preCymbal = afterCookieless
+                                // Pre-Cymbal team-global rate-limit chain. Drops events the team
+                                // has explicitly capped, so they never consume symbolication
+                                // budget. Empty / undefined → no-op.
+                                const afterRateLimit = applyKeyedRateLimiters(
+                                    afterCookieless,
+                                    preCymbalRateLimiters ?? []
+                                )
+                                const preCymbal = afterRateLimit
                                     // Refresh TTLs for overflow lane events (keeps Redis flags alive)
                                     .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
-                                const afterCymbal = preCymbal
-                                    // Process through Cymbal as a batch (before enrichment - Cymbal only
-                                    // needs raw exception data, not person/geoip/group data).
-                                    // Retry on transient failures (5xx, timeout, network errors).
-                                    // 3 retries keeps the worst-case batch time (3 × 45s timeout =
-                                    // 135s) well within the 180s liveness interval, and reduces
-                                    // amplification pressure on Cymbal during degradation.
-                                    .pipeBatchWithRetry(createCymbalProcessingStep(cymbalClient), {
-                                        tries: 3,
-                                        sleepMs: 100,
-                                        name: 'cymbal_processing',
-                                    })
-                                // Post-Cymbal team-global rate-limit chain. Drops events the team
-                                // has explicitly capped. Empty / undefined → no-op.
-                                const afterRateLimit = applyKeyedRateLimiters(afterCymbal, postCymbalRateLimiters ?? [])
                                 return (
-                                    afterRateLimit
+                                    preCymbal
+                                        // Process through Cymbal as a batch (before enrichment - Cymbal only
+                                        // needs raw exception data, not person/geoip/group data).
+                                        // Retry on transient failures (5xx, timeout, network errors).
+                                        // 3 retries keeps the worst-case batch time (3 × 45s timeout =
+                                        // 135s) well within the 180s liveness interval, and reduces
+                                        // amplification pressure on Cymbal during degradation.
+                                        .pipeBatchWithRetry(createCymbalProcessingStep(cymbalClient), {
+                                            tries: 3,
+                                            sleepMs: 100,
+                                        })
                                         // Enrich, prepare, create, and emit events
                                         // Batch fetch person (read-only, no updates)
                                         .pipeBatch(createFetchPersonBatchStep(personRepository))

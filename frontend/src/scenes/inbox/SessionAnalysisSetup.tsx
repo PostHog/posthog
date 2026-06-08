@@ -89,7 +89,7 @@ function SessionAnalysisSetupChat(): JSX.Element {
 
 export function SessionAnalysisSetup(): JSX.Element {
     const { saveSessionAnalysisFilters } = useActions(signalSourcesLogic)
-    const maxLogicProps = { panelId: INBOX_TAB_ID, onAcceptSessionFilters: saveSessionAnalysisFilters }
+    const maxLogicProps = { tabId: INBOX_TAB_ID, onAcceptSessionFilters: saveSessionAnalysisFilters }
     const { threadLogicKey, conversation } = useValues(maxLogic(maxLogicProps))
 
     return (
@@ -98,7 +98,7 @@ export function SessionAnalysisSetup(): JSX.Element {
                 logic={maxThreadLogic}
                 props={
                     {
-                        panelId: INBOX_TAB_ID,
+                        tabId: INBOX_TAB_ID,
                         conversationId: threadLogicKey,
                         conversation,
                     } satisfies MaxThreadLogicProps

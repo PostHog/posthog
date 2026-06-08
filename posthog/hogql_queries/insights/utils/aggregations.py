@@ -76,7 +76,7 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         self._is_first_matching_event = is_first_matching_event
         query.select = self._select_expr(date_from)
         query.select_from = self._select_from_expr(ratio)
-        query.where = self._where_expr(date_to, event_or_action_filter, self._matching_event_prefilter())
+        query.where = self._where_expr(date_to, event_or_action_filter)
         query.group_by = self._group_by_expr()
         query.having = self._having_expr()
         super().__init__(query)
@@ -92,9 +92,9 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         )
 
         min_timestamp_expr = (
-            ast.Call(name="minIf", args=[ast.Field(chain=["timestamp"]), cast(ast.Expr, self._filters)])
-            if self._uses_conditional_aggregation()
-            else ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])
+            ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])
+            if not self._is_first_matching_event or self._filters is None
+            else ast.Call(name="minIf", args=[ast.Field(chain=["timestamp"]), self._filters])
         )
 
         return [
@@ -115,25 +115,10 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         sample_value = ast.SampleExpr(sample_value=ratio) if ratio is not None else None
         return ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e", sample=sample_value)
 
-    def _uses_conditional_aggregation(self) -> bool:
-        # first_matching_event_for_user wraps the series filters in conditional aggregates (minIf/argMinIf).
-        return self._is_first_matching_event and self._filters is not None
-
-    def _matching_event_prefilter(self) -> ast.Expr | None:
-        # Only a first_matching_event can push series filters into WHERE; plain first_time must scan full history.
-        return self._filters if self._uses_conditional_aggregation() else None
-
-    def _where_expr(
-        self,
-        date_to: ast.Expr,
-        event_or_action_filter: ast.Expr | None = None,
-        prefilter: ast.Expr | None = None,
-    ) -> ast.Expr:
+    def _where_expr(self, date_to: ast.Expr, event_or_action_filter: ast.Expr | None = None) -> ast.Expr:
         where_filters = [date_to]
         if event_or_action_filter is not None:
             where_filters.append(event_or_action_filter)
-        if prefilter is not None:
-            where_filters.append(prefilter)
 
         if len(where_filters) > 1:
             where_filters_expr = cast(ast.Expr, ast.And(exprs=where_filters))
@@ -160,12 +145,12 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
 
     def _transform_column(self, column: ast.Expr):
         return (
-            ast.Call(
+            ast.Call(name="argMin", args=[column, ast.Field(chain=["timestamp"])])
+            if not self._is_first_matching_event or self._filters is None
+            else ast.Call(
                 name="argMinIf",
-                args=[column, ast.Field(chain=["timestamp"]), cast(ast.Expr, self._filters)],
+                args=[column, ast.Field(chain=["timestamp"]), self._filters],
             )
-            if self._uses_conditional_aggregation()
-            else ast.Call(name="argMin", args=[column, ast.Field(chain=["timestamp"])])
         )
 
     def append_select(self, expr: ast.Expr, aggregate: bool = False):

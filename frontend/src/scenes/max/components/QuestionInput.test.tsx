@@ -33,16 +33,16 @@ describe('QuestionInput slash command autocomplete', () => {
         maxGlobalLogicInstance.mount()
         jest.spyOn(maxGlobalLogicInstance.selectors, 'dataProcessingAccepted').mockReturnValue(true)
 
-        maxLogicInstance = maxLogic({ panelId: 'test' })
+        maxLogicInstance = maxLogic({ tabId: 'test' })
         maxLogicInstance.mount()
 
-        const threadProps = { panelId: 'test', conversationId: maxLogicInstance.values.frontendConversationId }
+        const threadProps = { tabId: 'test', conversationId: maxLogicInstance.values.frontendConversationId }
         threadLogicInstance = maxThreadLogic(threadProps)
         threadLogicInstance.mount()
 
         render(
             <Provider>
-                <BindLogic logic={maxLogic} props={{ panelId: 'test' }}>
+                <BindLogic logic={maxLogic} props={{ tabId: 'test' }}>
                     <BindLogic logic={maxThreadLogic} props={threadProps}>
                         <QuestionInput />
                     </BindLogic>

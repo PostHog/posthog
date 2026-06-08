@@ -76,7 +76,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
     connect(() => ({
         values: [
-            maxLogic({ panelId: HOMEPAGE_TAB_ID }),
+            maxLogic({ tabId: HOMEPAGE_TAB_ID }),
             ['threadLogicKey', 'conversationId'],
             teamLogic,
             ['currentTeam'],
@@ -92,9 +92,9 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             ['chatDraftFor'],
         ],
         actions: [
-            maxLogic({ panelId: HOMEPAGE_TAB_ID }),
+            maxLogic({ tabId: HOMEPAGE_TAB_ID }),
             ['openConversation', 'startNewConversation', 'setQuestion'],
-            handsFreeLogic({ panelId: HOMEPAGE_TAB_ID }),
+            handsFreeLogic({ tabId: HOMEPAGE_TAB_ID }),
             ['enterHandsFree'],
             sceneLogic,
             ['setHomepage'],

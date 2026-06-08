@@ -997,12 +997,9 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
     logger.debug(f"Running EXPLAIN on {query.as_string()}")
 
     try:
-        # Debug-only and best-effort: a query may use syntax the source DB rejects (e.g.
-        # TABLESAMPLE on CockroachDB). Savepoint so a failure doesn't poison the transaction.
-        with cursor.connection.transaction(savepoint_name="explain_query"):
-            query_with_explain = sql.SQL("EXPLAIN {}").format(query)
-            cursor.execute(query_with_explain)
-            rows = cursor.fetchall()
+        query_with_explain = sql.SQL("EXPLAIN {}").format(query)
+        cursor.execute(query_with_explain)
+        rows = cursor.fetchall()
         explain_result: str = ""
         # Build up a single string of the EXPLAIN output
         for row in rows:
@@ -1010,6 +1007,7 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
                 explain_result += f"\n{col}"
         logger.debug(f"EXPLAIN result: {explain_result}")
     except Exception as e:
+        capture_exception(e)
         logger.debug(f"EXPLAIN raised an exception: {e}")
 
 
@@ -1148,13 +1146,10 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
             ) as subquery
         """).format(inner_query)
 
-        # Best-effort: the sampled query can fail (e.g. TABLESAMPLE on CockroachDB). Savepoint
-        # so a failure falls back to DEFAULT_CHUNK_SIZE without poisoning the transaction.
-        with cursor.connection.transaction(savepoint_name="table_chunk_size"):
-            _explain_query(cursor, query, logger)
-            logger.debug(f"Running query: {query.as_string()}")
-            cursor.execute(query)
-            row = cursor.fetchone()
+        _explain_query(cursor, query, logger)
+        logger.debug(f"Running query: {query.as_string()}")
+        cursor.execute(query)
+        row = cursor.fetchone()
 
         if row is None:
             logger.debug(f"_get_table_chunk_size: No results returned. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")

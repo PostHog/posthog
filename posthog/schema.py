@@ -4979,10 +4979,6 @@ class SubagentUpdateEvent(BaseModel):
     tool_call_id: str
 
 
-class SubscriptionAIPromptMaxLength(RootModel[Literal[4000]]):
-    root: Literal[4000] = Field(4000, description="Maximum length, in characters, of an AI subscription prompt.")
-
-
 class SubscriptionDropoffMode(StrEnum):
     LAST_EVENT = "last_event"
     AFTER_DROPOFF_PERIOD = "after_dropoff_period"
