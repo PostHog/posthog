@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { IconCopy } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
@@ -9,6 +10,7 @@ import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import { WebhookInfo } from '~/types'
@@ -134,6 +136,12 @@ export function WebhookTab({ id, tabId }: { id: string; tabId?: string }): JSX.E
                             createWebhookResult={createWebhookResult}
                             onCreateWebhook={createWebhook}
                             tabId={tabId}
+                        />
+                    )}
+                    {!externalMissing && (webhookInfo.missing_events?.length ?? 0) > 0 && (
+                        <WebhookMissingEventsSection
+                            missingEvents={webhookInfo.missing_events!}
+                            sourceName={sourceConfig?.label ?? source?.source_type ?? 'source'}
                         />
                     )}
                     <WebhookDetailsSection webhookInfo={webhookInfo} />
@@ -322,6 +330,38 @@ function WebhookRecreateSection({
             formLogic={webhookTabLogic({ id, tabId })}
             formKey="webhookFieldInputs"
         />
+    )
+}
+
+function WebhookMissingEventsSection({
+    missingEvents,
+    sourceName,
+}: {
+    missingEvents: string[]
+    sourceName: string
+}): JSX.Element {
+    return (
+        <LemonBanner
+            type="warning"
+            action={{
+                icon: <IconCopy />,
+                children: 'Copy events',
+                onClick: () => void copyToClipboard(missingEvents.join('\n'), 'webhook events'),
+            }}
+        >
+            <p className="mb-2">
+                Some tables won't receive data until these events are added to your {sourceName} webhook. This happens
+                when the webhook was created manually, or before a newly added table was supported. Add them in your{' '}
+                {sourceName} dashboard, then refresh.
+            </p>
+            <div className="flex flex-wrap gap-1">
+                {missingEvents.map((event) => (
+                    <LemonTag key={event} type="warning" className="text-xs">
+                        {event}
+                    </LemonTag>
+                ))}
+            </div>
+        </LemonBanner>
     )
 }
 
