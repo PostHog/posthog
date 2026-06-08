@@ -46,6 +46,10 @@ export function useWidgetTileConfigPersist(
     onUpdateConfigRef.current = onUpdateConfig
 
     const persistConfigNow = useCallback(async (config: Record<string, unknown>): Promise<void> => {
+        if (debounceRef.current) {
+            clearTimeout(debounceRef.current)
+            debounceRef.current = null
+        }
         await onUpdateConfigRef.current?.(config)
     }, [])
 

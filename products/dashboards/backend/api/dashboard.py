@@ -1427,7 +1427,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         widget_data: dict[str, Any],
         user: User,
         user_access_control: UserAccessControl,
-        dashboard: Dashboard | None = None,
     ) -> None:
         DashboardSerializer._check_widget_tile_product_access(widget, user_access_control)
         patch_widget_type = widget_data.get("widget_type")
@@ -1616,7 +1615,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         widget_data=widget_data,
                         user=user,
                         user_access_control=user_access_control,
-                        dashboard=instance,
                     )
                 except DashboardWidget.DoesNotExist:
                     raise serializers.ValidationError({"widget": "Widget not found in this team."})
