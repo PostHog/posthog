@@ -3878,6 +3878,41 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `user` - user
+    * `role` - role
+     */
+    export type AssigneeTypeEnum = typeof AssigneeTypeEnum[keyof typeof AssigneeTypeEnum];
+
+
+    export const AssigneeTypeEnum = {
+      User: 'user',
+      Role: 'role',
+    } as const;
+
+    export interface ErrorTrackingAssignee {
+      /** User ID or role UUID to filter by. */
+      id: string | number | null;
+      /** Assignee target type: user or role.
+
+      * `user` - user
+      * `role` - role */
+      type: AssigneeTypeEnum;
+    }
+
+    export interface WidgetFilterConfigEntry {
+      /** Filter UUID; must match the widgetFilters map key. */
+      filterId: string;
+      /** Event property key (for example $environment). */
+      propertyName: string;
+      /** Selected option id from the filter definition. */
+      optionId: string;
+      /** Property filter operator (for example exact, is_not, icontains). */
+      operator: string;
+      /** Filter value as a string, list of strings, or null. */
+      value?: unknown;
+    }
+
+    /**
      * * `-14d` - -14d
     * `-1h` - -1h
     * `-24h` - -24h
@@ -3912,9 +3947,14 @@ export namespace Schemas {
       date_from?: DateFromEnum | null;
     }
 
+    /**
+     * Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here.
+     */
+    export type ErrorTrackingListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterConfigEntry};
+
     export interface ErrorTrackingListWidgetConfig {
       /**
-         * Maximum number of issues to return.
+         * Maximum number of issues to return (page size).
          * @minimum 1
          * @maximum 25
          */
@@ -3941,7 +3981,11 @@ export namespace Schemas {
       * `suppressed` - suppressed
       * `all` - all */
       status?: ErrorTrackingIssueStatusEnum;
-      /** Optional relative date range override. */
+      /** Filter by assignee ({type: user|role, id}). Omit for any assignee. */
+      assignee?: ErrorTrackingAssignee | null;
+      /** Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here. */
+      widgetFilters?: ErrorTrackingListWidgetConfigWidgetFilters;
+      /** Relative date range for issues (date_from only on widgets). */
       dateRange?: WidgetDateRange | null;
       /** When omitted, follows the project default for filtering test accounts. */
       filterTestAccounts?: boolean;
@@ -3992,6 +4036,11 @@ export namespace Schemas {
       StartTime: 'start_time',
     } as const;
 
+    /**
+     * Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here.
+     */
+    export type SessionReplayListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterConfigEntry};
+
     export interface SessionReplayListWidgetConfig {
       /**
          * Maximum number of recordings to return.
@@ -4015,6 +4064,8 @@ export namespace Schemas {
       orderDirection?: OrderDirectionEnum;
       /** Optional relative date range override. */
       dateRange?: WidgetDateRange | null;
+      /** Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here. */
+      widgetFilters?: SessionReplayListWidgetConfigWidgetFilters;
       /** When omitted, follows the project default for filtering test accounts. */
       filterTestAccounts?: boolean;
     }
@@ -7825,18 +7876,6 @@ export namespace Schemas {
       /** @nullable */
       download_url: string | null;
     }
-
-    /**
-     * * `user` - user
-    * `role` - role
-     */
-    export type AssigneeTypeEnum = typeof AssigneeTypeEnum[keyof typeof AssigneeTypeEnum];
-
-
-    export const AssigneeTypeEnum = {
-      User: 'user',
-      Role: 'role',
-    } as const;
 
     export interface AsyncDeletionStatus {
       /** The UUID of the person whose events are queued for deletion. */
@@ -15032,16 +15071,6 @@ export namespace Schemas {
       volume_buckets?: ErrorTrackingVolumeBucket[];
     }
 
-    export interface ErrorTrackingAssignee {
-      /** User ID or role UUID to filter by. */
-      id: string | number | null;
-      /** Assignee target type: user or role.
-
-      * `user` - user
-      * `role` - role */
-      type: AssigneeTypeEnum;
-    }
-
     export interface ErrorTrackingAssigneeResponse {
       /** Assignee user ID or role UUID. */
       id?: string | number | null;
@@ -21703,6 +21732,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `burst` - burst
+    * `sustained` - sustained
+     */
+    export type LimitTypeEnum = typeof LimitTypeEnum[keyof typeof LimitTypeEnum];
+
+
+    export const LimitTypeEnum = {
+      Burst: 'burst',
+      Sustained: 'sustained',
+    } as const;
+
+    /**
      * Typed output for view set `list`.
      */
     export interface ListOutput {
@@ -23508,6 +23549,22 @@ export namespace Schemas {
       readonly scim_base_url: string | null;
       /** @nullable */
       readonly scim_bearer_token: string | null;
+      /** Returns whether ID-JAG (XAA) is configured for this domain. */
+      readonly has_id_jag: boolean;
+      /**
+         * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
+         * @maxLength 512
+         * @nullable
+         */
+      id_jag_issuer_url?: string | null;
+      /**
+         * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
+         * @maxLength 512
+         * @nullable
+         */
+      id_jag_jwks_url?: string | null;
+      /** Allowed ID-JAG client IDs. Empty list allows any client_id. */
+      id_jag_allowed_clients?: string[];
     }
 
     /**
@@ -23609,6 +23666,47 @@ export namespace Schemas {
       is_verified?: boolean;
       readonly created: string;
       readonly updated: string;
+    }
+
+    export interface OrganizationPersonalAPIKeyOwner {
+      /** First name of the key's owner. */
+      readonly first_name: string;
+      /** Last name of the key's owner. */
+      readonly last_name: string;
+      /** Email address of the key's owner. */
+      readonly email: string;
+    }
+
+    export interface OrganizationPersonalAPIKeyProjectScope {
+      /** Project (team) ID the key is scoped to. */
+      id: number;
+      /** Name of the project the key is scoped to. */
+      name: string;
+    }
+
+    export interface OrganizationPersonalAPIKeyAccessScope {
+      /** Breadth of access: 'all' (every project the owner can reach), 'organization' (this whole organization), or 'projects' (specific projects listed under 'projects'). */
+      type: string;
+      /** Projects within this organization the key is scoped to, present only when type is 'projects'. */
+      projects?: OrganizationPersonalAPIKeyProjectScope[];
+    }
+
+    export interface OrganizationPersonalAPIKey {
+      /** The organization member who owns this key. */
+      readonly owner: OrganizationPersonalAPIKeyOwner;
+      /** Masked, display-safe hint of the key value (e.g. 'phx_***1234'). Not the secret. The owner sees the same masked value in their own settings, so it can be used to identify a key. */
+      readonly mask_value: string;
+      /** API scopes granted to the key, e.g. 'insight:read'. A single '*' means full access. */
+      readonly scopes: readonly string[];
+      /** Where the key's scopes apply within this organization. */
+      readonly access_scope: OrganizationPersonalAPIKeyAccessScope;
+      /**
+         * When the key was last used to authenticate, if ever.
+         * @nullable
+         */
+      readonly last_used_at: string | null;
+      /** When the key was created. */
+      readonly created_at: string;
     }
 
     /**
@@ -24727,6 +24825,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: OrganizationOAuthApplication[];
+    }
+
+    export interface PaginatedOrganizationPersonalAPIKeyList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: OrganizationPersonalAPIKey[];
     }
 
     export interface ParserRecipe {
@@ -26063,7 +26170,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly scheduled_at: string | null;
-      /** Channel snapshot at send time (email, slack, webhook). */
+      /** Channel snapshot at send time (email or slack). */
       readonly target_type: string;
       /** Destination snapshot at send time (emails, channel id, URL). */
       readonly target_value: string;
@@ -26123,7 +26230,6 @@ export namespace Schemas {
     /**
      * * `email` - Email
     * `slack` - Slack
-    * `webhook` - Webhook
      */
     export type TargetTypeEnum = typeof TargetTypeEnum[keyof typeof TargetTypeEnum];
 
@@ -26131,7 +26237,6 @@ export namespace Schemas {
     export const TargetTypeEnum = {
       Email: 'email',
       Slack: 'slack',
-      Webhook: 'webhook',
     } as const;
 
     /**
@@ -26204,13 +26309,12 @@ export namespace Schemas {
          * @nullable
          */
       prompt?: string | null;
-      /** Delivery channel: email, slack, or webhook.
+      /** Delivery channel: email or slack.
 
       * `email` - Email
-      * `slack` - Slack
-      * `webhook` - Webhook */
+      * `slack` - Slack */
       target_type: TargetTypeEnum;
-      /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
+      /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
       target_value: string;
       /** How often to deliver: daily, weekly, monthly, or yearly.
 
@@ -30702,6 +30806,22 @@ export namespace Schemas {
       readonly scim_base_url?: string | null;
       /** @nullable */
       readonly scim_bearer_token?: string | null;
+      /** Returns whether ID-JAG (XAA) is configured for this domain. */
+      readonly has_id_jag?: boolean;
+      /**
+         * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
+         * @maxLength 512
+         * @nullable
+         */
+      id_jag_issuer_url?: string | null;
+      /**
+         * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
+         * @maxLength 512
+         * @nullable
+         */
+      id_jag_jwks_url?: string | null;
+      /** Allowed ID-JAG client IDs. Empty list allows any client_id. */
+      id_jag_allowed_clients?: string[];
     }
 
     /**
@@ -32184,13 +32304,12 @@ export namespace Schemas {
          * @nullable
          */
       prompt?: string | null;
-      /** Delivery channel: email, slack, or webhook.
+      /** Delivery channel: email or slack.
 
       * `email` - Email
-      * `slack` - Slack
-      * `webhook` - Webhook */
+      * `slack` - Slack */
       target_type?: TargetTypeEnum;
-      /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
+      /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
       target_value?: string;
       /** How often to deliver: daily, weekly, monthly, or yearly.
 
@@ -40133,6 +40252,15 @@ export namespace Schemas {
       attr?: string;
       /** Artifact ids that could not be resolved for the run */
       missing_artifact_ids?: string[];
+      /** Which usage limit was hit on a rate_limited error: 'burst' (daily) or 'sustained' (monthly)
+
+      * `burst` - burst
+      * `sustained` - sustained */
+      limit_type?: LimitTypeEnum;
+      /** ISO 8601 timestamp when the hit usage limit resets, when known */
+      reset_at?: string;
+      /** Whether the team is on a Pro plan (drives the upgrade-prompt copy) */
+      is_pro?: boolean;
     }
 
     export interface TaskRunRelayMessageRequest {
@@ -42150,18 +42278,6 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
-    export type EnvironmentsDashboardsAnalyzeRefreshResultCreateParams = {
-    format?: EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat = typeof EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat[keyof typeof EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat];
-
-
-    export const EnvironmentsDashboardsAnalyzeRefreshResultCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
     export type EnvironmentsDashboardsCopyTileCreateParams = {
     format?: EnvironmentsDashboardsCopyTileCreateFormat;
     };
@@ -42291,18 +42407,6 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsRunWidgetsRetrieveFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type EnvironmentsDashboardsSnapshotCreateParams = {
-    format?: EnvironmentsDashboardsSnapshotCreateFormat;
-    };
-
-    export type EnvironmentsDashboardsSnapshotCreateFormat = typeof EnvironmentsDashboardsSnapshotCreateFormat[keyof typeof EnvironmentsDashboardsSnapshotCreateFormat];
-
-
-    export const EnvironmentsDashboardsSnapshotCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -45503,7 +45607,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Filter by delivery channel (email, Slack, or webhook).
+     * Filter by delivery channel (email or Slack).
      */
     target_type?: EnvironmentsSubscriptionsListTargetType;
     };
@@ -45523,7 +45627,6 @@ export namespace Schemas {
     export const EnvironmentsSubscriptionsListTargetType = {
       Email: 'email',
       Slack: 'slack',
-      Webhook: 'webhook',
     } as const;
 
     export type EnvironmentsSubscriptionsSummaryQuotaRetrieve200 = {
@@ -46275,6 +46378,17 @@ export namespace Schemas {
     };
 
     export type OauthApplicationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type PersonalApiKeysListParams = {
     /**
      * Number of results to return per page.
      */
@@ -47454,18 +47568,6 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
-    export type DashboardsAnalyzeRefreshResultCreateParams = {
-    format?: DashboardsAnalyzeRefreshResultCreateFormat;
-    };
-
-    export type DashboardsAnalyzeRefreshResultCreateFormat = typeof DashboardsAnalyzeRefreshResultCreateFormat[keyof typeof DashboardsAnalyzeRefreshResultCreateFormat];
-
-
-    export const DashboardsAnalyzeRefreshResultCreateFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
     export type DashboardsCopyTileCreateParams = {
     format?: DashboardsCopyTileCreateFormat;
     };
@@ -47595,18 +47697,6 @@ export namespace Schemas {
 
 
     export const DashboardsRunWidgetsRetrieveFormat = {
-      Json: 'json',
-      Txt: 'txt',
-    } as const;
-
-    export type DashboardsSnapshotCreateParams = {
-    format?: DashboardsSnapshotCreateFormat;
-    };
-
-    export type DashboardsSnapshotCreateFormat = typeof DashboardsSnapshotCreateFormat[keyof typeof DashboardsSnapshotCreateFormat];
-
-
-    export const DashboardsSnapshotCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -51681,7 +51771,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Filter by delivery channel (email, Slack, or webhook).
+     * Filter by delivery channel (email or Slack).
      */
     target_type?: SubscriptionsListTargetType;
     };
@@ -51701,7 +51791,6 @@ export namespace Schemas {
     export const SubscriptionsListTargetType = {
       Email: 'email',
       Slack: 'slack',
-      Webhook: 'webhook',
     } as const;
 
     export type SubscriptionsSummaryQuotaRetrieve200 = {
