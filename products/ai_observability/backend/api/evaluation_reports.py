@@ -1,7 +1,7 @@
 """API endpoints for evaluation report configuration and report run history."""
 
 import datetime as dt
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -340,7 +340,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
                 {"evaluation": "An evaluation can only have one non-deleted report config."}
             )
 
-    def perform_create(self, serializer: EvaluationReportSerializer) -> None:
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         with transaction.atomic():
             evaluation = serializer.validated_data["evaluation"]
             if serializer.validated_data.get("deleted") is not True:
@@ -368,22 +368,21 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
             request=self.request,
         )
 
-    def perform_update(self, serializer: EvaluationReportSerializer) -> None:
-        target_evaluation = serializer.validated_data.get("evaluation", serializer.instance.evaluation)
-        target_deleted = serializer.validated_data.get("deleted", serializer.instance.deleted)
-        is_becoming_non_deleted = serializer.instance.deleted and target_deleted is False
-        is_moving_while_non_deleted = (
-            target_deleted is False and target_evaluation.id != serializer.instance.evaluation_id
-        )
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        current = cast(EvaluationReport, serializer.instance)
+        target_evaluation = serializer.validated_data.get("evaluation", current.evaluation)
+        target_deleted = serializer.validated_data.get("deleted", current.deleted)
+        is_becoming_non_deleted = current.deleted and target_deleted is False
+        is_moving_while_non_deleted = target_deleted is False and target_evaluation.id != current.evaluation_id
         if is_becoming_non_deleted or is_moving_while_non_deleted:
             with transaction.atomic():
-                self._validate_single_non_deleted_config(target_evaluation, exclude_report=serializer.instance)
+                self._validate_single_non_deleted_config(target_evaluation, exclude_report=current)
                 self._perform_update_and_track(serializer)
             return
 
         self._perform_update_and_track(serializer)
 
-    def _perform_update_and_track(self, serializer: EvaluationReportSerializer) -> None:
+    def _perform_update_and_track(self, serializer: serializers.BaseSerializer) -> None:
         tracked_fields = [
             "frequency",
             "rrule",
@@ -398,14 +397,12 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
             "cooldown_minutes",
             "daily_run_cap",
         ]
-        is_deletion = serializer.validated_data.get("deleted") is True and not serializer.instance.deleted
+        current = cast(EvaluationReport, serializer.instance)
+        is_deletion = serializer.validated_data.get("deleted") is True and not current.deleted
 
         changed_fields: list[str] = []
         for field in tracked_fields:
-            if (
-                field in serializer.validated_data
-                and getattr(serializer.instance, field) != serializer.validated_data[field]
-            ):
+            if field in serializer.validated_data and getattr(current, field) != serializer.validated_data[field]:
                 changed_fields.append(field)
 
         instance = serializer.save()
@@ -417,7 +414,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
                 {
                     "evaluation_report_id": str(instance.id),
                     "evaluation_id": str(instance.evaluation_id),
-                    "was_enabled": serializer.instance.enabled,
+                    "was_enabled": current.enabled,
                 },
                 team=self.team,
                 request=self.request,
