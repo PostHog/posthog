@@ -1,36 +1,24 @@
 import { useEffect, useState } from 'react'
 
 /**
- * Gates a raw hover index behind a short dwell so a cursor merely passing over the
- * sparkline on its way elsewhere doesn't engage the headline. While disengaged, every
- * change to the raw index re-arms the timer, so only a pointer that settles on a point
- * past `delayMs` crosses the threshold. Once engaged the index tracks live; returning
- * to the resting index (a negative value) disengages immediately.
+ * Debounces a sparkline hover index so a cursor merely passing over the card on its way
+ * elsewhere doesn't swap the headline — the pointer has to settle on a point for `delayMs`
+ * before it takes effect. Leaving the sparkline (a negative index) applies immediately, so
+ * the headline drops straight back to rest. `delayMs <= 0` opts out.
  *
- * `delayMs <= 0` opts out entirely — the raw index passes through unchanged.
+ * Mirrors the app's `useDebouncedValue`, which this standalone package can't import.
  */
 export function useHoverIntent(rawIndex: number, delayMs: number): number {
-    const [engaged, setEngaged] = useState(false)
+    const [settledIndex, setSettledIndex] = useState(rawIndex)
 
     useEffect(() => {
-        if (delayMs <= 0) {
+        if (delayMs <= 0 || rawIndex < 0) {
+            setSettledIndex(rawIndex)
             return
         }
-        if (rawIndex < 0) {
-            // Pointer left the sparkline — disengage right away so the headline settles back.
-            setEngaged(false)
-            return
-        }
-        if (engaged) {
-            return
-        }
-        // Re-armed on each move while disengaged; only a settled pointer reaches this timeout.
-        const timer = setTimeout(() => setEngaged(true), delayMs)
+        const timer = setTimeout(() => setSettledIndex(rawIndex), delayMs)
         return () => clearTimeout(timer)
-    }, [rawIndex, engaged, delayMs])
+    }, [rawIndex, delayMs])
 
-    if (delayMs <= 0) {
-        return rawIndex
-    }
-    return engaged ? rawIndex : -1
+    return delayMs <= 0 ? rawIndex : settledIndex
 }
