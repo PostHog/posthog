@@ -552,10 +552,14 @@ services:
         ports:
             - '18080:18080'
             - '19092:19092'
+        # The agent image ships `sh` but no `wget`/`curl`, so an HTTP probe can't
+        # run inside the container — mirror WarpStream's own playground example and
+        # gate readiness on a short sleep instead. `start_period` covers playground
+        # provisioning its throwaway virtual cluster before the check first runs.
         healthcheck:
-            test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:18080/v1/status']
+            test: ['CMD', 'sh', '-c', 'sleep 10']
             interval: 5s
-            timeout: 5s
+            timeout: 15s
             retries: 20
             start_period: 15s
 
