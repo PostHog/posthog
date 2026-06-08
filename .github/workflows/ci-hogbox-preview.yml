@@ -1,0 +1,78 @@
+# Hogbox preview (v1: connectivity probe)
+#
+# Proves a CI runner can authenticate to hogland's control plane (hogplane)
+# via GitHub Actions OIDC, over the tailnet, and drive a hogbox. Seed for a
+# real per-PR preview environment; for now it just runs bin/hogbox-ci.py end
+# to end so we can iterate on the auth/reachability path in isolation.
+#
+# Two OIDC exchanges, two different audiences:
+#   1. tailscale/github-action joins the tailnet as tag:hogland-ci
+#      (audience = TS_HOGLAND_CI_AUDIENCE) -> network reach to hogplane.
+#   2. We mint a second OIDC token (audience = HOG_OIDC_AUDIENCE) and hand it
+#      to the SDK as HOG_TOKEN -> hogplane's github_oidc verifier authorizes
+#      the call and maps it to a Principal.
+#
+# Prereqs to go green (tracked out of band):
+#   - repo vars TS_HOGLAND_CI_CLIENT_ID / TS_HOGLAND_CI_AUDIENCE (tailnet join)
+#   - target hogland deploy has HOG_GITHUB_OIDC_AUDIENCE set (hogland #279)
+#   - a github_oidc TrustMapping for PostHog/posthog on the target env
+name: Hogbox Preview
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/devex/hogbox-preview
+    paths:
+      - .github/workflows/ci-hogbox-preview.yml
+      - bin/hogbox-ci.py
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write # mint OIDC tokens for both the tailnet join and hogplane
+
+jobs:
+  probe:
+    name: hogland connectivity probe
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # Target env: dev. host = tailnet MagicDNS (reachability); audience =
+      # the logical identifier the deploy expects (hogland chart, per env).
+      # Deliberately decoupled -- the audience is not a routable URL.
+      HOG_HOST: https://hogland-dev.hedgehog-kitefin.ts.net
+      HOG_OIDC_AUDIENCE: hogland.dev.posthog.dev
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Connect to Tailscale (tag:hogland-ci)
+        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
+        with:
+          oauth-client-id: ${{ vars.TS_HOGLAND_CI_CLIENT_ID }}
+          audience: ${{ vars.TS_HOGLAND_CI_AUDIENCE }}
+          tags: tag:hogland-ci
+
+      - name: Mint hogland OIDC token
+        run: |
+          token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value')
+          if [ -z "$token" ] || [ "$token" = "null" ]; then
+            echo "::error::failed to mint OIDC token for audience ${HOG_OIDC_AUDIENCE}"
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Install hogland SDK
+        run: pip install --disable-pip-version-check posthog-hogland
+
+      - name: Probe
+        run: python bin/hogbox-ci.py
