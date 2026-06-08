@@ -40244,6 +40244,11 @@
             "required": ["id", "tool_call_id", "content"],
             "type": "object"
         },
+        "SubscriptionAIPromptMaxLength": {
+            "const": 4000,
+            "description": "Maximum length, in characters, of an AI subscription prompt.",
+            "type": "number"
+        },
         "SubscriptionDropoffMode": {
             "enum": ["last_event", "after_dropoff_period"],
             "type": "string"

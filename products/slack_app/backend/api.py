@@ -450,7 +450,7 @@ def resolve_slack_user(
         # membership
         membership = (
             OrganizationMembership.objects.filter(
-                organization_id=integration.team.organization_id, user__email=slack_email
+                organization_id=integration.team.organization_id, user__email__iexact=slack_email
             )
             .select_related("user")
             .first()
@@ -1422,7 +1422,7 @@ def _resolve_posthog_user_from_event(
         if not org_ids:
             return None
         membership = (
-            OrganizationMembership.objects.filter(organization_id__in=org_ids, user__email=slack_email)
+            OrganizationMembership.objects.filter(organization_id__in=org_ids, user__email__iexact=slack_email)
             .select_related("user")
             .first()
         )
