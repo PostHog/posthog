@@ -23,17 +23,6 @@
             ],
             "description": "Human-readable description of what this endpoint returns."
         },
-        "display_name": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Human-readable display name for the endpoint. If the slug (name) is omitted, it is derived from this."
-        },
         "is_active": {
             "anyOf": [
                 {
