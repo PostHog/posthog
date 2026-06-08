@@ -1081,8 +1081,9 @@ class Database(BaseModel):
                     # source, so an orphan can't shadow the live table sharing its name.
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                     .queryable()
-                    # credential is attached in bulk below (decrypt once per credential, not per table)
-                    .select_related("external_data_source")
+                    # credential and external_data_source are attached in bulk below (hydrate/decrypt
+                    # once per distinct row, not once per table). The access_method exclude/filter below
+                    # still joins external_data_source for the WHERE without hydrating its columns.
                     # Deterministic tiebreak when two live tables share a name: newest wins, since
                     # name collisions resolve first-come-first-served when added to the table tree.
                     .order_by("-created_at")
@@ -1095,6 +1096,7 @@ class Database(BaseModel):
                     )
 
                 warehouse_tables: list[DataWarehouseTable] = list(tables_query)
+                _attach_external_data_sources(warehouse_tables, team_id=team.pk)
                 _preload_active_external_data_schemas(warehouse_tables)
                 if is_direct_query:
                     warehouse_tables = [
@@ -1875,17 +1877,53 @@ HOGQL_CHARACTERS_TO_BE_WRAPPED = ["@", "-", "!", "$", "+"]
 NOT_DELETED_Q = Q(deleted=False) | Q(deleted__isnull=True)
 
 
+def _attach_external_data_sources(warehouse_tables: Sequence[DataWarehouseTable], *, team_id: int) -> None:
+    """Populate each table's `external_data_source` FK, hydrating every distinct source exactly once.
+
+    `select_related("external_data_source")` re-hydrates the full source for every table row, and the
+    source's `job_inputs` is an `EncryptedJSONField` — each hydration Fernet-decrypts every JSON leaf
+    (dozens of ops per source). A team's thousands of tables share only tens of sources, and the common
+    build path never reads `job_inputs` (only the direct-postgres branch does). So we fetch the distinct
+    sources in one query, defer the encrypted `job_inputs` entirely (the rare direct-postgres path loads
+    it lazily), and prime the FK cache so the build phase reads `table.external_data_source` query-free.
+    """
+    source_ids = {
+        table.external_data_source_id for table in warehouse_tables if table.external_data_source_id is not None
+    }
+    sources_by_id: dict[Any, ExternalDataSource] = {}
+    if source_ids:
+        sources_by_id = {
+            source.pk: source
+            for source in ExternalDataSource.objects.filter(team_id=team_id, id__in=source_ids).defer("job_inputs")
+        }
+    for table in warehouse_tables:
+        # Self-managed tables (no source) return None from the FK without a query, so only prime the
+        # cache when a source exists. queryable() guarantees a live source row when the id is set.
+        if table.external_data_source_id is None:
+            continue
+        source = sources_by_id.get(table.external_data_source_id)
+        if source is not None:
+            table.external_data_source = source
+
+
 def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehouseTable]) -> None:
-    table_ids = [
-        str(warehouse_table.id) for warehouse_table in warehouse_tables if warehouse_table.external_data_source_id
-    ]
-    if not table_ids:
+    tables_by_id = {
+        str(warehouse_table.id): warehouse_table
+        for warehouse_table in warehouse_tables
+        if warehouse_table.external_data_source_id
+    }
+    if not tables_by_id:
         return
 
     schemas_by_table_id: dict[str, list[ExternalDataSchema]] = defaultdict(list)
-    # select_related("source"): warning rendering reads schema.source.source_type, so avoid a
-    # per-schema lazy fetch when any of these tables turns out to be unhealthy.
-    for schema in ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id__in=table_ids).select_related("source"):
+    # No select_related("source"): warning rendering reads schema.source.source_type, but a schema's
+    # source is its owning table's source, which is already hydrated. Prime schema.source from it to
+    # avoid re-hydrating (and re-decrypting job_inputs on) the same handful of sources thousands of times.
+    for schema in ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id__in=list(tables_by_id.keys())):
+        owning_table = tables_by_id.get(str(schema.table_id))
+        owning_source = owning_table.external_data_source if owning_table is not None else None
+        if owning_source is not None and schema.source_id == owning_source.pk:
+            schema.source = owning_source
         schemas_by_table_id[str(schema.table_id)].append(schema)
 
     for warehouse_table in warehouse_tables:
