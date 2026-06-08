@@ -31,6 +31,7 @@ def _optimized_query() -> ast.SelectQuery:
 
 
 def _entity_metrics_aliases(query: ast.SelectQuery) -> dict[str, ast.Expr]:
+    assert query.ctes is not None
     cte = query.ctes["entity_metrics"]
     assert isinstance(cte, ast.CTE) and isinstance(cte.expr, ast.SelectQuery)
     return {c.alias: c.expr for c in cte.expr.select if isinstance(c, ast.Alias)}
@@ -69,6 +70,7 @@ class TestMetricBreakdownInjector:
 
         injector.inject_funnel_breakdown_columns_optimized(query)
 
+        assert query.ctes is not None
         base_cte = query.ctes["base_events"]
         assert isinstance(base_cte, ast.CTE) and isinstance(base_cte.expr, ast.SelectQuery)
         base_aliases = [c.alias for c in base_cte.expr.select if isinstance(c, ast.Alias)]
