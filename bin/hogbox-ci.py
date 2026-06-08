@@ -67,10 +67,27 @@ def main() -> int:
         ssh_public_key=_ephemeral_ssh_pubkey(),  # TODO(keyless): remove
     ) as box:
         print(f"[probe] created box: {box.id} ({box.status})", flush=True)
-        result = box.exec(["uname", "-a"], timeout_seconds=30)
-        print(f"[probe] exec exit={result.exit_code} stdout={result.stdout!r}", flush=True)
-        if result.exit_code != 0:
-            print(f"[probe] exec stderr={result.stderr!r}", flush=True)
+
+        # Environment report: what does a hogbox actually ship? This decides
+        # how (and whether) we can run the PostHog stack in-box, and whether a
+        # plain hogbox suffices or we need a devbox persona.
+        report = box.exec(
+            [
+                "sh",
+                "-c",
+                "echo '== os =='; (cat /etc/os-release 2>/dev/null | head -4 || echo unknown); "
+                "echo '== kernel =='; uname -r; "
+                "echo '== cpu =='; nproc 2>/dev/null; "
+                "echo '== mem =='; (free -m 2>/dev/null | awk '/Mem:/{print $2\" MiB\"}' || echo unknown); "
+                "echo '== disk / =='; (df -h / 2>/dev/null | tail -1 || echo unknown); "
+                "echo '== runtimes =='; for b in sh bash python3 node npm pnpm docker podman git curl systemctl; do "
+                "printf '%-10s %s\\n' \"$b\" \"$(command -v \"$b\" 2>/dev/null || echo MISSING)\"; done",
+            ],
+            timeout_seconds=60,
+        )
+        print(f"[probe] env report (exit={report.exit_code}):\n{report.stdout}", flush=True)
+        if report.exit_code != 0:
+            print(f"[probe] env report stderr={report.stderr!r}", flush=True)
             return 1
     print("[probe] box destroyed (context exit)", flush=True)
 
