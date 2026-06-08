@@ -528,6 +528,13 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             if not all(isinstance(value, str) for value in (host, user, password)):
                 raise ValidationError("Host, user, and password must be strings")
 
+            from products.batch_exports.backend.api.batch_export import resolve_and_validate_host
+
+            try:
+                resolve_and_validate_host(host)
+            except ValueError:
+                raise ValidationError(f"Invalid host: '{host}'")
+
             try:
                 port = int(port)
             except (TypeError, ValueError):
