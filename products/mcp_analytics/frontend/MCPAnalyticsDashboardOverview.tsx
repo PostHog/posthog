@@ -1,12 +1,29 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconBolt } from '@posthog/icons'
-import { LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
-import { type ChartTheme, MetricCard } from '@posthog/quill-charts'
+import { LemonSkeleton, Link } from '@posthog/lemon-ui'
+import {
+    BarChart,
+    type BarChartConfig,
+    type ChartTheme,
+    MetricCard,
+    PieChart,
+    type PieChartConfig,
+    type Series,
+    TimeSeriesBarChart,
+    type TimeSeriesBarChartConfig,
+    TimeSeriesLineChart,
+    type TimeSeriesLineChartConfig,
+    type TooltipContext,
+    useRadialLayout,
+    ValueLabels,
+} from '@posthog/quill-charts'
+import { Badge, cn, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@posthog/quill-primitives'
+import '@posthog/quill-primitives/styles.css'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { humanFriendlyDuration, humanFriendlyLargeNumber } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -15,7 +32,15 @@ import claudeLogo from './harness-logos/claude.svg'
 import cursorLogo from './harness-logos/cursor.svg'
 import openaiLogo from './harness-logos/openai.svg'
 import vscodeLogo from './harness-logos/vscode.svg'
-import { HarnessRow, KPIMetric, NotableSession, ToolRow, mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
+import {
+    type DailyActivity,
+    HarnessRow,
+    KPIMetric,
+    NotableSession,
+    type ToolDailySeries,
+    ToolRow,
+    mcpDashboardOverviewLogic,
+} from './mcpDashboardOverviewLogic'
 
 const HARNESS_LOGOS: Record<string, string> = {
     'Claude Code': claudeLogo,
@@ -23,6 +48,17 @@ const HARNESS_LOGOS: Record<string, string> = {
     'OpenAI Codex': openaiLogo,
     Cursor: cursorLogo,
     'VS Code': vscodeLogo,
+}
+
+// Deliberate slice color per harness, picked so the logo drawn on top has enough contrast:
+// coral Claude on cool blue/teal, teal OpenAI on purple, black Cursor on light amber, blue VS Code
+// on orange. Index into the data-viz palette; unknown harnesses fall back to their position.
+const HARNESS_SLICE_COLOR_INDEX: Record<string, number> = {
+    'Claude Code': 0, // blue
+    'Claude.ai': 2, // teal
+    'OpenAI Codex': 1, // purple
+    Cursor: 12, // amber
+    'VS Code': 11, // orange
 }
 
 export function HarnessPill({ category, title }: { category: string; title?: string }): JSX.Element {
@@ -76,6 +112,32 @@ function formatMs(n: number): string {
     return humanFriendlyDuration(n / 1000, { secondsPrecision: 1 })
 }
 
+// Lighten a data-viz palette hex toward white for a softer, pastel look. Stays in hex so the
+// chart's gradient/gloss fill can still derive its light/dark shades (d3 rgb() can't parse oklch).
+function toPastel(hex: string, amount = 0.12): string {
+    const match = hex.trim().match(/^#?([0-9a-f]{6})$/i)
+    if (!match) {
+        return hex
+    }
+    const value = parseInt(match[1], 16)
+    const channel = (shift: number): string => {
+        const c = (value >> shift) & 255
+        return Math.round(c + (255 - c) * amount)
+            .toString(16)
+            .padStart(2, '0')
+    }
+    return `#${channel(16)}${channel(8)}${channel(0)}`
+}
+
+function errorColor(theme: ChartTheme): string {
+    return theme.colors[4] // red
+}
+
+function harnessSliceColor(theme: ChartTheme, category: string, fallbackIndex: number): string {
+    const index = HARNESS_SLICE_COLOR_INDEX[category] ?? fallbackIndex
+    return toPastel(theme.colors[index % theme.colors.length])
+}
+
 function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.Element {
     const { metric } = tile
     const hasSparkline = metric.sparkline.length > 0
@@ -116,15 +178,19 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         kpis,
         kpisLoading,
         intentClusterCount,
-        topToolRows,
-        toolRowsLoading,
-        toolRowsTotal,
         notableSessions,
         sessionRowsLoading,
         harnessRows,
         harnessRawRowsLoading,
+        dailyActivity,
+        activityRowsLoading,
+        toolDailySeries,
+        toolDailyRowsLoading,
+        toolRows,
+        toolRowsLoading,
     } = useValues(mcpDashboardOverviewLogic)
     const { isDarkModeOn } = useValues(themeLogic)
+    const { timezone } = useValues(teamLogic)
 
     const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
 
@@ -172,65 +238,60 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
     ]
 
     return (
-        <div className="flex flex-col gap-[22px]">
-            <BrandingStrip />
-            <Block kicker="Health" question="Is the MCP healthy right now?">
+        <div className="flex flex-col gap-10">
+            <section>
+                <h2 className="mb-4 text-xl font-semibold text-primary">Previous week's key metrics</h2>
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
                     {tiles.map((tile) => (
                         <KPITile key={tile.label} tile={tile} theme={theme} />
                     ))}
                 </div>
-            </Block>
-            <Block kicker="Tool quality" question="Which tools are the weak links?">
-                <ToolReliabilityMatrix rows={topToolRows} loading={toolRowsLoading} totalTools={toolRowsTotal} />
-            </Block>
-            <Block kicker="Surface" question="Which harnesses are calling the MCP?">
-                <HarnessBreakdown rows={harnessRows} loading={harnessRawRowsLoading} />
-            </Block>
-            <Block kicker="Triage" question="Which sessions should I look at?">
-                <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
-            </Block>
+            </section>
+            <section>
+                <h2 className="mb-4 text-xl font-semibold text-primary">Last month's usage</h2>
+                <div className="flex flex-col gap-[22px]">
+                    <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-3">
+                        <div className="flex lg:col-span-2">
+                            <ActivityChart
+                                daily={dailyActivity}
+                                loading={activityRowsLoading}
+                                theme={theme}
+                                timezone={timezone}
+                            />
+                        </div>
+                        <HarnessDonut rows={harnessRows} loading={harnessRawRowsLoading} theme={theme} />
+                    </div>
+                    <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-2">
+                        <ToolErrorRateChart rows={toolRows} loading={toolRowsLoading} theme={theme} />
+                        <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
+                    </div>
+                    <ToolUsageChart
+                        data={toolDailySeries}
+                        loading={toolDailyRowsLoading}
+                        theme={theme}
+                        timezone={timezone}
+                    />
+                </div>
+            </section>
         </div>
     )
 }
 
-function BrandingStrip(): JSX.Element {
-    return (
-        <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-                <span className="flex h-[22px] w-[22px] items-center justify-center rounded bg-warning text-white">
-                    <IconBolt className="h-3 w-3" />
-                </span>
-                <span className="text-[13px] font-medium">PostHog for Agents</span>
-                <LemonTag type="completion" size="small">
-                    Alpha
-                </LemonTag>
-            </div>
-            <span className="text-[11px] text-tertiary">Last 7 days</span>
-        </div>
-    )
-}
-
-function Block({
-    kicker,
-    question,
+function Card({
     children,
+    className,
+    title,
 }: {
-    kicker: string
-    question: string
     children: React.ReactNode
+    className?: string
+    title?: string
 }): JSX.Element {
     return (
-        <section className="flex flex-col">
-            <div className="text-[11px] text-secondary mb-1">{kicker}</div>
-            <h1 className="text-sm font-medium mb-3">{question}</h1>
+        <div className={cn('rounded-lg border border-primary bg-surface-primary px-3.5 py-3', className)}>
+            {title ? <h3 className="mb-3 text-sm font-medium text-primary">{title}</h3> : null}
             {children}
-        </section>
+        </div>
     )
-}
-
-function Card({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="rounded-lg border border-primary bg-surface-primary px-3.5 py-3">{children}</div>
 }
 
 type ErrorBucket = 'green' | 'amber' | 'red'
@@ -245,187 +306,323 @@ function errorBucket(pct: number): ErrorBucket {
     return 'red'
 }
 
-const ERROR_PILL_CLASS: Record<ErrorBucket, string> = {
-    green: 'text-success bg-fill-success-highlight',
-    amber: 'text-warning bg-fill-warning-highlight',
-    red: 'text-error bg-fill-error-highlight',
-}
-
-function ErrorRatePill({ pct }: { pct: number }): JSX.Element {
-    const bucket = errorBucket(pct)
+function ChartTooltip({ title, rows }: { title: string; rows: [string, string][] }): JSX.Element {
     return (
-        <span
-            className={`inline-flex h-[14px] items-center justify-center rounded-[3px] px-1.5 text-[10px] font-medium ${ERROR_PILL_CLASS[bucket]}`}
-        >
-            {pct.toFixed(pct >= 10 ? 0 : 1)}%
-        </span>
-    )
-}
-
-const VOLUME_COLOR = 'var(--data-color-1)'
-const ERROR_COLOR = 'var(--data-color-5)'
-
-function VolumeBar({ totalPct, errorPct, title }: { totalPct: number; errorPct: number; title: string }): JSX.Element {
-    const errorStartPct = (Math.max(totalPct - errorPct, 0) / (totalPct || 1)) * 100
-    return (
-        <div className="relative h-[14px] overflow-hidden rounded-[3px] bg-surface-secondary" title={title}>
-            <div
-                className="h-full opacity-40"
-                style={{
-                    width: `${totalPct}%`,
-                    background: `linear-gradient(to right, ${VOLUME_COLOR} ${errorStartPct}%, ${ERROR_COLOR} ${errorStartPct}%)`,
-                }}
-            />
-        </div>
-    )
-}
-
-function ToolRowItem({ row, maxVolume, isLast }: { row: ToolRow; maxVolume: number; isLast: boolean }): JSX.Element {
-    const callsPct = maxVolume ? (row.total_calls / maxVolume) * 100 : 0
-    const errorsPct = maxVolume ? (row.errors / maxVolume) * 100 : 0
-    const nameClass = row.error_rate_pct > 5 ? 'text-error' : 'text-primary'
-    return (
-        <div
-            className="grid items-center gap-2.5 py-1.5"
-            style={{
-                gridTemplateColumns: '140px 1fr 60px 56px',
-                borderBottom: isLast ? 'none' : '0.5px solid var(--color-border-tertiary)',
-            }}
-        >
-            <Link
-                to={urls.mcpAnalyticsTool(row.tool)}
-                className={`truncate font-mono text-xs ${nameClass}`}
-                title={row.tool}
-            >
-                {row.tool}
-            </Link>
-            <VolumeBar
-                totalPct={callsPct}
-                errorPct={errorsPct}
-                title={`${row.total_calls} calls · ${row.errors} errors`}
-            />
-            <ErrorRatePill pct={row.error_rate_pct} />
-            <span className="text-right font-mono text-xs text-primary">
-                {row.p95_duration_ms ? `${Math.round(row.p95_duration_ms)}ms` : '—'}
-            </span>
-        </div>
-    )
-}
-
-function ToolReliabilityMatrix({
-    rows,
-    loading,
-    totalTools,
-}: {
-    rows: ToolRow[]
-    loading: boolean
-    totalTools: number
-}): JSX.Element {
-    const maxVolume = rows.length ? Math.max(...rows.map((r) => r.total_calls)) : 0
-
-    return (
-        <Card>
-            <div
-                className="grid items-center gap-2.5 pb-1.5 text-[11px] text-secondary"
-                style={{
-                    gridTemplateColumns: '140px 1fr 60px 56px',
-                    borderBottom: '0.5px solid var(--color-border-secondary)',
-                }}
-            >
-                <span>Tool</span>
-                <span>
-                    <span style={{ color: VOLUME_COLOR }}>Calls</span>
-                    <span className="mx-1">·</span>
-                    <span style={{ color: ERROR_COLOR }}>errors</span>
-                </span>
-                <span>Err</span>
-                <span className="text-right">p95</span>
-            </div>
-            {loading && rows.length === 0 ? (
-                <div className="space-y-2 py-3">
-                    {Array.from({ length: 5 }).map((_, i) => (
-                        <LemonSkeleton key={i} className="h-3.5 w-full" />
-                    ))}
+        <div className="rounded-md border border-primary bg-surface-primary px-2.5 py-2 text-xs shadow-md">
+            <div className="mb-1 font-medium text-primary">{title}</div>
+            {rows.map(([label, value]) => (
+                <div key={label} className="flex justify-between gap-4 text-secondary">
+                    <span>{label}</span>
+                    <span className="font-mono text-primary">{value}</span>
                 </div>
-            ) : rows.length === 0 ? (
+            ))}
+        </div>
+    )
+}
+
+// Stacked vertical bars: daily tool-call volume, one stacked segment per tool.
+function ToolUsageChart({
+    data,
+    loading,
+    theme,
+    timezone,
+}: {
+    data: ToolDailySeries
+    loading: boolean
+    theme: ChartTheme
+    timezone: string
+}): JSX.Element {
+    const series = useMemo<Series[]>(
+        () =>
+            data.tools.map((t, i) => ({
+                key: t.tool,
+                label: t.tool,
+                // Desaturate the palette a touch — fully-saturated stacked colors trigger
+                // chromostereopsis, where segments appear to differ in width even though they don't.
+                color: toPastel(theme.colors[i % theme.colors.length], 0.15),
+                data: t.data,
+            })),
+        [data, theme]
+    )
+    const config = useMemo<TimeSeriesBarChartConfig>(
+        () => ({
+            barLayout: 'stacked',
+            barCornerRadius: 2,
+            yAxis: { showGrid: false },
+            showAxisLines: true,
+            xAxis: { interval: 'day', timezone },
+            tooltip: { placement: 'cursor' },
+        }),
+        [timezone]
+    )
+
+    return (
+        <Card title="Daily breakdown of tool calls">
+            {loading && data.labels.length === 0 ? (
+                <LemonSkeleton className="h-[260px] w-full" />
+            ) : data.labels.length === 0 ? (
                 <div className="py-6 text-center text-[12px] text-secondary">No tool calls yet.</div>
             ) : (
-                rows.map((row, i) => (
-                    <ToolRowItem key={row.tool} row={row} maxVolume={maxVolume} isLast={i === rows.length - 1} />
-                ))
-            )}
-            {rows.length > 0 && (
-                <div className="mt-1.5 flex justify-end">
-                    <Link to={urls.mcpAnalyticsToolQuality()} className="text-[10px]">
-                        View all {totalTools} tools ↗
-                    </Link>
+                <div className="flex h-[260px] flex-col">
+                    <TimeSeriesBarChart series={series} labels={data.labels} config={config} theme={theme} />
                 </div>
             )}
         </Card>
     )
 }
 
-const HARNESS_GRID_TEMPLATE = '160px 1fr 56px 56px'
+// A "nice" upper bound for the error-rate track: a bit above the worst tool's rate, rounded up to a
+// clean 10 — so the track ends just past the data (e.g. a 30% max gives a 50% track) instead of an
+// always-empty-looking 100%.
+function niceErrorAxisMax(maxRate: number): number {
+    return Math.min(100, Math.max(10, Math.ceil((maxRate * 1.4) / 10) * 10))
+}
 
-function HarnessBreakdown({ rows, loading }: { rows: HarnessRow[]; loading: boolean }): JSX.Element {
-    const maxCalls = rows.length ? Math.max(...rows.map((r) => r.total_calls)) : 0
-    const totalCalls = rows.reduce((acc, r) => acc + r.total_calls, 0)
+// Horizontal bars of error rate per tool, sorted worst-first.
+function ToolErrorRateChart({
+    rows,
+    loading,
+    theme,
+}: {
+    rows: ToolRow[]
+    loading: boolean
+    theme: ChartTheme
+}): JSX.Element {
+    const sorted = useMemo(() => [...rows].sort((a, b) => b.error_rate_pct - a.error_rate_pct), [rows])
+    const labels = useMemo(() => sorted.map((r) => r.tool), [sorted])
+    const series = useMemo<Series[]>(
+        () => [
+            {
+                key: 'errorRate',
+                label: 'Error rate',
+                color: theme.colors[4],
+                data: sorted.map((r) => r.error_rate_pct),
+            },
+        ],
+        [sorted, theme]
+    )
+    const config = useMemo<BarChartConfig>(() => {
+        const axisMax = niceErrorAxisMax(sorted[0]?.error_rate_pct ?? 0)
+        return {
+            axisOrientation: 'horizontal',
+            barLayout: 'grouped',
+            showGrid: false,
+            showAxisLines: false,
+            tooltip: { placement: 'cursor' },
+            margins: { top: 4, right: 20, bottom: 22 },
+            bars: { cornerRadius: 3, minBandSize: 30, track: { hover: false }, valueDomain: [0, axisMax] },
+        }
+    }, [sorted])
+    const renderTooltip = (ctx: TooltipContext): JSX.Element | null => {
+        const row = sorted.find((r) => r.tool === ctx.label)
+        if (!row) {
+            return null
+        }
+        return (
+            <ChartTooltip
+                title={row.tool}
+                rows={[
+                    ['Error rate', formatPercent(row.error_rate_pct)],
+                    ['Errors', String(row.errors)],
+                    ['Calls', String(row.total_calls)],
+                ]}
+            />
+        )
+    }
 
     return (
-        <Card>
-            <div
-                className="grid items-center gap-2.5 pb-1.5 text-[11px] text-secondary"
-                style={{
-                    gridTemplateColumns: HARNESS_GRID_TEMPLATE,
-                    borderBottom: '0.5px solid var(--color-border-secondary)',
-                }}
-            >
-                <span>Harness</span>
-                <span>
-                    <span style={{ color: VOLUME_COLOR }}>Calls</span>
-                    <span className="mx-1">·</span>
-                    <span style={{ color: ERROR_COLOR }}>errors</span>
-                </span>
-                <span>Err</span>
-                <span className="text-right">Share</span>
-            </div>
+        <Card title="Tools with the highest error rate">
             {loading && rows.length === 0 ? (
                 <div className="space-y-2 py-3">
                     {Array.from({ length: 5 }).map((_, i) => (
-                        <LemonSkeleton key={i} className="h-3.5 w-full" />
+                        <LemonSkeleton key={i} className="h-7 w-full" />
                     ))}
                 </div>
             ) : rows.length === 0 ? (
-                <div className="py-6 text-center text-[12px] text-secondary">No harness data yet.</div>
+                <div className="py-6 text-center text-[12px] text-secondary">No tool calls yet.</div>
             ) : (
-                rows.map((row, i) => {
-                    const callsPct = maxCalls ? (row.total_calls / maxCalls) * 100 : 0
-                    const errorsPct = maxCalls ? (row.errors / maxCalls) * 100 : 0
-                    const share = totalCalls ? (row.total_calls / totalCalls) * 100 : 0
-                    const tooltip = row.raw_clients.slice(0, 8).join(', ')
-                    return (
-                        <div
-                            key={row.category}
-                            className="grid items-center gap-2.5 py-1.5"
-                            style={{
-                                gridTemplateColumns: HARNESS_GRID_TEMPLATE,
-                                borderBottom:
-                                    i === rows.length - 1 ? 'none' : '0.5px solid var(--color-border-tertiary)',
-                            }}
-                        >
-                            <HarnessPill category={row.category} title={tooltip} />
-                            <VolumeBar
-                                totalPct={callsPct}
-                                errorPct={errorsPct}
-                                title={`${row.total_calls} calls · ${row.errors} errors · ${row.sessions} sessions`}
+                <div className="flex flex-col">
+                    <BarChart series={series} labels={labels} config={config} theme={theme} tooltip={renderTooltip}>
+                        <ValueLabels valueFormatter={(value) => formatPercent(value)} offset={6} />
+                    </BarChart>
+                </div>
+            )}
+        </Card>
+    )
+}
+
+const HARNESS_DONUT_CONFIG: PieChartConfig = {
+    innerRadiusRatio: 0.6,
+    // Built-in text labels are off — a custom overlay (HarnessSliceLabels) draws logo pills instead.
+    showLabelOnSlice: false,
+    showValueOnSlice: false,
+}
+
+// Overlay that drops a HarnessPill (logo + name) onto the middle of each slice's arc. Rendered as a
+// PieChart child so it can read the slice geometry from the radial layout context.
+function HarnessSliceLabels(): JSX.Element | null {
+    const { layout } = useRadialLayout()
+    const midRadius = layout.innerRadius + (layout.outerRadius - layout.innerRadius) / 2
+    return (
+        <>
+            {layout.slices.map((slice) => {
+                if (slice.fraction < 0.05) {
+                    return null
+                }
+                const x = layout.cx + Math.sin(slice.centroidAngle) * midRadius
+                const y = layout.cy - Math.cos(slice.centroidAngle) * midRadius
+                const category = slice.series.label
+                const logo = HARNESS_LOGOS[category]
+                return (
+                    <div
+                        key={slice.series.key}
+                        className="pointer-events-none absolute"
+                        style={{ left: x, top: y, transform: 'translate(-50%, -50%)' }}
+                    >
+                        {logo ? (
+                            <img
+                                src={logo}
+                                alt={category}
+                                title={category}
+                                className="h-7 w-7 object-contain"
+                                style={{ filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45))' }}
                             />
-                            <ErrorRatePill pct={row.error_rate_pct} />
-                            <span className="text-right font-mono text-xs text-primary">
-                                {share.toFixed(share >= 10 ? 0 : 1)}%
-                            </span>
+                        ) : (
+                            <HarnessPill category={category} />
+                        )}
+                    </div>
+                )
+            })}
+        </>
+    )
+}
+
+// Donut of call share by harness, with a logo legend alongside.
+function HarnessDonut({
+    rows,
+    loading,
+    theme,
+}: {
+    rows: HarnessRow[]
+    loading: boolean
+    theme: ChartTheme
+}): JSX.Element {
+    const totalCalls = rows.reduce((acc, r) => acc + r.total_calls, 0)
+    const series = useMemo<Series<HarnessRow>[]>(
+        () =>
+            rows.map((r, i) => ({
+                key: r.category,
+                label: r.category,
+                color: harnessSliceColor(theme, r.category, i),
+                data: [r.total_calls],
+                meta: r,
+            })),
+        [rows, theme]
+    )
+    const renderTooltip = (ctx: TooltipContext<HarnessRow>): JSX.Element | null => {
+        const entry = ctx.seriesData[0]
+        const row = entry?.series.meta
+        if (!row) {
+            return null
+        }
+        const share = entry.fraction !== undefined ? entry.fraction * 100 : 0
+        return (
+            <ChartTooltip
+                title={row.category}
+                rows={[
+                    ['Calls', String(row.total_calls)],
+                    ['Share', formatPercent(share)],
+                    ['Sessions', String(row.sessions)],
+                    ['Error rate', formatPercent(row.error_rate_pct)],
+                ]}
+            />
+        )
+    }
+
+    if (loading && rows.length === 0) {
+        return (
+            <Card className="flex flex-1 flex-col" title="Share of calls by harness">
+                <div className="flex min-h-[300px] flex-1 items-center justify-center">
+                    <LemonSkeleton className="h-[180px] w-[180px] rounded-full" />
+                </div>
+            </Card>
+        )
+    }
+    if (rows.length === 0) {
+        return (
+            <Card className="flex flex-1 flex-col" title="Breakdown of tool calls by harness">
+                <div className="flex min-h-[300px] flex-1 items-center justify-center text-[12px] text-secondary">
+                    No harness data yet.
+                </div>
+            </Card>
+        )
+    }
+
+    return (
+        <Card className="flex flex-1 flex-col" title="Share of calls by harness">
+            <div className="flex min-h-[300px] flex-1 flex-col">
+                <PieChart<HarnessRow>
+                    series={series}
+                    theme={theme}
+                    config={HARNESS_DONUT_CONFIG}
+                    tooltip={renderTooltip}
+                    centerLabel={
+                        <div className="text-center">
+                            <div className="text-3xl font-semibold text-primary">{formatNumber(totalCalls)}</div>
+                            <div className="text-xs text-secondary">calls</div>
                         </div>
-                    )
-                })
+                    }
+                >
+                    <HarnessSliceLabels />
+                </PieChart>
+            </div>
+        </Card>
+    )
+}
+
+// Daily tool-call volume (busy) and errors (erroring) as two lines, over the activity window.
+function ActivityChart({
+    daily,
+    loading,
+    theme,
+    timezone,
+}: {
+    daily: DailyActivity
+    loading: boolean
+    theme: ChartTheme
+    timezone: string
+}): JSX.Element {
+    const series = useMemo<Series[]>(() => {
+        const totals = daily.successes.map((s, i) => s + (daily.errors[i] ?? 0))
+        return [
+            { key: 'calls', label: 'Tool calls', color: theme.colors[0], data: totals },
+            { key: 'errors', label: 'Errors', color: errorColor(theme), data: daily.errors },
+        ]
+    }, [daily, theme])
+    // quill's built-in date tick formatter only kicks in when both interval and timezone are set.
+    const config = useMemo<TimeSeriesLineChartConfig>(
+        () => ({
+            yAxis: { showGrid: false },
+            showAxisLines: true,
+            xAxis: { interval: 'day', timezone },
+            showCrosshair: true,
+            tooltip: { placement: 'cursor' },
+        }),
+        [timezone]
+    )
+
+    return (
+        <Card className="flex flex-1 flex-col" title="Daily tool calls and errors">
+            {loading && daily.labels.length === 0 ? (
+                <LemonSkeleton className="min-h-[300px] flex-1" />
+            ) : daily.labels.length === 0 ? (
+                <div className="flex flex-1 items-center justify-center py-6 text-center text-[12px] text-secondary">
+                    No activity yet.
+                </div>
+            ) : (
+                <div className="flex min-h-[300px] flex-1 flex-col">
+                    <TimeSeriesLineChart series={series} labels={daily.labels} config={config} theme={theme} />
+                </div>
             )}
         </Card>
     )
@@ -449,92 +646,79 @@ function formatDuration(seconds: number): string {
 }
 
 function StatusPill({ errorRatePct }: { errorRatePct: number }): JSX.Element {
-    if (errorRatePct >= 100) {
-        return (
-            <span className="inline-flex h-[14px] items-center rounded-[3px] bg-fill-error-highlight px-1.5 text-[10px] font-medium text-error">
-                100% err
-            </span>
-        )
+    if (errorRatePct === 0) {
+        return <Badge variant="success">Healthy</Badge>
     }
-    if (errorRatePct > 0) {
-        const bucket = errorBucket(errorRatePct)
-        return (
-            <span
-                className={`inline-flex h-[14px] items-center rounded-[3px] px-1.5 text-[10px] font-medium ${ERROR_PILL_CLASS[bucket]}`}
-            >
-                {errorRatePct.toFixed(errorRatePct >= 10 ? 0 : 1)}% err
-            </span>
-        )
-    }
-    return (
-        <span className="inline-flex h-[14px] items-center rounded-[3px] bg-fill-success-highlight px-1.5 text-[10px] font-medium text-success">
-            Success
-        </span>
-    )
+    const bucket = errorBucket(errorRatePct)
+    const variant = bucket === 'red' ? 'destructive' : bucket === 'amber' ? 'warning' : 'success'
+    return <Badge variant={variant}>{formatPercent(errorRatePct)} errors</Badge>
 }
-
-const NOTABLE_GRID_TEMPLATE = '22% 12% 14% 18% 1fr'
 
 function NotableSessionsTable({ sessions, loading }: { sessions: NotableSession[]; loading: boolean }): JSX.Element {
     return (
-        <Card>
-            <div
-                className="grid items-center gap-2.5 pb-1.5 text-[11px] text-secondary"
-                style={{
-                    gridTemplateColumns: NOTABLE_GRID_TEMPLATE,
-                    borderBottom: '0.5px solid var(--color-border-secondary)',
-                }}
-            >
-                <span>Session</span>
-                <span>Calls</span>
-                <span>Duration</span>
-                <span>Status</span>
-                <span>Why notable</span>
-            </div>
-            {loading && sessions.length === 0 ? (
-                <div className="space-y-2 py-3">
-                    {Array.from({ length: 4 }).map((_, i) => (
-                        <LemonSkeleton key={i} className="h-3.5 w-full" />
-                    ))}
-                </div>
-            ) : sessions.length === 0 ? (
-                <div className="py-6 text-center text-[12px] text-secondary">
-                    No notable sessions in the last 7 days.
-                </div>
-            ) : (
-                sessions.map((entry, i) => (
-                    <div
-                        key={entry.session.session_id}
-                        className="grid items-center gap-2.5 py-1.5"
-                        style={{
-                            gridTemplateColumns: NOTABLE_GRID_TEMPLATE,
-                            borderBottom:
-                                i === sessions.length - 1 ? 'none' : '0.5px solid var(--color-border-tertiary)',
-                        }}
-                    >
-                        <Link
-                            to={urls.mcpAnalyticsSessions()}
-                            className="truncate font-mono text-[11px]"
-                            title={entry.session.session_id}
-                        >
-                            {truncateSessionId(entry.session.session_id)}
-                        </Link>
-                        <span className="text-[11px]">{entry.session.tool_calls}</span>
-                        <span className="text-[11px]">{formatDuration(entry.session.duration_seconds)}</span>
-                        <StatusPill errorRatePct={entry.session.error_rate_pct} />
-                        <span className="truncate text-[11px] text-primary" title={entry.label}>
-                            {entry.label}
-                        </span>
-                    </div>
-                ))
-            )}
+        <div className="flex h-full flex-col overflow-hidden rounded-lg border border-primary bg-surface-primary">
+            <h3 className="mb-0 border-b border-primary px-3.5 py-3 text-sm font-medium text-primary">
+                Sessions flagged for review
+            </h3>
+            <Table fullWidth>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>Session</TableHead>
+                        <TableHead align="right">Calls</TableHead>
+                        <TableHead align="right">Duration</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead expand>Why notable</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {loading && sessions.length === 0 ? (
+                        <TableRow>
+                            <TableCell colSpan={5}>
+                                <div className="space-y-2 py-1">
+                                    {Array.from({ length: 4 }).map((_, i) => (
+                                        <LemonSkeleton key={i} className="h-3.5 w-full" />
+                                    ))}
+                                </div>
+                            </TableCell>
+                        </TableRow>
+                    ) : sessions.length === 0 ? (
+                        <TableRow>
+                            <TableCell colSpan={5} align="center" className="py-6 text-secondary">
+                                No notable sessions in the last 30 days.
+                            </TableCell>
+                        </TableRow>
+                    ) : (
+                        sessions.map((entry) => (
+                            <TableRow key={entry.session.session_id}>
+                                <TableCell className="whitespace-nowrap">
+                                    <Link
+                                        to={urls.mcpAnalyticsSessions()}
+                                        className="font-mono"
+                                        title={entry.session.session_id}
+                                    >
+                                        {truncateSessionId(entry.session.session_id)}
+                                    </Link>
+                                </TableCell>
+                                <TableCell align="right">{entry.session.tool_calls}</TableCell>
+                                <TableCell align="right">{formatDuration(entry.session.duration_seconds)}</TableCell>
+                                <TableCell>
+                                    <StatusPill errorRatePct={entry.session.error_rate_pct} />
+                                </TableCell>
+                                <TableCell expand className="text-primary" title={entry.label}>
+                                    {entry.label}
+                                </TableCell>
+                            </TableRow>
+                        ))
+                    )}
+                </TableBody>
+            </Table>
             {sessions.length > 0 && (
-                <div className="mt-1.5 flex justify-end">
+                <div className="mt-auto flex justify-end border-t border-primary px-3.5 py-2">
                     <Link to={urls.mcpAnalyticsSessions()} className="text-[10px]">
                         Open all flagged sessions in Sessions tab ↗
                     </Link>
                 </div>
             )}
-        </Card>
+        </div>
     )
 }
