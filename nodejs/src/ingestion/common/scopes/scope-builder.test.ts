@@ -25,4 +25,25 @@ describe('ScopeBuilder', () => {
         expect(a.startCalls).toBe(0)
         expect(log).toEqual([])
     })
+
+    it('rejects re-adding an existing key at the type level', async () => {
+        const log: string[] = []
+        const a = makeComponent('a', log)
+        const b = makeComponent('b', log)
+
+        const scope = ScopeBuilder.empty()
+            .add('a', a)
+            // @ts-expect-error re-adding an existing key collapses the `name` param to `never`
+            .add('a', b)
+            .build('phase')
+
+        // The guard is purely at the type level — at runtime the later entry
+        // overwrites the earlier one in the map, so only `b` ever starts.
+        const started = await scope.start()
+        expect(started.container).toEqual({ a: { name: 'b' } })
+        expect(a.startCalls).toBe(0)
+        expect(b.startCalls).toBe(1)
+
+        await started.stop()
+    })
 })
