@@ -286,34 +286,37 @@ function PendingReportConfig({ evaluationId }: { evaluationId: string }): JSX.El
 
 /** Toggle-based report management for existing evaluations.
  * The "Save changes" button at the top of the evaluation page persists any
- * draft updates — see llmEvaluationLogic.saveEvaluation, which forwards
- * the draft to persistReportDraft. Disabling the toggle with a saved report
- * is still an immediate destructive action (handled via the dialog) rather
- * than a staged save. */
+ * draft field updates — see llmEvaluationLogic.saveEvaluation, which forwards
+ * the draft to persistReportDraft. The enabled toggle is owned here, not by
+ * that Save: flipping it pauses/resumes the report immediately (setReportsEnabled),
+ * keeping its config intact, so Save can never silently re-enable a paused report. */
 function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.Element {
     const logic = evaluationReportLogic({ evaluationId })
     const { activeReport, reportsLoading, configDraft, isConfigDirty } = useValues(logic)
-    const { deleteReport, setDraftEnabled } = useActions(logic)
+    const { setReportsEnabled, setDraftEnabled } = useActions(logic)
 
-    const isEnabled = !!activeReport || configDraft.enabled
+    const isEnabled = activeReport ? activeReport.enabled : configDraft.enabled
 
     const handleToggle = (checked: boolean): void => {
-        if (checked) {
-            setDraftEnabled(true)
-        } else if (activeReport) {
-            LemonDialog.open({
-                title: 'Disable scheduled reports?',
-                description: 'This will stop all future report deliveries. Past reports will be preserved.',
-                primaryButton: {
-                    children: 'Disable',
-                    status: 'danger',
-                    onClick: () => deleteReport(activeReport.id),
-                },
-                secondaryButton: { children: 'Cancel' },
-            })
-        } else {
-            setDraftEnabled(false)
+        if (!activeReport) {
+            // No saved report yet — just stage the draft toggle until the page is saved.
+            setDraftEnabled(checked)
+            return
         }
+        if (checked) {
+            setReportsEnabled(true)
+            return
+        }
+        LemonDialog.open({
+            title: 'Pause scheduled reports?',
+            description:
+                'This stops future report deliveries but keeps the configuration. You can re-enable it anytime. Past reports are preserved.',
+            primaryButton: {
+                children: 'Pause',
+                onClick: () => setReportsEnabled(false),
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
     }
 
     return (

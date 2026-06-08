@@ -61,7 +61,7 @@ function draftFromReport(report: EvaluationReport): ReportConfigDraft {
     // that buildDeliveryTargets later trims) doesn't fire a false positive when
     // the stored value is surrounded by whitespace.
     return {
-        enabled: true,
+        enabled: report.enabled,
         frequency: report.frequency,
         rrule: report.rrule ?? '',
         startsAt: report.starts_at ?? null,
@@ -332,6 +332,24 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     )
                     return values.reports.filter((r) => r.id !== reportId)
                 },
+                // Pause/resume the report without deleting its config. The scheduler only
+                // delivers reports with enabled=True, so this is a true pause. We flip every
+                // non-deleted config for the evaluation — historically an evaluation could end
+                // up with more than one, and leaving any enabled would keep delivering.
+                setReportsEnabled: async (enabled: boolean) => {
+                    const targets = values.reports.filter((r) => !r.deleted)
+                    const updated = await Promise.all(
+                        targets.map((r) =>
+                            // nosemgrep: prefer-codegen-api
+                            api.update(
+                                `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/${r.id}/`,
+                                { enabled }
+                            )
+                        )
+                    )
+                    const updatedById = new Map(updated.map((r: EvaluationReport) => [r.id, r]))
+                    return values.reports.map((r) => updatedById.get(r.id) ?? r)
+                },
             },
         ],
         reportRuns: [
@@ -367,7 +385,9 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         activeReport: [
             (s) => [s.reports],
             (reports): EvaluationReport | null => {
-                return reports.find((r: EvaluationReport) => r.enabled && !r.deleted) || null
+                // A paused (enabled=false) report is still the live config — it stays
+                // visible and re-enableable. Only a soft-deleted report drops out.
+                return reports.find((r: EvaluationReport) => !r.deleted) || null
             },
         ],
         isConfigDirty: [
@@ -401,7 +421,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         loadReportsSuccess: ({ reports }) => {
             // Auto-load the run history for the active report so the Reports tab knows
             // whether to render itself and can show data immediately.
-            const active = reports.find((r: EvaluationReport) => r.enabled && !r.deleted)
+            const active = reports.find((r: EvaluationReport) => !r.deleted)
             if (active) {
                 actions.loadReportRuns(active.id)
                 // Seed the draft so the config form reflects the saved report instead of defaults.
