@@ -131,6 +131,54 @@ jobs:
                           assignees: [process.env.PR_AUTHOR],
                       });
 
+            # Bot PRs can't be auto-assigned to a human (the step above skips bots),
+            # so for our known automation accounts drop a one-time comment asking the
+            # human behind it to self-assign for clear ownership. Only when nobody is
+            # assigned yet. Default GITHUB_TOKEN is enough to comment; never fail the
+            # PR over it.
+            - name: Nudge human to self-assign on bot PRs
+              if: >-
+                  github.event.pull_request.assignees[0] == null && (
+                      github.event.pull_request.user.login == 'posthog' ||
+                      github.event.pull_request.user.login == 'posthog-bot' ||
+                      contains(github.event.pull_request.user.login, 'mendral-app')
+                  )
+              continue-on-error: true
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  BOT_LOGIN: ${{ github.event.pull_request.user.login }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              with:
+                  script: |
+                      const prNumber = parseInt(process.env.PR_NUMBER, 10);
+                      const marker = '<!-- bot-pr-assign-nudge -->';
+
+                      // Post at most once per PR.
+                      const existing = await github.paginate(github.rest.issues.listComments, {
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: prNumber,
+                          per_page: 100,
+                      });
+                      if (existing.some((comment) => comment.body?.includes(marker))) {
+                          console.log('Bot-PR nudge already posted — skipping.');
+                          return;
+                      }
+
+                      const body = [
+                          marker,
+                          `👋 This PR was opened by an automated account (\`${process.env.BOT_LOGIN}\`), so it has no human owner assigned.`,
+                          '',
+                          "If you're the person behind it, please **assign yourself** (Assignees, in the right sidebar) so ownership is clear.",
+                      ].join('\n');
+
+                      await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: prNumber,
+                          body,
+                      });
+
             - name: Nudge if commits use a non-PostHog email
               if: steps.membership.outputs.is-member == 'true'
               # A non-critical nudge must never turn the PR red on a transient API error.
