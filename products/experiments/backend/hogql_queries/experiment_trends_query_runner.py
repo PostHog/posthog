@@ -38,6 +38,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY
+from products.experiments.backend.hogql_queries.base_query_utils import resolve_feature_flag_key
 from products.experiments.backend.hogql_queries.trends_statistics_v2_continuous import (
     are_results_significant_v2_continuous,
     calculate_credible_intervals_v2_continuous,
@@ -64,10 +65,11 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         self.feature_flag = self.experiment.feature_flag
+        self.feature_flag_key = resolve_feature_flag_key(self.feature_flag)
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
-        self.breakdown_key = f"$feature/{self.feature_flag.key}"
+        self.breakdown_key = f"$feature/{self.feature_flag_key}"
 
         self._fix_math_aggregation()
 
@@ -228,7 +230,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                     ),
                     EventPropertyFilter(
                         key="$feature_flag",
-                        value=[self.feature_flag.key],
+                        value=[self.feature_flag_key],
                         operator=PropertyOperator.EXACT,
                         type="event",
                     ),
@@ -245,7 +247,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             query_type="ExperimentTrendsQuery",
             experiment_id=str(self.experiment.id),
             experiment_name=self.experiment.name,
-            experiment_feature_flag_key=self.feature_flag.key,
+            experiment_feature_flag_key=self.feature_flag_key,
         )
 
         shared_results: dict[str, Optional[Any]] = {"count_result": None, "exposure_result": None}

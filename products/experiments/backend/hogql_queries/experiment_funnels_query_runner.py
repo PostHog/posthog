@@ -27,6 +27,7 @@ from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQ
 from posthog.hogql_queries.query_runner import QueryRunner
 
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY
+from products.experiments.backend.hogql_queries.base_query_utils import resolve_feature_flag_key
 from products.experiments.backend.hogql_queries.funnels_statistics_v2 import (
     are_results_significant_v2,
     calculate_credible_intervals_v2,
@@ -47,6 +48,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         self.feature_flag = self.experiment.feature_flag
+        self.feature_flag_key = resolve_feature_flag_key(self.feature_flag)
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
@@ -63,7 +65,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             query_type="ExperimentFunnelsQuery",
             experiment_id=self.experiment.id,
             experiment_name=self.experiment.name,
-            experiment_feature_flag_key=self.feature_flag.key,
+            experiment_feature_flag_key=self.feature_flag_key,
         )
 
         funnels_result = self.funnels_query_runner.calculate()
@@ -129,7 +131,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
 
         # Configure the breakdown to use the feature flag key
         prepared_funnels_query.breakdownFilter = BreakdownFilter(
-            breakdown=f"$feature/{self.feature_flag.key}",
+            breakdown=f"$feature/{self.feature_flag_key}",
             breakdown_type="event",
         )
 
