@@ -31,13 +31,12 @@ import { CymbalClient } from './cymbal'
 import {
     ErrorTrackingOutputs,
     ErrorTrackingPipelineOutput,
-    PreCymbalRateLimiterInput,
+    PostCymbalRateLimiterInput,
     createErrorTrackingPipeline,
     runErrorTrackingPipeline,
 } from './error-tracking-pipeline'
 import { KeyedRateLimiterStepOptions } from './keyed-rate-limiter-step'
 import { PerIssueGuardedRateLimiterService } from './per-issue-guarded-rate-limiter.service'
-import { preCymbalGroupKey } from './pre-cymbal-group-key'
 
 /**
  * Configuration values for ErrorTrackingConsumer.
@@ -287,7 +286,7 @@ export class ErrorTrackingConsumer {
             preservePartitionLocality: this.config.preservePartitionLocality,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
-            preCymbalRateLimiters: this.buildPreCymbalRateLimiterSpecs(),
+            postCymbalRateLimiters: this.buildPostCymbalRateLimiterSpecs(),
             errorTrackingSettingsManager: this.rateLimiter ? this.deps.errorTrackingSettingsManager : undefined,
             topHog: this.topHog,
         })
@@ -296,7 +295,7 @@ export class ErrorTrackingConsumer {
     }
 
     /** Per-issue spec uses the guarded service; team-global spec uses the base service. */
-    private buildPreCymbalRateLimiterSpecs(): KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[] {
+    private buildPostCymbalRateLimiterSpecs(): KeyedRateLimiterStepOptions<PostCymbalRateLimiterInput>[] {
         if (!this.rateLimiter || !this.perIssueGuardedRateLimiter) {
             return []
         }
@@ -313,8 +312,10 @@ export class ErrorTrackingConsumer {
                     if (input.errorTrackingSettings?.perIssueRateLimitValue == null) {
                         return null
                     }
-                    const scopeKey = preCymbalGroupKey(input.event)
-                    return scopeKey ? `${input.team.id}:exceptions:issue:${scopeKey}` : null
+                    const issueId = input.event.properties?.$exception_issue_id
+                    return typeof issueId === 'string' && issueId
+                        ? `${input.team.id}:exceptions:issue:${issueId}`
+                        : null
                 },
                 // Per-issue keys are high-cardinality; collapse every issue's outcomes into a
                 // single app_metrics2 row per team rather than one row per issue.
