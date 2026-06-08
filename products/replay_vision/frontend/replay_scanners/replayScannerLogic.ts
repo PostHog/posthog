@@ -625,7 +625,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     if (values.estimateRequestVersion !== version) {
                         return
                     }
-                    actions.loadScannerEstimateFailure(error?.detail ?? null)
+                    const detail = typeof error?.detail === 'string' ? error.detail : null
+                    const message = typeof error?.message === 'string' ? error.message : null
+                    actions.loadScannerEstimateFailure(detail ?? message)
                 }
             },
 
