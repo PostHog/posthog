@@ -18,6 +18,7 @@ export type AIObservabilityConfig = {
     // taggers silently break for teams in the difference set (status quo bug).
     LLMA_EVAL_SCHEDULER_TOPIC: 'events' | 'ai_events'
     LLMA_EVAL_SCHEDULER_AI_TOPIC_TEAMS: string
+    LLMA_EVAL_SCHEDULER_PROVIDER_KEY_GATING: boolean
 }
 
 export function getDefaultAIObservabilityConfig(): AIObservabilityConfig {
@@ -30,5 +31,6 @@ export function getDefaultAIObservabilityConfig(): AIObservabilityConfig {
         TEMPORAL_CLIENT_KEY: undefined,
         LLMA_EVAL_SCHEDULER_TOPIC: 'events',
         LLMA_EVAL_SCHEDULER_AI_TOPIC_TEAMS: '',
+        LLMA_EVAL_SCHEDULER_PROVIDER_KEY_GATING: false,
     }
 }

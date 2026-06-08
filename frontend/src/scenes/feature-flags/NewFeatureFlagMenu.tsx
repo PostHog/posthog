@@ -18,7 +18,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { getToolDefinition } from 'scenes/max/max-constants'
-import { maxLogic } from 'scenes/max/maxLogic'
+import { SIDE_PANEL_PANEL_ID, maxLogic } from 'scenes/max/maxLogic'
 import { createSuggestionGroup } from 'scenes/max/utils'
 import { urls } from 'scenes/urls'
 
@@ -109,7 +109,7 @@ function IntentSubmenu({ template, onBack }: { template: TemplateKey; onBack: ()
 
 export function OverlayForNewFeatureFlagMenu(): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { setActiveGroup } = useActions(maxLogic({ tabId: 'sidepanel' }))
+    const { setActiveGroup } = useActions(maxLogic({ panelId: SIDE_PANEL_PANEL_ID }))
     const { openSidePanel } = useActions(sidePanelLogic)
 
     const intentsEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_CREATION_INTENTS]

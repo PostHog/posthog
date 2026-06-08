@@ -29,6 +29,7 @@ from products.event_definitions.backend.models import EventProperty
 from .role_external_reference import RoleExternalReference
 from .exported_recording import ExportedRecording
 from .file_system.file_system import FileSystem
+from .file_system.folder_instructions import FileSystemFolderInstructions
 from .file_system.file_system_view_log import FileSystemViewLog
 from .filters import Filter, RetentionFilter
 from .group import Group
@@ -117,6 +118,7 @@ __all__ = [
     "RoleExternalReference",
     "ExportedRecording",
     "FileSystem",
+    "FileSystemFolderInstructions",
     "FileSystemViewLog",
     "Filter",
     "Group",

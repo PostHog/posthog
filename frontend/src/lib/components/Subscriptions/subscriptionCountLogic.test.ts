@@ -1,11 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { subscriptionsList } from '~/generated/core/api'
+import { subscriptionsList } from '@posthog/products-subscriptions/frontend/generated/api'
+
 import { initKeaTests } from '~/test/init'
 
 import { subscriptionCountLogic } from './subscriptionCountLogic'
 
-jest.mock('~/generated/core/api', () => ({
+jest.mock('@posthog/products-subscriptions/frontend/generated/api', () => ({
     subscriptionsList: jest.fn(),
 }))
 
