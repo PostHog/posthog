@@ -209,13 +209,19 @@ import base64, json
 
 BASE = {"us": "https://metabase.prod-us.posthog.dev", "eu": "https://metabase.prod-eu.posthog.dev"}
 
+def _ch_literal(value: str) -> str:
+    # query_id derives from the caller-supplied client_query_id, so it can contain a single quote.
+    # Escape for a ClickHouse single-quoted literal by doubling quotes; this keeps the generated SQL
+    # well-formed even though the link only opens the query in Metabase's editor (it is not auto-run).
+    return str(value).replace("'", "''")
+
 def query_link(query_id, event_date, region="us", database_id=43):
     # database_id is a ClickHouse connection on the cluster (US 43). IDs can change when Metabase's
-    # metadata is rebuilt — rediscover with `hogli metabase:databases` and any ClickHouse id works,
+    # metadata is rebuilt: rediscover with `hogli metabase:databases` and any ClickHouse id works,
     # since query_log_archive is a Distributed table. EU needs its own id.
     sql = (f"  SELECT lc_query__query FROM posthog.query_log_archive\n"
-           f"  WHERE query_id = '{query_id}'\n"
-           f"    AND event_date = '{event_date}' AND is_initial_query")
+           f"  WHERE query_id = '{_ch_literal(query_id)}'\n"
+           f"    AND event_date = '{_ch_literal(event_date)}' AND is_initial_query")
     payload = {
         "dataset_query": {"type": "native", "native": {"query": sql, "template-tags": {}}, "database": database_id},
         "display": "table", "parameters": [], "visualization_settings": {},
