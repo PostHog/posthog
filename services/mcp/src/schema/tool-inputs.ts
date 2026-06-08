@@ -157,12 +157,12 @@ export const FeedbackSubmitSchema = z.object({
         .string()
         .min(1)
         .describe(
-            'A one-sentence headline summarising your feedback (e.g. "query-trends descriptions made it hard to choose between trends and funnels").'
+            'A one-sentence headline naming the problem (e.g. "query-trends descriptions made it hard to choose between trends and funnels"). Only submit when something went wrong or was missing — never for positive or "everything worked" feedback.'
         ),
     sentiment: z
-        .enum(['positive', 'negative', 'mixed'])
+        .enum(['negative', 'mixed'])
         .describe(
-            'Your overall impression of the MCP server for this task. Use "positive" if it helped you, "negative" if it blocked you, "mixed" for a bit of both.'
+            'How much the MCP server got in your way for this task. Use "negative" if it blocked you, "mixed" if it mostly worked but had a concrete problem worth fixing. Do not submit purely positive feedback — only report problems.'
         ),
     category: z
         .enum([
@@ -194,13 +194,13 @@ export const FeedbackSubmitSchema = z.object({
         .string()
         .optional()
         .describe(
-            'Concrete points of friction, confusion, or surprise — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text where possible.'
+            'Clear, concise bullet points describing friction with the MCP server itself — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text. Keep it about the MCP, not the user\'s task or data.'
         ),
     suggested_improvement: z
         .string()
         .optional()
         .describe(
-            'The single most impactful change you would make to the MCP server right now. Be specific (e.g. "add a `filters` example to query-funnel\'s description").'
+            'The single most impactful, concrete change that would fix the problem you hit. Be specific (e.g. "add a `filters` example to query-funnel\'s description"). If you cannot name a specific change, do not submit feedback.'
         ),
     user_request: z
         .string()
@@ -208,7 +208,12 @@ export const FeedbackSubmitSchema = z.object({
         .describe(
             'A short, anonymised paraphrase of what the user originally asked you to do. Do not include PII, customer names, or sensitive query content.'
         ),
-    details: z.string().optional().describe("Any additional context that doesn't fit the other fields."),
+    details: z
+        .string()
+        .optional()
+        .describe(
+            "Any additional context about the MCP server that doesn't fit the other fields. Keep it to clear, concise bullet points."
+        ),
 })
 
 export const ExperimentResultsGetSchema = z.object({

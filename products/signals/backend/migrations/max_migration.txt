@@ -1,1 +1,1 @@
-0025_signalteamconfig_default_slack_notification_channel
+0032_signalteamconfig_autostart_base_branches

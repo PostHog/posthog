@@ -30,6 +30,7 @@ from oauth2_provider.views import (
     UserInfoView,
 )
 from oauth2_provider.views.mixins import OAuthLibMixin
+from oauthlib.oauth2 import InvalidGrantError
 from rest_framework import serializers, status
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
@@ -46,9 +47,17 @@ from posthog.api.oauth.cimd import (
 )
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.middleware import is_read_only_impersonation
-from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
+from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
-from posthog.scopes import downgrade_scopes_to_read_only, get_oauth_scopes_supported
+from posthog.scopes import (
+    ALWAYS_ALLOWED_SCOPES,
+    downgrade_scopes_to_read_only,
+    effective_ceiling,
+    get_oauth_scopes_supported,
+    narrow_scopes_to_ceiling,
+    scopes_outside_ceiling,
+    scopes_within_ceiling,
+)
 from posthog.security.url_validation import has_authority_bypass_chars
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
@@ -110,6 +119,66 @@ def _impersonator_id_for_request(request) -> int | None:
         return None
     original_user = get_original_user_from_session(request)
     return original_user.pk if original_user else None
+
+
+def _scoped_organization_ids(
+    user: User,
+    access_level: str | None,
+    scoped_organization_ids: list[str] | None,
+    scoped_team_ids: list[int] | None,
+) -> set[uuid.UUID]:
+    """Resolve the set of organizations a grant with this access scope would reach.
+
+    `all` access (or any unscoped grant) reaches every organization the user belongs to;
+    `organization` access is the listed organizations; `team` access is the organizations
+    owning the listed teams.
+    """
+    if access_level == OAuthApplicationAccessLevel.ORGANIZATION.value and scoped_organization_ids:
+        return {uuid.UUID(str(org_id)) for org_id in scoped_organization_ids}
+    if access_level == OAuthApplicationAccessLevel.TEAM.value and scoped_team_ids:
+        return set(Team.objects.filter(pk__in=scoped_team_ids).values_list("organization_id", flat=True))
+    return set(user.organizations.values_list("id", flat=True))
+
+
+def _impersonation_ai_processing_block(
+    request,
+    *,
+    access_level: str | None = None,
+    scoped_organization_ids: list[str] | None = None,
+    scoped_team_ids: list[int] | None = None,
+) -> Response | None:
+    """Block OAuth during impersonation when an in-scope organization has disabled AI data processing.
+
+    Some organizations explicitly opt out of AI processing of their data
+    (`Organization.is_ai_data_processing_approved`). A staff member impersonating a customer
+    must not be able to grant an OAuth client access to that data in that case (the MCP being
+    the motivating case). This does not apply to customers authorizing a client themselves —
+    they have already consented for their own data.
+
+    Mirrors the fail-closed check used elsewhere for AI features: only an explicit `True`
+    counts as approved, so a null/unset value is treated as not approved. Returns a 403
+    `Response` to short-circuit with, or `None` to proceed.
+    """
+    if not is_impersonated_session(request):
+        return None
+
+    organization_ids = _scoped_organization_ids(request.user, access_level, scoped_organization_ids, scoped_team_ids)
+    if not organization_ids:
+        return None
+
+    has_disabled_org = (
+        Organization.objects.filter(id__in=organization_ids).exclude(is_ai_data_processing_approved=True).exists()
+    )
+    if not has_disabled_org:
+        return None
+
+    return Response(
+        {
+            "error": "access_denied",
+            "error_description": "This organization has disabled AI data processing, so it cannot be authorized for an OAuth client while impersonating.",
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
 
 
 class OAuthAuthorizationContext(TypedDict):
@@ -237,6 +306,34 @@ class OAuthValidator(OAuth2Validator):
         request.client = app
         return request.client
 
+    # PostHog deliberately does NOT support OIDC silent authentication (`prompt=none`). Every
+    # authorization must go through the interactive login + consent prompt — we never issue a
+    # token without showing UI. oauthlib gates `prompt=none` on two validators in sequence
+    # (validate_silent_login then validate_silent_authorization); neither the base class nor
+    # django-oauth-toolkit implements them, so both default to NotImplementedError -> 500. We
+    # override both so that every `prompt=none` request is instead rejected with a
+    # spec-compliant OIDC error, forcing the client into the normal interactive flow.
+
+    def validate_silent_login(self, request) -> bool:
+        # First gate. We don't authorize silently regardless, but reporting real login state
+        # here yields the correct rejection error: a logged-out user gets `login_required`,
+        # while a logged-in user passes this gate and is rejected by validate_silent_authorization
+        # below with `consent_required`.
+        user = getattr(request, "user", None)
+        return bool(user and getattr(user, "is_authenticated", False))
+
+    def validate_silent_authorization(self, request) -> bool:
+        # Second gate — the one that actually disables silent authentication. Always False, so
+        # oauthlib raises `consent_required` for any authenticated `prompt=none` request instead
+        # of completing the grant (or crashing with NotImplementedError -> 500).
+        #
+        # This gate is only reached when the user is authenticated, which is precisely the
+        # silent-auth case `prompt=none` is meant to enable: oauthlib attaches request.user via
+        # credentials only in create_authorization_response (POST allow, first-party auto-grant,
+        # auto-approval), not in validate_authorization_request. Overriding validate_silent_login
+        # alone would leave the 500 in place for exactly that case.
+        return False
+
     def validate_client_id(self, client_id, request, *args, **kwargs):
         """
         Validate client_id, supporting CIMD URL-form client_ids.
@@ -297,6 +394,64 @@ class OAuthValidator(OAuth2Validator):
             return request.client.redirect_uri_allowed(portless)
 
         return False
+
+    def validate_scopes(self, client_id, scopes, client, request, *args, **kwargs):
+        """Enforce the per-application scope ceiling from `OAuthApplication.scopes`.
+
+        Delegates the ceiling resolution to `scopes_within_ceiling` so `/authorize`
+        and the hand-rolled provisioning mint paths share one implementation. The
+        only `/authorize`-specific bit kept here is mutating `request.scopes` when
+        the client omits `scope=`, so oauthlib doesn't fall back to just `["openid"]`
+        from `DEFAULT_SCOPES`. `*` is accepted under an empty ceiling here (legacy
+        PostHog Code CLI) but not on the provisioning paths — see the flag.
+        """
+        app_scopes = getattr(client, "scopes", None) or []
+        requested = set(scopes or [])
+        if not requested:
+            request.scopes = sorted(effective_ceiling(app_scopes) | ALWAYS_ALLOWED_SCOPES)
+            return True
+        return scopes_within_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
+
+    def get_original_scopes(self, refresh_token, request, *args, **kwargs):
+        """Cap refreshed scopes at the application's current ceiling.
+
+        DOT's refresh grant copies the prior access token's scopes verbatim and never
+        re-runs `validate_scopes`, so a token minted before a ceiling was tightened would
+        keep refreshing into the old, broader set. Intersecting with `application.scopes`
+        means a narrowed app drops the removed scopes on the next refresh.
+
+        Always-allowed scopes (OIDC, introspection) pass through, mirroring
+        `validate_scopes`. Resolution when the app has a ceiling:
+        - a `*` token is left untouched: narrowing it would strip all resource access
+          on refresh, and `*` is still issued to legacy clients. Its retirement is
+          handled separately in #60330 (coupled to #60342).
+        - a token whose scopes have no overlap with the ceiling can't be narrowed
+          without emptying it, so we reject the refresh (`invalid_grant`) — the client
+          re-authorizes and gets a token within the current ceiling, rather than
+          silently keeping out-of-ceiling access.
+
+        An empty `application.scopes` (no ceiling) is a no-op.
+        """
+        original = super().get_original_scopes(refresh_token, request, *args, **kwargs)
+        # DOT's base returns the stored scope as a space-delimited string; oauthlib
+        # `scope_to_list`s whatever we return, so a list back is fine.
+        original_list = original.split() if isinstance(original, str) else list(original)
+        # `request.client` is not always populated when oauthlib calls this during the
+        # refresh grant, so fall back to resolving the application from the token row.
+        application = getattr(request, "client", None)
+        if application is None:
+            rt = OAuthRefreshToken.objects.filter(token=refresh_token).select_related("application").first()
+            application = rt.application if rt else None
+
+        narrowed = narrow_scopes_to_ceiling(original_list, getattr(application, "scopes", None) or [])
+        if narrowed is None:
+            # Raised inside oauthlib's validate_token_request, which create_token_response
+            # wraps and turns into an RFC 6749 `invalid_grant` 400 — not a 500.
+            raise InvalidGrantError(
+                description="Token scopes are no longer within the application's allowed scopes; re-authorize.",
+                request=request,
+            )
+        return narrowed
 
     def rotate_refresh_token(self, request) -> bool:
         """
@@ -539,6 +694,12 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return [IsAuthenticated()]
         return []
 
+    @staticmethod
+    def _registration_type(application: OAuthApplication) -> str:
+        if application.is_cimd_client:
+            return "cimd"
+        return "dcr" if application.is_dcr_client else "manual"
+
     @method_decorator(login_required)
     def get(self, request, *args, **kwargs):
         # Rate-limit new CIMD application creation by IP.
@@ -583,7 +744,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Track OAuth authorization attempts with the authenticated user
-        registration_type = "cimd" if application.is_cimd_client else ("dcr" if application.is_dcr_client else "manual")
+        registration_type = self._registration_type(application)
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
             event="oauth_authorization_requested",
@@ -606,6 +767,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
         # First-party apps skip consent screen entirely
         if application.is_first_party:
+            if block := _impersonation_ai_processing_block(request):
+                return block
             try:
                 org_ids = request.user.organizations.values_list("id", flat=True)
                 credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
@@ -629,6 +792,13 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 # impersonating), so its split form is the effective set we need to match.
                 for token in tokens:
                     if token.allow_scopes(scope_str.split()):
+                        # Conservative fallback: check every org the impersonated user belongs to,
+                        # not just the existing token's scope. Auto-approval during impersonation
+                        # is a near-dead path (those tokens are short-lived, refresh-less, and
+                        # revoked on logout), so the broader check isn't worth threading the
+                        # matched token's scope through — the precise check lives in the POST path.
+                        if block := _impersonation_ai_processing_block(request):
+                            return block
                         uri, headers, body, status_code = self.create_authorization_response(
                             request=request, scopes=scope_str, credentials=credentials, allow=True
                         )
@@ -682,6 +852,15 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         if is_read_only_impersonation(request):
             scopes = downgrade_scopes_to_read_only(scopes)
 
+        if serializer.validated_data["allow"]:
+            if block := _impersonation_ai_processing_block(
+                request,
+                access_level=serializer.validated_data.get("access_level"),
+                scoped_organization_ids=serializer.validated_data.get("scoped_organizations"),
+                scoped_team_ids=serializer.validated_data.get("scoped_teams"),
+            ):
+                return block
+
         try:
             uri, headers, body, status_code = self.create_authorization_response(
                 request=request,
@@ -728,6 +907,33 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         error details or providing an error response
         """
         redirect, error_response = super().error_response(error, **kwargs)
+
+        # Surface scope-ceiling rejections so on-call can alert on /authorize failing with invalid_scope.
+        if getattr(error_response["error"], "error", None) == "invalid_scope" and application is not None:
+            distinct_id = getattr(getattr(self.request, "user", None), "distinct_id", None) or application.client_id
+            # invalid_scope only reaches error_response from the GET authorize request, where
+            # oauthlib raises it pre-consent (the consent POST returns it as a redirect, not a
+            # raise), so the requested scope is always in the query string here.
+            requested_scope = self.request.query_params.get("scope") or ""
+            rejected_scopes = scopes_outside_ceiling(
+                requested_scope.split(),
+                application.scopes or [],
+                allow_wildcard_under_empty_ceiling=True,
+            )
+            posthoganalytics.capture(
+                distinct_id=str(distinct_id),
+                event="oauth_authorization_rejected",
+                properties={
+                    "reason": "invalid_scope",
+                    "client_name": application.name,
+                    "app_id": str(application.pk),
+                    "registration_type": self._registration_type(application),
+                    "is_verified": application.is_verified,
+                    "is_first_party": application.is_first_party,
+                    "requested_scopes": requested_scope,
+                    "rejected_scopes": rejected_scopes,
+                },
+            )
 
         if redirect:
             if no_redirect:

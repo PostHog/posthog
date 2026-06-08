@@ -547,8 +547,11 @@ def verify_team_flags(
         db_data = _get_feature_flags_for_service(team)
     db_flags = db_data.get("flags", []) if isinstance(db_data, dict) else []
 
-    # Cache miss (source="db" or "miss" means data was not found in cache)
-    if source in ("db", "miss"):
+    # Cache miss. This verifier reads Redis only (via batch_get_from_cache), so in
+    # practice source is "redis" or "miss"; "db"/"dependency_unavailable" are matched
+    # defensively to stay in lock-step with verify_team_flag_definitions, which can see
+    # them through its single-team cold-load fallback. All mean "nothing cached", not drift.
+    if source in ("db", "miss", "dependency_unavailable"):
         return {
             "status": "miss",
             "issue": "CACHE_MISS",
@@ -773,7 +776,7 @@ def get_teams_with_flags_queryset() -> "QuerySet[Team]":
     return Team.objects.filter(Exists(has_flags))
 
 
-def _get_team_ids_with_recently_updated_flags(team_ids: list[int]) -> set[int]:
+def get_team_ids_with_recently_updated_flags(team_ids: list[int]) -> set[int]:
     """
     Batch check which teams have active flags updated within the grace period.
 
@@ -810,7 +813,7 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     update_fn=update_flags_cache,
     cache_name="flags",
     get_teams_queryset_fn=get_teams_with_flags_queryset,
-    get_team_ids_to_skip_fix_fn=_get_team_ids_with_recently_updated_flags,
+    get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
 )
 
 

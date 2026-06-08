@@ -52,7 +52,7 @@ import { posthogStatusLogic } from './posthogStatusLogic'
 
 export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { isHelpMenuOpen, isUnifiedHealthEnabled, triggerBadgeContent, triggerBadgeStatus } = useValues(helpMenuLogic)
+    const { isHelpMenuOpen, triggerBadgeContent, triggerBadgeStatus } = useValues(helpMenuLogic)
     const { setHelpMenuOpen } = useActions(helpMenuLogic)
     const { toggleZenMode } = useActions(navigation3000Logic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
@@ -60,7 +60,8 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
     const { isCloudOrDev, preflight } = useValues(preflightLogic)
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { billing } = useValues(billingLogic)
-    const { postHogStatusTooltip, postHogStatusBadgeStatus, postHogStatusBadgeContent } = useValues(posthogStatusLogic)
+    const { postHogStatusTooltip, postHogStatusBadgeStatus, postHogStatusBadgeContent, statusPageUrl } =
+        useValues(posthogStatusLogic)
     const { totalIssues } = useValues(healthSummaryLogic)
 
     return (
@@ -197,7 +198,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             targetBlankIcon
                                             target="_blank"
                                             buttonProps={{ menuItem: true }}
-                                            to="https://posthogstatus.com"
+                                            to={statusPageUrl}
                                             tooltip={postHogStatusTooltip}
                                             tooltipPlacement="right"
                                             tooltipCloseDelayMs={0}
@@ -215,34 +216,32 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                         </Link>
                                     )}
                                 />
-                                {isUnifiedHealthEnabled && (
-                                    <Menu.Item
-                                        render={(props) => (
-                                            <Link
-                                                {...props}
-                                                to={urls.health()}
-                                                buttonProps={{ menuItem: true }}
-                                                tooltip={
-                                                    totalIssues > 0
-                                                        ? `${totalIssues} health issue${totalIssues === 1 ? '' : 's'}`
-                                                        : 'All systems healthy'
-                                                }
-                                                tooltipPlacement="right"
-                                                tooltipCloseDelayMs={0}
-                                                data-attr="help-menu-health-issues-button"
+                                <Menu.Item
+                                    render={(props) => (
+                                        <Link
+                                            {...props}
+                                            to={urls.health()}
+                                            buttonProps={{ menuItem: true }}
+                                            tooltip={
+                                                totalIssues > 0
+                                                    ? `${totalIssues} health issue${totalIssues === 1 ? '' : 's'}`
+                                                    : 'All systems healthy'
+                                            }
+                                            tooltipPlacement="right"
+                                            tooltipCloseDelayMs={0}
+                                            data-attr="help-menu-health-issues-button"
+                                        >
+                                            <IconWithBadge
+                                                size="xsmall"
+                                                content={triggerBadgeContent}
+                                                status={triggerBadgeStatus}
                                             >
-                                                <IconWithBadge
-                                                    size="xsmall"
-                                                    content={triggerBadgeContent}
-                                                    status={triggerBadgeStatus}
-                                                >
-                                                    <IconStethoscope />
-                                                </IconWithBadge>
-                                                Health issues
-                                            </Link>
-                                        )}
-                                    />
-                                )}
+                                                <IconStethoscope />
+                                            </IconWithBadge>
+                                            Health issues
+                                        </Link>
+                                    )}
+                                />
 
                                 {!isCloudOrDev && (
                                     <Menu.Item

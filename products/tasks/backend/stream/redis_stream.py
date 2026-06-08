@@ -1,6 +1,7 @@
 import json
 import asyncio
 from collections.abc import AsyncGenerator
+from datetime import datetime
 from typing import Optional
 
 from django.conf import settings
@@ -9,8 +10,7 @@ import structlog
 import redis.exceptions as redis_exceptions
 from asgiref.sync import async_to_sync
 
-from posthog.redis import get_async_client
-
+from products.tasks.backend.redis import get_tasks_stream_redis_async
 from products.tasks.backend.services.connection_token import SANDBOX_EVENT_INGEST_TOKEN_TTL
 from products.tasks.backend.services.sandbox_config import SANDBOX_TTL_SECONDS
 
@@ -45,6 +45,15 @@ def _normalize_redis_int(value: bytes | str | int | None) -> int:
     if isinstance(value, bytes):
         return int(value.decode("utf-8"))
     return int(value)
+
+
+def _stream_id_sort_key(stream_id: str) -> tuple[int, int]:
+    """Parse a Redis stream ID ('<ms>-<seq>') into a comparable (ms, seq) tuple."""
+    ms_part, _, seq_part = stream_id.partition("-")
+    try:
+        return (int(ms_part), int(seq_part) if seq_part else 0)
+    except ValueError:
+        return (0, 0)
 
 
 class TaskRunStreamError(Exception):
@@ -103,11 +112,12 @@ class TaskRunRedisStream:
     def __init__(
         self,
         stream_key: str,
+        created_at: datetime | None = None,
         timeout: int = TASK_RUN_STREAM_TIMEOUT,
         max_length: int = TASK_RUN_STREAM_MAX_LENGTH,
     ):
         self._stream_key = stream_key
-        self._redis_client = get_async_client(settings.REDIS_URL)
+        self._redis_client = get_tasks_stream_redis_async(created_at)
         self._timeout = timeout
         self._sequence_timeout = max(timeout, TASK_RUN_STREAM_SEQUENCE_TIMEOUT)
         self._max_length = max_length
@@ -154,6 +164,33 @@ class TaskRunRedisStream:
             return None
         stream_id, _message = messages[0]
         return _normalize_stream_id(stream_id)
+
+    async def get_first_stream_id(self) -> str | None:
+        """Return the oldest surviving stream ID, or None if the stream is empty."""
+        messages = await self._redis_client.xrange(self._stream_key, count=1)
+        if not messages:
+            return None
+        stream_id, _message = messages[0]
+        return _normalize_stream_id(stream_id)
+
+    async def get_length(self) -> int:
+        """Return the current number of entries in the stream."""
+        return _normalize_redis_int(await self._redis_client.xlen(self._stream_key))
+
+    async def resume_point_trimmed(self, last_event_id: str) -> bool:
+        """Return True if a reconnect from last_event_id has lost trimmed events.
+
+        A client resumes via XREAD after its Last-Event-ID, which only returns
+        entries strictly newer than that ID. If the requested ID is older than
+        the oldest surviving entry, the events immediately after it were evicted
+        by the maxlen trim and are gone for good — an undetectable gap otherwise.
+        """
+        if last_event_id in ("", "0"):
+            return False
+        first_id = await self.get_first_stream_id()
+        if first_id is None:
+            return False
+        return _stream_id_sort_key(last_event_id) < _stream_id_sort_key(first_id)
 
     async def read_stream(
         self,
@@ -471,7 +508,7 @@ class TaskRunRedisStream:
             return False
 
 
-def publish_task_run_stream_event(run_id: str, event: dict) -> str | None:
+def publish_task_run_stream_event(run_id: str, event: dict, created_at: datetime | None = None) -> str | None:
     """Synchronously publish a task-run event to Redis.
 
     This is intended for sync Django model/view code that needs to mirror
@@ -479,7 +516,7 @@ def publish_task_run_stream_event(run_id: str, event: dict) -> str | None:
     """
 
     async def _publish() -> str:
-        redis_stream = TaskRunRedisStream(get_task_run_stream_key(run_id))
+        redis_stream = TaskRunRedisStream(get_task_run_stream_key(run_id), created_at)
         return await redis_stream.write_event(event)
 
     try:
@@ -489,11 +526,11 @@ def publish_task_run_stream_event(run_id: str, event: dict) -> str | None:
         return None
 
 
-def publish_task_run_stream_complete(run_id: str) -> None:
+def publish_task_run_stream_complete(run_id: str, created_at: datetime | None = None) -> None:
     """Synchronously publish a completion sentinel for a task-run stream."""
 
     async def _publish() -> None:
-        redis_stream = TaskRunRedisStream(get_task_run_stream_key(run_id))
+        redis_stream = TaskRunRedisStream(get_task_run_stream_key(run_id), created_at)
         await redis_stream.mark_complete()
 
     try:

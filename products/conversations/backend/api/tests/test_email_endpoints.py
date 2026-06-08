@@ -1,3 +1,4 @@
+from datetime import timedelta
 from io import BytesIO
 
 from posthog.test.base import BaseTest
@@ -5,16 +6,23 @@ from unittest.mock import MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
+from django.utils import timezone
 
 from parameterized import parameterized
 from PIL import Image
 
 from posthog.models.comment import Comment
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 
-from products.conversations.backend.mailgun import MailgunDomainConflict
-from products.conversations.backend.models import EmailChannel
+from products.conversations.backend.mailgun import (
+    MailgunDomainConflict,
+    MailgunDomainNotRegistered,
+    MailgunNotConfigured,
+    MailgunPermanentError,
+    MailgunTransientError,
+)
+from products.conversations.backend.models import EmailChannel, EmailOutboxMessage
 from products.conversations.backend.models.ticket import Ticket
 
 
@@ -54,7 +62,7 @@ class TestEmailConnectDomainCaseInsensitivity(BaseTest):
         "products.conversations.backend.api.email_settings.get_instance_setting",
         return_value="mg.posthog.com",
     )
-    def test_connect_rejects_duplicate_domain_different_casing(
+    def test_connect_rejects_duplicate_domain_different_casing_cross_org(
         self, _mock_setting: MagicMock, _mock_mailgun: MagicMock
     ):
         self.client.post(
@@ -63,8 +71,12 @@ class TestEmailConnectDomainCaseInsensitivity(BaseTest):
             content_type="application/json",
         )
 
-        # Second team tries the same domain with different casing
-        second_team = Team.objects.create(organization=self.organization)
+        # A team in a different org tries the same domain with different casing
+        other_org = Organization.objects.create(name="Other Org")
+        second_team = Team.objects.create(organization=other_org)
+        OrganizationMembership.objects.create(
+            user=self.user, organization=other_org, level=OrganizationMembership.Level.ADMIN
+        )
         self.user.current_team = second_team
         self.user.save()
 
@@ -206,12 +218,13 @@ class TestEmailMultiConfig(BaseTest):
         "products.conversations.backend.api.email_settings.get_instance_setting",
         return_value="mg.posthog.com",
     )
-    def test_cross_team_domain_rejected(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock):
+    def test_same_org_different_team_domain_allowed(self, _mock_setting: MagicMock, mock_mailgun: MagicMock):
         self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@example.com", "from_name": "Support"},
             content_type="application/json",
         )
+        mock_mailgun.reset_mock()
 
         second_team = Team.objects.create(organization=self.organization)
         self.user.current_team = second_team
@@ -222,8 +235,37 @@ class TestEmailMultiConfig(BaseTest):
             {"from_email": "billing@example.com", "from_name": "Billing"},
             content_type="application/json",
         )
+        assert r2.status_code == 200
+        # Reuses existing Mailgun registration — no second add_domain call
+        mock_mailgun.assert_not_called()
+
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_cross_org_domain_rejected(self, _mock_setting: MagicMock, _mock_mailgun: MagicMock):
+        self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "support@example.com", "from_name": "Support"},
+            content_type="application/json",
+        )
+
+        other_org = Organization.objects.create(name="Other Org")
+        second_team = Team.objects.create(organization=other_org)
+        OrganizationMembership.objects.create(
+            user=self.user, organization=other_org, level=OrganizationMembership.Level.ADMIN
+        )
+        self.user.current_team = second_team
+        self.user.save()
+
+        r2 = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "billing@example.com", "from_name": "Billing"},
+            content_type="application/json",
+        )
         assert r2.status_code == 409
-        assert "already in use" in r2.json()["error"]
+        assert "another organization" in r2.json()["error"]
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch("products.conversations.backend.api.email_settings.mailgun_delete_domain")
@@ -438,8 +480,22 @@ class TestEmailMultiConfig(BaseTest):
             {"from_email": "billing@example.com", "from_name": "Billing"},
             content_type="application/json",
         )
-        config2_id = r2.json()["config"]["id"]
 
+        # Also connect on a different team in the same org
+        second_team = Team.objects.create(organization=self.organization)
+        self.user.current_team = second_team
+        self.user.save()
+        self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "sales@example.com", "from_name": "Sales"},
+            content_type="application/json",
+        )
+
+        # Switch back to original team to verify
+        self.user.current_team = self.team
+        self.user.save()
+
+        config2_id = r2.json()["config"]["id"]
         response = self.client.post(
             "/api/conversations/v1/email/verify-domain",
             {"config_id": config2_id},
@@ -448,8 +504,9 @@ class TestEmailMultiConfig(BaseTest):
         assert response.status_code == 200
         assert response.json()["domain_verified"] is True
 
-        # Both configs should be verified
-        configs = EmailChannel.objects.filter(team=self.team)
+        # All configs across the org sharing the domain should be verified
+        configs = EmailChannel.objects.filter(team__organization_id=self.organization.id, domain="example.com")
+        assert configs.count() == 3
         assert all(c.domain_verified for c in configs)
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
@@ -666,36 +723,48 @@ class TestSendEmailReplyMultiConfig(BaseTest):
             email_from="customer@test.com",
         )
 
-    def _run_reply(self, ticket: Ticket, content: str = "Reply from agent") -> Comment:
-        from products.conversations.backend.tasks import send_email_reply
-
+    def _create_outbox(
+        self, ticket: Ticket, content: str = "Reply from agent", rich_content: dict | None = None
+    ) -> tuple[Comment, EmailOutboxMessage]:
+        """Create the reply comment + its durable outbox row, mirroring the signal path."""
         comment = Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
             item_id=str(ticket.id),
             content=content,
+            rich_content=rich_content,
+            created_by=self.user,
+            item_context={"author_type": "support"},
         )
+        # The post_save signal creates the outbox row when created_by is set; fall back
+        # to creating it explicitly so the test is robust to signal gating changes.
+        outbox = EmailOutboxMessage.objects.filter(comment=comment).first()
+        if outbox is None:
+            outbox = EmailOutboxMessage.objects.create(
+                team=self.team,
+                ticket=ticket,
+                comment=comment,
+                message_id="<test@mg.posthog.com>",
+            )
+        return comment, outbox
 
-        send_email_reply(
-            ticket_id=str(ticket.id),
-            team_id=self.team.id,
-            comment_id=str(comment.id),
-            content=content,
-            rich_content=None,
-            author_name="Agent",
-        )
-        return comment
+    def _run_reply(self, ticket: Ticket, content: str = "Reply from agent") -> tuple[Comment, EmailOutboxMessage]:
+        from products.conversations.backend.tasks import send_email_reply
+
+        comment, outbox = self._create_outbox(ticket, content=content)
+        send_email_reply(str(outbox.id))
+        outbox.refresh_from_db()
+        return comment, outbox
 
     @patch("products.conversations.backend.tasks.send_mime")
-    @patch("products.conversations.backend.tasks.get_instance_setting", return_value="mg.posthog.com")
-    def test_send_email_reply_uses_ticket_config(self, _mock_setting: MagicMock, mock_send_mime: MagicMock):
+    def test_send_email_reply_uses_ticket_config(self, mock_send_mime: MagicMock):
         config1 = self._create_config("support@example.com", "aaa111")
         self._create_config("billing@example.com", "bbb222")
         ticket = self._create_ticket(config1)
         ticket.cc_participants = ["cc1@example.com", "cc2@example.com"]
         ticket.save(update_fields=["cc_participants"])
 
-        self._run_reply(ticket)
+        _, outbox = self._run_reply(ticket)
 
         mock_send_mime.assert_called_once()
         args, kwargs = mock_send_mime.call_args
@@ -716,85 +785,154 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         # RFC 5322 wants CRLF; Django's default is LF-only.
         assert b"\r\n" in mime_bytes
 
+        assert outbox.status == EmailOutboxMessage.Status.SENT
+        assert outbox.sent_at is not None
+
+    @parameterized.expand(
+        [
+            # name, error raised by send_mime, whether it flips the domain back to unverified
+            ("permanent_error", MailgunPermanentError("bad recipient"), False),
+            ("not_configured", MailgunNotConfigured("mailgun not configured"), False),
+            ("domain_not_registered", MailgunDomainNotRegistered("gone from mailgun"), True),
+        ]
+    )
     @patch("products.conversations.backend.tasks.send_mime")
-    @patch("products.conversations.backend.tasks.get_instance_setting", return_value="mg.posthog.com")
-    def test_send_email_reply_permanent_error_does_not_retry(self, _mock_setting: MagicMock, mock_send_mime: MagicMock):
-        from products.conversations.backend.mailgun import MailgunPermanentError
-
-        config = self._create_config("support@example.com", "aaa111")
-        ticket = self._create_ticket(config)
-
-        mock_send_mime.side_effect = MailgunPermanentError("bad recipient")
-
-        self._run_reply(ticket)
-
-        # One attempt, no Celery retry.
-        assert mock_send_mime.call_count == 1
-
-    @patch("products.conversations.backend.tasks.send_mime")
-    @patch("products.conversations.backend.tasks.get_instance_setting", return_value="mg.posthog.com")
-    def test_send_email_reply_domain_not_registered_flips_verified(
-        self, _mock_setting: MagicMock, mock_send_mime: MagicMock
+    def test_send_email_reply_terminal_errors_mark_failed(
+        self, _name: str, error: Exception, flips_domain_verified: bool, mock_send_mime: MagicMock
     ):
-        from products.conversations.backend.mailgun import MailgunDomainNotRegistered
-
         config = self._create_config("support@example.com", "aaa111")
         ticket = self._create_ticket(config)
 
-        mock_send_mime.side_effect = MailgunDomainNotRegistered("gone from mailgun")
+        mock_send_mime.side_effect = error
 
-        self._run_reply(ticket)
+        _, outbox = self._run_reply(ticket)
+
+        # One attempt, no retry, terminal failure recorded.
+        assert mock_send_mime.call_count == 1
+        assert outbox.status == EmailOutboxMessage.Status.FAILED_PERMANENT
 
         config.refresh_from_db()
-        assert config.domain_verified is False
+        assert config.domain_verified is (not flips_domain_verified)
 
     @patch("products.conversations.backend.tasks.send_mime")
-    @patch("products.conversations.backend.tasks.get_instance_setting", return_value="mg.posthog.com")
-    def test_send_email_reply_transient_error_is_not_swallowed(
-        self, _mock_setting: MagicMock, mock_send_mime: MagicMock
-    ):
-        """Contrast with the permanent-error path: transient errors must NOT be
-        silently swallowed — they need to propagate so Celery can retry them.
-        In eager test mode the exception bubbles up directly; in production the
-        @shared_task wrapper converts it into a Celery Retry signal."""
-        from products.conversations.backend.mailgun import MailgunTransientError
-
+    def test_send_email_reply_transient_error_schedules_retry(self, mock_send_mime: MagicMock):
+        """Transient errors must NOT be dropped or raised — the row stays pending with a
+        backed-off next_attempt_at so the sweeper re-drives it. This is what survives a
+        multi-day provider outage."""
         config = self._create_config("support@example.com", "aaa111")
         ticket = self._create_ticket(config)
 
         mock_send_mime.side_effect = MailgunTransientError("mailgun 503")
 
-        # In eager mode, .retry(exc=e) re-raises e directly without re-executing
-        # the task, so call_count stays at 1 — we can't assert the retry loop ran.
-        # What we CAN assert: the exception type propagates (vs permanent errors,
-        # which are swallowed). That's the behavioral contract the production
-        # worker depends on to trigger its real retry loop.
-        with self.assertRaises(MailgunTransientError):
-            self._run_reply(ticket, content="Reply")
+        before = timezone.now()
+        _, outbox = self._run_reply(ticket, content="Reply")
 
-    def test_send_email_reply_skips_when_no_config(self):
+        assert mock_send_mime.call_count == 1
+        assert outbox.status == EmailOutboxMessage.Status.PENDING
+        assert outbox.attempts == 1
+        assert outbox.next_attempt_at > before
+        assert outbox.locked_until is None
+
+    @patch("products.conversations.backend.tasks.send_mime")
+    def test_send_email_reply_reuses_message_id_across_attempts(self, mock_send_mime: MagicMock):
+        """A retried send must reuse the same Message-ID so threading/dedup stay stable."""
+        config = self._create_config("support@example.com", "aaa111")
+        ticket = self._create_ticket(config)
+
+        # First attempt fails transiently.
+        mock_send_mime.side_effect = MailgunTransientError("mailgun 503")
+        _, outbox = self._run_reply(ticket, content="Reply")
+        original_message_id = outbox.message_id
+
+        # Make it due again and let the next attempt succeed.
         from products.conversations.backend.tasks import send_email_reply
 
+        EmailOutboxMessage.objects.filter(id=outbox.id).update(next_attempt_at=timezone.now(), locked_until=None)
+        mock_send_mime.side_effect = None
+        send_email_reply(str(outbox.id))
+
+        outbox.refresh_from_db()
+        assert outbox.status == EmailOutboxMessage.Status.SENT
+        assert outbox.message_id == original_message_id
+        # Both attempts carried the same Message-ID header.
+        first_mime = mock_send_mime.call_args_list[0].args[1]
+        second_mime = mock_send_mime.call_args_list[1].args[1]
+        assert original_message_id.encode() in first_mime
+        assert original_message_id.encode() in second_mime
+
+    @patch("products.conversations.backend.tasks.send_mime")
+    def test_send_email_reply_idempotent_when_already_sent(self, mock_send_mime: MagicMock):
+        from products.conversations.backend.tasks import send_email_reply
+
+        config = self._create_config("support@example.com", "aaa111")
+        ticket = self._create_ticket(config)
+        _, outbox = self._create_outbox(ticket)
+        EmailOutboxMessage.objects.filter(id=outbox.id).update(status=EmailOutboxMessage.Status.SENT)
+
+        send_email_reply(str(outbox.id))
+
+        mock_send_mime.assert_not_called()
+
+    @patch("products.conversations.backend.tasks.send_mime")
+    def test_send_email_reply_marks_failed_when_no_config(self, mock_send_mime: MagicMock):
         ticket = self._create_ticket(None)
 
-        from posthog.models.comment import Comment
+        _, outbox = self._run_reply(ticket, content="Reply")
+
+        assert outbox.status == EmailOutboxMessage.Status.FAILED_PERMANENT
+        mock_send_mime.assert_not_called()
+
+    def test_outbox_row_created_in_signal_survives_without_broker(self):
+        """The durable outbox row is created in the comment's transaction, so a reply is
+        recoverable even if the broker never picks up the immediate send task."""
+        config = self._create_config("support@example.com", "aaa111")
+        ticket = self._create_ticket(config)
 
         comment = Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
             item_id=str(ticket.id),
             content="Reply",
+            created_by=self.user,
+            item_context={"author_type": "support"},
         )
 
-        # Should return without error (logs warning, doesn't crash)
-        send_email_reply(
-            ticket_id=str(ticket.id),
-            team_id=self.team.id,
-            comment_id=str(comment.id),
-            content="Reply",
-            rich_content=None,
-            author_name="Agent",
-        )
+        outbox = EmailOutboxMessage.objects.filter(comment=comment).first()
+        assert outbox is not None
+        assert outbox.status == EmailOutboxMessage.Status.PENDING
+        assert outbox.message_id
+
+    @parameterized.expand(
+        [
+            # name, scenario, expect send_mime called, resulting status
+            ("due_row_is_sent", "due", True, EmailOutboxMessage.Status.SENT),
+            ("locked_row_is_skipped", "locked", False, EmailOutboxMessage.Status.PENDING),
+            ("expired_row_is_given_up", "expired", False, EmailOutboxMessage.Status.FAILED_PERMANENT),
+        ]
+    )
+    @patch("products.conversations.backend.tasks.send_mime")
+    def test_flush_pending_email_replies(
+        self, _name: str, scenario: str, expect_send: bool, expected_status: str, mock_send_mime: MagicMock
+    ):
+        from products.conversations.backend.tasks import EMAIL_OUTBOX_MAX_AGE, flush_pending_email_replies
+
+        config = self._create_config("support@example.com", "aaa111")
+        ticket = self._create_ticket(config)
+        _, outbox = self._create_outbox(ticket)
+
+        now = timezone.now()
+        if scenario == "locked":
+            EmailOutboxMessage.objects.filter(id=outbox.id).update(locked_until=now + timedelta(minutes=5))
+        elif scenario == "expired":
+            EmailOutboxMessage.objects.filter(id=outbox.id).update(
+                created_at=now - EMAIL_OUTBOX_MAX_AGE - timedelta(hours=1), next_attempt_at=now
+            )
+
+        flush_pending_email_replies()
+
+        outbox.refresh_from_db()
+        assert mock_send_mime.called is expect_send
+        assert outbox.status == expected_status
 
 
 class TestEmailInboundDmarcRewrite(BaseTest):

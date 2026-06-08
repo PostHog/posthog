@@ -39,16 +39,28 @@ import {
     PopoverTrigger,
 } from '@posthog/quill'
 
+import { isDefinitionStale } from 'lib/utils/definitions'
+
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { EventDefinition } from '~/types'
 
 import { useTaxonomicFilterContext } from '../headless/context'
 import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
-import { META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from '../types'
+import { isQuickFilterItem, META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from '../types'
+import { filterPinnedForContext, filterRecentsForContext } from '../utils/suggestedContextFilters'
 import { MenuFilterCombobox } from './Combobox'
 import { MenuFilterDwhConfig } from './DwhFlow'
 import { MenuFilterHogQLEditor } from './HogQLEditor'
-import { CommitFn, DrillCategory, MenuFilterEntry, MenuFilterState, TaxonomicFilterGroup } from './types'
+import { taxonomicTriggerWrapperClassName } from './triggerLayout'
+import {
+    CommitFn,
+    DrillCategory,
+    MenuFilterEntry,
+    MenuFilterState,
+    TAXONOMIC_FILTER_SURFACE,
+    TaxonomicFilterGroup,
+} from './types'
 
 export interface TaxonomicFilterMenuProps {
     /** Default trigger label when nothing is selected. */
@@ -101,6 +113,30 @@ export interface TriggerState {
     open: boolean
 }
 
+/** Dropdown-menu options users can pick, for the option-click event. */
+type MenuOption = 'new' | 'recent' | 'pinned' | 'dwh' | 'hogql'
+
+// Module-level so a quick close→reopen is detectable even though the
+// component unmounts between opens (consumers lazily mount it on the
+// first trigger click). Heuristic only — shared across all triggers.
+let lastMenuClosedAtMs: number | null = null
+const QUICK_REOPEN_MS = 3000
+
+/** Mirrors legacy `taxonomicFilterLogic`: staleness only applies to event /
+ *  custom-event definitions that carry `last_seen_at`; `undefined` for every
+ *  other selection so the field reads identically across the A/B arms. */
+export function eventSelectionWasStale(
+    sourceGroupType: TaxonomicFilterGroupType,
+    item: TaxonomicDefinitionTypes
+): boolean | undefined {
+    const isEventSelection =
+        sourceGroupType === TaxonomicFilterGroupType.Events || sourceGroupType === TaxonomicFilterGroupType.CustomEvents
+    if (!isEventSelection || !item || typeof item !== 'object' || !('last_seen_at' in item)) {
+        return undefined
+    }
+    return isDefinitionStale(item as unknown as EventDefinition)
+}
+
 export function TaxonomicFilterMenu({
     triggerLabel,
     selected,
@@ -127,12 +163,18 @@ export function TaxonomicFilterMenu({
         const previous = lastStateKindRef.current
         const next = state.kind
         if (previous === 'closed' && next !== 'closed') {
-            openedAtRef.current = Date.now()
+            const now = Date.now()
+            const msSinceLastClose = lastMenuClosedAtMs != null ? now - lastMenuClosedAtMs : null
+            openedAtRef.current = now
             hadCommitRef.current = false
             posthog.capture('taxonomic filter menu opened', {
                 openedTo: next,
                 hadSelection: !!selected,
                 triggerLabel,
+                // Reopen funnel — `null` on the first open of the session;
+                // a small value means the user bounced and came right back.
+                msSinceLastClose,
+                reopenedQuickly: msSinceLastClose != null && msSinceLastClose < QUICK_REOPEN_MS,
             })
         } else if (previous !== 'closed' && next !== 'closed' && previous !== next) {
             posthog.capture('taxonomic filter menu drilled', {
@@ -140,11 +182,23 @@ export function TaxonomicFilterMenu({
                 toState: next,
             })
         } else if (previous !== 'closed' && next === 'closed') {
+            const closedAt = Date.now()
+            const dwellMs = openedAtRef.current ? closedAt - openedAtRef.current : null
             posthog.capture('taxonomic filter menu closed', {
-                dwellMs: openedAtRef.current ? Date.now() - openedAtRef.current : null,
+                dwellMs,
                 hadCommit: hadCommitRef.current,
                 lastState: previous,
             })
+            // Legacy `taxonomic filter *` contract — emitted alongside the
+            // menu-specific events so the rebuild is comparable to the
+            // control/pill variants by feature-flag value.
+            // Legacy's `groupType: activeTab` is omitted because the menu has no single active tab at close time.
+            posthog.capture('taxonomic filter closed', {
+                surface: TAXONOMIC_FILTER_SURFACE,
+                dwellMs,
+                hadSelection: hadCommitRef.current,
+            })
+            lastMenuClosedAtMs = closedAt
             openedAtRef.current = null
         }
         lastStateKindRef.current = next
@@ -166,6 +220,14 @@ export function TaxonomicFilterMenu({
         []
     )
     const openHogql = useCallback(() => setState({ kind: 'hogql-edit' }), [])
+
+    // Capture which dropdown-menu option the user picked, then run its
+    // transition. Lets us see the relative pull of New / Recent / Pinned /
+    // DWH / HogQL rather than just a generic menu→panel `drilled` event.
+    const selectMenuOption = useCallback((option: MenuOption, action: () => void): void => {
+        posthog.capture('taxonomic filter menu option clicked', { option })
+        action()
+    }, [])
 
     /**
      * Resolve the initial state when the trigger opens. If `selected` is
@@ -209,37 +271,33 @@ export function TaxonomicFilterMenu({
     const { recentFilterItems } = useValues(recentTaxonomicFiltersLogic)
     const { pinnedFilterItems } = useValues(taxonomicFilterPinnedPropertiesLogic)
 
+    // Only recents/pinned whose source group is one of this picker's groups —
+    // a global recent from a different picker (e.g. a cohort in an events-only
+    // picker) would otherwise be remapped onto a fallback group and shown under
+    // the wrong category.
+    const taxonomicGroupTypes = useMemo(() => groups.map((g) => g.type), [groups])
     const recentEntries = useMemo<MenuFilterEntry[]>(
-        () => mapShortcutItems(recentFilterItems as ShortcutItem[], groups),
-        [recentFilterItems, groups]
+        () =>
+            mapShortcutItems(
+                filterRecentsForContext(
+                    recentFilterItems as TaxonomicDefinitionTypes[],
+                    taxonomicGroupTypes
+                ) as ShortcutItem[],
+                groups
+            ),
+        [recentFilterItems, taxonomicGroupTypes, groups]
     )
     const pinnedEntries = useMemo<MenuFilterEntry[]>(
-        () => mapShortcutItems(pinnedFilterItems as ShortcutItem[], groups),
-        [pinnedFilterItems, groups]
+        () =>
+            mapShortcutItems(
+                filterPinnedForContext(
+                    pinnedFilterItems as TaxonomicDefinitionTypes[],
+                    taxonomicGroupTypes
+                ) as ShortcutItem[],
+                groups
+            ),
+        [pinnedFilterItems, taxonomicGroupTypes, groups]
     )
-    /*
-     * Suggested = Recent ∪ Pinned across all groups, mirroring the
-     * legacy popover's "Suggested step" view. Recent comes first
-     * (chronologically more relevant to the user); pinned fills in
-     * the curated picks. Dedup on `(group.type, value)` so a pinned
-     * entry that's also recent only shows once. Each entry keeps its
-     * source `group` reference so the row's category label still
-     * reads "Events", "Actions", etc. (not "Suggested filters").
-     */
-    const suggestedEntries = useMemo<MenuFilterEntry[]>(() => {
-        const seen = new Set<string>()
-        const out: MenuFilterEntry[] = []
-        for (const entry of [...recentEntries, ...pinnedEntries]) {
-            const value = entry.group.getValue?.(entry.item) ?? entry.name
-            const key = `${entry.group.type}::${String(value)}`
-            if (seen.has(key)) {
-                continue
-            }
-            seen.add(key)
-            out.push(entry)
-        }
-        return out
-    }, [recentEntries, pinnedEntries])
 
     const hasDwh = groups.some((g) => g.type === TaxonomicFilterGroupType.DataWarehouse)
     const hasHogql = groups.some((g) => g.type === TaxonomicFilterGroupType.HogQLExpression)
@@ -247,7 +305,7 @@ export function TaxonomicFilterMenu({
     // -- Commit -- routes through orchestrator's `selectItem` AND the
     // consumer's `onCommit` callback. Closes everything.
     const handleCommit = useCallback<CommitFn>(
-        (entry, extra) => {
+        (entry, extra, selection) => {
             const mergedItem = extra
                 ? ({ ...(entry.item as unknown as object), ...extra } as unknown as TaxonomicDefinitionTypes)
                 : entry.item
@@ -259,6 +317,36 @@ export function TaxonomicFilterMenu({
                 query: searchQuery || undefined,
                 hadExtras: !!extra,
                 fromState: lastStateKindRef.current,
+                // Time-to-select — how long from opening the menu to
+                // committing this item.
+                msSinceOpen: openedAtRef.current ? Date.now() - openedAtRef.current : null,
+            })
+            // Legacy contract, fired from this final-commit funnel rather than on
+            // row click so it counts only committed selections — a DWH table pick
+            // that opens (and is then cancelled from) the config form never reaches
+            // here, while a config-form or HogQL commit does. `groupType` is the
+            // active scope (mirrors legacy `activeTab`); `sourceGroupType` is the
+            // row's origin group — they differ for a recent/pinned row on the All
+            // surface. `selection` is absent for non-row commits (DWH form, HogQL).
+            // `wasStale` mirrors legacy for event/custom-event selections; `wasQuickFilter`
+            // uses the same predicate as legacy, though the menu surfaces no quick-filter
+            // items so it is false in practice and the legacy quick-filter field spread
+            // never applies here.
+            // `position` is the rendered row index (same coordinate as legacy's
+            // `meta.position`): directly comparable on single-group scopes, and
+            // surface-relative on the merged "All" scope, which leads with the
+            // recents/pinned prefix and has no single-tab legacy equivalent.
+            posthog.capture('taxonomic filter item selected', {
+                surface: TAXONOMIC_FILTER_SURFACE,
+                groupType: selection?.groupType,
+                sourceGroupType: entry.group.type,
+                wasFromRecents: selection?.wasFromRecents ?? false,
+                wasFromPinnedList: selection?.wasFromPinnedList ?? false,
+                wasQuickFilter: isQuickFilterItem(entry.item),
+                hadSearchInput: !!searchQuery,
+                position: selection?.position,
+                query: searchQuery || undefined,
+                wasStale: eventSelectionWasStale(entry.group.type, entry.item),
             })
             selectItem(entry.group, itemValue, mergedItem)
             onCommit?.({ ...entry, item: mergedItem }, extra)
@@ -426,19 +514,7 @@ export function TaxonomicFilterMenu({
                     eventDetails.cancel()
                 }}
             >
-                {/*
-                 * `flex min-w-0 w-full` (not `inline-flex`) so the wrap
-                 * fills its parent column instead of sizing to the
-                 * trigger's intrinsic width. Without `min-w-0` the
-                 * default `min-width: auto` makes the wrap grow to its
-                 * content and overflow narrow parents — long filter
-                 * names then bleed past the parity wrapper instead of
-                 * truncating like the legacy trigger.
-                 */}
-                <span
-                    ref={triggerWrapRef}
-                    className={cn('relative flex min-w-0', fullWidthTrigger ? 'w-full' : 'max-w-full')}
-                >
+                <span ref={triggerWrapRef} className={taxonomicTriggerWrapperClassName(fullWidthTrigger)}>
                     <DropdownMenuTrigger render={triggerEl} data-attr="taxonomic-filter-menu-trigger" />
                     <PopoverTrigger
                         render={<span aria-hidden tabIndex={-1} className="absolute inset-0 pointer-events-none" />}
@@ -462,14 +538,12 @@ export function TaxonomicFilterMenu({
                                     ? recentEntries
                                     : state.drillTo === 'pinned'
                                       ? pinnedEntries
-                                      : state.drillTo === 'suggested'
-                                        ? suggestedEntries
-                                        : undefined
+                                      : undefined
                             }
-                            // Always pass `suggestedItems` so the chip
-                            // works in 'all' mode too (without forcing a
-                            // drill via the dropdown menu).
-                            suggestedItems={suggestedEntries}
+                            // Recents/pinned lead the default "All" surface
+                            // (fixed order: recents, then pinned).
+                            recentEntries={recentEntries}
+                            pinnedEntries={pinnedEntries}
                             placeholder={placeholder ?? inputProps.placeholder}
                             // Only override the default "Choose filter"
                             // header when on the All chip — drilled views
@@ -531,34 +605,43 @@ export function TaxonomicFilterMenu({
                 />
             )}
             <DropdownMenuContent align="start" className="min-w-[240px]">
-                <DropdownMenuItem onClick={() => openCombobox('all')} data-attr="taxonomic-filter-menu-new">
+                <DropdownMenuItem
+                    onClick={() => selectMenuOption('new', () => openCombobox('all'))}
+                    data-attr="taxonomic-filter-menu-new"
+                >
                     New filter…
                     <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                 </DropdownMenuItem>
                 {recentEntries.length > 0 && (
                     <>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => openCombobox('recent')}>
+                        <DropdownMenuItem onClick={() => selectMenuOption('recent', () => openCombobox('recent'))}>
                             Recent
                             <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                         </DropdownMenuItem>
                     </>
                 )}
                 {pinnedEntries.length > 0 && (
-                    <DropdownMenuItem onClick={() => openCombobox('pinned')}>
+                    <DropdownMenuItem onClick={() => selectMenuOption('pinned', () => openCombobox('pinned'))}>
                         Pinned
                         <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>
                 )}
                 {(hasDwh || hasHogql) && <DropdownMenuSeparator />}
                 {hasDwh && (
-                    <DropdownMenuItem onClick={openDwhPick} data-attr="taxonomic-filter-menu-dwh">
+                    <DropdownMenuItem
+                        onClick={() => selectMenuOption('dwh', openDwhPick)}
+                        data-attr="taxonomic-filter-menu-dwh"
+                    >
                         Data warehouse tables
                         <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>
                 )}
                 {hasHogql && (
-                    <DropdownMenuItem onClick={openHogql} data-attr="taxonomic-filter-menu-hogql">
+                    <DropdownMenuItem
+                        onClick={() => selectMenuOption('hogql', openHogql)}
+                        data-attr="taxonomic-filter-menu-hogql"
+                    >
                         HogQL expression
                         <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>

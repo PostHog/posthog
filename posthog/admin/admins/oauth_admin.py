@@ -111,7 +111,14 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
 
     def get_readonly_fields(self, request, obj=None):
         if obj:
-            return ("id", "client_id", "is_dcr_client", "is_cimd_client", "cimd_metadata_url")
+            readonly = ["id", "client_id", "is_dcr_client", "is_cimd_client", "cimd_metadata_url"]
+            if obj.is_cimd_client:
+                # A CIMD client's scope ceiling is derived from its own metadata document and
+                # re-applied on every refresh, so a manual edit here would be silently reverted.
+                # The unprivileged/hidden allow-list is the only ceiling that applies to CIMD
+                # apps; to cut off an abusive one, block its metadata URL rather than editing scopes.
+                readonly.append("scopes")
+            return tuple(readonly)
         else:
             return ("id", "is_dcr_client", "is_cimd_client")
 
@@ -123,6 +130,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 "provisioning_active",
                 "provisioning_skip_existing_user_consent",
                 "provisioning_can_issue_deep_links",
+                "provisioning_issues_personal_api_key",
                 "provisioning_can_create_accounts",
                 "provisioning_can_provision_resources",
                 "provisioning_rate_limit_account_requests",
@@ -136,7 +144,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 (None, {"fields": ("id", "name", "client_id", "client_type", "auth_brand", "logo_uri")}),
                 (
                     "Authorization",
-                    {"fields": ("authorization_grant_type", "redirect_uris", "algorithm")},
+                    {"fields": ("authorization_grant_type", "redirect_uris", "algorithm", "scopes")},
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
                 ("Status", {"fields": ("is_verified", "is_first_party", "is_dcr_client", "is_cimd_client")}),
@@ -160,7 +168,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 (None, {"fields": ("name", "client_id", "client_secret", "client_type", "auth_brand", "logo_uri")}),
                 (
                     "Authorization",
-                    {"fields": ("authorization_grant_type", "redirect_uris", "algorithm")},
+                    {"fields": ("authorization_grant_type", "redirect_uris", "algorithm", "scopes")},
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
                 ("Status", {"fields": ("is_verified", "is_first_party")}),

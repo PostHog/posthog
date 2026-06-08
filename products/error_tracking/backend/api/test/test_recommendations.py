@@ -16,10 +16,14 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingRecommendation,
+    ErrorTrackingSettings,
+    ErrorTrackingStackFrame,
     sync_issues_to_clickhouse,
 )
 from products.error_tracking.backend.recommendations.alerts import AlertsRecommendation
 from products.error_tracking.backend.recommendations.long_running_issues import LongRunningIssuesRecommendation
+from products.error_tracking.backend.recommendations.rate_limits import RateLimitsRecommendation
+from products.error_tracking.backend.recommendations.source_maps import SourceMapsRecommendation
 
 from ee.clickhouse.materialized_columns.columns import materialize
 
@@ -69,15 +73,15 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_first_list_creates_both_recommendations(self, mock_alerts, mock_long_running):
+    def test_first_list_creates_all_recommendations(self, mock_alerts, mock_long_running):
         self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 0)
 
         response = self._list()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 2)
+        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 4)
         types = {r["type"] for r in response.json()["results"]}
-        self.assertEqual(types, {"alerts", "long_running_issues"})
+        self.assertEqual(types, {"alerts", "long_running_issues", "rate_limits", "source_maps"})
 
     @patch(
         "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
@@ -298,6 +302,41 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
     def test_alerts_is_completed_false_when_empty(self):
         self.assertFalse(AlertsRecommendation().is_completed({"alerts": []}))
 
+    def test_rate_limits_recommendation_with_no_settings(self):
+        meta = RateLimitsRecommendation().compute(self.team)
+        by_key = {r["key"]: r["enabled"] for r in meta["rate_limits"]}
+        self.assertFalse(by_key["project"])
+        self.assertFalse(by_key["per_issue"])
+
+    def test_rate_limits_recommendation_detects_set_limits(self):
+        ErrorTrackingSettings.objects.create(
+            team=self.team,
+            project_rate_limit_value=1000,
+            per_issue_rate_limit_value=None,
+        )
+        meta = RateLimitsRecommendation().compute(self.team)
+        by_key = {r["key"]: r["enabled"] for r in meta["rate_limits"]}
+        self.assertTrue(by_key["project"])
+        self.assertFalse(by_key["per_issue"])
+
+    def test_rate_limits_recommendation_ignores_other_teams_settings(self):
+        other_team = self.organization.teams.create(name="other")
+        ErrorTrackingSettings.objects.create(team=other_team, project_rate_limit_value=1000)
+        meta = RateLimitsRecommendation().compute(self.team)
+        by_key = {r["key"]: r["enabled"] for r in meta["rate_limits"]}
+        self.assertFalse(by_key["project"])
+
+    def test_rate_limits_is_completed_when_all_set(self):
+        meta = {"rate_limits": [{"key": "project", "enabled": True}, {"key": "per_issue", "enabled": True}]}
+        self.assertTrue(RateLimitsRecommendation().is_completed(meta))
+
+    def test_rate_limits_is_completed_false_when_any_unset(self):
+        meta = {"rate_limits": [{"key": "project", "enabled": True}, {"key": "per_issue", "enabled": False}]}
+        self.assertFalse(RateLimitsRecommendation().is_completed(meta))
+
+    def test_rate_limits_is_completed_false_when_empty(self):
+        self.assertFalse(RateLimitsRecommendation().is_completed({"rate_limits": []}))
+
     @patch(
         "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
         return_value={"issues": []},
@@ -349,7 +388,10 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         statuses = {r["type"]: r["status"] for r in response.json()["results"]}
-        self.assertEqual(statuses, {"alerts": "ready", "long_running_issues": "ready"})
+        self.assertEqual(
+            statuses,
+            {"alerts": "ready", "long_running_issues": "ready", "rate_limits": "ready", "source_maps": "ready"},
+        )
         # Each recommendation row should have been computed exactly once via the celery task path.
         self.assertEqual(mock_alerts.call_count, 1)
         self.assertEqual(mock_long_running.call_count, 1)
@@ -372,6 +414,101 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_alerts.assert_not_called()
         mock_long_running.assert_not_called()
+
+    def _make_frame(self, lang: str, resolved: bool, created_hours_ago: int = 1) -> ErrorTrackingStackFrame:
+        frame = ErrorTrackingStackFrame.objects.create(
+            team=self.team,
+            raw_id=str(uuid4()),
+            contents={"lang": lang},
+            resolved=resolved,
+        )
+        ErrorTrackingStackFrame.objects.filter(id=frame.id).update(
+            created_at=timezone.now() - timedelta(hours=created_hours_ago)
+        )
+        return frame
+
+    def test_source_maps_compute_with_no_frames(self):
+        meta = SourceMapsRecommendation().compute(self.team)
+
+        self.assertEqual(meta["total_frames"], 0)
+        self.assertEqual(meta["unresolved_frames"], 0)
+        self.assertEqual(meta["unresolved_pct"], 0.0)
+
+    def test_source_maps_compute_counts_unresolved_js_frames(self):
+        for _ in range(8):
+            self._make_frame(lang="javascript", resolved=True)
+        for _ in range(2):
+            self._make_frame(lang="javascript", resolved=False)
+
+        meta = SourceMapsRecommendation().compute(self.team)
+
+        self.assertEqual(meta["total_frames"], 10)
+        self.assertEqual(meta["unresolved_frames"], 2)
+        self.assertEqual(meta["unresolved_pct"], 0.2)
+
+    def test_source_maps_compute_ignores_non_js_frames(self):
+        self._make_frame(lang="python", resolved=False)
+        self._make_frame(lang="ruby", resolved=False)
+        self._make_frame(lang="javascript", resolved=True)
+
+        meta = SourceMapsRecommendation().compute(self.team)
+
+        self.assertEqual(meta["total_frames"], 1)
+        self.assertEqual(meta["unresolved_frames"], 0)
+
+    def test_source_maps_compute_ignores_frames_outside_lookback(self):
+        self._make_frame(lang="javascript", resolved=False, created_hours_ago=48)
+        self._make_frame(lang="javascript", resolved=True, created_hours_ago=1)
+
+        meta = SourceMapsRecommendation().compute(self.team)
+
+        self.assertEqual(meta["total_frames"], 1)
+        self.assertEqual(meta["unresolved_frames"], 0)
+
+    def test_source_maps_compute_ignores_other_teams_frames(self):
+        other_team = self.organization.teams.create(name="other")
+        ErrorTrackingStackFrame.objects.create(
+            team=other_team,
+            raw_id=str(uuid4()),
+            contents={"lang": "javascript"},
+            resolved=False,
+        )
+
+        meta = SourceMapsRecommendation().compute(self.team)
+
+        self.assertEqual(meta["total_frames"], 0)
+
+    def test_source_maps_is_completed_when_below_threshold(self):
+        # 5% unresolved, threshold is 30%
+        meta = {
+            "total_frames": 100,
+            "unresolved_frames": 5,
+            "unresolved_pct": 0.05,
+            "threshold_pct": 0.30,
+            "min_sample_frames": 20,
+        }
+        self.assertTrue(SourceMapsRecommendation().is_completed(meta))
+
+    def test_source_maps_is_completed_false_when_above_threshold(self):
+        meta = {
+            "total_frames": 100,
+            "unresolved_frames": 45,
+            "unresolved_pct": 0.45,
+            "threshold_pct": 0.30,
+            "min_sample_frames": 20,
+        }
+        self.assertFalse(SourceMapsRecommendation().is_completed(meta))
+
+    def test_source_maps_is_completed_when_below_min_sample(self):
+        # Even at 100% unresolved, with too few frames we don't fire the recommendation.
+        meta = {
+            "total_frames": 5,
+            "unresolved_frames": 5,
+            "unresolved_pct": 1.0,
+            "threshold_pct": 0.30,
+            "min_sample_frames": 20,
+        }
+        self.assertTrue(SourceMapsRecommendation().is_completed(meta))
 
     @patch(
         "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
