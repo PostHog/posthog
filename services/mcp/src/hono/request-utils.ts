@@ -9,7 +9,7 @@ import {
     type Transport,
 } from '@/lib/request-properties'
 import { getRegionFromRequest } from '@/lib/routing'
-import { sanitizeHeaderValue } from '@/lib/utils'
+import { extractBearerToken, sanitizeHeaderValue } from '@/lib/utils'
 
 import { authFailuresTotal } from './metrics'
 import type { HonoCtx } from './types'
@@ -53,7 +53,7 @@ function parseClientInfo(bodyText: string): ClientInfo {
 }
 
 function authenticate(c: HonoCtx): Response | null {
-    const token = c.req.header('Authorization')?.split(' ')[1]
+    const token = extractBearerToken(c.req.raw)
     const error = validateBearerToken(token, c.req.raw, getRegionFromRequest(c.req.raw))
     if (error) {
         const reason = !token ? 'missing_token' : 'invalid_token'

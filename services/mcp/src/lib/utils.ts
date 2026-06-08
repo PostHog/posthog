@@ -7,6 +7,17 @@ export function hash(data: string): string {
     return crypto.pbkdf2Sync(data, salt, 100000, 32, 'sha256').toString('hex')
 }
 
+// Extract the API token from a request. Prefers the `Authorization: Bearer
+// <token>` header, falling back to a `?token=` query param for clients that can
+// only customize the URL, not request headers (e.g. MCP UI apps in an iframe).
+export function extractBearerToken(request: Request): string | undefined {
+    return (
+        request.headers.get('Authorization')?.split(' ')[1] ||
+        new URL(request.url).searchParams.get('token') ||
+        undefined
+    )
+}
+
 // Redact an API token for logs: keep only the last 4 chars, mask the rest.
 // Tokens of 4 chars or fewer (or empty) are fully masked so nothing useful leaks.
 export function redactToken(token: string): string {
