@@ -707,6 +707,15 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 table=table,
                 status=DataWarehouseSavedQuery.Status.COMPLETED,
             )
+        # Endpoint-origin saved query so the endpoint build loop is exercised under assertNumQueries(0).
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="whatever_endpoint",
+            query={"query": "SELECT id FROM whatever0"},
+            columns={"id": "String"},
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+        )
         DataWarehouseJoin.objects.create(
             team=self.team,
             source_table_name="events",
@@ -724,8 +733,10 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(0):
             db = Database._build_from_sources(sources)
 
-        # The warehouse table and join were wired up without any further queries.
+        # The warehouse table, saved query, endpoint view and join were all wired up without queries.
         assert db.has_table("whatever0")
+        assert db.has_table("whatever_view0")
+        assert db.has_table("whatever_endpoint")
         assert "some_field" in db.get_table("events").fields
 
     def test_database_warehouse_joins_on_system_table_are_serialized(self):

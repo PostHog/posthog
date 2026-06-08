@@ -373,12 +373,13 @@ def _compute_system_table_access_decision(
     team: "Team", user: Optional["User"]
 ) -> tuple[Optional["UserAccessControl"], set[str]]:
     """Decide which scoped system tables to hide, doing all access-control I/O here so the
-    Database build phase can apply the decision without querying. Mirrors the previous
-    _filter_system_tables_for_user / _filter_all_scoped_system_tables logic.
+    Database build phase can apply the decision without querying.
 
-    Returns the (warmed) UserAccessControl to attach to the database and the set of system-node
-    table names to remove. The UserAccessControl caches organization membership, roles and access
-    controls, so any later read on it is free of further queries."""
+    A user with no organization membership at admin level (or no user at all) loses access to every
+    access-controlled system table; otherwise a table is hidden when the user lacks access to its
+    resource scope. Returns the (warmed) UserAccessControl to attach to the database and the set of
+    system-node table names to remove. The UserAccessControl caches organization membership, roles
+    and access controls, so any later read on it is free of further queries."""
     from posthog.models import OrganizationMembership
     from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 
@@ -1046,7 +1047,7 @@ class Database(BaseModel):
 
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             saved_queries: list[DataWarehouseSavedQuery] = []
-            # Direct-connection queries do not expose saved queries (matches the prior eager behavior).
+            # Direct-connection queries do not expose saved queries.
             if not is_direct_query:
                 with timings.measure("select"):
                     queryset = (
@@ -1409,7 +1410,7 @@ class Database(BaseModel):
 
         db_span.set_attribute("warehouse_table_count", len(sources.warehouse_tables))
 
-        # Index warehouse table models by name (newest by created_at wins, matching `.latest()`) so the
+        # Index warehouse table models by name (newest by created_at wins on a name collision) so the
         # dataWarehouseEventsModifiers path can resolve a table model without querying.
         warehouse_table_models_by_name: dict[str, DataWarehouseTable] = {}
         for warehouse_table_model in sources.warehouse_tables:
