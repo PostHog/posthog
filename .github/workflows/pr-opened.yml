@@ -153,6 +153,21 @@ jobs:
                       const prNumber = parseInt(process.env.PR_NUMBER, 10);
                       const marker = '<!-- bot-pr-assign-nudge -->';
 
+                      // Skip automated dependency/version bump PRs — there's no human
+                      // "behind" them to claim ownership, so the nudge would be noise.
+                      const pr = context.payload.pull_request;
+                      const title = pr.title || '';
+                      const labels = (pr.labels || []).map((l) => l.name.toLowerCase());
+                      const isDependencyBump =
+                          labels.includes('dependencies') ||
+                          /^\s*(chore|build|fix)\(deps/i.test(title) ||
+                          /^\s*deps[(:]/i.test(title) ||
+                          /^\s*bump\s/i.test(title);
+                      if (isDependencyBump) {
+                          console.log('Dependency/bump PR — skipping self-assign nudge.');
+                          return;
+                      }
+
                       // Post at most once per PR.
                       const existing = await github.paginate(github.rest.issues.listComments, {
                           owner: context.repo.owner,
