@@ -59,6 +59,9 @@ class ProvisioningTestBase(APIBaseTest):
                 "redirect_uris": "https://localhost",
                 "algorithm": "RS256",
                 "provisioning_can_issue_deep_links": True,
+                # The test app stands in for the grandfathered legacy Stripe app, which is
+                # the one app that still mints a provisioned PAT.
+                "provisioning_issues_personal_api_key": True,
             },
         )
 

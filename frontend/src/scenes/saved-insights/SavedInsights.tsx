@@ -52,7 +52,9 @@ import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNonEmptyObject } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
@@ -83,7 +85,7 @@ import {
 } from '~/types'
 
 import { ReloadInsight } from './ReloadInsight'
-import { savedInsightsLogic } from './savedInsightsLogic'
+import { SavedInsightListItem, savedInsightsLogic } from './savedInsightsLogic'
 
 export interface InsightTypeMetadata {
     name: string
@@ -380,12 +382,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
-    [NodeKind.WebTrendsQuery]: {
-        name: 'Web Trends',
-        description: 'Analyze web trends and patterns over time.',
-        icon: IconTrends,
-        inMenu: true,
-    },
     [NodeKind.HogQuery]: {
         name: 'Hog',
         description: 'Hog query.',
@@ -590,6 +586,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.AccountsQuery]: {
+        name: 'Accounts',
+        icon: IconPieChart,
+        inMenu: false,
+    },
     [NodeKind.EndpointsUsageOverviewQuery]: {
         name: 'Endpoints usage overview',
         icon: IconPieChart,
@@ -769,7 +770,7 @@ export function SavedInsights(): JSX.Element {
 
     const { tab } = filters
 
-    const columns: LemonTableColumns<QueryBasedInsightModel> = [
+    const columns: LemonTableColumns<SavedInsightListItem> = [
         {
             key: 'id',
             width: 32,
@@ -807,6 +808,15 @@ export function SavedInsights(): JSX.Element {
                                 tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
                             />
                         </AccessControlAction>
+                        {insight.search_match_type === 'similar' && (
+                            <span className="ml-auto">
+                                <Tooltip title="Not an exact match for your search, but a close one">
+                                    <LemonTag type="muted" size="small">
+                                        similar
+                                    </LemonTag>
+                                </Tooltip>
+                            </span>
+                        )}
                     </div>
                 )
             },
@@ -814,7 +824,7 @@ export function SavedInsights(): JSX.Element {
         },
         {
             title: 'Tags',
-            dataIndex: 'tags' as keyof QueryBasedInsightModel,
+            dataIndex: 'tags' as keyof SavedInsightListItem,
             key: 'tags',
             render: function renderTags(tags: string[]) {
                 return <ObjectTags tags={[...tags].sort()} staticOnly />
@@ -822,8 +832,8 @@ export function SavedInsights(): JSX.Element {
         },
         {
             title: 'Created by',
-            dataIndex: 'created_by' as keyof QueryBasedInsightModel,
-            render: function Render(_: any, item: QueryBasedInsightModel) {
+            dataIndex: 'created_by' as keyof SavedInsightListItem,
+            render: function Render(_: any, item: SavedInsightListItem) {
                 const { created_by } = item
                 return (
                     <div className="flex flex-row items-center flex-nowrap">
@@ -1032,8 +1042,8 @@ export function SavedInsights(): JSX.Element {
                             ) : undefined
                         }
                         bulkSelection={{
-                            getKey: (insight: QueryBasedInsightModel): number => insight.id,
-                            isRowSelectable: (insight: QueryBasedInsightModel) =>
+                            getKey: (insight: SavedInsightListItem): number => insight.id,
+                            isRowSelectable: (insight: SavedInsightListItem) =>
                                 accessLevelSatisfied(
                                     AccessControlResourceType.Insight,
                                     insight.user_access_level,
@@ -1041,7 +1051,7 @@ export function SavedInsights(): JSX.Element {
                                 )
                                     ? true
                                     : { disabledReason: "You don't have permission to edit this insight." },
-                            rowAriaLabel: (insight: QueryBasedInsightModel) =>
+                            rowAriaLabel: (insight: SavedInsightListItem) =>
                                 `Select insight ${insight.name || 'Untitled'}`,
                             headerAriaLabel: 'Select all insights on this page',
                             renderActions: (ctx) => (

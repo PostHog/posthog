@@ -231,6 +231,12 @@ describe('lib/utils', () => {
             expect(wordPluralize('child')).toEqual('children')
             expect(wordPluralize('knife')).toEqual('knives')
         })
+
+        it('returns falsy input unchanged without throwing', () => {
+            expect(wordPluralize('')).toEqual('')
+            expect(wordPluralize(null as unknown as string)).toEqual('')
+            expect(wordPluralize(undefined as unknown as string)).toEqual('')
+        })
     })
 
     describe('endWithPunctation()', () => {
@@ -1205,6 +1211,16 @@ describe('lib/utils', () => {
 
         it('returns null for encoded protocol-relative URL', () => {
             expect(getRelativeNextPath('%2F%2Fevil.com%2Ftest', location)).toBeNull()
+        })
+
+        it.each([
+            ['/\\evil.com/path', '/-then-backslash'],
+            ['/\\\\evil.com/path', '/-then-two-backslashes'],
+            ['%2F%5Cevil.com%2Fpath', 'encoded /-then-backslash'],
+        ])('returns null for backslash external bypass (%s — %s)', (input) => {
+            // Browsers normalize backslashes in special-scheme URLs per WHATWG, so /\\evil.com
+            // resolves to //evil.com and escapes the origin.
+            expect(getRelativeNextPath(input, location)).toBeNull()
         })
     })
 

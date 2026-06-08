@@ -299,7 +299,7 @@ export const getEndpointsLastExecutionTimesCreateUrl = (projectId: string) => {
 }
 
 /**
- * Get the last execution times in the past 6 months for multiple endpoints.
+ * Get the most recent execution time per endpoint (endpoint-level). Timestamps are recorded by the run path for personal-API-key calls. For per-version usage, query the query_log table directly.
  */
 export const endpointsLastExecutionTimesCreate = async (
     projectId: string,

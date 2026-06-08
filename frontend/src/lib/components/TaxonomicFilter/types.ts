@@ -86,10 +86,9 @@ export type ExcludedOperators = { [key in TaxonomicFilterGroupType]?: PropertyOp
 /**
  * Tells `TaxonomicPropertyFilter` to render a row as key-only — the picked
  * value IS the answer, no operator+value pair alongside it. Used when a
- * specific filter type's operator is implicit (e.g. feature flag release
- * conditions accept any operator on event properties but treat cohort rows
- * as key-only because the cohort *is* the value and the operator is
- * implicitly `in`).
+ * specific filter type's operator is implicit (e.g. workflow event triggers
+ * accept any operator on event properties but treat cohort rows as key-only
+ * because the cohort *is* the value and the operator is implicitly `in`).
  *
  * - `true` — every row in this `PropertyFilters` is key-only.
  * - `Partial<Record<TaxonomicFilterGroupType, boolean>>` — per-group switch.
@@ -261,6 +260,15 @@ export interface TaxonomicFilterGroup {
      *  Returned items are QuickFilterItems and flow through existing isQuickFilterItem
      *  handling in consumer onChange handlers. */
     keywordShortcuts?: (searchQuery: string) => QuickFilterItem[]
+    /**
+     * Pre-fetch the first page (empty-query) once, cache it, and filter
+     * subsequent typed queries client-side via Fuse rather than firing a
+     * fresh request per keystroke. Used by groups whose total population
+     * comfortably fits in a single page (e.g. Cohorts) where the snappy
+     * local feel is worth losing access to results past the first page.
+     * Per-keystroke remote fetches are suppressed when this is on.
+     */
+    clientFilterFirstPage?: boolean
 }
 
 export enum TaxonomicFilterGroupType {

@@ -14,6 +14,8 @@ import {
 import { actionToUrl, urlToAction } from 'kea-router'
 import { useEffect } from 'react'
 
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -217,12 +219,12 @@ function ManagedSourceTabs({
 }): JSX.Element {
     const settingsLogic = sourceSettingsLogic({ id: sourceId, availableSources: {} })
     const { featureFlags } = useValues(featureFlagLogic)
-    const { source } = useValues(settingsLogic)
+    const { source, sourceLoading } = useValues(settingsLogic)
 
     useAttachedLogic(settingsLogic, attachTo)
 
     const showSyncsTab = shouldShowManagedSourceSyncsTab(source)
-    const showWebhookTab = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_SOURCE_WEBHOOKS] && !!source?.supports_webhooks
+    const showWebhookTab = !!source?.supports_webhooks
     const showMetricsTab = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
 
     useEffect(() => {
@@ -236,6 +238,10 @@ function ManagedSourceTabs({
             setCurrentTab('schemas')
         }
     }, [showSyncsTab, showWebhookTab, showMetricsTab, currentTab, setCurrentTab])
+
+    if (sourceLoading && !source) {
+        return <LemonSkeleton className="w-full h-12" />
+    }
 
     const tabs: LemonTab<SourceSceneTab>[] = [
         { label: 'Schemas', key: 'schemas', content: <SchemasTab id={sourceId} /> },

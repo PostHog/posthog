@@ -43,6 +43,22 @@ export interface PaginatedMessageCategoryListApi {
     results: MessageCategoryApi[]
 }
 
+export interface PatchedMessageCategoryApi {
+    readonly id?: string
+    /** @maxLength 64 */
+    key?: string
+    /** @maxLength 128 */
+    name?: string
+    description?: string
+    public_description?: string
+    category_type?: CategoryTypeEnumApi
+    readonly created_at?: string
+    readonly updated_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    deleted?: boolean
+}
+
 export interface AddOptOutRequestApi {
     /**
      * The recipient identifier to opt out (e.g. email address).
@@ -165,6 +181,22 @@ export interface PaginatedMessageTemplateListApi {
     /** @nullable */
     previous?: string | null
     results: MessageTemplateApi[]
+}
+
+export interface PatchedMessageTemplateApi {
+    readonly id?: string
+    /** @maxLength 400 */
+    name?: string
+    description?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+    content?: MessageTemplateContentApi
+    readonly created_by?: UserBasicApi
+    /** @maxLength 24 */
+    type?: string
+    /** @nullable */
+    message_category?: string | null
+    deleted?: boolean
 }
 
 export type MessagingCategoriesListParams = {

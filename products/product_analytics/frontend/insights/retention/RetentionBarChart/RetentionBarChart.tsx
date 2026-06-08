@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
+import { TimeSeriesBarChart } from '@posthog/quill-charts'
+import type { PointClickData, TooltipConfig, TooltipContext } from '@posthog/quill-charts'
+
 import { buildTheme } from 'lib/charts/utils/theme'
-import { TimeSeriesBarChart } from 'lib/hog-charts'
-import type { PointClickData, TooltipConfig, TooltipContext } from 'lib/hog-charts'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { retentionGraphLogic } from 'scenes/retention/retentionGraphLogic'
@@ -59,7 +60,6 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
         hasValidBreakdown,
         retentionFilter,
         filteredTrendSeries,
-        incompletenessOffsetFromEnd,
         labelGroupType,
         shouldShowMeanPerBreakdown,
         xAxisLabels,
@@ -74,13 +74,13 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
     // Shared (public) views don't have the persons modal mounted — disable click-to-open there.
     const canClick = !shouldShowMeanPerBreakdown && !inSharedMode
 
+    // Legacy parity: in-progress stroke is line-only.
     const series = useMemo(
         () =>
             buildRetentionSeries(filteredTrendSeries as RetentionTrendSeriesEntry[], {
-                incompletenessOffsetFromEnd,
                 isIntervalView,
             }),
-        [filteredTrendSeries, incompletenessOffsetFromEnd, isIntervalView]
+        [filteredTrendSeries, isIntervalView]
     )
 
     const groupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel)

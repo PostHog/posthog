@@ -432,6 +432,19 @@ class TestSuppressionRuleAPI(APIBaseTest):
         assert response.json()["attr"] == "filters"
         assert response.json()["detail"] == "Invalid filters"
 
+    def test_create_rejects_non_dict_filter_entries_with_400(self) -> None:
+        response = self.client.post(
+            self._url(),
+            data={"filters": {"type": "AND", "values": [1]}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["type"] == "validation_error"
+        assert body["attr"] == "filters"
+        assert body["detail"] == "Invalid filters payload."
+
     def test_create_rejects_invalid_filters_shape_without_leaking_exception(self) -> None:
         response = self.client.post(
             self._url(),

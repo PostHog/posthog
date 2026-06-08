@@ -208,12 +208,20 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
     })),
     afterMount(({ cache }) => {
         cache.syncTitle = (): void => {
+            const isVisible = document.visibilityState === 'visible'
+            if (isVisible) {
+                cache.hasBeenVisible = true
+            }
             if (cache.desiredTitle == null || document.title === cache.desiredTitle) {
                 return
             }
-            // Chrome treats background title updates as a reason to keep a tab alive,
-            // so we always defer syncing until the page is visible again.
-            if (document.visibilityState === 'visible') {
+            // Chrome treats background title updates as a reason to keep a tab alive, so we
+            // defer syncing while hidden — except for a tab the user has never looked at yet
+            // (duplicated tab, restored session, cmd+click). That tab is still settling on its
+            // title and should reflect the scene so it's identifiable in the strip. The keepalive
+            // abuse case is a tab that was viewed then churns its title in the background, which
+            // this still defers.
+            if (isVisible || !cache.hasBeenVisible) {
                 document.title = cache.desiredTitle
             }
         }

@@ -1,6 +1,6 @@
 """Base class for all Replay Vision scanner types."""
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
@@ -10,18 +10,28 @@ if TYPE_CHECKING:
     from products.replay_vision.backend.temporal.types import EventTable
 
 
+# Sited here rather than `temporal/types.py`: `types.py` imports from this module, so siting Segment in types.py would close the cycle.
+class TextSegment(BaseModel, frozen=True):
+    kind: Literal["text"] = "text"
+    value: str
+
+
+class ChipSegment(BaseModel, frozen=True):
+    kind: Literal["chip"] = "chip"
+    uuid: str
+    timestamp_ms: int = Field(ge=0)
+
+
+Segment = Annotated[TextSegment | ChipSegment, Field(discriminator="kind")]
+
+
 class BaseScannerOutput(BaseModel, frozen=True):
     """Final output shape emitted as `$recording_observed` event properties (flattened with `scanner_output_*` keys)."""
 
     confidence: float = Field(
         ge=0,
         le=1,
-        description=(
-            "Calibrated confidence, 0.0 to 1.0 with one decimal; use the full range — most answers fall in 0.6-0.9. "
-            "Ask: could a reasonable alternative answer be defended on the same evidence? If yes, cap at 0.7. "
-            "Reserve 0.9+ for unambiguous evidence with no plausible alternative. "
-            "1.0 should be exceedingly rare — pick 0.95 instead."
-        ),
+        description="Calibrated confidence, 0.0 to 1.0 with one decimal. Apply the calibration rules from the system prompt.",
     )
 
     def to_event_properties(self) -> dict[str, Any]:
@@ -32,11 +42,12 @@ class BaseScannerOutput(BaseModel, frozen=True):
 class BaseScanner(BaseModel, frozen=True):
     """Common shape for every concrete scanner; subclasses bind `scanner_type`, `prompt_template`, and `llm_response_schema`."""
 
+    prompt: str
     emits_signals: bool = False
 
     # Per-scanner-type Jinja2 template under `prompts/`. Subclasses set this.
     prompt_template: ClassVar[str] = ""
-    # Names of free-text fields on the LLM response that may contain `(event_id <hash>)` citations.
+    # Names of free-text fields on the LLM response that may contain `(event_uuid <uuid>)` citations.
     citation_fields: ClassVar[tuple[str, ...]] = ()
     # Persisted output class — subclasses override to stamp their `scanner_type` discriminator.
     output_cls: ClassVar[type["BaseScannerOutput"] | None] = None
@@ -74,8 +85,7 @@ class BaseScanner(BaseModel, frozen=True):
         return render_prompt(
             self.prompt_template,
             team_name=team_name,
-            # `prompt` lives on the four scanners that accept it; the indexer doesn't declare one.
-            user_prompt=getattr(self, "prompt", None),
+            user_prompt=self.prompt,
             events=events,
             url_mapping=url_mapping or {},
             window_mapping=window_mapping or {},

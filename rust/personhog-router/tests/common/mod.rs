@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dashmap::DashMap;
+use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::{
     PersonHogLeader, PersonHogLeaderServer,
 };
@@ -17,14 +18,15 @@ use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHo
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
-    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest,
-    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
-    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
-    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
-    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
-    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
-    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
-    DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    CountCohortMembersResponse, CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse,
+    CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest,
+    DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
+    DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
+    DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
     GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
@@ -42,7 +44,7 @@ use personhog_proto::personhog::types::v1::{
     UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use personhog_router::backend::{
-    LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaBackendConfig, StashTable,
+    LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaDnsConfig, StashTable,
 };
 use personhog_router::config::RetryConfig;
 use personhog_router::proxy::RawProxyService;
@@ -53,6 +55,7 @@ use tokio::sync::RwLock;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::{Channel, Server};
 use tonic::{Request, Response, Status};
+use tower::Service;
 
 use personhog_proto::personhog::types::v1::{
     CohortMembership, Group, GroupTypeMapping, HashKeyOverrideContext, PersonWithDistinctIds,
@@ -366,6 +369,15 @@ impl PersonHogReplica for TestReplicaService {
         }))
     }
 
+    async fn count_group_type_mappings(
+        &self,
+        _request: Request<CountGroupTypeMappingsRequest>,
+    ) -> Result<Response<CountGroupTypeMappingsResponse>, Status> {
+        Ok(Response::new(CountGroupTypeMappingsResponse {
+            counts: vec![],
+        }))
+    }
+
     async fn create_group(
         &self,
         _request: Request<CreateGroupRequest>,
@@ -459,6 +471,61 @@ pub async fn start_test_replica(service: TestReplicaService) -> SocketAddr {
     addr
 }
 
+/// Start a test replica that uses `AsyncGzipLayer` for response compression,
+/// matching the production configuration where gzip is offloaded to a blocking
+/// thread instead of running inline on the tokio runtime.
+pub async fn start_test_replica_with_async_gzip(service: TestReplicaService) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        Server::builder()
+            .layer(AsyncGzipLayer::new(AsyncGzipConfig {
+                enabled: true,
+                min_payload_size: 0,
+                ..AsyncGzipConfig::default()
+            }))
+            .add_service(
+                PersonHogReplicaServer::new(service)
+                    .accept_compressed(CompressionEncoding::Zstd)
+                    .send_compressed(CompressionEncoding::Zstd),
+            )
+            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+            .await
+            .unwrap();
+    });
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    addr
+}
+
+/// Start a test replica with `AsyncGzipLayer` disabled, verifying the flag
+/// prevents compression even when clients advertise gzip support.
+pub async fn start_test_replica_with_async_gzip_disabled(
+    service: TestReplicaService,
+) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        Server::builder()
+            .layer(AsyncGzipLayer::new(AsyncGzipConfig::default()))
+            .add_service(
+                PersonHogReplicaServer::new(service)
+                    .accept_compressed(CompressionEncoding::Zstd)
+                    .send_compressed(CompressionEncoding::Zstd),
+            )
+            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+            .await
+            .unwrap();
+    });
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    addr
+}
+
 /// Start a test router server connected to the given replica address
 pub async fn start_test_router(replica_addr: SocketAddr) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -470,7 +537,7 @@ pub async fn start_test_router(replica_addr: SocketAddr) -> SocketAddr {
         initial_backoff_ms: 1,
         max_backoff_ms: 1,
     };
-    let backend = ReplicaBackend::new(ReplicaBackendConfig {
+    let backend = ReplicaBackend::new_dns(ReplicaDnsConfig {
         url: replica_url,
         timeout: Duration::from_secs(5),
         retry_config,
@@ -479,7 +546,6 @@ pub async fn start_test_router(replica_addr: SocketAddr) -> SocketAddr {
         max_send_message_size: 4 * 1024 * 1024,
         max_recv_message_size: 4 * 1024 * 1024,
         num_channels: 1,
-        num_light_channels: 1,
     });
     let router = PersonHogRouter::new(Arc::new(backend));
     let service = PersonHogRouterService::new(Arc::new(router));
@@ -511,6 +577,58 @@ pub async fn create_compressed_client(router_addr: SocketAddr) -> PersonHogServi
     PersonHogServiceClient::new(channel)
         .send_compressed(CompressionEncoding::Zstd)
         .accept_compressed(CompressionEncoding::Zstd)
+}
+
+/// Send a raw gRPC unary request with `grpc-accept-encoding: gzip` and return
+/// the response headers and body bytes. Uses tonic's Channel as HTTP/2
+/// transport but bypasses the gRPC codec layer so we can inspect the wire
+/// format — this matches the production scenario where the client is Django's
+/// grpcio, not a tonic client.
+pub async fn raw_grpc_call_with_gzip_accept(
+    addr: SocketAddr,
+    path: &str,
+    proto_msg: &impl prost::Message,
+) -> (http::HeaderMap, bytes::Bytes) {
+    use bytes::{BufMut, BytesMut};
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+
+    // Encode protobuf into a gRPC frame: [flag=0][length][protobuf]
+    let proto_bytes = proto_msg.encode_to_vec();
+    let mut frame = BytesMut::with_capacity(5 + proto_bytes.len());
+    frame.put_u8(0);
+    frame.put_u32(proto_bytes.len() as u32);
+    frame.extend_from_slice(&proto_bytes);
+
+    let mut channel = Channel::from_shared(format!("http://{}", addr))
+        .unwrap()
+        .connect()
+        .await
+        .unwrap();
+
+    let body = http_body_util::combinators::UnsyncBoxBody::new(
+        http_body_util::Full::new(frame.freeze())
+            .map_err(|_: std::convert::Infallible| tonic::Status::internal("unreachable")),
+    );
+    let request = http::Request::builder()
+        .method("POST")
+        .uri(format!("http://{}{}", addr, path))
+        .header("content-type", "application/grpc")
+        .header("te", "trailers")
+        .header("grpc-accept-encoding", "gzip")
+        .body(body)
+        .unwrap();
+
+    let response = ServiceExt::ready(&mut channel)
+        .await
+        .unwrap()
+        .call(request)
+        .await
+        .unwrap();
+
+    let headers = response.headers().clone();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    (headers, body)
 }
 
 pub fn create_test_person() -> Person {
@@ -662,7 +780,7 @@ pub async fn start_test_router_with_leader(
 
     // Replica backend
     let replica_url = format!("http://{}", replica_addr);
-    let replica = ReplicaBackend::new(ReplicaBackendConfig {
+    let replica = ReplicaBackend::new_dns(ReplicaDnsConfig {
         url: replica_url,
         timeout: Duration::from_secs(5),
         retry_config,
@@ -671,7 +789,6 @@ pub async fn start_test_router_with_leader(
         max_send_message_size: 4 * 1024 * 1024,
         max_recv_message_size: 4 * 1024 * 1024,
         num_channels: 1,
-        num_light_channels: 1,
     });
 
     // Leader backend: all partitions → "leader-0", resolver → leader_addr
@@ -722,7 +839,7 @@ fn make_replica_backend(replica_addr: SocketAddr) -> Arc<ReplicaBackend> {
         initial_backoff_ms: 1,
         max_backoff_ms: 1,
     };
-    Arc::new(ReplicaBackend::new(ReplicaBackendConfig {
+    Arc::new(ReplicaBackend::new_dns(ReplicaDnsConfig {
         url: format!("http://{}", replica_addr),
         timeout: Duration::from_secs(5),
         retry_config,
@@ -731,7 +848,6 @@ fn make_replica_backend(replica_addr: SocketAddr) -> Arc<ReplicaBackend> {
         max_send_message_size: 4 * 1024 * 1024,
         max_recv_message_size: 4 * 1024 * 1024,
         num_channels: 1,
-        num_light_channels: 1,
     }))
 }
 
@@ -782,7 +898,7 @@ pub async fn start_test_router_raw_with_max_recv(
         initial_backoff_ms: 1,
         max_backoff_ms: 1,
     };
-    let proxy = RawProxyService::new(replica, None, retry_config, max_recv_message_size);
+    let proxy = RawProxyService::new(replica, None, retry_config, max_recv_message_size, 0);
 
     tokio::spawn(async move {
         Server::builder()
@@ -828,7 +944,13 @@ pub async fn start_test_router_raw_with_leader_and_max_recv(
         initial_backoff_ms: 1,
         max_backoff_ms: 1,
     };
-    let proxy = RawProxyService::new(replica, Some(leader), retry_config, max_recv_message_size);
+    let proxy = RawProxyService::new(
+        replica,
+        Some(leader),
+        retry_config,
+        max_recv_message_size,
+        0,
+    );
 
     tokio::spawn(async move {
         Server::builder()

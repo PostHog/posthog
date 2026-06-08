@@ -36,25 +36,10 @@ vi.mock('@/resources', () => ({
 
 import { z } from 'zod'
 
+import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
-import { InstructionsBuilder } from '@/hono/instructions'
-import type { RequestProperties } from '@/lib/request-properties'
-
-function makeProps(overrides: Partial<RequestProperties> = {}): RequestProperties {
-    return {
-        userHash: 'test-user',
-        apiToken: 'phx_test',
-        sessionId: 'sess-1',
-        mcpClientName: 'test',
-        mcpClientVersion: '1.0',
-        mcpProtocolVersion: '2025-03-26',
-        transport: 'streamable-http',
-        requestStartTime: Date.now(),
-        ...overrides,
-    }
-}
 
 function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> = {}): ResolvedState {
     return {
@@ -74,12 +59,23 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             getDistinctId: vi.fn(),
             trackEvent: vi.fn(),
         } as any,
-        version: 1,
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
-        clientProfile: { capabilities: { supportsInstructions: true } } as any,
+        clientProfile: {
+            capabilities: { supportsInstructions: true },
+            isCodingAgent: vi.fn(() => false),
+        } as any,
+        requestContext: {
+            sessionId: 'sess-1',
+            mcpClientName: 'test',
+            mcpClientVersion: '1.0',
+            mcpProtocolVersion: '2025-03-26',
+            transport: 'streamable-http',
+        },
+        sessionContext: null,
         allTools: tools as any,
+        scopeGatedTools: [],
         distinctId: 'test-distinct-id',
         ...overrides,
     }
@@ -125,11 +121,7 @@ describe('ToolExecutor metrics', () => {
         it('records success counter and duration timer', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue(makeFakeTool('my-tool') as any)
 
-            await executor.handleToolCall(
-                { name: 'my-tool', arguments: {} },
-                makeProps(),
-                makeState([{ name: 'my-tool' }])
-            )
+            await executor.handleToolCall({ name: 'my-tool', arguments: {} }, makeState([{ name: 'my-tool' }]))
 
             expect(mockToolDurationStartTimer).toHaveBeenCalledWith({ tool: 'my-tool' })
             expect(mockToolCallsInc).toHaveBeenCalledWith({ tool: 'my-tool', status: 'success' })
@@ -143,11 +135,7 @@ describe('ToolExecutor metrics', () => {
                 }) as any
             )
 
-            await executor.handleToolCall(
-                { name: 'fail-tool', arguments: {} },
-                makeProps(),
-                makeState([{ name: 'fail-tool' }])
-            )
+            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
 
             expect(mockToolCallsInc).toHaveBeenCalledWith({ tool: 'fail-tool', status: 'error' })
             expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'fail-tool', error_type: 'internal' })
@@ -160,18 +148,14 @@ describe('ToolExecutor metrics', () => {
                 base: { schema: z.object({ required_field: z.string() }), handler: vi.fn(), _meta: undefined },
             } as any)
 
-            await executor.handleToolCall(
-                { name: 'strict-tool', arguments: {} },
-                makeProps(),
-                makeState([{ name: 'strict-tool' }])
-            )
+            await executor.handleToolCall({ name: 'strict-tool', arguments: {} }, makeState([{ name: 'strict-tool' }]))
 
             expect(mockToolCallsInc).toHaveBeenCalledWith({ tool: 'strict-tool', status: 'validation_error' })
             expect(mockToolDurationStartTimer).not.toHaveBeenCalled()
         })
 
         it('records error for unknown tool', async () => {
-            await executor.handleToolCall({ name: 'nonexistent', arguments: {} }, makeProps(), makeState([]))
+            await executor.handleToolCall({ name: 'nonexistent', arguments: {} }, makeState([]))
 
             expect(mockToolCallsInc).toHaveBeenCalledWith({ tool: 'nonexistent', status: 'error' })
         })
@@ -181,12 +165,12 @@ describe('ToolExecutor metrics', () => {
         function execState(): ResolvedState {
             return makeState(
                 catalog.getPreBuiltEntries().map((e) => ({ name: e.name })),
-                { useSingleExec: true, version: 2 }
+                { useSingleExec: true }
             )
         }
 
         it('emits no exec-labelled counter or timer on success', async () => {
-            await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' } }, makeProps(), execState())
+            await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' } }, execState())
 
             expect(callsFor(mockToolCallsInc, 'exec')).toHaveLength(0)
             expect(callsFor(mockToolDurationStartTimer, 'exec')).toHaveLength(0)
@@ -195,7 +179,6 @@ describe('ToolExecutor metrics', () => {
         it('emits inner tool name for counter and duration on inner tool call', async () => {
             await executor.handleToolCall(
                 { name: 'exec', arguments: { command: 'call docs-search {"query": "test"}' } },
-                makeProps(),
                 execState()
             )
 
@@ -212,7 +195,6 @@ describe('ToolExecutor metrics', () => {
         it('classifies inner tool errors under the inner tool name, not exec', async () => {
             await executor.handleToolCall(
                 { name: 'exec', arguments: { command: 'call docs-search {"query": "test"}' } },
-                makeProps(),
                 execState()
             )
 
@@ -227,7 +209,6 @@ describe('ToolExecutor metrics', () => {
         it('emits exec-level error for framework failures before inner dispatch', async () => {
             await executor.handleToolCall(
                 { name: 'exec', arguments: { command: 'call nonexistent-tool-xyz {}' } },
-                makeProps(),
                 execState()
             )
 

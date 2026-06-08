@@ -1,5 +1,6 @@
 pub mod authentication;
 pub mod billing;
+pub mod body_logger;
 pub mod canonical_log;
 pub mod config_response_builder;
 pub mod cookieless;
@@ -267,8 +268,7 @@ async fn process_request_inner(
                         team.id,
                         metrics_data.library,
                         is_internal,
-                    )
-                    .await;
+                    );
                 }
 
                 response

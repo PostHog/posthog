@@ -39,9 +39,6 @@ tools:
     hog-flows-batch-jobs-create:
         operation: hog_flows_batch_jobs_create
         enabled: false
-    hog-flows-batch-jobs-retrieve:
-        operation: hog_flows_batch_jobs_retrieve
-        enabled: false
     hog-flows-bulk-delete-create:
         operation: hog_flows_bulk_delete_create
         enabled: false
@@ -98,15 +95,45 @@ tools:
     hog-flows-schedules-list:
         operation: hog_flows_schedules_list
         enabled: false
-    hog-flows-schedules-partial-update:
-        operation: hog_flows_schedules_partial_update
-        enabled: false
     hog-flows-update:
         operation: hog_flows_update
         enabled: false
     hog-flows-user-blast-radius-create:
         operation: hog_flows_user_blast_radius_create
         enabled: false
+    internal-hog-flows-process-due-schedules-create:
+        operation: internal_hog_flows_process_due_schedules_create
+        enabled: false
+    internal-hog-flows-user-blast-radius-create:
+        operation: internal_hog_flows_user_blast_radius_create
+        enabled: false
+    internal-hog-flows-user-blast-radius-persons-create:
+        operation: internal_hog_flows_user_blast_radius_persons_create
+        enabled: false
+    workflows-create:
+        operation: hog_flows_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: hog-{id}
+        title: Create workflow
+        description: >
+            Create a workflow. Needs an actions array with exactly one type='trigger' (config.type:
+            event|webhook|manual|batch|tracking_pixel) plus action nodes —
+            function/function_email/function_sms/function_push, delay (e.g. '30m'), conditional_branch,
+            wait_until_condition — connected by edges. Created as a draft; activate with workflows-enable. 'batch' =
+            broadcast to an audience, one run per matching person (emails/messages). The audience is
+            config.filters.properties: person-property conditions ({type:'person',key,value,operator}) and/or cohort
+            references ({type:'cohort',key:'id',value:<id>,operator:'in'}). Prefer inline person-property conditions or
+            a dynamic (filter-based) cohort via cohorts-create — these re-evaluate as people qualify; a static cohort is
+            a frozen list, use only when given an explicit set. Behavioral (event-based) cohorts are rejected — for 'did
+            event X', use an 'event' trigger instead. A batch workflow fires only once enabled and a recurring schedule
+            is attached (workflows-schedule-create).
+        ui_app: workflow
     workflows-get:
         operation: hog_flows_retrieve
         enabled: true
@@ -120,7 +147,8 @@ tools:
         title: Get workflow
         description: >
             Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit
-            condition, and variables.
+            condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check
+            status=='active' plus an active entry in 'schedules' to confirm it will actually fire.
         ui_app: workflow
     workflows-list:
         operation: hog_flows_list
@@ -137,3 +165,67 @@ tools:
             List all workflows in the project. Returns workflows with their name, description, status
             (draft/active/archived), version, trigger configuration, and timestamps.
         ui_app: workflow-list
+    workflows-list-batch-jobs:
+        operation: hog_flows_batch_jobs_list
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List workflow batch runs
+        description: >
+            List past batch runs for a workflow (both one-off broadcasts and schedule-triggered runs). Each entry shows
+            the audience filters and variable overrides the run used, plus when it was created. The status field is not
+            tracked — use workflows-logs / workflows-metrics for the outcome of a run.
+    workflows-run:
+        operation: hog_flows_invocations_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Test-run workflow
+        description: >
+            Test-invoke a saved workflow. Pass test event data via globals (typically {event, person, groups}). Async
+            actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side effects.
+            Optional current_action_id starts from a specific node. Returns the execution trace.
+        exclude_params:
+            - configuration
+    workflows-update:
+        operation: hog_flows_partial_update
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: hog-{id}
+        title: Update workflow
+        description: >
+            Update a workflow by ID. Draft only — active workflows are read-only via MCP for now (editing risks breaking
+            already-scheduled runs); create a new draft for changes instead. Status changes go through workflows-enable
+            / workflows-disable / workflows-archive. A batch audience is config.filters.properties — person-property
+            conditions and/or cohort references. Prefer person properties or a dynamic (filter-based) cohort, which
+            re-evaluate, over a static frozen-list cohort; behavioral (event-based) cohorts are rejected.
+        exclude_params:
+            - status
+        ui_app: workflow
+    workflows-update-schedule:
+        operation: hog_flows_schedules_partial_update
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update workflow schedule
+        description: >
+            Update a recurring schedule's RRULE, start time, timezone, or variable overrides. Changing the cadence
+            reschedules the next run. Each firing re-broadcasts to the workflow's current trigger audience.

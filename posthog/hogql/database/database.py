@@ -1,6 +1,9 @@
+import copy
 import dataclasses
 from collections import defaultdict
 from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
+from functools import cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -52,6 +55,7 @@ from posthog.hogql.database.models import (
     Table,
     TableNode,
     UnknownDatabaseField,
+    UUIDDatabaseField,
     VirtualTable,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
@@ -96,6 +100,7 @@ from posthog.hogql.database.schema.log_entries import (
     ReplayConsoleLogsLogEntriesTable,
 )
 from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
+from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
 from posthog.hogql.database.schema.metrics import MetricAttributesTable, MetricsKafkaMetricsTable, MetricsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
@@ -136,9 +141,12 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebPreAggregatedBouncesTable,
     WebPreAggregatedStatsTable,
 )
+from posthog.hogql.database.schema.web_goals_preaggregated import WebGoalsPreaggregatedTable
 from posthog.hogql.database.schema.web_overview_preaggregated import WebOverviewPreaggregatedTable
+from posthog.hogql.database.schema.web_stats_frustration_preaggregated import WebStatsFrustrationPreaggregatedTable
 from posthog.hogql.database.schema.web_stats_paths_preaggregated import WebStatsPathsPreaggregatedTable
 from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreaggregatedTable
+from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
@@ -148,6 +156,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team.team import WeekStartDay
 
+from products.data_warehouse.backend.sync_status import get_warehouse_sync_warnings
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -156,6 +165,8 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
 
 if TYPE_CHECKING:
+    from posthog.schema import DataWarehouseSyncWarning
+
     from posthog.models import Team, User
     from posthog.rbac.user_access_control import UserAccessControl
 
@@ -300,11 +311,24 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                         name="conversion_goal_attributed_preaggregated",
                         table=ConversionGoalAttributedPreaggregatedTable(),
                     ),
+                    "marketing_touchpoints_preaggregated": TableNode(
+                        name="marketing_touchpoints_preaggregated",
+                        table=MarketingTouchpointsPreaggregatedTable(),
+                    ),
                     "web_stats_paths_preaggregated": TableNode(
                         name="web_stats_paths_preaggregated", table=WebStatsPathsPreaggregatedTable()
                     ),
                     "web_stats_preaggregated": TableNode(
                         name="web_stats_preaggregated", table=WebStatsPreaggregatedTable()
+                    ),
+                    "web_vitals_paths_preaggregated": TableNode(
+                        name="web_vitals_paths_preaggregated", table=WebVitalsPathsPreaggregatedTable()
+                    ),
+                    "web_stats_frustration_preaggregated": TableNode(
+                        name="web_stats_frustration_preaggregated", table=WebStatsFrustrationPreaggregatedTable()
+                    ),
+                    "web_goals_preaggregated": TableNode(
+                        name="web_goals_preaggregated", table=WebGoalsPreaggregatedTable()
                     ),
                 },
             ),
@@ -328,6 +352,9 @@ class Database(BaseModel):
     _connection_id: str | None = None
     _direct_connection_metadata: dict[str, Any] | None = None
     _direct_access_warehouse_table_names: set[str] = set()
+    # Warnings about data warehouse tables (failed/paused/billing-limited/stale syncs),
+    # keyed by HogQL DataWarehouseTable.table_id (str(Django table UUID)).
+    _data_warehouse_sync_warnings: dict[str, list["DataWarehouseSyncWarning"]] = {}
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None
@@ -352,6 +379,7 @@ class Database(BaseModel):
         self._connection_id = None
         self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
+        self._data_warehouse_sync_warnings = {}
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
         self.user_access_control: Optional[UserAccessControl] = None
 
@@ -467,7 +495,7 @@ class Database(BaseModel):
         if not isinstance(system_tables, SystemTables):
             return []
 
-        return ["query_log", *system_tables.resolve_all_table_names()]
+        return ["query_log", *system_tables.resolve_visible_table_names()]
 
     def get_warehouse_table_names(self) -> list[str]:
         return self._warehouse_table_names + self._warehouse_self_managed_table_names
@@ -643,10 +671,8 @@ class Database(BaseModel):
 
             field_input: dict[str, Any] = {}
             table = self.get_table(table_name)
-            if isinstance(table, FunctionCallTable):
-                field_input = table.get_asterisk()
-            elif isinstance(table, Table):
-                field_input = table.fields
+            if isinstance(table, Table):
+                field_input = _schema_field_input(table)
 
             fields = serialize_fields(field_input, context, table_name.split("."), table_type="posthog")
             fields_dict = {field.name: field for field in fields}
@@ -660,10 +686,8 @@ class Database(BaseModel):
 
             system_field_input: dict[str, Any] = {}
             table = self.get_table(table_key)
-            if isinstance(table, FunctionCallTable):
-                system_field_input = table.get_asterisk()
-            elif isinstance(table, Table):
-                system_field_input = table.fields
+            if isinstance(table, Table):
+                system_field_input = _schema_field_input(table)
 
             fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
             fields_dict = {field.name: field for field in fields}
@@ -684,8 +708,13 @@ class Database(BaseModel):
                     to_attr="latest_completed_job",
                 ),
             )
-            .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id)
-            .order_by("external_data_source__prefix", "external_data_source__source_type", "name")
+            # `queryable()` drops soft-deleted tables and orphans of a soft-deleted source, so an
+            # orphan can't shadow the live table sharing its name in the SQL editor catalog.
+            .queryable()
+            .filter(team_id=context.team_id)
+            # The catalog is built last-write-wins per table key, so order created_at ascending to
+            # land the newest row last when two live tables share a name — matching tree resolution.
+            .order_by("external_data_source__prefix", "external_data_source__source_type", "name", "created_at")
         )
         if self._is_direct_query():
             warehouse_tables_query = warehouse_tables_query.filter(external_data_source_id=self._connection_id)
@@ -761,10 +790,15 @@ class Database(BaseModel):
                     )
                     fields_dict = {field.name: field for field in fields}
 
+                    # The table is also queryable by its raw underscore name, which is registered
+                    # separately from the dotted `table_key`. Surface it so search matches either form.
+                    search_aliases = [warehouse_table.name] if warehouse_table.name != table_key else None
+
                     tables[table_key] = DatabaseSchemaDataWarehouseTable(
                         fields=fields_dict,
                         id=str(warehouse_table.id),
                         name=table_key,
+                        search_aliases=search_aliases,
                         format=warehouse_table.format,
                         url_pattern=warehouse_table.url_pattern,
                         schema=schema,
@@ -859,6 +893,8 @@ class Database(BaseModel):
         if timings is None:
             timings = HogQLTimings()
 
+        db_span = trace.get_current_span()
+
         from posthog.hogql.query import create_default_modifiers_for_team
 
         from posthog.models import Team
@@ -879,9 +915,7 @@ class Database(BaseModel):
             # Team is definitely not None at this point, make mypy believe that
             team = cast("Team", team)
 
-            # Set team_id for the create_hogql_database tracing span
-            span = trace.get_current_span()
-            span.set_attribute("team_id", team.pk)
+            db_span.set_attribute("team_id", team.pk)
 
         with timings.measure("feature_flags", emit_span=True):
             is_managed_viewset_enabled = posthoganalytics.feature_enabled(
@@ -1137,11 +1171,16 @@ class Database(BaseModel):
                 def to_printed_clickhouse(self, context):
                     return self.parent_table.to_printed_clickhouse(context)
 
-            with timings.measure("select"):
+            with timings.measure("select", emit_span=True):
                 tables_query = (
+                    # `queryable()` drops soft-deleted tables and orphans left by a soft-deleted
+                    # source, so an orphan can't shadow the live table sharing its name.
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
-                    .exclude(deleted=True)
+                    .queryable()
                     .select_related("credential", "external_data_source")
+                    # Deterministic tiebreak when two live tables share a name: newest wins, since
+                    # name collisions resolve first-come-first-served when added to the table tree.
+                    .order_by("-created_at")
                 )
                 if database._is_direct_query():
                     tables_query = tables_query.filter(external_data_source_id=database._connection_id)
@@ -1161,61 +1200,70 @@ class Database(BaseModel):
                             connection_id=cast(str, database._connection_id),
                         )
                     ]
-            for table in tables:
-                if (
-                    not database._is_direct_query()
-                    and table.external_data_source
-                    and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
-                ):
-                    continue
+            with timings.measure("build_tables", emit_span=True):
+                sync_warnings_now = datetime.now(UTC)
+                for table in tables:
+                    if (
+                        not database._is_direct_query()
+                        and table.external_data_source
+                        and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
+                    ):
+                        continue
 
-                with timings.measure(f"table_{table.name}"):
-                    s3_table = table.hogql_definition(modifiers)
-                    primary_table = s3_table
+                    with timings.measure(f"table_{table.name}"):
+                        s3_table = table.hogql_definition(modifiers)
 
-                    # If the warehouse table has no _properties_ field, then set it as a virtual table
-                    if s3_table.fields.get("properties") is None:
-                        s3_table.fields["properties"] = WarehousePropertiesVirtualTable(
-                            fields=s3_table.fields, parent_table=s3_table, hidden=True
-                        )
+                        sync_warnings = get_warehouse_sync_warnings(table, now=sync_warnings_now)
+                        if sync_warnings:
+                            database._data_warehouse_sync_warnings[str(table.id)] = sync_warnings
+                        primary_table = s3_table
 
-                    if table.external_data_source:
-                        if not database._is_direct_query():
-                            warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
-                    else:
-                        self_managed_warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
-
-                    if table.external_data_source:
-                        for index, table_key in enumerate(
-                            _get_warehouse_table_keys(table, direct_query=database._is_direct_query())
-                        ):
-                            table_for_key = s3_table if index == 0 else s3_table.model_copy(deep=True)
-                            table_chain = table_key.split(".")
-                            table_conflict_mode: Literal["override", "ignore"] = (
-                                "override"
-                                if database._is_direct_query()
-                                and table.external_data_source
-                                and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
-                                else "ignore"
+                        # If the warehouse table has no _properties_ field, then set it as a virtual table
+                        if s3_table.fields.get("properties") is None:
+                            s3_table.fields["properties"] = WarehousePropertiesVirtualTable(
+                                fields=s3_table.fields, parent_table=s3_table, hidden=True
                             )
 
-                            # For a chain of type a.b.c, we want to create a nested table node
-                            # where a is the parent, b is the child of a, and c is the child of b
-                            # where a.b.c will contain the table
-                            warehouse_tables.add_child(
-                                TableNode.create_nested_for_chain(table_chain, table_for_key),
-                                table_conflict_mode=table_conflict_mode,
-                            )
+                        if table.external_data_source:
+                            if not database._is_direct_query():
+                                warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
+                        else:
+                            self_managed_warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
 
-                            joined_table_chain = ".".join(table_chain)
-                            table_for_key.name = joined_table_chain
-                            warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
-                            if table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT:
-                                database._direct_access_warehouse_table_names.add(joined_table_chain)
-                            if index == 0:
-                                primary_table = table_for_key
+                        if table.external_data_source:
+                            for index, table_key in enumerate(
+                                _get_warehouse_table_keys(table, direct_query=database._is_direct_query())
+                            ):
+                                table_for_key = s3_table if index == 0 else s3_table.model_copy(deep=True)
+                                table_chain = table_key.split(".")
+                                table_conflict_mode: Literal["override", "ignore"] = (
+                                    "override"
+                                    if database._is_direct_query()
+                                    and table.external_data_source
+                                    and table.external_data_source.access_method
+                                    == ExternalDataSource.AccessMethod.DIRECT
+                                    else "ignore"
+                                )
 
-                    warehouse_tables_to_process.append((primary_table, table))
+                                # For a chain of type a.b.c, we want to create a nested table node
+                                # where a is the parent, b is the child of a, and c is the child of b
+                                # where a.b.c will contain the table
+                                warehouse_tables.add_child(
+                                    TableNode.create_nested_for_chain(table_chain, table_for_key),
+                                    table_conflict_mode=table_conflict_mode,
+                                )
+
+                                joined_table_chain = ".".join(table_chain)
+                                table_for_key.name = joined_table_chain
+                                warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
+                                if table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+                                    database._direct_access_warehouse_table_names.add(joined_table_chain)
+                                if index == 0:
+                                    primary_table = table_for_key
+
+                        warehouse_tables_to_process.append((primary_table, table))
+
+        db_span.set_attribute("warehouse_table_count", len(tables))
 
         def define_mappings(root_node: TableNode, get_table: Callable):
             table: Table | None = None
@@ -1480,26 +1528,38 @@ def _use_person_id_from_person_overrides(database: Database) -> None:
     )
 
 
+@cache
+def _error_tracking_event_exprs() -> dict[str, ast.Expr]:
+    # Parsed once, copy.deepcopy'd per use (the resolver mutates exprs in place); these fall under
+    # the parser's min-cacheable length, so they would otherwise re-parse on every build.
+    return {
+        "event_issue_id": parse_expr("toUUID(properties.$exception_issue_id)"),
+        # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.fingerprint`` is not Nullable
+        "issue_id": parse_expr(
+            "if(not(empty(exception_issue_override.issue_id)), exception_issue_override.issue_id, event_issue_id)",
+            start=None,
+        ),
+        "issue_id_v2": parse_expr("fingerprint_issue_state.issue_id", start=None),
+        "issue_name": parse_expr("fingerprint_issue_state.issue_name", start=None),
+        "issue_description": parse_expr("fingerprint_issue_state.issue_description", start=None),
+        "issue_status": parse_expr("fingerprint_issue_state.issue_status", start=None),
+        "issue_assigned_user_id": parse_expr("fingerprint_issue_state.assigned_user_id", start=None),
+        "issue_assigned_role_id": parse_expr("fingerprint_issue_state.assigned_role_id", start=None),
+        "issue_first_seen": parse_expr("fingerprint_issue_state.first_seen", start=None),
+    }
+
+
 def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: Database) -> None:
+    exprs = copy.deepcopy(_error_tracking_event_exprs())
     table = database.get_table("events")
-    table.fields["event_issue_id"] = ExpressionField(
-        name="event_issue_id",
-        # convert to UUID to match type of `issue_id` on overrides table
-        expr=parse_expr("toUUID(properties.$exception_issue_id)"),
-    )
+    # convert event_issue_id to UUID to match type of `issue_id` on the overrides table
+    table.fields["event_issue_id"] = ExpressionField(name="event_issue_id", expr=exprs["event_issue_id"])
     table.fields["exception_issue_override"] = LazyJoin(
         from_field=["fingerprint"],
         join_table=ErrorTrackingIssueFingerprintOverridesTable(),
         join_function=join_with_error_tracking_issue_fingerprint_overrides_table,
     )
-    table.fields["issue_id"] = ExpressionField(
-        name="issue_id",
-        expr=parse_expr(
-            # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.fingerprint`` is not Nullable
-            "if(not(empty(exception_issue_override.issue_id)), exception_issue_override.issue_id, event_issue_id)",
-            start=None,
-        ),
-    )
+    table.fields["issue_id"] = ExpressionField(name="issue_id", expr=exprs["issue_id"])
 
     # Issue metadata from the fingerprint_issue_state table
     table.fields["fingerprint_issue_state"] = LazyJoin(
@@ -1507,34 +1567,17 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
         join_table=ErrorTrackingFingerprintIssueStateTable(),
         join_function=join_with_error_tracking_fingerprint_issue_state_table,
     )
-    table.fields["issue_id_v2"] = ExpressionField(
-        name="issue_id_v2",
-        expr=parse_expr("fingerprint_issue_state.issue_id", start=None),
-    )
-    table.fields["issue_name"] = ExpressionField(
-        name="issue_name",
-        expr=parse_expr("fingerprint_issue_state.issue_name", start=None),
-    )
-    table.fields["issue_description"] = ExpressionField(
-        name="issue_description",
-        expr=parse_expr("fingerprint_issue_state.issue_description", start=None),
-    )
-    table.fields["issue_status"] = ExpressionField(
-        name="issue_status",
-        expr=parse_expr("fingerprint_issue_state.issue_status", start=None),
-    )
+    table.fields["issue_id_v2"] = ExpressionField(name="issue_id_v2", expr=exprs["issue_id_v2"])
+    table.fields["issue_name"] = ExpressionField(name="issue_name", expr=exprs["issue_name"])
+    table.fields["issue_description"] = ExpressionField(name="issue_description", expr=exprs["issue_description"])
+    table.fields["issue_status"] = ExpressionField(name="issue_status", expr=exprs["issue_status"])
     table.fields["issue_assigned_user_id"] = ExpressionField(
-        name="issue_assigned_user_id",
-        expr=parse_expr("fingerprint_issue_state.assigned_user_id", start=None),
+        name="issue_assigned_user_id", expr=exprs["issue_assigned_user_id"]
     )
     table.fields["issue_assigned_role_id"] = ExpressionField(
-        name="issue_assigned_role_id",
-        expr=parse_expr("fingerprint_issue_state.assigned_role_id", start=None),
+        name="issue_assigned_role_id", expr=exprs["issue_assigned_role_id"]
     )
-    table.fields["issue_first_seen"] = ExpressionField(
-        name="issue_first_seen",
-        expr=parse_expr("fingerprint_issue_state.first_seen", start=None),
-    )
+    table.fields["issue_first_seen"] = ExpressionField(name="issue_first_seen", expr=exprs["issue_first_seen"])
 
 
 def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]]) -> None:
@@ -1670,7 +1713,9 @@ def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehou
         return
 
     schemas_by_table_id: dict[str, list[ExternalDataSchema]] = defaultdict(list)
-    for schema in ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id__in=table_ids):
+    # select_related("source"): warning rendering reads schema.source.source_type, so avoid a
+    # per-schema lazy fetch when any of these tables turns out to be unhealthy.
+    for schema in ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id__in=table_ids).select_related("source"):
         schemas_by_table_id[str(schema.table_id)].append(schema)
 
     for warehouse_table in warehouse_tables:
@@ -1737,6 +1782,25 @@ def _should_include_connection_table(
     return not schemas or any(schema.should_sync for schema in schemas)
 
 
+def _schema_field_input(table: Table) -> dict[str, Any]:
+    """Fields to surface in the serialized schema (SQL editor sidebar, autocomplete).
+
+    `get_asterisk()` exists for `SELECT *` expansion, so it drops lazy joins, virtual tables,
+    and field traversers — but those are exactly the relational fields users need to see in the
+    schema. Add them back while preserving `get_asterisk`'s column filtering (`avoid_asterisk_fields`
+    and hidden columns), so data warehouse joins show up on `FunctionCallTable`-backed tables like
+    the `system.*` Postgres tables.
+    """
+    if not isinstance(table, FunctionCallTable):
+        return table.fields
+
+    field_input = table.get_asterisk()
+    for key, field in table.fields.items():
+        if key not in field_input and isinstance(field, (LazyJoin, Table, FieldTraverser)):
+            field_input[key] = field
+    return field_input
+
+
 def serialize_fields(
     field_input,
     context: HogQLContext,
@@ -1801,6 +1865,15 @@ def serialize_fields(
                     )
                 )
             elif isinstance(field, StringDatabaseField):
+                field_output.append(
+                    DatabaseSchemaField(
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.STRING,
+                        schema_valid=schema_valid,
+                    )
+                )
+            elif isinstance(field, UUIDDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(
                         name=field_key,
