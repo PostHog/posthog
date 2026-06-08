@@ -1,14 +1,14 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
+import { useCallback, useMemo } from 'react'
 
-import type { ChatSession } from '@posthog/agent-chat'
-import type { FleetStats } from '@posthog/agent-chat/fixtures'
+import type { AgentApplicationFixture, AgentStats, FleetStats } from '@posthog/agent-chat/fixtures'
 
 import { useSetDockConciergeAgent, useSetDockPage } from '@/components/dock-context'
 import { AgentsListSkeleton } from '@/components/PageSkeletons'
 import { useSessionTeamId } from '@/components/session-context'
-import { ApiError, getFleetStats, listAgents, listLiveSessions } from '@/lib/apiClient'
+import { ApiError, getAgentStats, getFleetStats, listAgents } from '@/lib/apiClient'
 import { useResource } from '@/lib/useResource'
 import { AgentsList } from '@/screens/AgentsList'
 
@@ -31,6 +31,33 @@ async function tolerateMissing<T>(p: Promise<T>, fallback: T): Promise<T> {
     }
 }
 
+/**
+ * Fan out across the non-archived agents and roll up each agent's
+ * stats card. The janitor's per-application endpoint is cheap (one
+ * JSONB sum + a count) so this is fine while the fleet has tens of
+ * agents — swap for a bulk `aggregate_per_application` rollup if
+ * teams start regularly carrying hundreds.
+ */
+async function fetchStatsBySlug(
+    teamId: number,
+    agents: AgentApplicationFixture[]
+): Promise<Record<string, AgentStats>> {
+    const active = agents.filter((a) => !a.archived)
+    const entries = await Promise.all(
+        active.map(async (a) => {
+            const stats = await tolerateMissing<AgentStats | null>(getAgentStats(teamId, a.slug), null)
+            return [a.slug, stats] as const
+        })
+    )
+    const out: Record<string, AgentStats> = {}
+    for (const [slug, stats] of entries) {
+        if (stats) {
+            out[slug] = stats
+        }
+    }
+    return out
+}
+
 export function AgentsListClient(): React.ReactElement {
     const router = useRouter()
     // SessionGate (in AppShell) blocks rendering until teamId resolves.
@@ -48,21 +75,23 @@ export function AgentsListClient(): React.ReactElement {
     const fleet = useResource(() => tolerateMissing(getFleetStats(teamId), EMPTY_FLEET_STATS), [teamId], {
         pollMs: POLL_MS,
     })
-    // The fleet live-sessions endpoint returns `application_id` only —
-    // we have to enrich each row with the agent's slug + name so the
-    // LiveNowPanel can render and navigate. Sequence on agents so the
-    // lookup is ready when the mapper runs.
-    const live = useResource(
-        async (): Promise<ChatSession[]> => {
-            const agentList = await listAgents(teamId)
-            const agentsById = new Map(agentList.map((a) => [a.id, { id: a.id, name: a.name, slug: a.slug }]))
-            return tolerateMissing(listLiveSessions(teamId, agentsById), [])
-        },
-        [teamId],
+
+    const agentsData = agents.data
+    const statsFactory = useCallback(
+        async () => (agentsData ? fetchStatsBySlug(teamId, agentsData) : {}),
+        [teamId, agentsData]
+    )
+    const stats = useResource<Record<string, AgentStats>>(
+        statsFactory,
+        // Recompute when the list of slugs changes — adding/removing an
+        // agent should re-fan-out without waiting for the next poll tick.
+        [teamId, agentsData?.map((a) => a.slug).join(',')],
         { pollMs: POLL_MS }
     )
 
-    const error = agents.error ?? fleet.error ?? live.error
+    const error = agents.error ?? fleet.error ?? stats.error
+
+    const onOpenAgent = useMemo(() => (slug: string) => router.push(`/agents/${slug}`), [router])
 
     if (error) {
         return <div className="px-6 py-6 text-sm text-destructive-foreground">Failed to load: {error.message}</div>
@@ -70,35 +99,11 @@ export function AgentsListClient(): React.ReactElement {
     // Stale-while-revalidate: only block on the first load, not on
     // refetches triggered by bumpReload (otherwise lifecycle actions
     // flash the whole page back to a placeholder).
-    if (!agents.data || !fleet.data || !live.data) {
+    if (!agents.data || !fleet.data || !stats.data) {
         return <AgentsListSkeleton />
     }
 
-    const liveSessions = live.data
-    // v0: count live sessions per agent by grouping the fleet list
-    // client-side. v0.1+ surfaces this as a fleet/rollup field.
-    const liveCountByAgent = liveSessions.reduce<Record<string, number>>((acc, s) => {
-        acc[s.application.id] = (acc[s.application.id] ?? 0) + 1
-        return acc
-    }, {})
-
     return (
-        <AgentsList
-            agents={agents.data}
-            fleetStats={fleet.data}
-            liveSessions={liveSessions}
-            liveCountByAgent={liveCountByAgent}
-            onOpenAgent={(slug) => router.push(`/agents/${slug}`)}
-            onOpenSession={(sessionId) => {
-                const session = liveSessions.find((s) => s.id === sessionId)
-                if (session) {
-                    router.push(`/agents/${session.application.slug}/sessions?session=${encodeURIComponent(sessionId)}`)
-                }
-            }}
-            onViewAllSessions={() => {
-                // eslint-disable-next-line no-console
-                console.info('[stub] /sessions cross-agent page lands in v1.')
-            }}
-        />
+        <AgentsList agents={agents.data} fleetStats={fleet.data} statsBySlug={stats.data} onOpenAgent={onOpenAgent} />
     )
 }
