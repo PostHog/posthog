@@ -37,7 +37,6 @@ import {
 
 export interface ReplayScannerLogicProps {
     id: string
-    tabId: string
 }
 
 export type ObservationStatusValue = ReplayObservationApi['status']
@@ -180,7 +179,7 @@ export function buildObservationListParams(
 export const replayScannerLogic = kea<replayScannerLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'replayScannerLogic']),
     props({} as ReplayScannerLogicProps),
-    key((props) => `${props.tabId}:${props.id}`),
+    key((props) => props.id),
 
     actions({
         loadScanner: true,
@@ -213,7 +212,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         requestScannerEstimate: true,
         loadScannerEstimate: true,
         loadScannerEstimateSuccess: (estimate: EstimateResponseApi) => ({ estimate }),
-        loadScannerEstimateFailure: true,
+        loadScannerEstimateFailure: (error: string | null = null) => ({ error }),
     }),
 
     forms(({ props }) => ({
@@ -224,9 +223,26 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (!scanner.scanner_config?.prompt?.trim()) {
                     configErrors.prompt = 'Prompt is required'
                 }
+                if (scanner.scanner_type === 'classifier') {
+                    const tags = scanner.scanner_config.tags ?? []
+                    if (tags.length === 0) {
+                        configErrors.tags = 'Add at least one tag to the vocabulary'
+                    } else if (tags.some((t) => !t.trim())) {
+                        configErrors.tags = "Tags can't be blank"
+                    } else if (new Set(tags.map((t) => t.trim().toLowerCase())).size !== tags.length) {
+                        configErrors.tags = 'Tags must be unique'
+                    }
+                }
                 if (scanner.scanner_type === 'scorer') {
                     const { min, max } = scanner.scanner_config.scale
-                    if (typeof min !== 'number' || typeof max !== 'number' || min >= max) {
+                    if (
+                        typeof min !== 'number' ||
+                        typeof max !== 'number' ||
+                        !Number.isFinite(min) ||
+                        !Number.isFinite(max)
+                    ) {
+                        configErrors.scale = 'Scale min and max must be numbers'
+                    } else if (min >= max) {
                         configErrors.scale = 'Scale max must be greater than min'
                     }
                 }
@@ -254,8 +270,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         await visionScannersPartialUpdate(String(teamId), props.id, scannerToPatchedApiBody(body))
                         lemonToast.success('Scanner saved')
                     }
-                } catch (error) {
-                    lemonToast.error(`Failed to save scanner: ${String(error)}`)
+                } catch (error: any) {
+                    lemonToast.error(`Failed to save scanner${error.detail ? `: ${error.detail}` : ''}`)
                     throw error
                 }
             },
@@ -338,6 +354,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             {
                 loadScannerEstimateSuccess: (_, { estimate }) => estimate,
                 loadScannerEstimateFailure: () => null,
+            },
+        ],
+        scannerEstimateError: [
+            null as string | null,
+            {
+                requestScannerEstimate: () => null,
+                loadScannerEstimateSuccess: () => null,
+                loadScannerEstimateFailure: (_, { error }) => error,
             },
         ],
         scannerEstimateLoading: [
@@ -517,7 +541,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         return {
             loadScanner: async () => {
                 if (props.id === 'new') {
-                    actions.loadScannerSuccess(newScanner(currentTemplateKey()))
+                    const templateKey = currentTemplateKey()
+                    if (templateKey && !findScannerTemplate(templateKey)) {
+                        // Unknown template (stale link, typo, renamed key). Strip it so the URL matches
+                        // what the user actually gets: the from-scratch flow with a selectable type.
+                        const { template: _drop, ...rest } = router.values.searchParams
+                        router.actions.replace(router.values.location.pathname, rest)
+                        actions.loadScannerSuccess(newScanner(null))
+                        return
+                    }
+                    actions.loadScannerSuccess(newScanner(templateKey))
                     return
                 }
                 const teamId = teamLogic.values.currentTeamId
@@ -527,8 +560,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 try {
                     const response = await visionScannersRetrieve(String(teamId), props.id)
                     actions.loadScannerSuccess(scannerFromApi(response))
-                } catch (error) {
-                    lemonToast.error(`Failed to load scanner: ${String(error)}`)
+                } catch (error: any) {
+                    lemonToast.error(`Failed to load scanner${error.detail ? `: ${error.detail}` : ''}`)
                     actions.loadScannerFailure()
                     router.actions.replace(urls.replayVision())
                 }
@@ -583,7 +616,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         return
                     }
                     actions.loadScannerEstimateSuccess(response)
-                } catch (error) {
+                } catch (error: any) {
                     if (error instanceof Error && isBreakpoint(error)) {
                         throw error
                     }
@@ -592,7 +625,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     if (values.estimateRequestVersion !== version) {
                         return
                     }
-                    actions.loadScannerEstimateFailure()
+                    const detail = typeof error?.detail === 'string' ? error.detail : null
+                    const message = typeof error?.message === 'string' ? error.message : null
+                    actions.loadScannerEstimateFailure(detail ?? message)
                 }
             },
 
@@ -608,8 +643,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     await visionScannersDestroy(String(teamId), props.id)
                     lemonToast.success('Scanner deleted')
                     router.actions.replace(urls.replayVision())
-                } catch (error) {
-                    lemonToast.error(`Failed to delete scanner: ${String(error)}`)
+                } catch (error: any) {
+                    lemonToast.error(`Failed to delete scanner${error.detail ? `: ${error.detail}` : ''}`)
                 }
             },
 

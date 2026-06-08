@@ -484,8 +484,8 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         body = response.json()
         assert [c["skill_name"] for c in body] == ["signals-scout-alpha", "signals-scout-beta"]
         assert body[0]["enabled"] is True
-        assert body[0]["emit"] is False
-        assert body[0]["run_interval_minutes"] == 1440
+        assert body[0]["emit"] is True
+        assert body[0]["run_interval_minutes"] == 60
 
     def test_partial_update_changes_schedule_emit_and_records_enabled_by(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)

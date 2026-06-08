@@ -26,8 +26,8 @@
             "type": "string"
         },
         "resource_type": {
-            "description": "Filter by subscription resource: insight vs dashboard export.",
-            "enum": ["dashboard", "insight"],
+            "description": "Filter by subscription resource: insight, dashboard export, or AI report.",
+            "enum": ["ai_prompt", "dashboard", "insight"],
             "type": "string"
         },
         "search": {

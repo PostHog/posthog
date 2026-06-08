@@ -1340,12 +1340,21 @@ def _extract_label_prefix(request: Request) -> str | None:
     return stripped
 
 
-def _create_provisioned_pat(user: User, team: Team, label_prefix: str | None = None) -> str | None:
+def _maybe_create_provisioned_pat(
+    user: User, team: Team, app: OAuthApplication | None, label_prefix: str | None = None
+) -> str | None:
     """Create a Personal API Key for a provisioned user and return the raw key value.
 
-    Scopes are ["*"] so downstream tooling (e.g. the wizard CI install flow)
-    can use the key without silent 403s — a narrow default has no in-product
-    recovery path since there's no scope upgrade UI.
+    Gated by ``app.provisioning_issues_personal_api_key``: off by default, so most
+    apps never receive a provisioned PAT (the OAuth token is the credential).
+    Returns ``None`` when the gate is off, and the caller omits ``personal_api_key``
+    from the response entirely.
+
+    When enabled (the grandfathered legacy Stripe app), the key is scoped to the
+    app's ``scopes`` ceiling rather than ``["*"]`` so a provisioned PAT can never
+    exceed what the issuing app is itself allowed. A flag-on app with an unseeded
+    ceiling mints nothing: an empty-scope PAT fails every scope check, and widening
+    to a wildcard would bypass the ceiling.
 
     scoped_teams is set to [team.id] so the PAT only grants access to the team
     being provisioned, matching the scoping of the OAuth token issued in the
@@ -1355,6 +1364,11 @@ def _create_provisioned_pat(user: User, team: Team, label_prefix: str | None = N
     ``label_prefix`` should be pre-validated by ``_extract_label_prefix``; pass
     ``None`` (or any falsy value) to label the key with just the team name.
     """
+    if not app or not app.provisioning_issues_personal_api_key:
+        return None
+    if not app.scopes:
+        _capture_provisioning_event("pat_mint", "skipped_unseeded_ceiling", partner=app, team_id=team.id)
+        return None
     try:
         api_key_value = generate_random_token_personal()
         label_base = f"{label_prefix} - {team.name}" if label_prefix else team.name
@@ -1367,7 +1381,7 @@ def _create_provisioned_pat(user: User, team: Team, label_prefix: str | None = N
             label=label,
             secure_value=hash_key_value(api_key_value),
             mask_value=mask_key_value(api_key_value),
-            scopes=["*"],
+            scopes=list(app.scopes),
             scoped_teams=[team.id],
             scoped_organizations=[str(team.organization_id)],
         )
@@ -1645,7 +1659,9 @@ def provisioning_resources_create(request: Request) -> Response:
         "api_key": team.api_token,
         "host": host,
     }
-    if personal_api_key := _create_provisioned_pat(user, team, label_prefix=label_prefix):
+    if personal_api_key := _maybe_create_provisioned_pat(
+        user, team, access_token.application, label_prefix=label_prefix
+    ):
         access_configuration["personal_api_key"] = personal_api_key
 
     return Response(
@@ -1734,7 +1750,9 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         "api_key": team.api_token,
         "host": host,
     }
-    if personal_api_key := _create_provisioned_pat(user, team, label_prefix=label_prefix):
+    if personal_api_key := _maybe_create_provisioned_pat(
+        user, team, access_token.application, label_prefix=label_prefix
+    ):
         access_configuration["personal_api_key"] = personal_api_key
 
     return Response(
