@@ -419,9 +419,9 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         tags = sorted(self.ticket.tagged_items.values_list("tag__name", flat=True))
-        self.assertEqual(tags, ["bug", "urgent"])
+        assert tags == ["bug", "urgent"]
 
     def test_patch_tags_add_is_idempotent(self):
         from posthog.models import Tag
@@ -435,8 +435,8 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(self.ticket.tagged_items.count(), 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert self.ticket.tagged_items.count() == 1
 
     def test_patch_tags_concurrent_add_produces_union(self):
         self.client.patch(
@@ -452,7 +452,7 @@ class TestExternalTicketAPI(BaseTest):
             **self._auth_headers(),
         )
         tags = sorted(self.ticket.tagged_items.values_list("tag__name", flat=True))
-        self.assertEqual(tags, ["billing", "urgent"])
+        assert tags == ["billing", "urgent"]
 
     def test_patch_tags_default_mode_is_add(self):
         from posthog.models import Tag
@@ -466,9 +466,9 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         tags = sorted(self.ticket.tagged_items.values_list("tag__name", flat=True))
-        self.assertEqual(tags, ["bug", "feature"])
+        assert tags == ["bug", "feature"]
 
     def test_patch_tags_set_mode_replaces_all(self):
         from posthog.models import Tag
@@ -482,9 +482,9 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         tags = list(self.ticket.tagged_items.values_list("tag__name", flat=True))
-        self.assertEqual(tags, ["urgent"])
+        assert tags == ["urgent"]
 
     def test_patch_tags_remove_mode_strips_named(self):
         from posthog.models import Tag
@@ -499,9 +499,9 @@ class TestExternalTicketAPI(BaseTest):
             content_type="application/json",
             **self._auth_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         tags = list(self.ticket.tagged_items.values_list("tag__name", flat=True))
-        self.assertEqual(tags, ["urgent"])
+        assert tags == ["urgent"]
 
     # -- URL validation ---------------------------------------------------
 

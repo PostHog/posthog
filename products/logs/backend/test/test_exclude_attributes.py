@@ -52,11 +52,11 @@ class TestLogsExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
     )
     def test_attributes(self, _name, exclude):
         results = self._run(exclude=exclude)
-        self.assertEqual(len(results), 1)
+        assert len(results) == 1
         if exclude:
             # Keys stay present (positional result mapping is stable) but the maps are empty.
-            self.assertEqual(results[0]["attributes"], {})
-            self.assertEqual(results[0]["resource_attributes"], {})
+            assert results[0]["attributes"] == {}
+            assert results[0]["resource_attributes"] == {}
         else:
-            self.assertTrue(results[0]["attributes"])
-            self.assertEqual(results[0]["resource_attributes"]["service.name"], "argo-rollouts")
+            assert results[0]["attributes"]
+            assert results[0]["resource_attributes"]["service.name"] == "argo-rollouts"

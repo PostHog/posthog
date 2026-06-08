@@ -502,7 +502,7 @@ class TestOrganization(BaseTest):
         with self.settings(CLOUD_DEPLOYMENT=cloud_deployment):
             extra_kwargs = {} if explicit_value is None else {"is_ai_training_opted_in": explicit_value}
             org, _, _ = Organization.objects.bootstrap(self.user, name=_name, **extra_kwargs)
-            self.assertEqual(org.is_ai_training_opted_in, expected)
+            assert org.is_ai_training_opted_in == expected
 
     @parameterized.expand(
         [
@@ -543,10 +543,10 @@ class TestOrganization(BaseTest):
             dispatched_team_ids = {
                 call.kwargs["args"][0] for call in mock_update_remote_config.apply_async.call_args_list
             }
-            self.assertEqual(dispatched_team_ids, {self.team.id, second_team.id})
+            assert dispatched_team_ids == {self.team.id, second_team.id}
             for call in mock_update_remote_config.apply_async.call_args_list:
-                self.assertEqual(call.kwargs.get("countdown"), 35)
-                self.assertEqual(call.kwargs.get("kwargs"), {"bypass_recordings_quota_cache": True})
+                assert call.kwargs.get("countdown") == 35
+                assert call.kwargs.get("kwargs") == {"bypass_recordings_quota_cache": True}
         else:
             mock_update_remote_config.apply_async.assert_not_called()
 

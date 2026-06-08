@@ -429,8 +429,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             Action.objects.create(team=self.team, name=name, last_calculated_at=base - timedelta(minutes=index))
 
         response = self.client.get(f"/api/projects/{self.team.id}/actions/{params}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([action["name"] for action in response.json()["results"]], expected_names)
+        assert response.status_code == status.HTTP_200_OK
+        assert [action["name"] for action in response.json()["results"]] == expected_names
 
     def test_hard_deletion_is_forbidden(self):
         response = self.client.post(

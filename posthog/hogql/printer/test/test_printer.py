@@ -126,21 +126,21 @@ class TestPrinter(BaseTest):
             self._expr(expr, None, dialect)
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
-        self.assertTrue(expected_error in str(context.exception))
+        assert expected_error in str(context.exception)
 
     def _assert_select_error(self, statement, expected_error):
         with self.assertRaises(ExposedHogQLError) as context:
             self._select(statement, None)
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
-        self.assertTrue(expected_error in str(context.exception))
+        assert expected_error in str(context.exception)
 
     def _assert_query_error(self, statement, expected_error):
         with self.assertRaises(QueryError) as context:
             self._select(statement, None)
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
-        self.assertTrue(expected_error in str(context.exception))
+        assert expected_error in str(context.exception)
 
     def _pretty(self, query: str):
         printed, _ = prepare_and_print_ast(
@@ -171,49 +171,47 @@ class TestPrinter(BaseTest):
     def test_to_printed_hogql(self):
         expr = parse_select("select 1 + 2, 3 from events")
         repsponse = to_printed_hogql(expr, self.team)
-        self.assertEqual(
-            repsponse, f"SELECT\n    plus(1, 2),\n    3\nFROM\n    events\nLIMIT {MAX_SELECT_RETURNED_ROWS}"
-        )
+        assert repsponse == f"SELECT\n    plus(1, 2),\n    3\nFROM\n    events\nLIMIT {MAX_SELECT_RETURNED_ROWS}"
 
     def test_column_aliases_select_star_subquery_uses_real_column_names(self):
         printed = self._select("select s.* from (select 1 as x, 2 as y, 3 as z) as s (a, b, c)")
         # ClickHouse doesn't support (a, b, c) syntax, so the printer should
         # bake aliases into the inner SELECT
-        self.assertNotIn("(a, b, c)", printed)
-        self.assertIn("AS a", printed)
-        self.assertIn("AS b", printed)
-        self.assertIn("AS c", printed)
+        assert "(a, b, c)" not in printed
+        assert "AS a" in printed
+        assert "AS b" in printed
+        assert "AS c" in printed
 
     def test_column_aliases_explicit_aliased_refs_use_real_names(self):
         printed = self._select("select e.a, e.b from events as e (a, b, c)")
         # e.a should resolve to e.uuid, e.b to e.event in ClickHouse
-        self.assertIn("e.uuid", printed)
-        self.assertIn("e.event", printed)
-        self.assertNotIn("e.a", printed)
-        self.assertNotIn("e.b", printed)
+        assert "e.uuid" in printed
+        assert "e.event" in printed
+        assert "e.a" not in printed
+        assert "e.b" not in printed
 
     def test_column_aliases_in_where_clause(self):
         printed = self._select("select e.a from events as e (a, b, c) where e.c is not null")
-        self.assertIn("e.uuid", printed)
-        self.assertIn("e.properties", printed)
-        self.assertNotIn("e.a", printed)
-        self.assertNotIn("e.c", printed)
+        assert "e.uuid" in printed
+        assert "e.properties" in printed
+        assert "e.a" not in printed
+        assert "e.c" not in printed
 
     def test_column_aliases_keep_table_filter_column(self):
         printed = self._select("select b from events as e (a, b, c, d, f, g, h, i, j, team_id)")
-        self.assertIn("WHERE equals(e.team_id,", printed)
-        self.assertNotIn("WHERE equals(e.person_mode,", printed)
+        assert "WHERE equals(e.team_id," in printed
+        assert "WHERE equals(e.person_mode," not in printed
 
     def test_column_aliases_unqualified_refs(self):
         printed = self._select("select a, b from events as e (a, b, c)")
-        self.assertIn("e.uuid", printed)
-        self.assertIn("e.event", printed)
+        assert "e.uuid" in printed
+        assert "e.event" in printed
 
     def test_column_aliases_remaining_columns_keep_original_names(self):
         # Only 3 aliases for a table with many columns — remaining keep original names
         printed = self._select("select e.a, e.timestamp from events as e (a, b, c)")
-        self.assertIn("e.uuid", printed)
-        self.assertIn("toTimeZone(e.timestamp", printed)
+        assert "e.uuid" in printed
+        assert "toTimeZone(e.timestamp" in printed
 
     def test_column_aliases_original_name_not_accessible(self):
         self._assert_select_error(
@@ -224,9 +222,9 @@ class TestPrinter(BaseTest):
     def test_column_aliases_subquery_bakes_into_inner_select(self):
         printed = self._select("select s.a from (select 1 as x, 2 as y) as s (a, b)")
         # For ClickHouse, column aliases are baked into the inner SELECT
-        self.assertIn("AS a", printed)
-        self.assertIn("AS b", printed)
-        self.assertNotIn("(a, b)", printed)
+        assert "AS a" in printed
+        assert "AS b" in printed
+        assert "(a, b)" not in printed
 
     def test_column_aliases_too_many_error(self):
         self._assert_query_error(
@@ -249,11 +247,11 @@ class TestPrinter(BaseTest):
 
     def test_lambda_style_clickhouse_prints(self):
         printed = self._select("select lambda x: x + 1")
-        self.assertIn("x -> plus(x, 1)", printed)
+        assert "x -> plus(x, 1)" in printed
 
     def test_array_slice_clickhouse_prints_array_slice(self):
         printed = self._select("select [1, 2, 3][1:3]")
-        self.assertIn("arraySlice([1, 2, 3], 1, plus(minus(3, 1), 1))", printed)
+        assert "arraySlice([1, 2, 3], 1, plus(minus(3, 1), 1))" in printed
 
     def test_try_cast_non_postgres_error(self):
         self._assert_query_error(
@@ -263,7 +261,7 @@ class TestPrinter(BaseTest):
 
     def test_limit_percent_clickhouse_constant_prints_decimal(self):
         printed = self._select("select 1 from events limit 40 %")
-        self.assertIn("LIMIT 0.4", printed)
+        assert "LIMIT 0.4" in printed
 
     def test_limit_percent_clickhouse_expression_error(self):
         self._assert_query_error(
@@ -274,110 +272,100 @@ class TestPrinter(BaseTest):
     def test_union_distinct(self):
         expr = parse_select("""select 1 as id union distinct select 2 as id""")
         response = to_printed_hogql(expr, self.team)
-        self.assertEqual(
-            response,
-            f"SELECT\n    1 AS id\nLIMIT 50000\nUNION DISTINCT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            response
+            == f"SELECT\n    1 AS id\nLIMIT 50000\nUNION DISTINCT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_intersect(self):
         expr = parse_select("""select 1 as id intersect select 2 as id""")
         response = to_printed_hogql(expr, self.team)
-        self.assertEqual(
-            response,
-            f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            response
+            == f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_intersect_all_raises_in_clickhouse(self):
         with self.assertRaises(ImpossibleASTError) as context:
             self._select("select 1 as id intersect all select 2 as id")
-        self.assertIn("INTERSECT ALL is not supported", str(context.exception))
+        assert "INTERSECT ALL is not supported" in str(context.exception)
 
     def test_intersect_distinct(self):
         expr = parse_select("""select 1 as id intersect distinct select 2 as id""")
         response = to_printed_hogql(expr, self.team)
-        self.assertEqual(
-            response,
-            f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT DISTINCT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            response
+            == f"SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT DISTINCT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_except(self):
         expr = parse_select("""select 1 as id except select 2 as id""")
         response = to_printed_hogql(expr, self.team)
-        self.assertEqual(
-            response,
-            f"SELECT\n    1 AS id\nLIMIT 50000\nEXCEPT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            response
+            == f"SELECT\n    1 AS id\nLIMIT 50000\nEXCEPT\nSELECT\n    2 AS id\nLIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_except_all_raises_in_clickhouse(self):
         with self.assertRaises(ImpossibleASTError) as context:
             self._select("select 1 as id except all select 2 as id")
-        self.assertIn("EXCEPT ALL is not supported", str(context.exception))
+        assert "EXCEPT ALL is not supported" in str(context.exception)
 
     def test_union_by_name(self):
         expr = parse_select("""select 1 as a, 2 as b union by name select 3 as b, 4 as a""")
         response = to_printed_hogql(expr, self.team)
-        self.assertEqual(
-            response,
-            (
-                "SELECT\n"
-                "    1 AS a,\n"
-                "    2 AS b\n"
-                "LIMIT 50000\n"
-                "UNION DISTINCT BY NAME\n"
-                "SELECT\n"
-                "    3 AS b,\n"
-                "    4 AS a\n"
-                f"LIMIT {MAX_SELECT_RETURNED_ROWS}"
-            ),
+        assert (
+            response == "SELECT\n"
+            "    1 AS a,\n"
+            "    2 AS b\n"
+            "LIMIT 50000\n"
+            "UNION DISTINCT BY NAME\n"
+            "SELECT\n"
+            "    3 AS b,\n"
+            "    4 AS a\n"
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     # these share the same priority, should stay in order
     def test_except_and_union(self):
         expr = parse_select("""select 1 as id except select 2 as id union all select 3 as id""")
         response = to_printed_hogql(expr, self.team)
-        self.assertEqual(
-            response,
-            (
-                "SELECT\n"
-                "    1 AS id\n"
-                "LIMIT 50000\n"
-                "EXCEPT\n"
-                "SELECT\n"
-                "    2 AS id\n"
-                "LIMIT 50000\n"
-                "UNION ALL\n"
-                "SELECT\n"
-                "    3 AS id\n"
-                "LIMIT 50000"
-            ),
+        assert (
+            response == "SELECT\n"
+            "    1 AS id\n"
+            "LIMIT 50000\n"
+            "EXCEPT\n"
+            "SELECT\n"
+            "    2 AS id\n"
+            "LIMIT 50000\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    3 AS id\n"
+            "LIMIT 50000"
         )
 
     def test_union_and_except(self):
         expr = parse_select("""select 1 as id union all select 2 as id except select 3 as id""")
         response = to_printed_hogql(expr, self.team)
-        self.assertEqual(
-            response,
-            (
-                "SELECT\n"
-                "    1 AS id\n"
-                "LIMIT 50000\n"
-                "UNION ALL\n"
-                "SELECT\n"
-                "    2 AS id\n"
-                "LIMIT 50000\n"
-                "EXCEPT\n"
-                "SELECT\n"
-                "    3 AS id\n"
-                "LIMIT 50000"
-            ),
+        assert (
+            response == "SELECT\n"
+            "    1 AS id\n"
+            "LIMIT 50000\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    2 AS id\n"
+            "LIMIT 50000\n"
+            "EXCEPT\n"
+            "SELECT\n"
+            "    3 AS id\n"
+            "LIMIT 50000"
         )
 
     def test_intersect3(self):
         expr = parse_select("""select 1 as id intersect select 2 as id intersect select 3 as id""")
         response = to_printed_hogql(expr, self.team)
-        self.assertEqual(
-            response,
-            "SELECT\n"
+        assert (
+            response == "SELECT\n"
             "    1 AS id\n"
             "LIMIT 50000\n"
             "INTERSECT\n"
@@ -387,15 +375,14 @@ class TestPrinter(BaseTest):
             "INTERSECT\n"
             "SELECT\n"
             "    3 AS id\n"
-            "LIMIT 50000",
+            "LIMIT 50000"
         )
 
     def test_union3(self):
         expr = parse_select("""select 1 as id union all select 2 as id union all select 3 as id""")
         response = to_printed_hogql(expr, self.team)
-        self.assertEqual(
-            response,
-            "SELECT\n"
+        assert (
+            response == "SELECT\n"
             "    1 AS id\n"
             "LIMIT 50000\n"
             "UNION ALL\n"
@@ -405,48 +392,45 @@ class TestPrinter(BaseTest):
             "UNION ALL\n"
             "SELECT\n"
             "    3 AS id\n"
-            "LIMIT 50000",
+            "LIMIT 50000"
         )
 
     def test_ignore_nulls_prints(self):
-        self.assertEqual(
-            self._select("SELECT event IGNORE NULLS FROM events"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+        assert (
+            self._select("SELECT event IGNORE NULLS FROM events")
+            == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000"
         )
 
     def test_select_set_order_by_prints(self):
-        self.assertEqual(
-            self._select("select 1 union all select 2 order by 1"),
-            "SELECT 1 LIMIT 50000 UNION ALL SELECT 2 ORDER BY 1 ASC LIMIT 50000",
+        assert (
+            self._select("select 1 union all select 2 order by 1")
+            == "SELECT 1 LIMIT 50000 UNION ALL SELECT 2 ORDER BY 1 ASC LIMIT 50000"
         )
 
     def test_intersect_and_union_parens(self):
         expr = parse_select("""select 1 as id intersect (select 2 as id union all select 3 as id)""")
         response = to_printed_hogql(expr, self.team)
-        self.assertEqual(
-            response,
-            "SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\n(SELECT\n    2 AS id\nUNION ALL\nSELECT\n    3 AS id)",
+        assert (
+            response
+            == "SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\n(SELECT\n    2 AS id\nUNION ALL\nSELECT\n    3 AS id)"
         )
 
     # INTERSECT has higher priority than union
     def test_intersect_and_union(self):
         expr = parse_select("""select 1 as id union all select 2 as id intersect select 3 as id""")
         response = to_printed_hogql(expr, self.team)
-        self.assertEqual(
-            response,
-            (
-                "SELECT\n"
-                "    1 AS id\n"
-                "LIMIT 50000\n"
-                "UNION ALL\n"
-                "SELECT\n"
-                "    2 AS id\n"
-                "LIMIT 50000\n"
-                "INTERSECT\n"
-                "SELECT\n"
-                "    3 AS id\n"
-                "LIMIT 50000"
-            ),
+        assert (
+            response == "SELECT\n"
+            "    1 AS id\n"
+            "LIMIT 50000\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    2 AS id\n"
+            "LIMIT 50000\n"
+            "INTERSECT\n"
+            "SELECT\n"
+            "    3 AS id\n"
+            "LIMIT 50000"
         )
 
     def test_print_to_string(self):
@@ -455,69 +439,63 @@ class TestPrinter(BaseTest):
         assert str(parse_expr("unknown_field")) == "sql(unknown_field)"
 
     def test_literals(self):
-        self.assertEqual(self._expr("1 + 2"), "plus(1, 2)")
-        self.assertEqual(self._expr("-1 + 2"), "plus(-1, 2)")
-        self.assertEqual(self._expr("-1 - 2 / (3 + 4)"), "minus(-1, divide(2, plus(3, 4)))")
-        self.assertEqual(self._expr("1.0 * 2.66"), "multiply(1.0, 2.66)")
-        self.assertEqual(self._expr("1.0 % 2.66"), "modulo(1.0, 2.66)")
-        self.assertEqual(self._expr("'string'"), "%(hogql_val_0)s")
+        assert self._expr("1 + 2") == "plus(1, 2)"
+        assert self._expr("-1 + 2") == "plus(-1, 2)"
+        assert self._expr("-1 - 2 / (3 + 4)") == "minus(-1, divide(2, plus(3, 4)))"
+        assert self._expr("1.0 * 2.66") == "multiply(1.0, 2.66)"
+        assert self._expr("1.0 % 2.66") == "modulo(1.0, 2.66)"
+        assert self._expr("'string'") == "%(hogql_val_0)s"
 
     def test_arrays(self):
-        self.assertEqual(self._expr("[]"), "[]")
-        self.assertEqual(self._expr("[1,2]"), "[1, 2]")
+        assert self._expr("[]") == "[]"
+        assert self._expr("[1,2]") == "[1, 2]"
 
     def test_array_access(self):
-        self.assertEqual(self._expr("[1,2,3][1]"), "[1, 2, 3][1]")
-        self.assertEqual(
-            self._expr("events.properties[1]"),
-            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
+        assert self._expr("[1,2,3][1]") == "[1, 2, 3][1]"
+        assert (
+            self._expr("events.properties[1]")
+            == "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
         )
-        self.assertEqual(self._expr("events.event[1 + 2]"), "events.event[plus(1, 2)]")
+        assert self._expr("events.event[1 + 2]") == "events.event[plus(1, 2)]"
 
-        self.assertEqual(self._expr("[1,2,3]?.[1]", dialect="hogql"), "[1, 2, 3]?.[1]")
-        self.assertEqual(self._expr("[1,2,3]?.[1]", dialect="clickhouse"), "[1, 2, 3][1]")  # no nullish
+        assert self._expr("[1,2,3]?.[1]", dialect="hogql") == "[1, 2, 3]?.[1]"
+        assert self._expr("[1,2,3]?.[1]", dialect="clickhouse") == "[1, 2, 3][1]"  # no nullish
 
     def test_tuples(self):
-        self.assertEqual(self._expr("(1,2)"), "tuple(1, 2)")
-        self.assertEqual(self._expr("(1,2,[])"), "tuple(1, 2, [])")
+        assert self._expr("(1,2)") == "tuple(1, 2)"
+        assert self._expr("(1,2,[])") == "tuple(1, 2, [])"
 
     def test_tuple_access(self):
-        self.assertEqual(self._expr("(1,2)?.2", dialect="hogql"), "tuple(1, 2)?.2")
-        self.assertEqual(self._expr("(1,2)?.2", dialect="clickhouse"), "tuple(1, 2).2")  # no nullish
+        assert self._expr("(1,2)?.2", dialect="hogql") == "tuple(1, 2)?.2"
+        assert self._expr("(1,2)?.2", dialect="clickhouse") == "tuple(1, 2).2"  # no nullish
 
     def test_lambdas(self):
-        self.assertEqual(
-            self._expr("arrayMap(x -> x*2, [1,2,3])"),
-            "arrayMap(x -> multiply(x, 2), [1, 2, 3])",
-        )
-        self.assertEqual(
-            self._expr("arrayMap((x, y) -> x*y, [1,2,3])"),
-            "arrayMap((x, y) -> multiply(x, y), [1, 2, 3])",
-        )
+        assert self._expr("arrayMap(x -> x*2, [1,2,3])") == "arrayMap(x -> multiply(x, 2), [1, 2, 3])"
+        assert self._expr("arrayMap((x, y) -> x*y, [1,2,3])") == "arrayMap((x, y) -> multiply(x, y), [1, 2, 3])"
 
     def test_equals_null(self):
-        self.assertEqual(self._expr("event == null"), "isNull(events.event)")
-        self.assertEqual(self._expr("event != null"), "isNotNull(events.event)")
-        self.assertEqual(self._expr("1 == null"), "0")
-        self.assertEqual(self._expr("1 != null"), "1")
+        assert self._expr("event == null") == "isNull(events.event)"
+        assert self._expr("event != null") == "isNotNull(events.event)"
+        assert self._expr("1 == null") == "0"
+        assert self._expr("1 != null") == "1"
 
     def test_fields_and_properties(self):
-        self.assertEqual(
-            self._expr("properties.bla"),
-            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
+        assert (
+            self._expr("properties.bla")
+            == "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
         )
-        self.assertEqual(
-            self._expr("properties['bla']"),
-            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
+        assert (
+            self._expr("properties['bla']")
+            == "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
         )
-        self.assertEqual(
-            self._expr("properties['bla']['bla']"),
-            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
+        assert (
+            self._expr("properties['bla']['bla']")
+            == "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')"
         )
         context = HogQLContext(team_id=self.team.pk)
-        self.assertEqual(
-            self._expr("properties.$bla", context),
-            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
+        assert (
+            self._expr("properties.$bla", context)
+            == "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
         )
 
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
@@ -526,15 +504,12 @@ class TestPrinter(BaseTest):
                 within_non_hogql_query=True,
                 modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED),
             )
-            self.assertEqual(
-                self._expr("person.properties.bla", context),
-                "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
+            assert (
+                self._expr("person.properties.bla", context)
+                == "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
             )
             context = HogQLContext(team_id=self.team.pk)
-            self.assertEqual(
-                self._expr("person.properties.bla", context),
-                "events__person.properties___bla",
-            )
+            assert self._expr("person.properties.bla", context) == "events__person.properties___bla"
 
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
             context = HogQLContext(
@@ -544,86 +519,47 @@ class TestPrinter(BaseTest):
                     personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
                 ),
             )
-            self.assertEqual(
-                self._expr("person.properties.bla", context),
-                "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
+            assert (
+                self._expr("person.properties.bla", context)
+                == "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
             )
             context = HogQLContext(team_id=self.team.pk)
-            self.assertEqual(
-                self._expr("person.properties.bla", context),
-                "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
+            assert (
+                self._expr("person.properties.bla", context)
+                == "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
             )
 
     def test_hogql_properties(self):
-        self.assertEqual(
-            self._expr("event", HogQLContext(team_id=self.team.pk), "hogql"),
-            "event",
+        assert self._expr("event", HogQLContext(team_id=self.team.pk), "hogql") == "event"
+        assert self._expr("person", HogQLContext(team_id=self.team.pk), "hogql") == "person"
+        assert (
+            self._expr("person.properties.$browser", HogQLContext(team_id=self.team.pk), "hogql")
+            == "person.properties.$browser"
         )
-        self.assertEqual(
-            self._expr("person", HogQLContext(team_id=self.team.pk), "hogql"),
-            "person",
+        assert self._expr("properties.$browser", HogQLContext(team_id=self.team.pk), "hogql") == "properties.$browser"
+        assert (
+            self._expr("properties.`$browser with a space`", HogQLContext(team_id=self.team.pk), "hogql")
+            == "properties.`$browser with a space`"
         )
-        self.assertEqual(
-            self._expr(
-                "person.properties.$browser",
-                HogQLContext(team_id=self.team.pk),
-                "hogql",
-            ),
-            "person.properties.$browser",
+        assert (
+            self._expr('properties."$browser with a space"', HogQLContext(team_id=self.team.pk), "hogql")
+            == "properties.`$browser with a space`"
         )
-        self.assertEqual(
-            self._expr("properties.$browser", HogQLContext(team_id=self.team.pk), "hogql"),
-            "properties.$browser",
+        assert (
+            self._expr("properties['$browser with a space']", HogQLContext(team_id=self.team.pk), "hogql")
+            == "properties.`$browser with a space`"
         )
-        self.assertEqual(
-            self._expr(
-                "properties.`$browser with a space`",
-                HogQLContext(team_id=self.team.pk),
-                "hogql",
-            ),
-            "properties.`$browser with a space`",
+        assert (
+            self._expr("properties['$browser with a ` tick']", HogQLContext(team_id=self.team.pk), "hogql")
+            == "properties.`$browser with a \\` tick`"
         )
-        self.assertEqual(
-            self._expr(
-                'properties."$browser with a space"',
-                HogQLContext(team_id=self.team.pk),
-                "hogql",
-            ),
-            "properties.`$browser with a space`",
-        )
-        self.assertEqual(
-            self._expr(
-                "properties['$browser with a space']",
-                HogQLContext(team_id=self.team.pk),
-                "hogql",
-            ),
-            "properties.`$browser with a space`",
-        )
-        self.assertEqual(
-            self._expr(
-                "properties['$browser with a ` tick']",
-                HogQLContext(team_id=self.team.pk),
-                "hogql",
-            ),
-            "properties.`$browser with a \\` tick`",
-        )
-        self.assertEqual(
-            self._expr(
-                "properties['$browser \\\\with a \\n` tick']",
-                HogQLContext(team_id=self.team.pk),
-                "hogql",
-            ),
-            "properties.`$browser \\\\with a \\n\\` tick`",
+        assert (
+            self._expr("properties['$browser \\\\with a \\n` tick']", HogQLContext(team_id=self.team.pk), "hogql")
+            == "properties.`$browser \\\\with a \\n\\` tick`"
         )
         # "dot NUMBER" means "tuple access" in clickhouse. To access strings properties, wrap them in `backquotes`
-        self.assertEqual(
-            self._expr("properties.1", HogQLContext(team_id=self.team.pk), "hogql"),
-            "properties.1",
-        )
-        self.assertEqual(
-            self._expr("properties.`1`", HogQLContext(team_id=self.team.pk), "hogql"),
-            "properties.`1`",
-        )
+        assert self._expr("properties.1", HogQLContext(team_id=self.team.pk), "hogql") == "properties.1"
+        assert self._expr("properties.`1`", HogQLContext(team_id=self.team.pk), "hogql") == "properties.`1`"
         self._assert_expr_error(
             "properties.'no strings'",
             "mismatched input",
@@ -632,75 +568,60 @@ class TestPrinter(BaseTest):
 
     def test_hogql_properties_json(self):
         context = HogQLContext(team_id=self.team.pk)
-        self.assertEqual(
-            self._expr("properties.nomat.json.yet", context),
-            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^\"|\"$', '')",
+        assert (
+            self._expr("properties.nomat.json.yet", context)
+            == "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^\"|\"$', '')"
         )
-        self.assertEqual(
-            context.values,
-            {"hogql_val_0": "nomat", "hogql_val_1": "json", "hogql_val_2": "yet"},
-        )
+        assert context.values == {"hogql_val_0": "nomat", "hogql_val_1": "json", "hogql_val_2": "yet"}
 
     def test_hogql_properties_materialized_json_access(self):
         try:
             from ee.clickhouse.materialized_columns.analyze import materialize
         except ModuleNotFoundError:
             # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
+            assert 1 + 2 == 3
             return
 
         context = HogQLContext(team_id=self.team.pk)
         materialize("events", "withmat")
-        self.assertEqual(
-            self._expr("properties.withmat.json.yet", context),
-            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(nullIf(nullIf(events.mat_withmat, ''), 'null'), %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
+        assert (
+            self._expr("properties.withmat.json.yet", context)
+            == "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(nullIf(nullIf(events.mat_withmat, ''), 'null'), %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')"
         )
-        self.assertEqual(context.values, {"hogql_val_0": "json", "hogql_val_1": "yet"})
+        assert context.values == {"hogql_val_0": "json", "hogql_val_1": "yet"}
 
         context = HogQLContext(team_id=self.team.pk)
         materialize("events", "withmat_nullable", is_nullable=True)
-        self.assertEqual(
-            self._expr("properties.withmat_nullable.json.yet", context),
-            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.mat_withmat_nullable, %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
+        assert (
+            self._expr("properties.withmat_nullable.json.yet", context)
+            == "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.mat_withmat_nullable, %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')"
         )
-        self.assertEqual(context.values, {"hogql_val_0": "json", "hogql_val_1": "yet"})
+        assert context.values == {"hogql_val_0": "json", "hogql_val_1": "yet"}
 
     def test_materialized_fields_and_properties(self):
         try:
             from ee.clickhouse.materialized_columns.analyze import materialize
         except ModuleNotFoundError:
             # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
+            assert 1 + 2 == 3
             return
         materialize("events", "$browser")
-        self.assertEqual(
-            self._expr("properties['$browser']"),
-            "nullIf(nullIf(events.`mat_$browser`, ''), 'null')",
-        )
+        assert self._expr("properties['$browser']") == "nullIf(nullIf(events.`mat_$browser`, ''), 'null')"
 
         materialize("events", "withoutdollar")
-        self.assertEqual(
-            self._expr("properties['withoutdollar']"),
-            "nullIf(nullIf(events.mat_withoutdollar, ''), 'null')",
-        )
+        assert self._expr("properties['withoutdollar']") == "nullIf(nullIf(events.mat_withoutdollar, ''), 'null')"
 
         materialize("events", "$browser and string")
-        self.assertEqual(
-            self._expr("properties['$browser and string']"),
-            "nullIf(nullIf(events.`mat_$browser_and_string`, ''), 'null')",
+        assert (
+            self._expr("properties['$browser and string']")
+            == "nullIf(nullIf(events.`mat_$browser_and_string`, ''), 'null')"
         )
 
         materialize("events", "$browser%%%#@!@")
-        self.assertEqual(
-            self._expr("properties['$browser%%%#@!@']"),
-            "nullIf(nullIf(events.`mat_$browser_______`, ''), 'null')",
-        )
+        assert self._expr("properties['$browser%%%#@!@']") == "nullIf(nullIf(events.`mat_$browser_______`, ''), 'null')"
 
         materialize("events", "nullable_property", is_nullable=True)
-        self.assertEqual(
-            self._expr("properties['nullable_property']"),
-            "events.mat_nullable_property",
-        )
+        assert self._expr("properties['nullable_property']") == "events.mat_nullable_property"
 
     def test_property_groups(self):
         context = HogQLContext(
@@ -711,19 +632,16 @@ class TestPrinter(BaseTest):
             ),
         )
 
-        self.assertEqual(
-            self._expr("properties['foo']", context),
-            "has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null",
+        assert (
+            self._expr("properties['foo']", context)
+            == "has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null"
         )
-        self.assertEqual(context.values["hogql_val_0"], "foo")
+        assert context.values["hogql_val_0"] == "foo"
 
         with materialized("events", "foo"):
             # Properties that are materialized as columns should take precedence over the values in the group's map
             # column.
-            self.assertEqual(
-                self._expr("properties['foo']", context),
-                "nullIf(nullIf(events.mat_foo, ''), 'null')",
-            )
+            assert self._expr("properties['foo']", context) == "nullIf(nullIf(events.mat_foo, ''), 'null')"
 
     def test_property_groups_person_properties(self):
         context = HogQLContext(
@@ -735,11 +653,11 @@ class TestPrinter(BaseTest):
             ),
         )
 
-        self.assertEqual(
-            self._expr("person.properties['foo']", context),
-            "has(events.person_properties_map_custom, %(hogql_val_0)s) ? events.person_properties_map_custom[%(hogql_val_0)s] : null",
+        assert (
+            self._expr("person.properties['foo']", context)
+            == "has(events.person_properties_map_custom, %(hogql_val_0)s) ? events.person_properties_map_custom[%(hogql_val_0)s] : null"
         )
-        self.assertEqual(context.values["hogql_val_0"], "foo")
+        assert context.values["hogql_val_0"] == "foo"
 
     def _test_property_group_comparison(
         self,
@@ -761,7 +679,7 @@ class TestPrinter(BaseTest):
         context = build_context(PropertyGroupsMode.OPTIMIZED)
         printed_expr = self._expr(input_expression, context)
         if expected_optimized_query is not None:
-            self.assertEqual(printed_expr, expected_optimized_query)
+            assert printed_expr == expected_optimized_query
         else:
             unoptimized_context = build_context(PropertyGroupsMode.ENABLED)
             unoptimized_expr = self._expr(input_expression, unoptimized_context)
@@ -769,10 +687,10 @@ class TestPrinter(BaseTest):
             # so we string format the context values back into the expression template. This isn't necessarily going to
             # yield a valid ClickHouse expression, but it should generally be good enough to ensure the two expressions
             # are the same.
-            self.assertEqual(printed_expr % context.values, unoptimized_expr % unoptimized_context.values)
+            assert printed_expr % context.values == unoptimized_expr % unoptimized_context.values
 
         if expected_context_values is not None:
-            self.assertLessEqual(expected_context_values.items(), context.values.items())
+            assert expected_context_values.items() <= context.values.items()
 
         if expected_skip_indexes_used is not None or expected_skip_indexes_not_used is not None:
             # The table needs some data to be able get a `EXPLAIN` result that includes index information -- otherwise
@@ -809,13 +727,9 @@ class TestPrinter(BaseTest):
                 index["Name"] for index in read_from_merge_tree_step.get("Indexes", []) if index["Type"] == "Skip"
             }
             if expected_skip_indexes_used:
-                self.assertTrue(
-                    expected_skip_indexes_used.issubset(indexes),
-                )
+                assert expected_skip_indexes_used.issubset(indexes)
             if expected_skip_indexes_not_used:
-                self.assertTrue(
-                    expected_skip_indexes_not_used.isdisjoint(indexes),
-                )
+                assert expected_skip_indexes_not_used.isdisjoint(indexes)
 
     def test_property_groups_optimized_basic_equality_comparisons(self) -> None:
         # Comparing against a (non-empty) string value lets us avoid checking if the key exists or not, and lets us use
@@ -1005,7 +919,7 @@ class TestPrinter(BaseTest):
         # NULL values are can be equal if using transform_null_in = 1, which we do by default
         # https://clickhouse.com/docs/operations/settings/settings#transform_null_in
         # https://clickhouse.com/docs/en/sql-reference/operators/in#null-processing
-        self.assertTrue(
+        assert (
             HogQLGlobalSettings().transform_null_in
         )  # if changing this assumption, you'll need to change the printer too
         self._test_property_group_comparison(
@@ -1173,41 +1087,36 @@ class TestPrinter(BaseTest):
         )
 
     def test_methods(self):
-        self.assertEqual(self._expr("count()"), "count()")
-        self.assertEqual(self._expr("count(distinct event)"), "count(DISTINCT events.event)")
-        self.assertEqual(
-            self._expr("countIf(distinct event, 1 == 2)"),
-            "countIf(DISTINCT events.event, 0)",
-        )
-        self.assertEqual(self._expr("sumIf(1, 1 == 2)"), "sumIf(1, 0)")
+        assert self._expr("count()") == "count()"
+        assert self._expr("count(distinct event)") == "count(DISTINCT events.event)"
+        assert self._expr("countIf(distinct event, 1 == 2)") == "countIf(DISTINCT events.event, 0)"
+        assert self._expr("sumIf(1, 1 == 2)") == "sumIf(1, 0)"
 
     def test_functions(self):
         context = HogQLContext(team_id=self.team.pk)  # inline values
 
-        self.assertEqual(self._expr("abs(1)"), "abs(1)")
-        self.assertEqual(self._expr("max2(1,2)"), "max2(1, 2)")
-        self.assertEqual(self._expr("toInt('1')", context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
-        self.assertEqual(self._expr("toFloat('1.3')", context), "accurateCastOrNull(%(hogql_val_2)s, %(hogql_val_3)s)")
-        self.assertEqual(
-            self._expr("toUUID('470f9b15-ff43-402a-af9f-2ed7c526a6cf')", context),
-            "accurateCastOrNull(%(hogql_val_4)s, %(hogql_val_5)s)",
+        assert self._expr("abs(1)") == "abs(1)"
+        assert self._expr("max2(1,2)") == "max2(1, 2)"
+        assert self._expr("toInt('1')", context) == "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)"
+        assert self._expr("toFloat('1.3')", context) == "accurateCastOrNull(%(hogql_val_2)s, %(hogql_val_3)s)"
+        assert (
+            self._expr("toUUID('470f9b15-ff43-402a-af9f-2ed7c526a6cf')", context)
+            == "accurateCastOrNull(%(hogql_val_4)s, %(hogql_val_5)s)"
         )
-        self.assertEqual(
-            self._expr("toDecimal('3.14', 2)", context), "accurateCastOrNull(%(hogql_val_6)s, %(hogql_val_7)s)"
-        )
+        assert self._expr("toDecimal('3.14', 2)", context) == "accurateCastOrNull(%(hogql_val_6)s, %(hogql_val_7)s)"
         # Single-arg toFloatOrDefault is degenerate; rewritten to toFloatOrZero for ClickHouse.
-        self.assertEqual(self._expr("toFloatOrDefault('1.5')", context), "toFloat64OrZero(%(hogql_val_8)s)")
-        self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
+        assert self._expr("toFloatOrDefault('1.5')", context) == "toFloat64OrZero(%(hogql_val_8)s)"
+        assert self._expr("quantile(0.95)( event )") == "quantile(0.95)(events.event)"
 
-        self.assertEqual(self._expr("groupArraySample(5)(event)"), "groupArraySample(5)(events.event)")
-        self.assertEqual(self._expr("groupArraySample(5, 123456)(event)"), "groupArraySample(5, 123456)(events.event)")
-        self.assertEqual(
-            self._expr("groupArraySampleIf(5)(event, event is not null)"),
-            "groupArraySampleIf(5)(events.event, isNotNull(events.event))",
+        assert self._expr("groupArraySample(5)(event)") == "groupArraySample(5)(events.event)"
+        assert self._expr("groupArraySample(5, 123456)(event)") == "groupArraySample(5, 123456)(events.event)"
+        assert (
+            self._expr("groupArraySampleIf(5)(event, event is not null)")
+            == "groupArraySampleIf(5)(events.event, isNotNull(events.event))"
         )
-        self.assertEqual(
-            self._expr("groupArraySampleIf(5, 123456)(event, event is not null)"),
-            "groupArraySampleIf(5, 123456)(events.event, isNotNull(events.event))",
+        assert (
+            self._expr("groupArraySampleIf(5, 123456)(event, event is not null)")
+            == "groupArraySampleIf(5, 123456)(events.event, isNotNull(events.event))"
         )
 
     def test_expr_parse_errors(self):
@@ -1266,9 +1175,9 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand([["percentile_cont"], ["percentile_disc"]])
     def test_percentile_within_group_printer(self, function_name: str):
-        self.assertEqual(
-            self._expr(f"{function_name}(0.5) within group (order by event desc)", dialect="hogql"),
-            f"{function_name}(0.5) WITHIN GROUP (ORDER BY event DESC)",
+        assert (
+            self._expr(f"{function_name}(0.5) within group (order by event desc)", dialect="hogql")
+            == f"{function_name}(0.5) WITHIN GROUP (ORDER BY event DESC)"
         )
 
     @parameterized.expand([["percentile_cont"], ["percentile_disc"]])
@@ -1303,141 +1212,81 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("a -> { print(2) }", "You can not use placeholders here")
 
     def test_boolean_and_optimization(self):
-        self.assertEqual(
-            self._expr("team_id=1 AND 1 AND event='name'"),
-            "and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))",
+        assert (
+            self._expr("team_id=1 AND 1 AND event='name'")
+            == "and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))"
         )
-        self.assertEqual(
-            self._expr("team_id=1 AND 1"),
-            "equals(events.team_id, 1)",
+        assert self._expr("team_id=1 AND 1") == "equals(events.team_id, 1)"
+        assert self._expr("team_id=1 AND 0") == "0"
+        assert (
+            self._expr("team_id=1 AND (1=1 AND event='name')")
+            == "and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))"
         )
-        self.assertEqual(
-            self._expr("team_id=1 AND 0"),
-            "0",
-        )
-        self.assertEqual(
-            self._expr("team_id=1 AND (1=1 AND event='name')"),
-            "and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))",
-        )
-        self.assertEqual(
-            self._expr("team_id=1 AND (0=1 AND event='name')"),
-            "0",
-        )
+        assert self._expr("team_id=1 AND (0=1 AND event='name')") == "0"
 
     def test_boolean_or_optimization(self):
-        self.assertEqual(
-            self._expr("team_id=1 OR 0 OR event='name'"),
-            "or(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))",
+        assert (
+            self._expr("team_id=1 OR 0 OR event='name'")
+            == "or(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))"
         )
-        self.assertEqual(
-            self._expr("team_id=1 OR 0"),
-            "equals(events.team_id, 1)",
-        )
-        self.assertEqual(
-            self._expr("team_id=1 OR 1"),
-            "1",
-        )
-        self.assertEqual(
-            self._expr("team_id=1 OR (1=1 OR event='name')"),
-            "1",
-        )
-        self.assertEqual(
-            self._expr("team_id=1 OR (0=1 OR event='name')"),
-            "or(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))",
+        assert self._expr("team_id=1 OR 0") == "equals(events.team_id, 1)"
+        assert self._expr("team_id=1 OR 1") == "1"
+        assert self._expr("team_id=1 OR (1=1 OR event='name')") == "1"
+        assert (
+            self._expr("team_id=1 OR (0=1 OR event='name')")
+            == "or(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))"
         )
 
     def test_logic(self):
-        self.assertEqual(
-            self._expr("event or timestamp"),
-            "or(events.event, toTimeZone(events.timestamp, %(hogql_val_0)s))",
+        assert self._expr("event or timestamp") == "or(events.event, toTimeZone(events.timestamp, %(hogql_val_0)s))"
+        assert (
+            self._expr("properties.bla and properties.bla2")
+            == "and(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''))"
         )
-        self.assertEqual(
-            self._expr("properties.bla and properties.bla2"),
-            "and(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''))",
+        assert (
+            self._expr("event or timestamp or count()")
+            == "or(events.event, toTimeZone(events.timestamp, %(hogql_val_0)s), count())"
         )
-        self.assertEqual(
-            self._expr("event or timestamp or count()"),
-            "or(events.event, toTimeZone(events.timestamp, %(hogql_val_0)s), count())",
-        )
-        self.assertEqual(
-            self._expr("event or timestamp or true or count()"),
-            "1",
-        )
-        self.assertEqual(
-            self._expr("event or not timestamp"),
-            "or(events.event, not(toTimeZone(events.timestamp, %(hogql_val_0)s)))",
+        assert self._expr("event or timestamp or true or count()") == "1"
+        assert (
+            self._expr("event or not timestamp")
+            == "or(events.event, not(toTimeZone(events.timestamp, %(hogql_val_0)s)))"
         )
 
     def test_comparisons(self):
         context = HogQLContext(team_id=self.team.pk)
-        self.assertEqual(self._expr("event == 'E'", context), "equals(events.event, %(hogql_val_0)s)")
-        self.assertEqual(
-            self._expr("event != 'E'", context),
-            "notEquals(events.event, %(hogql_val_1)s)",
-        )
-        self.assertEqual(self._expr("event > 'E'", context), "greater(events.event, %(hogql_val_2)s)")
-        self.assertEqual(
-            self._expr("event >= 'E'", context),
-            "greaterOrEquals(events.event, %(hogql_val_3)s)",
-        )
-        self.assertEqual(self._expr("event < 'E'", context), "less(events.event, %(hogql_val_4)s)")
-        self.assertEqual(
-            self._expr("event <= 'E'", context),
-            "lessOrEquals(events.event, %(hogql_val_5)s)",
-        )
-        self.assertEqual(self._expr("event like 'E'", context), "like(events.event, %(hogql_val_6)s)")
-        self.assertEqual(
-            self._expr("event not like 'E'", context),
-            "notLike(events.event, %(hogql_val_7)s)",
-        )
-        self.assertEqual(
-            self._expr("event ilike 'E'", context),
-            "ilike(events.event, %(hogql_val_8)s)",
-        )
-        self.assertEqual(
-            self._expr("event not ilike 'E'", context),
-            "notILike(events.event, %(hogql_val_9)s)",
-        )
-        self.assertEqual(self._expr("event in 'E'", context), "in(events.event, %(hogql_val_10)s)")
-        self.assertEqual(
-            self._expr("event not in 'E'", context),
-            "notIn(events.event, %(hogql_val_11)s)",
-        )
-        self.assertEqual(self._expr("event ~ 'E'", context), "match(events.event, %(hogql_val_12)s)")
-        self.assertEqual(self._expr("event =~ 'E'", context), "match(events.event, %(hogql_val_13)s)")
-        self.assertEqual(
-            self._expr("event !~ 'E'", context),
-            "not(match(events.event, %(hogql_val_14)s))",
-        )
-        self.assertEqual(
-            self._expr("event ~* 'E'", context),
-            "match(events.event, concat('(?i)', %(hogql_val_15)s))",
-        )
-        self.assertEqual(
-            self._expr("event =~* 'E'", context),
-            "match(events.event, concat('(?i)', %(hogql_val_16)s))",
-        )
-        self.assertEqual(
-            self._expr("event !~* 'E'", context),
-            "not(match(events.event, concat('(?i)', %(hogql_val_17)s)))",
-        )
+        assert self._expr("event == 'E'", context) == "equals(events.event, %(hogql_val_0)s)"
+        assert self._expr("event != 'E'", context) == "notEquals(events.event, %(hogql_val_1)s)"
+        assert self._expr("event > 'E'", context) == "greater(events.event, %(hogql_val_2)s)"
+        assert self._expr("event >= 'E'", context) == "greaterOrEquals(events.event, %(hogql_val_3)s)"
+        assert self._expr("event < 'E'", context) == "less(events.event, %(hogql_val_4)s)"
+        assert self._expr("event <= 'E'", context) == "lessOrEquals(events.event, %(hogql_val_5)s)"
+        assert self._expr("event like 'E'", context) == "like(events.event, %(hogql_val_6)s)"
+        assert self._expr("event not like 'E'", context) == "notLike(events.event, %(hogql_val_7)s)"
+        assert self._expr("event ilike 'E'", context) == "ilike(events.event, %(hogql_val_8)s)"
+        assert self._expr("event not ilike 'E'", context) == "notILike(events.event, %(hogql_val_9)s)"
+        assert self._expr("event in 'E'", context) == "in(events.event, %(hogql_val_10)s)"
+        assert self._expr("event not in 'E'", context) == "notIn(events.event, %(hogql_val_11)s)"
+        assert self._expr("event ~ 'E'", context) == "match(events.event, %(hogql_val_12)s)"
+        assert self._expr("event =~ 'E'", context) == "match(events.event, %(hogql_val_13)s)"
+        assert self._expr("event !~ 'E'", context) == "not(match(events.event, %(hogql_val_14)s))"
+        assert self._expr("event ~* 'E'", context) == "match(events.event, concat('(?i)', %(hogql_val_15)s))"
+        assert self._expr("event =~* 'E'", context) == "match(events.event, concat('(?i)', %(hogql_val_16)s))"
+        assert self._expr("event !~* 'E'", context) == "not(match(events.event, concat('(?i)', %(hogql_val_17)s)))"
 
     def test_comments(self):
         context = HogQLContext(team_id=self.team.pk)
-        self.assertEqual(self._expr("event -- something", context), "events.event")
+        assert self._expr("event -- something", context) == "events.event"
 
     def test_values(self):
         context = HogQLContext(team_id=self.team.pk)
-        self.assertEqual(self._expr("event == 'E'", context), "equals(events.event, %(hogql_val_0)s)")
-        self.assertEqual(context.values, {"hogql_val_0": "E"})
-        self.assertEqual(
-            self._expr("coalesce(4.2, 5, 'lol', 'hoo')", context),
-            "coalesce(4.2, 5, %(hogql_val_1)s, %(hogql_val_2)s)",
+        assert self._expr("event == 'E'", context) == "equals(events.event, %(hogql_val_0)s)"
+        assert context.values == {"hogql_val_0": "E"}
+        assert (
+            self._expr("coalesce(4.2, 5, 'lol', 'hoo')", context)
+            == "coalesce(4.2, 5, %(hogql_val_1)s, %(hogql_val_2)s)"
         )
-        self.assertEqual(
-            context.values,
-            {"hogql_val_0": "E", "hogql_val_1": "lol", "hogql_val_2": "hoo"},
-        )
+        assert context.values == {"hogql_val_0": "E", "hogql_val_1": "lol", "hogql_val_2": "hoo"}
 
     def test_alias_keywords(self):
         self._assert_expr_error(
@@ -1452,9 +1301,9 @@ class TestPrinter(BaseTest):
             "select 1 as team_id from events",
             '"team_id" cannot be an alias or identifier, as it\'s a reserved keyword',
         )
-        self.assertEqual(
-            self._select("select 1 as `-- select team_id` from events"),
-            f"SELECT 1 AS `-- select team_id` FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select 1 as `-- select team_id` from events")
+            == f"SELECT 1 AS `-- select team_id` FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     @parameterized.expand(
@@ -1503,51 +1352,42 @@ class TestPrinter(BaseTest):
             print_prepared_ast(node, context=context, dialect="clickhouse", stack=[select_query])
 
     def test_case_when(self):
-        self.assertEqual(self._expr("case when 1 then 2 else 3 end"), "if(1, 2, 3)")
+        assert self._expr("case when 1 then 2 else 3 end") == "if(1, 2, 3)"
 
     def test_case_when_many(self):
-        self.assertEqual(
-            self._expr("case when 1 then 2 when 3 then 4 else 5 end"),
-            "multiIf(1, 2, 3, 4, 5)",
-        )
+        assert self._expr("case when 1 then 2 when 3 then 4 else 5 end") == "multiIf(1, 2, 3, 4, 5)"
 
     def test_case_when_case(self):
-        self.assertEqual(
-            self._expr("case 0 when 1 then 2 when 3 then 4 else 5 end"),
-            "transform(0, [1, 3], [2, 4], 5)",
-        )
+        assert self._expr("case 0 when 1 then 2 when 3 then 4 else 5 end") == "transform(0, [1, 3], [2, 4], 5)"
 
     def test_select(self):
-        self.assertEqual(self._select("select 1"), f"SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS}")
-        self.assertEqual(self._select("select 1 + 2"), f"SELECT plus(1, 2) LIMIT {MAX_SELECT_RETURNED_ROWS}")
-        self.assertEqual(self._select("select 1 + 2, 3"), f"SELECT plus(1, 2), 3 LIMIT {MAX_SELECT_RETURNED_ROWS}")
-        self.assertEqual(
-            self._select("select 1 + 2, 3 + 4 from events"),
-            f"SELECT plus(1, 2), plus(3, 4) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert self._select("select 1") == f"SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert self._select("select 1 + 2") == f"SELECT plus(1, 2) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert self._select("select 1 + 2, 3") == f"SELECT plus(1, 2), 3 LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert (
+            self._select("select 1 + 2, 3 + 4 from events")
+            == f"SELECT plus(1, 2), plus(3, 4) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_select_alias(self):
         # currently not supported!
-        self.assertEqual(self._select("select 1 as b"), f"SELECT 1 AS b LIMIT {MAX_SELECT_RETURNED_ROWS}")
-        self.assertEqual(
-            self._select("select 1 from events as e"),
-            f"SELECT 1 FROM events AS e WHERE equals(e.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert self._select("select 1 as b") == f"SELECT 1 AS b LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert (
+            self._select("select 1 from events as e")
+            == f"SELECT 1 FROM events AS e WHERE equals(e.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_select_from(self):
-        self.assertEqual(
-            self._select("select 1 from events"),
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select 1 from events")
+            == f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
         self._assert_query_error("select 1 from other", "Unknown table `other`.")
 
     def test_select_from_placeholder(self):
-        self.assertEqual(
-            self._select(
-                "select 1 from {placeholder}",
-                placeholders={"placeholder": ast.Field(chain=["events"])},
-            ),
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select 1 from {placeholder}", placeholders={"placeholder": ast.Field(chain=["events"])})
+            == f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
         with self.assertRaises(QueryError) as error_context:
             (
@@ -1562,19 +1402,16 @@ class TestPrinter(BaseTest):
                     },
                 ),
             )
-        self.assertEqual(
-            str(error_context.exception),
-            "A CompareOperation cannot be used as a SELECT source",
-        )
+        assert str(error_context.exception) == "A CompareOperation cannot be used as a SELECT source"
 
     def test_select_cross_join(self):
-        self.assertEqual(
-            self._select("select 1 from events cross join raw_groups"),
-            f"SELECT 1 FROM events CROSS JOIN groups WHERE and(equals(groups.team_id, {self.team.pk}), equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select 1 from events cross join raw_groups")
+            == f"SELECT 1 FROM events CROSS JOIN groups WHERE and(equals(groups.team_id, {self.team.pk}), equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
-        self.assertEqual(
-            self._select("select 1 from events, raw_groups"),
-            f"SELECT 1 FROM events CROSS JOIN groups WHERE and(equals(groups.team_id, {self.team.pk}), equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select 1 from events, raw_groups")
+            == f"SELECT 1 FROM events CROSS JOIN groups WHERE and(equals(groups.team_id, {self.team.pk}), equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_left_join_team_id_in_on_clause(self):
@@ -1610,13 +1447,13 @@ class TestPrinter(BaseTest):
         # The main events table should have its team_id filter in WHERE
         where_start = result.find("WHERE")
         where_clause = result[where_start:] if where_start != -1 else ""
-        self.assertIn(f"equals(events.team_id, {self.team.pk})", where_clause)
+        assert f"equals(events.team_id, {self.team.pk})" in where_clause
 
         # The LEFT JOINed table (alias 'e2') should have team_id in ON clause, NOT in WHERE
         on_start = result.find("ON")
         on_clause = result[on_start:where_start] if on_start != -1 and where_start != -1 else ""
-        self.assertIn(f"equals(e2.team_id, {self.team.pk})", on_clause)
-        self.assertNotIn("e2.team_id", where_clause)
+        assert f"equals(e2.team_id, {self.team.pk})" in on_clause
+        assert "e2.team_id" not in where_clause
 
     def test_inner_join_team_id_in_where_clause(self):
         # INNER JOINs should still have team_id in WHERE clause (current behavior)
@@ -1651,8 +1488,8 @@ class TestPrinter(BaseTest):
         # Both tables should have team_id filters in the WHERE clause for INNER JOIN
         where_start = result.find("WHERE")
         where_clause = result[where_start:] if where_start != -1 else ""
-        self.assertIn(f"equals(events.team_id, {self.team.pk})", where_clause)
-        self.assertIn(f"equals(e2.team_id, {self.team.pk})", where_clause)
+        assert f"equals(events.team_id, {self.team.pk})" in where_clause
+        assert f"equals(e2.team_id, {self.team.pk})" in where_clause
 
     @parameterized.expand(
         [
@@ -1696,60 +1533,60 @@ class TestPrinter(BaseTest):
         )
         result = print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[], settings=settings)
 
-        self.assertNotIn("enable_analyzer=1", result)
+        assert "enable_analyzer=1" not in result
 
     def test_select_array_join(self):
-        self.assertEqual(
-            self._select("select 1, a from events array join [1,2,3] as a"),
-            f"SELECT 1, a FROM events ARRAY JOIN [1, 2, 3] AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select 1, a from events array join [1,2,3] as a")
+            == f"SELECT 1, a FROM events ARRAY JOIN [1, 2, 3] AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
-        self.assertEqual(
-            self._select("select 1, a, [1,2,3] as nums from events array join nums as a"),
-            f"SELECT 1, a, [1, 2, 3] AS nums FROM events ARRAY JOIN nums AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select 1, a, [1,2,3] as nums from events array join nums as a")
+            == f"SELECT 1, a, [1, 2, 3] AS nums FROM events ARRAY JOIN nums AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
-        self.assertEqual(
-            self._select("select 1, a from events left array join [1,2,3] as a"),
-            f"SELECT 1, a FROM events LEFT ARRAY JOIN [1, 2, 3] AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select 1, a from events left array join [1,2,3] as a")
+            == f"SELECT 1, a FROM events LEFT ARRAY JOIN [1, 2, 3] AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
-        self.assertEqual(
-            self._select("select 1, a from events inner array join [1,2,3] as a"),
-            f"SELECT 1, a FROM events INNER ARRAY JOIN [1, 2, 3] AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select 1, a from events inner array join [1,2,3] as a")
+            == f"SELECT 1, a FROM events INNER ARRAY JOIN [1, 2, 3] AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_select_positional_join(self):
         result = self._select("select 1 from events positional join groups")
-        self.assertIn("POSITIONAL JOIN", result)
+        assert "POSITIONAL JOIN" in result
 
     def test_select_where(self):
-        self.assertEqual(
-            self._select("select 1 from events where 1 == 1"),
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select 1 from events where 1 == 1")
+            == f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
-        self.assertEqual(
-            self._select("select 1 from events where 1 == 2"),
-            f"SELECT 1 FROM events WHERE 0 LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select 1 from events where 1 == 2")
+            == f"SELECT 1 FROM events WHERE 0 LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_function_filter_prints(self):
         result = self._select("select sum(event) filter (where event = 'a') from events")
-        self.assertIn("FILTER (WHERE", result)
+        assert "FILTER (WHERE" in result
 
     def test_with_clause_before_parens_select_set_prints(self):
-        self.assertEqual(
-            self._select("WITH cte AS (SELECT 1 AS a) (SELECT a FROM cte UNION ALL SELECT a FROM cte)"),
-            "WITH cte AS (SELECT 1 AS a) SELECT cte.a AS a FROM cte LIMIT 50000 UNION ALL SELECT cte.a AS a FROM cte LIMIT 50000",
+        assert (
+            self._select("WITH cte AS (SELECT 1 AS a) (SELECT a FROM cte UNION ALL SELECT a FROM cte)")
+            == "WITH cte AS (SELECT 1 AS a) SELECT cte.a AS a FROM cte LIMIT 50000 UNION ALL SELECT cte.a AS a FROM cte LIMIT 50000"
         )
 
-        self.assertEqual(
-            self._select("select 1 from events where event='name'"),
-            f"SELECT 1 FROM events WHERE and(equals(events.team_id, {self.team.pk}), equals(events.event, %(hogql_val_0)s)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select 1 from events where event='name'")
+            == f"SELECT 1 FROM events WHERE and(equals(events.team_id, {self.team.pk}), equals(events.event, %(hogql_val_0)s)) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_select_having(self):
-        self.assertEqual(
-            self._select("select 1 from events having 1 == 2"),
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) HAVING 0 LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select 1 from events having 1 == 2")
+            == f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) HAVING 0 LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_select_qualify_not_supported_in_clickhouse(self):
@@ -1759,31 +1596,31 @@ class TestPrinter(BaseTest):
         )
 
     def test_select_prewhere(self):
-        self.assertEqual(
-            self._select("select 1 from events prewhere 1 == 2 where 2 == 3"),
-            f"SELECT 1 FROM events PREWHERE 0 WHERE 0 LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select 1 from events prewhere 1 == 2 where 2 == 3")
+            == f"SELECT 1 FROM events PREWHERE 0 WHERE 0 LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
-        self.assertEqual(
-            self._select("select 1 from events prewhere 1 == 2"),
-            f"SELECT 1 FROM events PREWHERE 0 WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select 1 from events prewhere 1 == 2")
+            == f"SELECT 1 FROM events PREWHERE 0 WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
-        self.assertEqual(
-            self._select("select 1 from events prewhere 1 == 2 where event='name'"),
-            f"SELECT 1 FROM events PREWHERE 0 WHERE and(equals(events.team_id, {self.team.pk}), equals(events.event, %(hogql_val_0)s)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select 1 from events prewhere 1 == 2 where event='name'")
+            == f"SELECT 1 FROM events PREWHERE 0 WHERE and(equals(events.team_id, {self.team.pk}), equals(events.event, %(hogql_val_0)s)) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_select_order_by(self):
-        self.assertEqual(
-            self._select("select event from events order by event"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) ORDER BY events.event ASC LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select event from events order by event")
+            == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) ORDER BY events.event ASC LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
-        self.assertEqual(
-            self._select("select event from events order by event desc"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) ORDER BY events.event DESC LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select event from events order by event desc")
+            == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) ORDER BY events.event DESC LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
-        self.assertEqual(
-            self._select("select event from events order by event desc, timestamp"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) ORDER BY events.event DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) ASC LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select event from events order by event desc, timestamp")
+            == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) ORDER BY events.event DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) ASC LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     @parameterized.expand(
@@ -1822,68 +1659,65 @@ class TestPrinter(BaseTest):
     )
     def test_select_order_by_with_fill(self, _name: str, query: str, expected_fragment: str):
         result = self._select(query)
-        self.assertIn(expected_fragment, result)
+        assert expected_fragment in result
 
     def test_select_limit(self):
-        self.assertEqual(
-            self._select("select event from events limit 10"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
+        assert (
+            self._select("select event from events limit 10")
+            == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10"
         )
-        self.assertEqual(
-            self._select("select event from events limit 1000000"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select event from events limit 1000000")
+            == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
-        self.assertEqual(
-            self._select("select event from events limit (select 100000000)"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT min2({MAX_SELECT_RETURNED_ROWS}, (SELECT 100000000))",
+        assert (
+            self._select("select event from events limit (select 100000000)")
+            == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT min2({MAX_SELECT_RETURNED_ROWS}, (SELECT 100000000))"
         )
 
-        self.assertEqual(
-            self._select("select event from events limit (select 100000000) with ties"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT min2({MAX_SELECT_RETURNED_ROWS}, (SELECT 100000000)) WITH TIES",
+        assert (
+            self._select("select event from events limit (select 100000000) with ties")
+            == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT min2({MAX_SELECT_RETURNED_ROWS}, (SELECT 100000000)) WITH TIES"
         )
 
     def test_select_limit_with_posthog_ai_context(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, limit_context=LimitContext.POSTHOG_AI)
-        self.assertEqual(
-            self._select("select 1 limit 1000", context=context),
-            f"SELECT 1 LIMIT {MAX_SELECT_POSTHOG_AI_LIMIT}",
-        )
+        assert self._select("select 1 limit 1000", context=context) == f"SELECT 1 LIMIT {MAX_SELECT_POSTHOG_AI_LIMIT}"
 
     def test_select_offset(self):
         # Only the default limit if OFFSET is specified alone
-        self.assertEqual(
-            self._select("select event from events offset 10"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} OFFSET 10",
+        assert (
+            self._select("select event from events offset 10")
+            == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} OFFSET 10"
         )
-        self.assertEqual(
-            self._select("select event from events limit 10 offset 10"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 10",
+        assert (
+            self._select("select event from events limit 10 offset 10")
+            == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 10"
         )
-        self.assertEqual(
-            self._select("select event from events limit 10 offset 0"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 0",
+        assert (
+            self._select("select event from events limit 10 offset 0")
+            == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 0"
         )
-        self.assertEqual(
-            self._select("select event from events limit 10 with ties offset 0"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 WITH TIES OFFSET 0",
+        assert (
+            self._select("select event from events limit 10 with ties offset 0")
+            == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 WITH TIES OFFSET 0"
         )
 
-        self.assertEqual(
-            self._select("select event from (select event from events offset 10)"),
-            f"SELECT event AS event FROM (SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) OFFSET 10) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select event from (select event from events offset 10)")
+            == f"SELECT event AS event FROM (SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) OFFSET 10) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_select_limit_by(self):
-        self.assertEqual(
-            self._select("select event from events limit 10 offset 0 by 1,event"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 0 BY 1, events.event LIMIT 50000",
+        assert (
+            self._select("select event from events limit 10 offset 0 by 1,event")
+            == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 0 BY 1, events.event LIMIT 50000"
         )
 
     def test_select_group_by(self):
-        self.assertEqual(
-            self._select("select event from events group by event, timestamp"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimeZone(events.timestamp, %(hogql_val_0)s) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select event from events group by event, timestamp")
+            == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimeZone(events.timestamp, %(hogql_val_0)s) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     @parameterized.expand(
@@ -1907,62 +1741,62 @@ class TestPrinter(BaseTest):
     )
     def test_select_group_by_mode(self, _name: str, input_sql: str, expected_fragment: str):
         result = self._select(input_sql)
-        self.assertIn(expected_fragment, result)
+        assert expected_fragment in result
 
     def test_select_distinct(self):
-        self.assertEqual(
-            self._select("select distinct event from events group by event, timestamp"),
-            f"SELECT DISTINCT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimeZone(events.timestamp, %(hogql_val_0)s) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("select distinct event from events group by event, timestamp")
+            == f"SELECT DISTINCT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimeZone(events.timestamp, %(hogql_val_0)s) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_select_subquery(self):
-        self.assertEqual(
-            self._select("SELECT event from (select distinct event from events group by event, timestamp)"),
-            f"SELECT event AS event FROM (SELECT DISTINCT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimeZone(events.timestamp, %(hogql_val_0)s)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("SELECT event from (select distinct event from events group by event, timestamp)")
+            == f"SELECT event AS event FROM (SELECT DISTINCT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimeZone(events.timestamp, %(hogql_val_0)s)) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
-        self.assertEqual(
-            self._select("SELECT event from (select distinct event from events group by event, timestamp) e"),
-            f"SELECT e.event AS event FROM (SELECT DISTINCT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimeZone(events.timestamp, %(hogql_val_0)s)) AS e LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("SELECT event from (select distinct event from events group by event, timestamp) e")
+            == f"SELECT e.event AS event FROM (SELECT DISTINCT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) GROUP BY events.event, toTimeZone(events.timestamp, %(hogql_val_0)s)) AS e LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_select_union_all(self):
-        self.assertEqual(
-            self._select("SELECT events.event FROM events UNION ALL SELECT events.event FROM events WHERE 1 = 2"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT events.event AS event FROM events WHERE 0 LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("SELECT events.event FROM events UNION ALL SELECT events.event FROM events WHERE 1 = 2")
+            == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT events.event AS event FROM events WHERE 0 LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
-        self.assertEqual(
+        assert (
             self._select(
                 "SELECT events.event FROM events UNION ALL SELECT events.event FROM events WHERE 1 = 1 UNION ALL SELECT events.event FROM events WHERE 1 = 1"
-            ),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            )
+            == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
-        self.assertEqual(
-            self._select("SELECT 1 UNION ALL (SELECT 1 UNION ALL SELECT 1) UNION ALL SELECT 1"),
-            f"SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL (SELECT 1 UNION ALL SELECT 1) UNION ALL SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("SELECT 1 UNION ALL (SELECT 1 UNION ALL SELECT 1) UNION ALL SELECT 1")
+            == f"SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL (SELECT 1 UNION ALL SELECT 1) UNION ALL SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
-        self.assertEqual(
-            self._select("SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1"),
-            f"SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1")
+            == f"SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT 1 LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
-        self.assertEqual(
-            self._select("SELECT 1 FROM (SELECT 1 UNION ALL SELECT 1)"),
-            f"SELECT 1 FROM (SELECT 1 UNION ALL SELECT 1) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("SELECT 1 FROM (SELECT 1 UNION ALL SELECT 1)")
+            == f"SELECT 1 FROM (SELECT 1 UNION ALL SELECT 1) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_select_sample(self):
-        self.assertEqual(
-            self._select("SELECT events.event FROM events SAMPLE 1"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("SELECT events.event FROM events SAMPLE 1")
+            == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
-        self.assertEqual(
-            self._select("SELECT events.event FROM events SAMPLE 0.1 OFFSET 1/10"),
-            f"SELECT events.event AS event FROM events SAMPLE 0.1 OFFSET 1/10 WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("SELECT events.event FROM events SAMPLE 0.1 OFFSET 1/10")
+            == f"SELECT events.event AS event FROM events SAMPLE 0.1 OFFSET 1/10 WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
-        self.assertEqual(
-            self._select("SELECT events.event FROM events SAMPLE 2/78 OFFSET 999"),
-            f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("SELECT events.event FROM events SAMPLE 2/78 OFFSET 999")
+            == f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
@@ -1975,9 +1809,8 @@ class TestPrinter(BaseTest):
                 "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id",
                 context,
             )
-            self.assertEqual(
-                query,
-                f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 LEFT OUTER JOIN (SELECT "
+            assert (
+                query == f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 LEFT OUTER JOIN (SELECT "
                 "tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, "
                 "person_distinct_id_overrides.distinct_id AS distinct_id FROM person_distinct_id_overrides WHERE "
                 f"equals(person_distinct_id_overrides.team_id, {self.team.pk}) GROUP BY person_distinct_id_overrides.distinct_id "
@@ -1990,7 +1823,7 @@ class TestPrinter(BaseTest):
                 "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
                 "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) "
                 "SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, if(not(empty(events__override.distinct_id)), "
-                f"events__override.person_id, events.person_id)) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+                f"events__override.person_id, events.person_id)) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
             )
 
             context = HogQLContext(
@@ -1998,12 +1831,12 @@ class TestPrinter(BaseTest):
                 enable_select_queries=True,
                 modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
-            self.assertEqual(
+            assert (
                 self._select(
                     "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons SAMPLE 0.1 ON persons.id=events.person_id",
                     context,
-                ),
-                f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 LEFT OUTER JOIN (SELECT "
+                )
+                == f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 LEFT OUTER JOIN (SELECT "
                 "tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, "
                 "person_distinct_id_overrides.distinct_id AS distinct_id FROM person_distinct_id_overrides WHERE "
                 f"equals(person_distinct_id_overrides.team_id, {self.team.pk}) GROUP BY person_distinct_id_overrides.distinct_id "
@@ -2016,7 +1849,7 @@ class TestPrinter(BaseTest):
                 "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
                 "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) "
                 "SETTINGS optimize_aggregation_in_order=1) AS persons SAMPLE 0.1 ON equals(persons.id, if(not(empty(events__override.distinct_id)), "
-                f"events__override.person_id, events.person_id)) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+                f"events__override.person_id, events.person_id)) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
             )
 
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False):
@@ -2029,14 +1862,14 @@ class TestPrinter(BaseTest):
                 "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id",
                 context,
             )
-            self.assertEqual(
-                expected,
-                f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
+            assert (
+                expected
+                == f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
                 f"and(equals(person.team_id, {self.team.pk}), in(tuple(person.id, person.version), (SELECT person.id AS id, "
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                 f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, "
                 f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) "
-                f"AS persons ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+                f"AS persons ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
             )
 
             context = HogQLContext(
@@ -2048,38 +1881,38 @@ class TestPrinter(BaseTest):
                 "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons SAMPLE 0.1 ON persons.id=events.person_id",
                 context,
             )
-            self.assertEqual(
-                expected,
-                f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
+            assert (
+                expected
+                == f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
                 f"and(equals(person.team_id, {self.team.pk}), in(tuple(person.id, person.version), (SELECT person.id AS id, "
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                 f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, "
                 f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) "
-                f"AS persons SAMPLE 0.1 ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+                f"AS persons SAMPLE 0.1 ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
             )
 
     def test_count_distinct(self):
-        self.assertEqual(
-            self._select("SELECT count(distinct event) as count FROM events"),
-            f"SELECT count(DISTINCT events.event) AS count FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("SELECT count(distinct event) as count FROM events")
+            == f"SELECT count(DISTINCT events.event) AS count FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_count_distinct_function(self):
-        self.assertEqual(
-            self._select("SELECT countDistinct(event) as count FROM events"),
-            f"SELECT countDistinct(events.event) AS count FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("SELECT countDistinct(event) as count FROM events")
+            == f"SELECT countDistinct(events.event) AS count FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_count_star(self):
-        self.assertEqual(
-            self._select("SELECT count(*) as count FROM events"),
-            f"SELECT count(*) AS count FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("SELECT count(*) as count FROM events")
+            == f"SELECT count(*) AS count FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_count_if_distinct(self):
-        self.assertEqual(
-            self._select("SELECT countIf(distinct event, event like '%a%') as count FROM events"),
-            f"SELECT countIf(DISTINCT events.event, like(events.event, %(hogql_val_0)s)) AS count FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("SELECT countIf(distinct event, event like '%a%') as count FROM events")
+            == f"SELECT countIf(DISTINCT events.event, like(events.event, %(hogql_val_0)s)) AS count FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_print_timezone(self):
@@ -2090,47 +1923,40 @@ class TestPrinter(BaseTest):
         )
         context.database.get_table("events").fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
 
-        self.assertEqual(
+        assert (
             self._select(
                 "SELECT now() as a, toDateTime(timestamp) as b, toDate(test_date) as c, toDateTime('2020-02-02') as d, toDateTime('2020-02-02 12:25') as e FROM events",
                 context,
-            ),
-            f"SELECT now64(6, %(hogql_val_0)s) AS a, toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s) AS b, toDate(events.test_date) AS c, toDateTime(%(hogql_val_3)s, %(hogql_val_4)s) AS d, parseDateTime64BestEffort(%(hogql_val_5)s, 6, %(hogql_val_6)s) AS e FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            )
+            == f"SELECT now64(6, %(hogql_val_0)s) AS a, toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s) AS b, toDate(events.test_date) AS c, toDateTime(%(hogql_val_3)s, %(hogql_val_4)s) AS d, parseDateTime64BestEffort(%(hogql_val_5)s, 6, %(hogql_val_6)s) AS e FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
-        self.assertEqual(
-            context.values,
-            {
-                "hogql_val_0": "UTC",
-                "hogql_val_1": "UTC",
-                "hogql_val_2": "UTC",
-                "hogql_val_3": "2020-02-02",
-                "hogql_val_4": "UTC",
-                "hogql_val_5": "2020-02-02 12:25",
-                "hogql_val_6": "UTC",
-            },
-        )
+        assert context.values == {
+            "hogql_val_0": "UTC",
+            "hogql_val_1": "UTC",
+            "hogql_val_2": "UTC",
+            "hogql_val_3": "2020-02-02",
+            "hogql_val_4": "UTC",
+            "hogql_val_5": "2020-02-02 12:25",
+            "hogql_val_6": "UTC",
+        }
 
     def test_print_timezone_custom(self):
         self.team.timezone = "Europe/Brussels"
         self.team.save()
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        self.assertEqual(
+        assert (
             self._select(
-                "SELECT now() as a, toDateTime(timestamp) as b, toDateTime('2020-02-02') as c FROM events",
-                context,
-            ),
-            f"SELECT now64(6, %(hogql_val_0)s) AS a, toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s) AS b, toDateTime(%(hogql_val_3)s, %(hogql_val_4)s) AS c FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+                "SELECT now() as a, toDateTime(timestamp) as b, toDateTime('2020-02-02') as c FROM events", context
+            )
+            == f"SELECT now64(6, %(hogql_val_0)s) AS a, toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s) AS b, toDateTime(%(hogql_val_3)s, %(hogql_val_4)s) AS c FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
-        self.assertEqual(
-            context.values,
-            {
-                "hogql_val_0": "Europe/Brussels",
-                "hogql_val_1": "Europe/Brussels",
-                "hogql_val_2": "Europe/Brussels",
-                "hogql_val_3": "2020-02-02",
-                "hogql_val_4": "Europe/Brussels",
-            },
-        )
+        assert context.values == {
+            "hogql_val_0": "Europe/Brussels",
+            "hogql_val_1": "Europe/Brussels",
+            "hogql_val_2": "Europe/Brussels",
+            "hogql_val_3": "2020-02-02",
+            "hogql_val_4": "Europe/Brussels",
+        }
 
     def test_print_timezone_gibberish(self):
         self.team.timezone = "Europe/PostHogLandia"
@@ -2142,7 +1968,7 @@ class TestPrinter(BaseTest):
                 "SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events",
                 context,
             )
-        self.assertEqual(str(error_context.exception), "Unknown timezone: 'Europe/PostHogLandia'")
+        assert str(error_context.exception) == "Unknown timezone: 'Europe/PostHogLandia'"
 
     def test_to_datetime_does_not_double_parse_datetime_property(self):
         PropertyDefinition.objects.create(
@@ -2151,7 +1977,7 @@ class TestPrinter(BaseTest):
         printed = self._expr("toDateTime(properties.dt_prop)")
         # The property-type swapper already wraps a DateTime property in toDateTime;
         # an outer toDateTime must not re-parse the resulting datetime.
-        self.assertEqual(printed.count("parseDateTime64BestEffortOrNull"), 1, printed)
+        assert printed.count("parseDateTime64BestEffortOrNull") == 1, printed
 
     def test_to_datetime_does_not_double_parse_aliased_datetime_property(self):
         PropertyDefinition.objects.create(
@@ -2161,96 +1987,96 @@ class TestPrinter(BaseTest):
         # swapper rewrites the inner DateTime property; the printer must look
         # through the Alias to resolve the already-a-datetime overload.
         printed = self._expr("toDateTime(properties.dt_prop AS d)")
-        self.assertEqual(printed.count("parseDateTime64BestEffortOrNull"), 1, printed)
+        assert printed.count("parseDateTime64BestEffortOrNull") == 1, printed
 
     def test_window_functions(self):
-        self.assertEqual(
+        assert (
             self._select(
                 "SELECT distinct_id, min(timestamp) over win1 as timestamp FROM events WINDOW win1 as (PARTITION by distinct_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)"
-            ),
-            f"SELECT events.distinct_id AS distinct_id, min(toTimeZone(events.timestamp, %(hogql_val_0)s)) OVER win1 AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            )
+            == f"SELECT events.distinct_id AS distinct_id, min(toTimeZone(events.timestamp, %(hogql_val_0)s)) OVER win1 AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_postgres_compatible_lag_and_lead_functions(self):
         # Simple example without ROWS
-        self.assertEqual(
-            self._select("SELECT distinct_id, lag(timestamp) OVER (ORDER BY timestamp) FROM events"),
-            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+        assert (
+            self._select("SELECT distinct_id, lag(timestamp) OVER (ORDER BY timestamp) FROM events")
+            == f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000"
         )
-        self.assertEqual(
-            self._select("SELECT distinct_id, lead(timestamp) OVER (ORDER BY timestamp) FROM events"),
-            f"SELECT events.distinct_id AS distinct_id, leadInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+        assert (
+            self._select("SELECT distinct_id, lead(timestamp) OVER (ORDER BY timestamp) FROM events")
+            == f"SELECT events.distinct_id AS distinct_id, leadInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000"
         )
         # Example with ROWS specified
-        self.assertEqual(
+        assert (
             self._select(
                 "SELECT distinct_id, lag(timestamp) OVER (ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM events"
-            ),
-            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+            )
+            == f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000"
         )
-        self.assertEqual(
+        assert (
             self._select(
                 "SELECT distinct_id, lead(timestamp) OVER (ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM events"
-            ),
-            f"SELECT events.distinct_id AS distinct_id, leadInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+            )
+            == f"SELECT events.distinct_id AS distinct_id, leadInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000"
         )
         # Example with named windows
-        self.assertEqual(
+        assert (
             self._select(
                 "SELECT distinct_id, lag(timestamp) over win1 as prev_ts FROM events WINDOW win1 as (PARTITION by distinct_id ORDER BY timestamp)"
-            ),
-            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS prev_ts FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_2)s) ASC) LIMIT 50000",
+            )
+            == f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS prev_ts FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_2)s) ASC) LIMIT 50000"
         )
         # Example with multiple named windows, to make sure we don't add ROWS BETWEEN for non lag/lead functions
-        self.assertEqual(
+        assert (
             self._select(
                 "SELECT distinct_id, lag(timestamp) over win1 as prev_ts, min(timestamp) over win1 as min_ts FROM events WINDOW win1 as (PARTITION by distinct_id ORDER BY timestamp)"
-            ),
-            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS prev_ts, min(toTimeZone(events.timestamp, %(hogql_val_2)s)) OVER win1 AS min_ts FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_3)s) ASC) LIMIT 50000",
+            )
+            == f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS prev_ts, min(toTimeZone(events.timestamp, %(hogql_val_2)s)) OVER win1 AS min_ts FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_3)s) ASC) LIMIT 50000"
         )
         # Simple example with partiton by
         # Simple example with partition by
-        self.assertEqual(
+        assert (
             self._select(
                 "SELECT distinct_id, lag(timestamp) OVER (PARTITION BY distinct_id ORDER BY timestamp) FROM events"
-            ),
-            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+            )
+            == f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000"
         )
 
         # No rows but order by exists
-        self.assertEqual(
+        assert (
             self._select(
                 "SELECT distinct_id, lag(event) OVER (PARTITION BY distinct_id ORDER BY timestamp) FROM events"
-            ),
-            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(events.event)) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_0)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+            )
+            == f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(events.event)) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_0)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000"
         )
 
     def test_window_functions_with_window(self):
-        self.assertEqual(
+        assert (
             self._select(
                 "SELECT distinct_id, min(timestamp) over win1 as timestamp FROM events WINDOW win1 as (PARTITION by distinct_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)"
-            ),
-            f"SELECT events.distinct_id AS distinct_id, min(toTimeZone(events.timestamp, %(hogql_val_0)s)) OVER win1 AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            )
+            == f"SELECT events.distinct_id AS distinct_id, min(toTimeZone(events.timestamp, %(hogql_val_0)s)) OVER win1 AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_window_functions_with_arg(self):
-        self.assertEqual(
+        assert (
             self._select(
                 "SELECT quantiles(0.0, 0.25, 0.5, 0.75, 1.0)(distinct distinct_id) over () as values FROM events"
-            ),
-            f"SELECT quantiles(0.0, 0.25, 0.5, 0.75, 1.0)(events.distinct_id) OVER () AS values FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+            )
+            == f"SELECT quantiles(0.0, 0.25, 0.5, 0.75, 1.0)(events.distinct_id) OVER () AS values FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000"
         )
 
     def test_nullish_concat(self):
-        self.assertEqual(
-            self._expr("concat(null, 'a', 3, toString(4), toString(NULL))"),
-            f"concat('', %(hogql_val_0)s, toString(3), toString(4), '')",
+        assert (
+            self._expr("concat(null, 'a', 3, toString(4), toString(NULL))")
+            == f"concat('', %(hogql_val_0)s, toString(3), toString(4), '')"
         )
 
     def test_concat_pipes(self):
-        self.assertEqual(
-            self._expr("'a' || 'b' || 3 || timestamp"),
-            f"concat(%(hogql_val_0)s, %(hogql_val_1)s, toString(3), ifNull(toString(toTimeZone(events.timestamp, %(hogql_val_2)s)), ''))",
+        assert (
+            self._expr("'a' || 'b' || 3 || timestamp")
+            == f"concat(%(hogql_val_0)s, %(hogql_val_1)s, toString(3), ifNull(toString(toTimeZone(events.timestamp, %(hogql_val_2)s)), ''))"
         )
 
     def test_to_start_of_week_gets_mode(self):
@@ -2267,35 +2093,35 @@ class TestPrinter(BaseTest):
             self._expr("toStartOfWeek(timestamp)"),  # Sunday is the default
             f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 0)",
         )
-        self.assertEqual(
-            self._expr("toStartOfWeek(timestamp)", sunday_week_context),
-            f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 0)",
+        assert (
+            self._expr("toStartOfWeek(timestamp)", sunday_week_context)
+            == f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 0)"
         )
-        self.assertEqual(
-            self._expr("toStartOfWeek(timestamp)", monday_week_context),
-            f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 3)",
+        assert (
+            self._expr("toStartOfWeek(timestamp)", monday_week_context)
+            == f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 3)"
         )
 
     def test_functions_expecting_datetime_arg(self):
-        self.assertEqual(
-            self._expr("tumble(toDateTime('2023-06-12'), toIntervalDay('1')) as t"),
-            f"tumble(assumeNotNull(toDateTime(toDateTime(%(hogql_val_0)s, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s)) AS t",
+        assert (
+            self._expr("tumble(toDateTime('2023-06-12'), toIntervalDay('1')) as t")
+            == f"tumble(assumeNotNull(toDateTime(toDateTime(%(hogql_val_0)s, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s)) AS t"
         )
-        self.assertEqual(
-            self._expr("tumble(now(), toIntervalDay('1')) as t"),
-            f"tumble(toDateTime(now64(6, %(hogql_val_0)s), 'UTC'), toIntervalDay(%(hogql_val_1)s)) AS t",
+        assert (
+            self._expr("tumble(now(), toIntervalDay('1')) as t")
+            == f"tumble(toDateTime(now64(6, %(hogql_val_0)s), 'UTC'), toIntervalDay(%(hogql_val_1)s)) AS t"
         )
-        self.assertEqual(
-            self._expr("tumble(parseDateTime('2021-01-04+23:00:00', '%Y-%m-%d+%H:%i:%s'), toIntervalDay('1')) as t"),
-            f"tumble(assumeNotNull(toDateTime(parseDateTimeOrNull(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s))), toIntervalDay(%(hogql_val_3)s)) AS t",
+        assert (
+            self._expr("tumble(parseDateTime('2021-01-04+23:00:00', '%Y-%m-%d+%H:%i:%s'), toIntervalDay('1')) as t")
+            == f"tumble(assumeNotNull(toDateTime(parseDateTimeOrNull(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s))), toIntervalDay(%(hogql_val_3)s)) AS t"
         )
-        self.assertEqual(
-            self._expr("tumble(parseDateTimeBestEffort('23/10/2020 12:12:57'), toIntervalDay('1')) as t"),
-            f"tumble(assumeNotNull(toDateTime(parseDateTime64BestEffort(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s)) AS t",
+        assert (
+            self._expr("tumble(parseDateTimeBestEffort('23/10/2020 12:12:57'), toIntervalDay('1')) as t")
+            == f"tumble(assumeNotNull(toDateTime(parseDateTime64BestEffort(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s)) AS t"
         )
-        self.assertEqual(
-            self._select("SELECT tumble(timestamp, toIntervalDay('1')) as t FROM events"),
-            f"SELECT tumble(toDateTime(toTimeZone(events.timestamp, %(hogql_val_0)s), 'UTC'), toIntervalDay(%(hogql_val_1)s)) AS t FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        assert (
+            self._select("SELECT tumble(timestamp, toIntervalDay('1')) as t FROM events")
+            == f"SELECT tumble(toDateTime(toTimeZone(events.timestamp, %(hogql_val_0)s), 'UTC'), toIntervalDay(%(hogql_val_1)s)) AS t FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
     def test_field_nullable_equals(self):
@@ -2400,20 +2226,20 @@ class TestPrinter(BaseTest):
         # base64Encode has no type signatures → returns UnknownType(nullable=True)
         # Without assumeNotNull, one side is considered nullable → comparison gets ifNull wrapping
         sql_without = self._expr("event = base64Encode('test')")
-        self.assertIn("ifNull(", sql_without)
+        assert "ifNull(" in sql_without
 
         # assumeNotNull forces nullable=False → both sides non-nullable → no wrapping
         sql_with = self._expr("event = assumeNotNull(base64Encode('test'))")
-        self.assertNotIn("ifNull(", sql_with)
-        self.assertTrue(sql_with.startswith("equals("))
+        assert "ifNull(" not in sql_with
+        assert sql_with.startswith("equals(")
 
     def test_assume_not_null_prevents_ifnull_wrapping_not_equals(self):
         sql_without = self._expr("event != base64Encode('test')")
-        self.assertIn("ifNull(", sql_without)
+        assert "ifNull(" in sql_without
 
         sql_with = self._expr("event != assumeNotNull(base64Encode('test'))")
-        self.assertNotIn("ifNull(", sql_with)
-        self.assertTrue(sql_with.startswith("notEquals("))
+        assert "ifNull(" not in sql_with
+        assert sql_with.startswith("notEquals(")
 
     def test_field_nullable_boolean(self):
         PropertyDefinition.objects.create(
@@ -2423,7 +2249,7 @@ class TestPrinter(BaseTest):
             from ee.clickhouse.materialized_columns.analyze import materialize
         except ModuleNotFoundError:
             # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
+            assert 1 + 2 == 3
             return
         materialize("events", "is_boolean")
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -2474,10 +2300,10 @@ class TestPrinter(BaseTest):
         # Should generate: equals(mat_$ai_trace_id, 'trace123') without ifNull wrapper
         # Find the placeholder that holds our value (index varies with number of joins)
         trace_param_key = next((k for k, v in context.values.items() if v == "trace123"), None)
-        self.assertIsNotNone(trace_param_key, "Expected 'trace123' to be recorded as a parameter value")
-        self.assertIn(f"equals(events.`mat_$ai_trace_id`, %({trace_param_key})s)", sql)
+        assert trace_param_key is not None, "Expected 'trace123' to be recorded as a parameter value"
+        assert f"equals(events.`mat_$ai_trace_id`, %({trace_param_key})s)" in sql
         # Verify the equals for $ai_trace_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
-        self.assertIn("WHERE and(equals(events.team_id,", sql)
+        assert "WHERE and(equals(events.team_id," in sql
 
         # With materialized column - no nullIf wrapping
         context = HogQLContext(team_id=self.team.pk)
@@ -2485,8 +2311,8 @@ class TestPrinter(BaseTest):
 
         # Should be: events.mat_$ai_trace_id
         # NOT: nullIf(nullIf(events.mat_$ai_trace_id, ''), 'null')
-        self.assertEqual(sql.strip(), "events.`mat_$ai_trace_id`")
-        self.assertNotIn("nullIf", sql)
+        assert sql.strip() == "events.`mat_$ai_trace_id`"
+        assert "nullIf" not in sql
 
         # IN operations - no ifNull wrapping
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -2497,8 +2323,8 @@ class TestPrinter(BaseTest):
         assert trace1_param_key is not None, "Expected 'trace1' to be recorded as a parameter value"
         trace2_param_key = next((k for k, v in context.values.items() if v == "trace2"), None)
         assert trace2_param_key is not None, "Expected 'trace2' to be recorded as a parameter value"
-        self.assertIn(f"in(events.`mat_$ai_trace_id`, tuple(%({trace1_param_key})s, %({trace2_param_key})s))", sql)
-        self.assertNotIn("ifNull(in", sql)
+        assert f"in(events.`mat_$ai_trace_id`, tuple(%({trace1_param_key})s, %({trace2_param_key})s))" in sql
+        assert "ifNull(in" not in sql
 
         # NOT IN operations - no ifNull wrapping
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -2508,8 +2334,8 @@ class TestPrinter(BaseTest):
         assert trace1_param_key is not None, "Expected 'trace1' to be recorded as a parameter value"
         trace2_param_key = next((k for k, v in context.values.items() if v == "trace2"), None)
         assert trace2_param_key is not None, "Expected 'trace2' to be recorded as a parameter value"
-        self.assertIn(f"notIn(events.`mat_$ai_trace_id`, tuple(%({trace1_param_key})s, %({trace2_param_key})s))", sql)
-        self.assertNotIn("ifNull(notIn", sql)
+        assert f"notIn(events.`mat_$ai_trace_id`, tuple(%({trace1_param_key})s, %({trace2_param_key})s))" in sql
+        assert "ifNull(notIn" not in sql
 
         # Verify other properties still get normal treatment
         mock_get_mat_col.return_value = None  # No materialized column for other props
@@ -2522,9 +2348,9 @@ class TestPrinter(BaseTest):
         assert other_prop_param_key is not None, "Expected 'other_prop' to be recorded as a parameter value"
         value_param_key = next((k for k, v in context.values.items() if v == "value"), None)
         assert value_param_key is not None, "Expected 'value' to be recorded as a parameter value"
-        self.assertIn(
-            f"ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %({other_prop_param_key})s), ''), 'null'), '^\"|\"$', ''), %({value_param_key})s), 0)",
-            sql,
+        assert (
+            f"ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %({other_prop_param_key})s), ''), 'null'), '^\"|\"$', ''), %({value_param_key})s), 0)"
+            in sql
         )
 
     @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
@@ -2551,9 +2377,9 @@ class TestPrinter(BaseTest):
         # Find the placeholder that holds our value (index varies with number of joins)
         session_param_key = next((k for k, v in context.values.items() if v == "session123"), None)
         assert session_param_key is not None, "Expected 'session123' to be recorded as a parameter value"
-        self.assertIn(f"equals(events.`mat_$ai_session_id`, %({session_param_key})s)", sql)
+        assert f"equals(events.`mat_$ai_session_id`, %({session_param_key})s)" in sql
         # Verify the equals for $ai_session_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
-        self.assertIn("WHERE and(equals(events.team_id,", sql)
+        assert "WHERE and(equals(events.team_id," in sql
 
         # With materialized column - no nullIf wrapping
         context = HogQLContext(team_id=self.team.pk)
@@ -2561,8 +2387,8 @@ class TestPrinter(BaseTest):
 
         # Should be: events.mat_$ai_session_id
         # NOT: nullIf(nullIf(events.mat_$ai_session_id, ''), 'null')
-        self.assertEqual(sql.strip(), "events.`mat_$ai_session_id`")
-        self.assertNotIn("nullIf", sql)
+        assert sql.strip() == "events.`mat_$ai_session_id`"
+        assert "nullIf" not in sql
 
         # IN operations - no ifNull wrapping
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -2573,10 +2399,8 @@ class TestPrinter(BaseTest):
         assert session1_param_key is not None, "Expected 'session1' to be recorded as a parameter value"
         session2_param_key = next((k for k, v in context.values.items() if v == "session2"), None)
         assert session2_param_key is not None, "Expected 'session2' to be recorded as a parameter value"
-        self.assertIn(
-            f"in(events.`mat_$ai_session_id`, tuple(%({session1_param_key})s, %({session2_param_key})s))", sql
-        )
-        self.assertNotIn("ifNull(in", sql)
+        assert f"in(events.`mat_$ai_session_id`, tuple(%({session1_param_key})s, %({session2_param_key})s))" in sql
+        assert "ifNull(in" not in sql
 
     def test_field_nullable_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
@@ -2680,9 +2504,9 @@ class TestPrinter(BaseTest):
 
     def test_print_global_settings(self):
         printed = self._print("SELECT 1 FROM events", settings=HogQLGlobalSettings(max_execution_time=10))
-        self.assertEqual(
-            printed,
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+        assert (
+            printed
+            == f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         )
 
     def test_print_query_level_settings(self):
@@ -2694,9 +2518,9 @@ class TestPrinter(BaseTest):
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "clickhouse",
         )
-        self.assertEqual(
-            printed,
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1",
+        assert (
+            printed
+            == f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1"
         )
 
     def test_print_both_settings(self):
@@ -2709,9 +2533,9 @@ class TestPrinter(BaseTest):
             "clickhouse",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        self.assertEqual(
-            printed,
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+        assert (
+            printed
+            == f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         )
 
     def test_table_top_level_settings_added_to_query(self):
@@ -2817,16 +2641,13 @@ class TestPrinter(BaseTest):
 
     def test_pretty_print(self):
         printed = self._pretty("SELECT 1, event FROM events")
-        self.assertEqual(
-            printed,
-            f"SELECT\n    1,\n    event\nFROM\n    events\nLIMIT {MAX_SELECT_RETURNED_ROWS}",
-        )
+        assert printed == f"SELECT\n    1,\n    event\nFROM\n    events\nLIMIT {MAX_SELECT_RETURNED_ROWS}"
 
     def test_pretty_print_subquery(self):
         printed = self._pretty("SELECT 1, event FROM (select 1, event from events)")
-        self.assertEqual(
-            printed,
-            f"""SELECT\n    1,\n    event\nFROM\n    (SELECT\n        1,\n        event\n    FROM\n        events)\nLIMIT {MAX_SELECT_RETURNED_ROWS}""",
+        assert (
+            printed
+            == f"""SELECT\n    1,\n    event\nFROM\n    (SELECT\n        1,\n        event\n    FROM\n        events)\nLIMIT {MAX_SELECT_RETURNED_ROWS}"""
         )
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -2908,11 +2729,10 @@ class TestPrinter(BaseTest):
             "select * from (SELECT timestamp, timestamp FROM events)",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        self.assertEqual(
-            printed,
-            f"SELECT timestamp AS timestamp FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s), "
+        assert (
+            printed == f"SELECT timestamp AS timestamp FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s), "
             f"toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk})) "
-            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         )
 
     def test_print_hidden_aliases_column_override(self):
@@ -2920,11 +2740,10 @@ class TestPrinter(BaseTest):
             "select * from (SELECT timestamp as event, event FROM events)",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        self.assertEqual(
-            printed,
-            f"SELECT event AS event FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s) AS event, "
+        assert (
+            printed == f"SELECT event AS event FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s) AS event, "
             f"event FROM events WHERE equals(events.team_id, {self.team.pk})) "
-            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         )
 
     def test_print_hidden_aliases_properties(self):
@@ -2932,7 +2751,7 @@ class TestPrinter(BaseTest):
             from ee.clickhouse.materialized_columns.analyze import materialize
         except ModuleNotFoundError:
             # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
+            assert 1 + 2 == 3
             return
         materialize("events", "$browser")
 
@@ -2940,11 +2759,11 @@ class TestPrinter(BaseTest):
             "select * from (SELECT properties.$browser FROM events)",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        self.assertEqual(
-            printed,
-            f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "
+        assert (
+            printed
+            == f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
-            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         )
 
     def test_print_hidden_aliases_double_property(self):
@@ -2952,7 +2771,7 @@ class TestPrinter(BaseTest):
             from ee.clickhouse.materialized_columns.analyze import materialize
         except ModuleNotFoundError:
             # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
+            assert 1 + 2 == 3
             return
         materialize("events", "$browser")
 
@@ -3045,12 +2864,10 @@ class TestPrinter(BaseTest):
             "select convertCurrency('USD', 'EUR', 100, toDate('2021-01-01')) as currency",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        self.assertEqual(
-            (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
-            ),
-            printed,
+        assert (
+            f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
+            "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+            == printed
         )
 
     def test_currency_conversion_without_date(self):
@@ -3058,12 +2875,10 @@ class TestPrinter(BaseTest):
             "select convertCurrency('USD', 'EUR', 100) as currency",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        self.assertEqual(
-            (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
-            ),
-            printed,
+        assert (
+            f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
+            "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+            == printed
         )
 
     def test_sortable_semver(self):
@@ -3079,15 +2894,13 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         strict_regex = "^\\\\s*v?((0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*))(?:[-+][^\\\\s]*)?\\\\s*$"
-        self.assertEqual(
-            (
-                f"SELECT arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_0)s), '{strict_regex}'), ''), '_'))) AS semver1, "
-                f"arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_1)s), '{strict_regex}'), ''), '_'))) AS semver2, "
-                f"arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_2)s), '{strict_regex}'), ''), '_'))) AS semver3, "
-                f"arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_3)s), '{strict_regex}'), ''), '_'))) AS semver4 "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
-            ),
-            printed,
+        assert (
+            f"SELECT arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_0)s), '{strict_regex}'), ''), '_'))) AS semver1, "
+            f"arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_1)s), '{strict_regex}'), ''), '_'))) AS semver2, "
+            f"arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_2)s), '{strict_regex}'), ''), '_'))) AS semver3, "
+            f"arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_3)s), '{strict_regex}'), ''), '_'))) AS semver4 "
+            "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+            == printed
         )
 
     def test_get_survey_response(self):
@@ -3098,11 +2911,11 @@ class TestPrinter(BaseTest):
         )
         assert result.clickhouse is not None
         # Dynamic key (no question_id) uses concat for key construction
-        self.assertIn("coalesce", result.clickhouse)
-        self.assertIn("nullIf", result.clickhouse)
-        self.assertIn("concat", result.clickhouse)
+        assert "coalesce" in result.clickhouse
+        assert "nullIf" in result.clickhouse
+        assert "concat" in result.clickhouse
         # Always uses JSONExtractString for consistent String return type
-        self.assertIn("JSONExtractString", result.clickhouse)
+        assert "JSONExtractString" in result.clickhouse
 
         # Test with question index and specific ID - static key
         result = execute_hogql_query(
@@ -3111,9 +2924,9 @@ class TestPrinter(BaseTest):
         )
         assert result.clickhouse is not None
         # Static key also uses JSONExtractString for type consistency
-        self.assertIn("coalesce", result.clickhouse)
-        self.assertIn("nullIf", result.clickhouse)
-        self.assertIn("JSONExtractString", result.clickhouse)
+        assert "coalesce" in result.clickhouse
+        assert "nullIf" in result.clickhouse
+        assert "JSONExtractString" in result.clickhouse
 
         # Test with multiple choice question
         result = execute_hogql_query(
@@ -3122,9 +2935,9 @@ class TestPrinter(BaseTest):
         )
         assert result.clickhouse is not None
         # Multiple choice uses if() with JSONHas and JSONExtractArrayRaw
-        self.assertIn("JSONHas", result.clickhouse)
-        self.assertIn("JSONExtractArrayRaw", result.clickhouse)
-        self.assertIn("if(", result.clickhouse)
+        assert "JSONHas" in result.clickhouse
+        assert "JSONExtractArrayRaw" in result.clickhouse
+        assert "if(" in result.clickhouse
 
     def test_get_survey_response_with_numeric_property_type(self):
         """Test that getSurveyResponse returns consistent types even when property has Numeric type.
@@ -3154,10 +2967,10 @@ class TestPrinter(BaseTest):
         # Query should execute successfully (even with no results)
         assert result.clickhouse is not None
         # Both branches of coalesce should return String type (via JSONExtractString)
-        self.assertIn("JSONExtractString", result.clickhouse)
+        assert "JSONExtractString" in result.clickhouse
         # Should NOT contain Float64 casting which would cause type mismatch
-        self.assertNotIn("accurateCastOrNull", result.clickhouse)
-        self.assertNotIn("Float64", result.clickhouse)
+        assert "accurateCastOrNull" not in result.clickhouse
+        assert "Float64" not in result.clickhouse
 
     def test_unique_survey_submissions_filter(self):
         printed = self._print(
@@ -3166,12 +2979,12 @@ class TestPrinter(BaseTest):
         )
         # Should contain subquery with argMax for deduplication
         # String literals are parameterized, so check for structure instead
-        self.assertIn("argMax", printed)
-        self.assertIn("in(events.uuid", printed)
-        self.assertIn("SELECT argMax(events.uuid", printed)
-        self.assertIn("FROM events WHERE", printed)
-        self.assertIn("GROUP BY", printed)
-        self.assertIn("JSONExtractRaw(events.properties", printed)
+        assert "argMax" in printed
+        assert "in(events.uuid" in printed
+        assert "SELECT argMax(events.uuid" in printed
+        assert "FROM events WHERE" in printed
+        assert "GROUP BY" in printed
+        assert "JSONExtractRaw(events.properties" in printed
 
     def test_unique_survey_submissions_filter_with_timestamps(self):
         printed = self._print(
@@ -3179,9 +2992,9 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
 
-        self.assertIn("events.timestamp", printed)
-        self.assertIn("greaterOrEquals", printed)
-        self.assertIn("lessOrEquals", printed)
+        assert "events.timestamp" in printed
+        assert "greaterOrEquals" in printed
+        assert "lessOrEquals" in printed
 
     def test_unique_survey_submissions_filter_with_datetime_placeholders(self):
         printed = self._print(
@@ -3193,9 +3006,9 @@ class TestPrinter(BaseTest):
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
 
-        self.assertIn("events.timestamp", printed)
-        self.assertIn("greaterOrEquals", printed)
-        self.assertIn("lessOrEquals", printed)
+        assert "events.timestamp" in printed
+        assert "greaterOrEquals" in printed
+        assert "lessOrEquals" in printed
 
     def test_override_timezone(self):
         context = HogQLContext(
@@ -3205,30 +3018,21 @@ class TestPrinter(BaseTest):
         )
         context.database.get_table("events").fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
 
-        self.assertEqual(
+        assert (
             self._select(
-                """
-                SELECT toDateTime(timestamp)               as ts,
-                       toDateTime(timestamp, 'US/Pacific') as tsz,
-                       now()                               as now,
-                       now('US/Pacific')                   as nowz
-                FROM events
-                """,
+                """\n                SELECT toDateTime(timestamp)               as ts,\n                       toDateTime(timestamp, 'US/Pacific') as tsz,\n                       now()                               as now,\n                       now('US/Pacific')                   as nowz\n                FROM events\n                """,
                 context,
-            ),
-            f"SELECT toDateTime(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s) AS ts, toDateTime(toTimeZone(events.timestamp, %(hogql_val_2)s), %(hogql_val_3)s) AS tsz, now64(6, %(hogql_val_4)s) AS now, now64(6, %(hogql_val_5)s) AS nowz FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            )
+            == f"SELECT toDateTime(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s) AS ts, toDateTime(toTimeZone(events.timestamp, %(hogql_val_2)s), %(hogql_val_3)s) AS tsz, now64(6, %(hogql_val_4)s) AS now, now64(6, %(hogql_val_5)s) AS nowz FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
-        self.assertEqual(
-            context.values,
-            {
-                "hogql_val_0": "UTC",
-                "hogql_val_1": "UTC",
-                "hogql_val_2": "UTC",
-                "hogql_val_3": "US/Pacific",
-                "hogql_val_4": "UTC",
-                "hogql_val_5": "US/Pacific",
-            },
-        )
+        assert context.values == {
+            "hogql_val_0": "UTC",
+            "hogql_val_1": "UTC",
+            "hogql_val_2": "UTC",
+            "hogql_val_3": "US/Pacific",
+            "hogql_val_4": "UTC",
+            "hogql_val_5": "US/Pacific",
+        }
 
     def test_trim_leading_trailing_both(self):
         printed = self._print(
@@ -3247,14 +3051,8 @@ class TestPrinter(BaseTest):
 
     def test_case_insensitive_functions(self):
         context = HogQLContext(team_id=self.team.pk)
-        self.assertEqual(
-            self._expr("CoALESce(1)", context),
-            "coalesce(1)",
-        )
-        self.assertEqual(
-            self._expr("SuM(1)", context),
-            "sum(1)",
-        )
+        assert self._expr("CoALESce(1)", context) == "coalesce(1)"
+        assert self._expr("SuM(1)", context) == "sum(1)"
 
     def test_inline_persons(self):
         printed = self._print(
@@ -3872,16 +3670,16 @@ class TestPrinter(BaseTest):
         )
 
         # The key assertion: JOIN constraint fields should be qualified with CTE aliases
-        self.assertIn("equals(e.person_id, c.person_id)", result)
+        assert "equals(e.person_id, c.person_id)" in result
         # timestamp fields get wrapped in toTimeZone, but the important part is the alias qualification
-        self.assertIn("c.conversion_time", result)
-        self.assertIn("e.exposure_time", result)
+        assert "c.conversion_time" in result
+        assert "e.exposure_time" in result
         # Verify the greaterOrEquals comparison exists with the qualified fields
-        self.assertIn("greaterOrEquals(toTimeZone(c.conversion_time", result)
-        self.assertIn("toTimeZone(e.exposure_time", result)
+        assert "greaterOrEquals(toTimeZone(c.conversion_time" in result
+        assert "toTimeZone(e.exposure_time" in result
         # Verify CTE aliasing in FROM/JOIN clauses
-        self.assertIn("FROM exposures AS e", result)
-        self.assertIn("LEFT JOIN conversions AS c", result)
+        assert "FROM exposures AS e" in result
+        assert "LEFT JOIN conversions AS c" in result
 
     def test_cte_non_aliased_with_aliased_join_clickhouse(self):
         """Test mixing non-aliased and aliased CTEs in ClickHouse output"""
@@ -3895,15 +3693,15 @@ class TestPrinter(BaseTest):
         )
 
         # Non-aliased CTE: fields qualified with CTE name
-        self.assertIn("users.user_id", result)
-        self.assertIn("users.timestamp", result)
+        assert "users.user_id" in result
+        assert "users.timestamp" in result
         # Aliased CTE: fields qualified with alias
-        self.assertIn("u2.user_id", result)
+        assert "u2.user_id" in result
         # JOIN constraint should have both
-        self.assertIn("equals(users.user_id, u2.user_id)", result)
+        assert "equals(users.user_id, u2.user_id)" in result
         # Verify table references
-        self.assertIn("FROM users", result)
-        self.assertIn("LEFT JOIN users AS u2", result)
+        assert "FROM users" in result
+        assert "LEFT JOIN users AS u2" in result
 
     def test_cte_multiple_aliases_same_cte_clickhouse(self):
         """Test that the same CTE can be joined multiple times with different aliases"""
@@ -3918,25 +3716,25 @@ class TestPrinter(BaseTest):
         )
 
         # All three aliases should be present and properly qualified
-        self.assertIn("b1.id", result)
-        self.assertIn("b2.id", result)
-        self.assertIn("b3.id", result)
+        assert "b1.id" in result
+        assert "b2.id" in result
+        assert "b3.id" in result
         # JOIN constraints should use the right aliases
-        self.assertIn("equals(b1.id, b2.id)", result)
-        self.assertIn("equals(b2.id, b3.id)", result)
+        assert "equals(b1.id, b2.id)" in result
+        assert "equals(b2.id, b3.id)" in result
         # Table aliases in FROM/JOIN
-        self.assertIn("FROM base AS b1", result)
-        self.assertIn("LEFT JOIN base AS b2", result)
-        self.assertIn("LEFT JOIN base AS b3", result)
+        assert "FROM base AS b1" in result
+        assert "LEFT JOIN base AS b2" in result
+        assert "LEFT JOIN base AS b3" in result
 
     def test_final_keyword_not_supported(self):
         with self.assertRaises(QueryError) as e:
             self._select("SELECT * FROM events FINAL")
-        self.assertEqual("The FINAL keyword is not supported in HogQL as it causes slow queries", str(e.exception))
+        assert "The FINAL keyword is not supported in HogQL as it causes slow queries" == str(e.exception)
 
         with self.assertRaises(QueryError) as e:
             self._select("SELECT * FROM events FINAL WHERE timestamp > '2026-01-01'")
-        self.assertEqual("The FINAL keyword is not supported in HogQL as it causes slow queries", str(e.exception))
+        assert "The FINAL keyword is not supported in HogQL as it causes slow queries" == str(e.exception)
 
     @parameterized.expand(
         [
@@ -3965,18 +3763,18 @@ class TestPrinter(BaseTest):
         ]
     )
     def test_postgres_style_cast(self, name, expr, expected):
-        self.assertEqual(self._expr(expr), expected)
+        assert self._expr(expr) == expected
 
     def test_postgres_style_cast_datetime(self):
         # DateTime types include timezone, test separately
-        self.assertIn("toDateTime(events.event", self._expr("event::datetime"))
-        self.assertIn("toDateTime(events.event", self._expr("event::timestamp"))
-        self.assertIn("toDateTime(events.event", self._expr("event::timestamptz"))
+        assert "toDateTime(events.event" in self._expr("event::datetime")
+        assert "toDateTime(events.event" in self._expr("event::timestamp")
+        assert "toDateTime(events.event" in self._expr("event::timestamptz")
 
     def test_postgres_style_cast_unsupported_type(self):
         with self.assertRaises(QueryError) as ctx:
             self._expr("event::unsupported_type")
-        self.assertIn("Unsupported type cast", str(ctx.exception))
+        assert "Unsupported type cast" in str(ctx.exception)
 
     def test_cte_materialization_hint_not_supported(self):
         with self.assertRaises(ImpossibleASTError) as ctx:
@@ -3986,7 +3784,7 @@ class TestPrinter(BaseTest):
                 SELECT event FROM some_cte
                 """,
             )
-        self.assertIn("not supported", str(ctx.exception))
+        assert "not supported" in str(ctx.exception)
 
     def test_cte_column_name_list_not_supported(self):
         with self.assertRaises(NotImplementedError):
@@ -3999,7 +3797,7 @@ class TestPrinter(BaseTest):
             self._select(
                 "WITH x USING KEY (a) AS (SELECT 1 AS a, 2 AS b) SELECT * FROM x",
             )
-        self.assertIn("not supported", str(ctx.exception))
+        assert "not supported" in str(ctx.exception)
 
     def test_projection_pushdown_cte_with_lazy_table_join(self):
         modifiers = HogQLQueryModifiers(optimizeProjections=True)
@@ -4054,7 +3852,7 @@ class TestPrinter(BaseTest):
         ]
     )
     def test_session_id_uuid_optimization(self, _name, expr, expected):
-        self.assertEqual(self._expr(expr), expected)
+        assert self._expr(expr) == expected
 
     @parameterized.expand(
         [
@@ -4076,7 +3874,7 @@ class TestPrinter(BaseTest):
     )
     def test_session_id_uuid_optimization_skipped(self, _name, expr):
         result = self._expr(expr)
-        self.assertNotIn("$session_id_uuid", result)
+        assert "$session_id_uuid" not in result
 
     @parameterized.expand(
         [
@@ -4150,8 +3948,8 @@ class TestPrinter(BaseTest):
 
         printed = self._select(query)
 
-        self.assertNotIn(forbidden_substring, printed)
-        self.assertIn(expected_substring, printed)
+        assert forbidden_substring not in printed
+        assert expected_substring in printed
 
 
 @snapshot_clickhouse_queries
@@ -4195,7 +3993,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         assert printed_expr == expected_query
 
         if expected_context_values is not None:
-            self.assertLessEqual(expected_context_values.items(), context.values.items())
+            assert expected_context_values.items() <= context.values.items()
 
     def test_materialized_column_optimized_equality_comparison_non_nullable(self) -> None:
         # Non-nullable columns don't need any wrapping
@@ -4362,7 +4160,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 query="SELECT distinct_id FROM events WHERE properties.test_prop < 'mango' ORDER BY distinct_id",
             )
-            self.assertEqual(lt_result.results, expected_lt_mango)
+            assert lt_result.results == expected_lt_mango
             assert lt_result.clickhouse is not None
             assert get_index_from_explain(lt_result.clickhouse, index_name), (
                 f"Expected skip index {index_name} to be used for `<`"
@@ -4372,7 +4170,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 query="SELECT distinct_id FROM events WHERE properties.test_prop >= 'mango' ORDER BY distinct_id",
             )
-            self.assertEqual(gte_result.results, expected_gte_mango)
+            assert gte_result.results == expected_gte_mango
             assert gte_result.clickhouse is not None
             assert get_index_from_explain(gte_result.clickhouse, index_name), (
                 f"Expected skip index {index_name} to be used for `>=`"
@@ -4427,7 +4225,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 query="SELECT distinct_id FROM events WHERE properties.test_prop = 'target_value' ORDER BY distinct_id",
             )
-            self.assertEqual(eq_result.results, [("d1",)])
+            assert eq_result.results == [("d1",)]
             assert eq_result.clickhouse is not None
             index_name = get_minmax_index_name(mat_col.name)
             assert get_index_from_explain(eq_result.clickhouse, index_name), (
@@ -4438,7 +4236,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 query="SELECT distinct_id FROM events WHERE properties.test_prop != 'target_value' ORDER BY distinct_id",
             )
-            self.assertEqual(neq_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
+            assert neq_result.results == [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)]
 
     @parameterized.expand(
         [
@@ -4570,7 +4368,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             (distinct_id_with_null, None, 1, 1),
             (distinct_id_without, None, 1, 1),
         }
-        self.assertEqual(set(result.results), expected_results)
+        assert set(result.results) == expected_results
 
         # The query should never touch the json properties object if we are using the materialized column, these asserts protect against regression of the performance the bug fixed in
         # https://posthog.slack.com/archives/C09B0SSQEDA/p1767698123669229?thread_ts=1767672165.250289&cid=C09B0SSQEDA
@@ -5247,7 +5045,7 @@ class TestSessionIdUuidOptimization(ClickhouseTestMixin, APIBaseTest):
     def test_session_id_uuid_query(self, _name, query_template, expected):
         query = query_template.format(session_uuid_1=self.SESSION_UUID_1, session_uuid_2=self.SESSION_UUID_2)
         response = execute_hogql_query(team=self.team, query=query)
-        self.assertEqual(response.results, expected)
+        assert response.results == expected
 
     # Remove xfail when we add a minmax index on $session_id_uuid (see events table in posthog/models/event/sql.py)
     # see https://posthog.slack.com/archives/C076R4753Q8/p1772027599338529
@@ -5318,7 +5116,7 @@ class TestPostgresPrinter(BaseTest):
         ]
     )
     def test_null_comparisons_in_postgres(self, _name: str, expr: str, expected: str):
-        self.assertEqual(self._expr(expr), expected)
+        assert self._expr(expr) == expected
 
     @parameterized.expand(
         [
@@ -5345,43 +5143,43 @@ class TestPostgresPrinter(BaseTest):
         ]
     )
     def test_select_queries(self, query: str, expected: str):
-        self.assertEqual(self._select(query), expected)
+        assert self._select(query) == expected
 
     def test_omits_clickhouse_specific_transforms(self):
         postgres = self._select("SELECT event FROM events")
         clickhouse = self._select("SELECT event FROM events", dialect="clickhouse")
 
-        self.assertNotIn("team_id", postgres)
-        self.assertNotEqual(postgres, clickhouse)
+        assert "team_id" not in postgres
+        assert postgres != clickhouse
 
     def test_column_aliases(self):
         printed = self._select("SELECT 1 FROM events AS e (event_alias, ts_alias)")
-        self.assertIn("AS e (event_alias, ts_alias)", printed)
+        assert "AS e (event_alias, ts_alias)" in printed
 
     def test_column_aliases_explicit_refs_use_aliased_names(self):
         printed = self._select("SELECT e.a, e.b FROM events AS e (a, b, c)")
         # Postgres supports (a, b, c) syntax natively, so field references
         # should use the aliased names
-        self.assertIn("e.a", printed)
-        self.assertIn("e.b", printed)
-        self.assertNotIn("e.uuid", printed)
-        self.assertNotIn("e.event", printed)
+        assert "e.a" in printed
+        assert "e.b" in printed
+        assert "e.uuid" not in printed
+        assert "e.event" not in printed
 
     def test_column_aliases_in_where(self):
         printed = self._select("SELECT e.a FROM events AS e (a, b, c) WHERE e.c IS NOT NULL")
-        self.assertIn("e.a", printed)
-        self.assertIn("e.c", printed)
+        assert "e.a" in printed
+        assert "e.c" in printed
 
     def test_column_aliases_select_star(self):
         printed = self._select("SELECT s.* FROM (SELECT 1 AS x, 2 AS y, 3 AS z) AS s (a, b, c)")
-        self.assertIn("s.a", printed)
-        self.assertIn("s.b", printed)
-        self.assertIn("s.c", printed)
+        assert "s.a" in printed
+        assert "s.b" in printed
+        assert "s.c" in printed
 
     def test_column_aliases_subquery_preserves_syntax(self):
         printed = self._select("SELECT s.a FROM (SELECT 1 AS x, 2 AS y) AS s (a, b)")
-        self.assertIn("(a, b)", printed)
-        self.assertIn("s.a", printed)
+        assert "(a, b)" in printed
+        assert "s.a" in printed
 
     @parameterized.expand(
         [
@@ -5397,7 +5195,7 @@ class TestPostgresPrinter(BaseTest):
     )
     def test_range_table_function_prints(self, _name, query, expected):
         printed = self._select(query)
-        self.assertIn(expected, printed)
+        assert expected in printed
 
     @parameterized.expand(
         [
@@ -5409,7 +5207,7 @@ class TestPostgresPrinter(BaseTest):
     def test_range_table_function_arg_errors(self, _name, query, expected_error):
         with self.assertRaises(QueryError) as ctx:
             self._select(query)
-        self.assertIn(expected_error, str(ctx.exception))
+        assert expected_error in str(ctx.exception)
 
     def _context_with_table_functions(self, *function_names: str) -> HogQLContext:
         return HogQLContext(
@@ -5438,32 +5236,32 @@ class TestPostgresPrinter(BaseTest):
     def test_opaque_table_function_from_introspected_metadata(self, name, query, expected):
         context = self._context_with_table_functions(name)
         printed = self._select(query, context=context)
-        self.assertIn(expected, printed)
+        assert expected in printed
 
     def test_opaque_table_function_unknown_name_still_errors(self):
         context = self._context_with_table_functions("unnest")
         with self.assertRaises(QueryError) as ctx:
             self._select("SELECT * FROM totally_made_up_function(1)", context=context)
-        self.assertIn("Unknown table", str(ctx.exception))
+        assert "Unknown table" in str(ctx.exception)
 
     def test_opaque_table_function_requires_args(self):
         context = self._context_with_table_functions("unnest")
         with self.assertRaises(QueryError) as ctx:
             self._select("SELECT * FROM unnest", context=context)
-        self.assertIn("Unknown table", str(ctx.exception))
+        assert "Unknown table" in str(ctx.exception)
 
     def test_opaque_table_function_rejects_empty_call(self):
         context = self._context_with_table_functions("unnest")
         with self.assertRaises(QueryError) as ctx:
             self._select("SELECT * FROM unnest()", context=context)
-        self.assertIn("requires at least 1 argument", str(ctx.exception))
+        assert "requires at least 1 argument" in str(ctx.exception)
 
     def test_opaque_table_function_falls_back_to_hardcoded_range_without_metadata(self):
         # Connections that haven't refreshed since this rolled out won't have
         # `available_table_functions` in their metadata. The hand-rolled RangeTable
         # / GenerateSeriesTable registrations keep those two working.
         printed = self._select("SELECT range FROM range(10)")
-        self.assertIn("range(10)", printed)
+        assert "range(10)" in printed
 
     @parameterized.expand(
         [
@@ -5485,19 +5283,19 @@ class TestPostgresPrinter(BaseTest):
         ]
     )
     def test_pivot_prints(self, _name: str, query: str, expected: str):
-        self.assertEqual(self._select(query), expected)
+        assert self._select(query) == expected
 
     def test_limit_percent_basic(self):
         printed = self._select("SELECT 1 FROM events LIMIT 10 %")
-        self.assertIn("LIMIT 10 %", printed)
+        assert "LIMIT 10 %" in printed
 
     def test_limit_percent_expr(self):
         printed = self._select("SELECT 1 FROM events LIMIT (60 + 7) %")
-        self.assertIn("LIMIT (60 + 7) %", printed)
+        assert "LIMIT (60 + 7) %" in printed
 
     def test_lambda_style(self):
         printed = self._select("SELECT lambda x, y: x + y")
-        self.assertIn("lambda x, y: (x + y)", printed)
+        assert "lambda x, y: (x + y)" in printed
 
     @parameterized.expand(
         [
@@ -5510,7 +5308,7 @@ class TestPostgresPrinter(BaseTest):
     )
     def test_array_slice(self, expr: str, expected: str):
         printed = self._select(f"SELECT {expr}")
-        self.assertIn(expected, printed)
+        assert expected in printed
 
     @parameterized.expand(
         [
@@ -5520,7 +5318,7 @@ class TestPostgresPrinter(BaseTest):
     )
     def test_try_cast(self, expr: str, expected: str):
         printed = self._select(f"SELECT {expr}")
-        self.assertIn(expected, printed)
+        assert expected in printed
 
     @parameterized.expand(
         [
@@ -5532,7 +5330,7 @@ class TestPostgresPrinter(BaseTest):
         ]
     )
     def test_function_call_order_by_prints(self, _name: str, query: str, expected: str):
-        self.assertEqual(self._select(query), expected)
+        assert self._select(query) == expected
 
     @parameterized.expand(
         [
@@ -5542,7 +5340,7 @@ class TestPostgresPrinter(BaseTest):
     )
     def test_is_distinct_from(self, expr: str, expected: str):
         printed = self._select(f"SELECT {expr}")
-        self.assertIn(expected, printed)
+        assert expected in printed
 
     @parameterized.expand(
         [
@@ -5585,42 +5383,41 @@ class TestPostgresPrinter(BaseTest):
         same top-level node type as the original."""
         printed = node.to_hogql()
         parsed = parse_expr(printed)
-        self.assertEqual(type(parsed), type(node), f"AST type changed after roundtrip of: {printed!r}")
+        assert type(parsed) is type(node), f"AST type changed after roundtrip of: {printed!r}"
         reprinted = parsed.to_hogql()
-        self.assertEqual(printed, reprinted)
+        assert printed == reprinted
 
     def test_limit_percent_with_subquery(self):
         printed = self._select("SELECT 1 FROM events LIMIT (SELECT avg(team_id) FROM events) %")
-        self.assertIn("LIMIT (SELECT avg(events.team_id) FROM events) %", printed)
+        assert "LIMIT (SELECT avg(events.team_id) FROM events) %" in printed
 
     def test_limit_percent_with_offset(self):
         printed = self._select("SELECT 1 FROM events LIMIT 42% OFFSET 20")
-        self.assertIn("LIMIT 42 % OFFSET 20", printed)
+        assert "LIMIT 42 % OFFSET 20" in printed
 
     def test_boolean_and_null_literals(self):
-        self.assertEqual(self._expr("true"), "true")
-        self.assertEqual(self._expr("false"), "false")
-        self.assertEqual(self._expr("null"), "NULL")
+        assert self._expr("true") == "true"
+        assert self._expr("false") == "false"
+        assert self._expr("null") == "NULL"
 
     def test_json_properties_render_as_postgres_json_access(self):
-        self.assertEqual(
-            self._expr("properties.a.b.c.$browser"),
-            "((((events.properties) -> 'a') -> 'b') -> 'c') ->> '$browser'",
+        assert (
+            self._expr("properties.a.b.c.$browser") == "((((events.properties) -> 'a') -> 'b') -> 'c') ->> '$browser'"
         )
 
     def test_json_properties_in_select_render_as_postgres_json_access(self):
         printed = self._select("SELECT properties.detail.name FROM events")
 
-        self.assertIn("(events.properties) ->", printed)
-        self.assertIn("->> 'name'", printed)
-        self.assertIn('AS "properties.detail.name"', printed)
+        assert "(events.properties) ->" in printed
+        assert "->> 'name'" in printed
+        assert 'AS "properties.detail.name"' in printed
 
     def test_allows_dollar_identifiers(self):
         printed = self._select("SELECT event AS $value FROM events")
-        self.assertIn('AS "$value"', printed)
+        assert 'AS "$value"' in printed
 
     def test_simple_identifiers_render_without_quotes(self):
-        self.assertEqual(self._expr("count(id)"), "count(id)")
+        assert self._expr("count(id)") == "count(id)"
 
     @parameterized.expand(
         [
@@ -5638,12 +5435,12 @@ class TestPostgresPrinter(BaseTest):
         ]
     )
     def test_to_start_of_functions_render_as_date_trunc(self, expr: str, expected: str):
-        self.assertEqual(self._expr(expr), expected)
+        assert self._expr(expr) == expected
 
     def test_to_start_of_week_defaults_to_sunday_in_postgres(self):
-        self.assertEqual(
-            self._expr("toStartOfWeek(timestamp)"),
-            "(date_trunc('week', (events.timestamp + interval '1 day')) - interval '1 day')",
+        assert (
+            self._expr("toStartOfWeek(timestamp)")
+            == "(date_trunc('week', (events.timestamp + interval '1 day')) - interval '1 day')"
         )
 
     def test_to_start_of_week_uses_project_week_start_day_in_postgres(self):
@@ -5653,7 +5450,7 @@ class TestPostgresPrinter(BaseTest):
             database=Database(week_start_day=WeekStartDay.MONDAY),
         )
 
-        self.assertEqual(self._expr("toStartOfWeek(timestamp)", context), "date_trunc('week', events.timestamp)")
+        assert self._expr("toStartOfWeek(timestamp)", context) == "date_trunc('week', events.timestamp)"
 
     @parameterized.expand(
         [
@@ -5665,19 +5462,19 @@ class TestPostgresPrinter(BaseTest):
         ]
     )
     def test_to_start_of_week_preserves_supported_modes_in_postgres(self, expr: str, expected: str):
-        self.assertEqual(self._expr(expr), expected)
+        assert self._expr(expr) == expected
 
     def test_to_start_of_week_rejects_unsupported_mode_in_postgres(self):
         with self.assertRaises(QueryError) as error:
             self._expr("toStartOfWeek(timestamp, 2)")
 
-        self.assertIn("Unsupported toStartOfWeek mode", str(error.exception))
+        assert "Unsupported toStartOfWeek mode" in str(error.exception)
 
     def test_to_start_of_day_rejects_timezone_override_in_postgres(self):
         with self.assertRaises(QueryError) as error:
             self._expr("toStartOfDay(timestamp, 'UTC')")
 
-        self.assertIn("timezone override", str(error.exception))
+        assert "timezone override" in str(error.exception)
 
     @parameterized.expand(
         [
@@ -5692,7 +5489,7 @@ class TestPostgresPrinter(BaseTest):
         ]
     )
     def test_date_trunc_passthrough_in_postgres(self, expr: str, expected: str):
-        self.assertEqual(self._expr(expr), expected)
+        assert self._expr(expr) == expected
 
     @parameterized.expand(
         [
@@ -5714,37 +5511,37 @@ class TestPostgresPrinter(BaseTest):
         ]
     )
     def test_to_start_of_minute_bucket_functions_render_in_postgres(self, expr: str, expected: str):
-        self.assertEqual(self._expr(expr), expected)
+        assert self._expr(expr) == expected
 
     def test_reserved_identifiers_are_quoted(self):
         printed = self._select("SELECT events.event AS select FROM events")
 
-        self.assertIn('AS "select"', printed)
+        assert 'AS "select"' in printed
 
     def test_long_generated_identifier_is_truncated_for_postgres(self):
         long_alias = "posthog_user__posthog_organizationmemberships__organization___id"
         printed = self._select(f"SELECT event AS {long_alias} FROM events")
 
-        self.assertIn("AS ", printed)
-        self.assertNotIn(long_alias, printed)
+        assert "AS " in printed
+        assert long_alias not in printed
 
     def test_window_functions_keep_postgres_shape(self):
         printed = self._select("SELECT lag(timestamp) OVER (ORDER BY timestamp) FROM events")
 
-        self.assertIn("lag(", printed)
-        self.assertNotIn("lagInFrame", printed)
-        self.assertNotIn("ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING", printed)
+        assert "lag(" in printed
+        assert "lagInFrame" not in printed
+        assert "ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING" not in printed
 
     @parameterized.expand([["percentile_cont"], ["percentile_disc"]])
     def test_percentile_within_group_renders_in_postgres(self, function_name: str):
-        self.assertEqual(
-            self._expr(f"{function_name}(0.5) within group (order by timestamp desc)"),
-            f"{function_name}(0.5) WITHIN GROUP (ORDER BY events.timestamp DESC)",
+        assert (
+            self._expr(f"{function_name}(0.5) within group (order by timestamp desc)")
+            == f"{function_name}(0.5) WITHIN GROUP (ORDER BY events.timestamp DESC)"
         )
 
     def test_in_operations_render_value_lists(self):
-        self.assertEqual(self._expr("1 in (1, 2, 3)"), "(1 IN (1, 2, 3))")
-        self.assertEqual(self._expr("1 in (1)"), "(1 IN (1))")
+        assert self._expr("1 in (1, 2, 3)") == "(1 IN (1, 2, 3))"
+        assert self._expr("1 in (1)") == "(1 IN (1))"
 
     def test_hogqlx_row_literals_render_without_tuple_function(self):
         hx_tag = convert_tag_to_hx(ast.HogQLXTag(kind="div", attributes=[]))
@@ -5762,37 +5559,37 @@ class TestPostgresPrinter(BaseTest):
             stack=[prepared_select_query],
         )
 
-        self.assertEqual(rendered, "(%(hogql_val_0)s, %(hogql_val_1)s)")
+        assert rendered == "(%(hogql_val_0)s, %(hogql_val_1)s)"
 
     def test_comparison_operators(self):
-        self.assertEqual(self._expr("a = b"), "(a = b)")
-        self.assertEqual(self._expr("a != b"), "(a != b)")
-        self.assertEqual(self._expr("a LIKE b"), "(a LIKE b)")
-        self.assertEqual(self._expr("a NOT LIKE b"), "(a NOT LIKE b)")
-        self.assertEqual(self._expr("a ILIKE b"), "(a ILIKE b)")
-        self.assertEqual(self._expr("a NOT ILIKE b"), "(a NOT ILIKE b)")
-        self.assertEqual(self._expr("a IN (b, c, d)"), "(a IN (b, c, d))")
-        self.assertEqual(self._expr("a NOT IN (b, c, d)"), "(a NOT IN (b, c, d))")
-        self.assertEqual(self._expr("a ~ b"), "(a ~ b)")
-        self.assertEqual(self._expr("a !~ b"), "(a !~ b)")
-        self.assertEqual(self._expr("a ~* b"), "(a ~* b)")
-        self.assertEqual(self._expr("a !~* b"), "(a !~* b)")
-        self.assertEqual(self._expr("a > b"), "(a > b)")
-        self.assertEqual(self._expr("a >= b"), "(a >= b)")
-        self.assertEqual(self._expr("a < b"), "(a < b)")
-        self.assertEqual(self._expr("a <= b"), "(a <= b)")
+        assert self._expr("a = b") == "(a = b)"
+        assert self._expr("a != b") == "(a != b)"
+        assert self._expr("a LIKE b") == "(a LIKE b)"
+        assert self._expr("a NOT LIKE b") == "(a NOT LIKE b)"
+        assert self._expr("a ILIKE b") == "(a ILIKE b)"
+        assert self._expr("a NOT ILIKE b") == "(a NOT ILIKE b)"
+        assert self._expr("a IN (b, c, d)") == "(a IN (b, c, d))"
+        assert self._expr("a NOT IN (b, c, d)") == "(a NOT IN (b, c, d))"
+        assert self._expr("a ~ b") == "(a ~ b)"
+        assert self._expr("a !~ b") == "(a !~ b)"
+        assert self._expr("a ~* b") == "(a ~* b)"
+        assert self._expr("a !~* b") == "(a !~* b)"
+        assert self._expr("a > b") == "(a > b)"
+        assert self._expr("a >= b") == "(a >= b)"
+        assert self._expr("a < b") == "(a < b)"
+        assert self._expr("a <= b") == "(a <= b)"
 
     def test_arithmetic_operators(self):
-        self.assertEqual(self._expr("a + b"), "(a + b)")
-        self.assertEqual(self._expr("a - b"), "(a - b)")
-        self.assertEqual(self._expr("a * b"), "(a * b)")
-        self.assertEqual(self._expr("a / b"), "(a / b)")
-        self.assertEqual(self._expr("a % b"), "(a % b)")
+        assert self._expr("a + b") == "(a + b)"
+        assert self._expr("a - b") == "(a - b)"
+        assert self._expr("a * b") == "(a * b)"
+        assert self._expr("a / b") == "(a / b)"
+        assert self._expr("a % b") == "(a % b)"
 
     def test_logical_operators(self):
-        self.assertEqual(self._expr("a AND b"), "((a) AND (b))")
-        self.assertEqual(self._expr("a OR b"), "((a) OR (b))")
-        self.assertEqual(self._expr("NOT a"), "(NOT a)")
+        assert self._expr("a AND b") == "((a) AND (b))"
+        assert self._expr("a OR b") == "((a) OR (b))"
+        assert self._expr("NOT a") == "(NOT a)"
 
     def test_unknown_comparison_operator_raises_error(self):
         query: ast.CompareOperation = cast(ast.CompareOperation, parse_expr("a = b"))
@@ -5822,22 +5619,19 @@ class TestPostgresPrinter(BaseTest):
         )
 
     def test_postgres_style_cast(self):
-        self.assertEqual(self._expr("123::int"), "CAST(123 AS int)")
-        self.assertEqual(self._expr("123.45::float"), "CAST(123.45 AS float)")
-        self.assertEqual(self._expr("'2024-01-01'::date"), "CAST(%(hogql_val_0)s AS date)")
-        self.assertEqual(self._expr("event::int"), "CAST(events.event AS int)")
-        self.assertEqual(self._expr("event::text"), "CAST(events.event AS text)")
-        self.assertEqual(self._expr("event::boolean"), "CAST(events.event AS boolean)")
-        self.assertEqual(self._expr("event::INT"), "CAST(events.event AS int)")
-        self.assertEqual(self._expr("(1 + 2)::int"), "CAST((1 + 2) AS int)")
-        self.assertEqual(
-            self._expr("CAST(event AS STRUCT(a INTEGER, b VARCHAR))"),
-            'CAST(events.event AS "struct(a integer, b varchar)")',
+        assert self._expr("123::int") == "CAST(123 AS int)"
+        assert self._expr("123.45::float") == "CAST(123.45 AS float)"
+        assert self._expr("'2024-01-01'::date") == "CAST(%(hogql_val_0)s AS date)"
+        assert self._expr("event::int") == "CAST(events.event AS int)"
+        assert self._expr("event::text") == "CAST(events.event AS text)"
+        assert self._expr("event::boolean") == "CAST(events.event AS boolean)"
+        assert self._expr("event::INT") == "CAST(events.event AS int)"
+        assert self._expr("(1 + 2)::int") == "CAST((1 + 2) AS int)"
+        assert (
+            self._expr("CAST(event AS STRUCT(a INTEGER, b VARCHAR))")
+            == 'CAST(events.event AS "struct(a integer, b varchar)")'
         )
-        self.assertEqual(
-            self._expr("CAST(event AS DECIMAL(10, 2))"),
-            'CAST(events.event AS "decimal(10, 2)")',
-        )
+        assert self._expr("CAST(event AS DECIMAL(10, 2))") == 'CAST(events.event AS "decimal(10, 2)")'
 
     @parameterized.expand(
         [
@@ -5866,7 +5660,7 @@ class TestPostgresPrinter(BaseTest):
             expr=ast.Constant(value=123),
             type_name=type_name,
         )
-        self.assertEqual(self._expr(node), f"CAST(123 AS {expected_escaped})")
+        assert self._expr(node) == f"CAST(123 AS {expected_escaped})"
 
     @parameterized.expand(
         [
@@ -5895,7 +5689,7 @@ class TestPostgresPrinter(BaseTest):
             expr=ast.Constant(value=123),
             type_name=type_name,
         )
-        self.assertEqual(self._expr(node), f"TRY_CAST(123 AS {expected_escaped})")
+        assert self._expr(node) == f"TRY_CAST(123 AS {expected_escaped})"
 
     @parameterized.expand(
         [
@@ -5929,79 +5723,79 @@ class TestPostgresPrinter(BaseTest):
     )
     def test_cte_column_name_list(self, _name: str, query: str, expected_fragment: str):
         result = self._select(query)
-        self.assertIn(expected_fragment, result)
+        assert expected_fragment in result
 
     def test_with_recursive(self):
         query = "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte"
-        self.assertEqual(
-            self._select(query),
-            "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
+        assert (
+            self._select(query)
+            == "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000"
         )
 
     def test_with_recursive_self_referencing(self):
         query = "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM nums WHERE n < 5) SELECT n FROM nums"
-        self.assertEqual(
-            self._select(query),
-            "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT (nums.n + 1) FROM nums WHERE (nums.n < 5)) "
-            "SELECT nums.n FROM nums LIMIT 50000",
+        assert (
+            self._select(query)
+            == "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT (nums.n + 1) FROM nums WHERE (nums.n < 5)) "
+            "SELECT nums.n FROM nums LIMIT 50000"
         )
 
     def test_cte_materialization_hint_materialized(self):
         query = "WITH events_cte AS MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte"
-        self.assertEqual(
-            self._select(query),
-            "WITH events_cte AS MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
+        assert (
+            self._select(query)
+            == "WITH events_cte AS MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000"
         )
 
     def test_cte_materialization_hint_not_materialized(self):
         query = "WITH events_cte AS NOT MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte"
-        self.assertEqual(
-            self._select(query),
-            "WITH events_cte AS NOT MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
+        assert (
+            self._select(query)
+            == "WITH events_cte AS NOT MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000"
         )
 
     def test_cte_using_key_single_column(self):
         query = "WITH RECURSIVE x(a, b) USING KEY (a) AS (SELECT 1 AS a, 2 AS b UNION ALL SELECT a + 1, b FROM x WHERE a < 5) SELECT * FROM x"
         result = self._select(query)
-        self.assertIn("USING KEY", result)
-        self.assertIn("x(a, b) USING KEY (a) AS", result)
+        assert "USING KEY" in result
+        assert "x(a, b) USING KEY (a) AS" in result
 
     def test_cte_using_key_multiple_columns(self):
         query = "WITH RECURSIVE x(a, b, c) USING KEY (a, b) AS (SELECT 1 AS a, 2 AS b, 3 AS c UNION ALL SELECT a + 1, b, c FROM x WHERE a < 5) SELECT * FROM x"
         result = self._select(query)
-        self.assertIn("x(a, b, c) USING KEY (a, b) AS", result)
+        assert "x(a, b, c) USING KEY (a, b) AS" in result
 
     def test_cte_using_key_without_column_name_list(self):
         query = "WITH RECURSIVE x USING KEY (a) AS (SELECT 1 AS a UNION ALL SELECT a + 1 FROM x WHERE a < 5) SELECT * FROM x"
         result = self._select(query)
-        self.assertIn("USING KEY (a) AS", result)
+        assert "USING KEY (a) AS" in result
 
     def test_select_qualify(self):
         result = self._select("SELECT row_number() OVER () AS rn FROM events QUALIFY rn = 1")
-        self.assertIn("QUALIFY", result)
-        self.assertIn("rn", result)
+        assert "QUALIFY" in result
+        assert "rn" in result
 
     def test_select_qualify_with_having(self):
         result = self._select("SELECT 1 FROM events HAVING 1 == 1 QUALIFY 1 == 1")
-        self.assertIn("HAVING", result)
-        self.assertIn("QUALIFY", result)
+        assert "HAVING" in result
+        assert "QUALIFY" in result
 
     def test_values_query(self):
-        self.assertEqual(
-            self._select("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v (id, name)"),
-            "SELECT v.id, v.name FROM (VALUES (1, %(hogql_val_0)s), (2, %(hogql_val_1)s)) AS v (id, name) LIMIT 50000",
+        assert (
+            self._select("SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v (id, name)")
+            == "SELECT v.id, v.name FROM (VALUES (1, %(hogql_val_0)s), (2, %(hogql_val_1)s)) AS v (id, name) LIMIT 50000"
         )
 
     def test_values_query_no_alias_columns(self):
-        self.assertEqual(
-            self._select("SELECT * FROM (VALUES (1, 'hello')) AS v"),
-            "SELECT v.col0, v.col1 FROM (VALUES (1, %(hogql_val_0)s)) AS v (col0, col1) LIMIT 50000",
+        assert (
+            self._select("SELECT * FROM (VALUES (1, 'hello')) AS v")
+            == "SELECT v.col0, v.col1 FROM (VALUES (1, %(hogql_val_0)s)) AS v (col0, col1) LIMIT 50000"
         )
 
     def test_values_query_no_alias(self):
-        self.assertEqual(
-            self._select("SELECT * FROM (VALUES (1, 'george', 'created'), (2, 'jack', 'deleted'))"),
-            "SELECT values.col0, values.col1, values.col2 FROM (VALUES (1, %(hogql_val_0)s, %(hogql_val_1)s), (2, %(hogql_val_2)s, %(hogql_val_3)s)) AS values (col0, col1, col2) LIMIT 50000",
+        assert (
+            self._select("SELECT * FROM (VALUES (1, 'george', 'created'), (2, 'jack', 'deleted'))")
+            == "SELECT values.col0, values.col1, values.col2 FROM (VALUES (1, %(hogql_val_0)s, %(hogql_val_1)s), (2, %(hogql_val_2)s, %(hogql_val_3)s)) AS values (col0, col1, col2) LIMIT 50000"
         )
 
     def test_values_query_clickhouse_raises_error(self):
@@ -6011,54 +5805,54 @@ class TestPostgresPrinter(BaseTest):
             self._select("SELECT * FROM (VALUES (1, 'a')) AS v(id, name)", dialect="clickhouse")
 
     def test_unpivot_prints_basic(self):
-        self.assertEqual(
-            self._select("SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (event))"),
-            "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (events.event)) LIMIT 50000",
+        assert (
+            self._select("SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (event))")
+            == "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (events.event)) LIMIT 50000"
         )
 
     def test_unpivot_prints_with_alias(self):
-        self.assertEqual(
-            self._select("SELECT field_name FROM events UNPIVOT (field_value FOR field_name IN (event)) AS u"),
-            "SELECT u.field_name FROM events UNPIVOT (field_value FOR field_name IN (events.event)) AS u LIMIT 50000",
+        assert (
+            self._select("SELECT field_name FROM events UNPIVOT (field_value FOR field_name IN (event)) AS u")
+            == "SELECT u.field_name FROM events UNPIVOT (field_value FOR field_name IN (events.event)) AS u LIMIT 50000"
         )
 
     def test_unpivot_prints_with_table_alias(self):
-        self.assertEqual(
-            self._select("SELECT field_name FROM events e UNPIVOT (field_value FOR field_name IN (event))"),
-            "SELECT field_name FROM events AS e UNPIVOT (field_value FOR field_name IN (e.event)) LIMIT 50000",
+        assert (
+            self._select("SELECT field_name FROM events e UNPIVOT (field_value FOR field_name IN (event))")
+            == "SELECT field_name FROM events AS e UNPIVOT (field_value FOR field_name IN (e.event)) LIMIT 50000"
         )
 
     def test_unpivot_prints_with_multiple_in_columns(self):
-        self.assertEqual(
+        assert (
             self._select(
                 "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (event, uuid))"
-            ),
-            "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (events.event, events.uuid)) LIMIT 50000",
+            )
+            == "SELECT field_name, field_value FROM events UNPIVOT (field_value FOR field_name IN (events.event, events.uuid)) LIMIT 50000"
         )
 
     def test_unpivot_prints_include_nulls(self):
         result = self._select(
             "SELECT field_name, field_value FROM events UNPIVOT INCLUDE NULLS (field_value FOR field_name IN (event))"
         )
-        self.assertIn("UNPIVOT INCLUDE NULLS", result)
+        assert "UNPIVOT INCLUDE NULLS" in result
 
     def test_unpivot_prints_with_where_group_order(self):
         result = self._select(
             "SELECT field_name, count() FROM events UNPIVOT (field_value FOR field_name IN (event)) "
             "WHERE field_value != '' GROUP BY field_name ORDER BY field_name"
         )
-        self.assertIn("UNPIVOT", result)
-        self.assertIn("WHERE", result)
-        self.assertIn("GROUP BY", result)
-        self.assertIn("ORDER BY", result)
+        assert "UNPIVOT" in result
+        assert "WHERE" in result
+        assert "GROUP BY" in result
+        assert "ORDER BY" in result
 
     def test_unpivot_join_prints(self):
-        self.assertEqual(
+        assert (
             self._select(
                 "SELECT field_name, field_value FROM events JOIN events AS e2 ON 1 "
                 "UNPIVOT (field_value FOR field_name IN (events.event))"
-            ),
-            "SELECT field_name, field_value FROM events JOIN events AS e2 ON 1 UNPIVOT (field_value FOR field_name IN (events.event)) LIMIT 50000",
+            )
+            == "SELECT field_name, field_value FROM events JOIN events AS e2 ON 1 UNPIVOT (field_value FOR field_name IN (events.event)) LIMIT 50000"
         )
 
     def test_unpivot_clickhouse_raises_error(self):
@@ -6071,36 +5865,32 @@ class TestPostgresPrinter(BaseTest):
             )
 
     def test_replace_columns_prints(self):
-        self.assertEqual(
-            self._select(
-                "SELECT (* REPLACE (1 AS event)) FROM (SELECT 2 AS event, 3 AS other) AS s",
-            ),
-            "SELECT 1 AS event, s.other FROM (SELECT 2 AS event, 3 AS other) AS s LIMIT 50000",
+        assert (
+            self._select("SELECT (* REPLACE (1 AS event)) FROM (SELECT 2 AS event, 3 AS other) AS s")
+            == "SELECT 1 AS event, s.other FROM (SELECT 2 AS event, 3 AS other) AS s LIMIT 50000"
         )
 
     def test_replace_columns_with_exclude_prints(self):
-        self.assertEqual(
-            self._select(
-                "SELECT (* EXCLUDE (b) REPLACE (0 AS a)) FROM (SELECT 1 AS a, 2 AS b, 3 AS c) AS s",
-            ),
-            "SELECT 0 AS a, s.c FROM (SELECT 1 AS a, 2 AS b, 3 AS c) AS s LIMIT 50000",
+        assert (
+            self._select("SELECT (* EXCLUDE (b) REPLACE (0 AS a)) FROM (SELECT 1 AS a, 2 AS b, 3 AS c) AS s")
+            == "SELECT 0 AS a, s.c FROM (SELECT 1 AS a, 2 AS b, 3 AS c) AS s LIMIT 50000"
         )
 
     def test_replace_columns_with_column_aliases_prints(self):
-        self.assertEqual(
+        assert (
             self._select(
-                "SELECT (* REPLACE (0 AS a)) FROM (SELECT 1 AS customer_id, 2 AS b, 3 AS c) AS customers (a, b, c)",
-            ),
-            "SELECT 0 AS a, customers.b, customers.c FROM (SELECT 1 AS customer_id, 2 AS b, 3 AS c) AS customers (a, b, c) LIMIT 50000",
+                "SELECT (* REPLACE (0 AS a)) FROM (SELECT 1 AS customer_id, 2 AS b, 3 AS c) AS customers (a, b, c)"
+            )
+            == "SELECT 0 AS a, customers.b, customers.c FROM (SELECT 1 AS customer_id, 2 AS b, 3 AS c) AS customers (a, b, c) LIMIT 50000"
         )
 
     def test_intersect_all(self):
         result = self._select("select 1 as id intersect all select 2 as id")
-        self.assertIn("INTERSECT ALL", result)
+        assert "INTERSECT ALL" in result
 
     def test_except_all(self):
         result = self._select("select 1 as id except all select 2 as id")
-        self.assertIn("EXCEPT ALL", result)
+        assert "EXCEPT ALL" in result
 
     # -- ClickHouse → Postgres function translation tests --
 
@@ -6253,7 +6043,7 @@ class TestPostgresPrinter(BaseTest):
         ]
     )
     def test_clickhouse_functions_translate_to_postgres(self, _name: str, expr: str, expected: str):
-        self.assertEqual(self._expr(expr), expected)
+        assert self._expr(expr) == expected
 
     @parameterized.expand(
         [
@@ -6270,7 +6060,7 @@ class TestPostgresPrinter(BaseTest):
         ]
     )
     def test_if_combinator_functions(self, _name: str, expr: str, expected: str):
-        self.assertEqual(self._expr(expr), expected)
+        assert self._expr(expr) == expected
 
     @parameterized.expand(
         [
@@ -6282,8 +6072,8 @@ class TestPostgresPrinter(BaseTest):
     def test_unmapped_clickhouse_functions_raise_error(self, _name: str, expr: str):
         with self.assertRaises(QueryError) as ctx:
             self._expr(expr)
-        self.assertIn("not supported in the Postgres dialect", str(ctx.exception))
-        self.assertNotIn("ClickHouse", str(ctx.exception))
+        assert "not supported in the Postgres dialect" in str(ctx.exception)
+        assert "ClickHouse" not in str(ctx.exception)
 
     @parameterized.expand(
         [
@@ -6298,7 +6088,7 @@ class TestPostgresPrinter(BaseTest):
     )
     def test_standard_sql_functions_pass_through(self, _name: str, expr: str):
         result = self._expr(expr)
-        self.assertIsNotNone(result)
+        assert result is not None
 
     def test_connection_metadata_functions_pass_through(self):
         context = HogQLContext(
@@ -6307,9 +6097,9 @@ class TestPostgresPrinter(BaseTest):
             direct_postgres_connection_metadata={"available_functions": ["date_bin"]},
         )
 
-        self.assertEqual(
-            self._expr("date_bin(toIntervalHour(1), now(), now())", context=context),
-            "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())",
+        assert (
+            self._expr("date_bin(toIntervalHour(1), now(), now())", context=context)
+            == "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())"
         )
 
     @parameterized.expand(
@@ -6333,9 +6123,9 @@ class TestPostgresPrinter(BaseTest):
             direct_postgres_connection_metadata={"available_functions": ["date_bin", "evil;drop", "read text"]},
         )
         # date_bin should work, but the invalid names should be filtered out
-        self.assertEqual(
-            self._expr("date_bin(toIntervalHour(1), now(), now())", context=context),
-            "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())",
+        assert (
+            self._expr("date_bin(toIntervalHour(1), now(), now())", context=context)
+            == "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())"
         )
 
 
@@ -6401,13 +6191,10 @@ class TestDuckDBPrinter(BaseTest):
         ]
     )
     def test_function_renames(self, _name: str, expr: str, expected: str):
-        self.assertEqual(self._expr(expr), expected)
+        assert self._expr(expr) == expected
 
     def test_smoke_basic_select(self):
-        self.assertEqual(
-            self._select("SELECT event FROM events"),
-            "SELECT events.event FROM events LIMIT 50000",
-        )
+        assert self._select("SELECT event FROM events") == "SELECT events.event FROM events LIMIT 50000"
 
     def test_identifier_no_truncation(self):
         # PG would truncate a >63-char generated alias containing double underscores into a SHA-suffixed
@@ -6415,12 +6202,12 @@ class TestDuckDBPrinter(BaseTest):
         # length error applies to overlong identifiers that don't hit that heuristic. DuckDB leaves it intact.
         long_name = "a_really_long_table_name_that_would_force_pg_to_truncate__here"
         long_name += "_even_further_past_63_chars"
-        self.assertGreater(len(long_name), 63)
+        assert len(long_name) > 63
         from posthog.hogql.printer.duckdb import DuckDBPrinter
 
         printer = DuckDBPrinter(context=HogQLContext(team_id=self.team.pk))
         # Simple alphanumeric identifier — returned verbatim without quoting.
-        self.assertEqual(printer._print_identifier(long_name), long_name)
+        assert printer._print_identifier(long_name) == long_name
 
     @parameterized.expand(
         [
@@ -6448,7 +6235,7 @@ class TestDuckDBPrinter(BaseTest):
         from posthog.hogql.printer.duckdb import DuckDBPrinter
 
         printer = DuckDBPrinter(context=HogQLContext(team_id=self.team.pk))
-        self.assertEqual(printer._print_identifier(name), f'"{name}"')
+        assert printer._print_identifier(name) == f'"{name}"'
 
     def test_percent_in_identifier_rejected_postgres_family(self):
         # ``%`` in an identifier would confuse psycopg's parameter-placeholder scanning.

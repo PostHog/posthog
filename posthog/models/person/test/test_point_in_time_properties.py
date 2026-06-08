@@ -41,36 +41,36 @@ class TestPointInTimeProperties(SimpleTestCase):
         # Test invalid team_id
         with self.assertRaises(ValueError) as cm:
             build_person_properties_at_time(0, timestamp, ["user123"])
-        self.assertIn("team_id must be a positive integer", str(cm.exception))
+        assert "team_id must be a positive integer" in str(cm.exception)
 
         with self.assertRaises(ValueError) as cm:
             build_person_properties_at_time(-1, timestamp, ["user123"])
-        self.assertIn("team_id must be a positive integer", str(cm.exception))
+        assert "team_id must be a positive integer" in str(cm.exception)
 
         # Test invalid timestamp
         with self.assertRaises(ValueError) as cm:
             build_person_properties_at_time(1, cast(datetime, "2023-01-01"), ["user123"])
-        self.assertIn("timestamp must be a datetime object", str(cm.exception))
+        assert "timestamp must be a datetime object" in str(cm.exception)
 
         # Test invalid distinct_ids (empty list)
         with self.assertRaises(ValueError) as cm:
             build_person_properties_at_time(1, timestamp, [])
-        self.assertIn("distinct_ids must be a non-empty list", str(cm.exception))
+        assert "distinct_ids must be a non-empty list" in str(cm.exception)
 
         # Test invalid distinct_ids (not a list)
         with self.assertRaises(ValueError) as cm:
             build_person_properties_at_time(1, timestamp, "not_a_list")  # type: ignore[arg-type]
-        self.assertIn("distinct_ids must be a non-empty list", str(cm.exception))
+        assert "distinct_ids must be a non-empty list" in str(cm.exception)
 
         # Test invalid distinct_ids (contains empty string)
         with self.assertRaises(ValueError) as cm:
             build_person_properties_at_time(1, timestamp, ["user123", ""])
-        self.assertIn("All distinct_ids must be non-empty strings", str(cm.exception))
+        assert "All distinct_ids must be non-empty strings" in str(cm.exception)
 
         # Invalid row_limit
         with self.assertRaises(ValueError) as cm:
             build_person_properties_at_time(1, timestamp, ["user123"], row_limit=0)
-        self.assertIn("row_limit must be a positive integer", str(cm.exception))
+        assert "row_limit must be a positive integer" in str(cm.exception)
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_empty_result(self, mock_sync_execute):
@@ -80,7 +80,7 @@ class TestPointInTimeProperties(SimpleTestCase):
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
         properties = build_person_properties_at_time(1, timestamp, ["user123"])
 
-        self.assertEqual(properties, {})
+        assert properties == {}
         mock_sync_execute.assert_called_once()
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
@@ -92,7 +92,7 @@ class TestPointInTimeProperties(SimpleTestCase):
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
         properties = build_person_properties_at_time(1, timestamp, ["user123"])
 
-        self.assertEqual(properties, {"name": "John Doe", "email": "john@example.com"})
+        assert properties == {"name": "John Doe", "email": "john@example.com"}
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_multiple_sets(self, mock_sync_execute):
@@ -105,7 +105,7 @@ class TestPointInTimeProperties(SimpleTestCase):
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
         properties = build_person_properties_at_time(1, timestamp, ["user123"])
 
-        self.assertEqual(properties, {"name": "John Doe", "age": 26, "location": "SF"})
+        assert properties == {"name": "John Doe", "age": 26, "location": "SF"}
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_malformed_json(self, mock_sync_execute):
@@ -118,7 +118,7 @@ class TestPointInTimeProperties(SimpleTestCase):
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
         properties = build_person_properties_at_time(1, timestamp, ["user123"])
 
-        self.assertEqual(properties, {"name": "John"})
+        assert properties == {"name": "John"}
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_clickhouse_error(self, mock_sync_execute):
@@ -129,7 +129,7 @@ class TestPointInTimeProperties(SimpleTestCase):
         with self.assertRaises(Exception) as cm:
             build_person_properties_at_time(1, timestamp, ["user123"])
 
-        self.assertIn("Failed to query ClickHouse events", str(cm.exception))
+        assert "Failed to query ClickHouse events" in str(cm.exception)
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_row_limit_is_passed_to_query(self, mock_sync_execute):
@@ -143,8 +143,8 @@ class TestPointInTimeProperties(SimpleTestCase):
         args, _ = mock_sync_execute.call_args
         query, params = args[0], args[1]
 
-        self.assertIn("LIMIT 500", query)
-        self.assertEqual(params["upper_bound"], timestamp.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"))
+        assert "LIMIT 500" in query
+        assert params["upper_bound"] == timestamp.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
 class TestPointInTimePropertiesWithSetOnce(SimpleTestCase):
@@ -160,7 +160,7 @@ class TestPointInTimePropertiesWithSetOnce(SimpleTestCase):
         properties = build_person_properties_at_time(1, timestamp, ["user123"], include_set_once=True)
 
         # name stays as "John" (not overwritten by $set_once); email is set by $set_once since it didn't exist
-        self.assertEqual(properties, {"name": "John", "email": "jane@example.com"})
+        assert properties == {"name": "John", "email": "jane@example.com"}
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_with_set_once_order_matters(self, mock_sync_execute):
@@ -173,7 +173,7 @@ class TestPointInTimePropertiesWithSetOnce(SimpleTestCase):
         properties = build_person_properties_at_time(1, timestamp, ["user123"], include_set_once=True)
 
         # $set_once sets name first, then $set overwrites it
-        self.assertEqual(properties, {"name": "John", "email": "jane@example.com"})
+        assert properties == {"name": "John", "email": "jane@example.com"}
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_with_set_once_multiple_set_once(self, mock_sync_execute):
@@ -185,10 +185,7 @@ class TestPointInTimePropertiesWithSetOnce(SimpleTestCase):
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
         properties = build_person_properties_at_time(1, timestamp, ["user123"], include_set_once=True)
 
-        self.assertEqual(
-            properties,
-            {"name": "First", "email": "first@example.com", "location": "SF"},
-        )
+        assert properties == {"name": "First", "email": "first@example.com", "location": "SF"}
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_with_distinct_ids_direct(self, mock_sync_execute):
@@ -199,11 +196,11 @@ class TestPointInTimePropertiesWithSetOnce(SimpleTestCase):
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
         properties = build_person_properties_at_time(1, timestamp, distinct_ids=["user123", "user456", "user789"])
 
-        self.assertEqual(properties, {"name": "Jane Doe", "email": "jane@example.com"})
+        assert properties == {"name": "Jane Doe", "email": "jane@example.com"}
 
         mock_sync_execute.assert_called_once()
         call_args = mock_sync_execute.call_args
-        self.assertEqual(call_args[0][1]["distinct_ids"], ["user123", "user456", "user789"])
+        assert call_args[0][1]["distinct_ids"] == ["user123", "user456", "user789"]
 
 
 class TestGetPersonAndDistinctIdsForIdentifierValidation(SimpleTestCase):

@@ -335,14 +335,14 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             {"team_id": self.team.id, "connect_from": "posthog_code"},
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertIn("install_url", data)
-        self.assertEqual(data.get("connect_flow"), "oauth_discover")
+        assert "install_url" in data
+        assert data.get("connect_flow") == "oauth_discover"
         url = data["install_url"]
-        self.assertIn("github.com/login/oauth/authorize", url)
-        self.assertIn("client_id=gh_client_123", url)
-        self.assertIn("redirect_uri=https%3A%2F%2Fus.posthog.com%2Fcomplete%2Fgithub-link%2F", url)
+        assert "github.com/login/oauth/authorize" in url
+        assert "client_id=gh_client_123" in url
+        assert "redirect_uri=https%3A%2F%2Fus.posthog.com%2Fcomplete%2Fgithub-link%2F" in url
 
     @override_settings(
         GITHUB_APP_CLIENT_ID="gh_client_123", SITE_URL="https://us.posthog.com", GITHUB_APP_CLIENT_SECRET="s"
@@ -361,14 +361,14 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             {"connect_from": "posthog_code"},
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertIn("install_url", data)
-        self.assertEqual(data.get("connect_flow"), "oauth_authorize")
+        assert "install_url" in data
+        assert data.get("connect_flow") == "oauth_authorize"
         url = data["install_url"]
-        self.assertIn("github.com/login/oauth/authorize", url)
-        self.assertIn("client_id=gh_client_123", url)
-        self.assertIn("redirect_uri=https%3A%2F%2Fus.posthog.com%2Fcomplete%2Fgithub-link%2F", url)
+        assert "github.com/login/oauth/authorize" in url
+        assert "client_id=gh_client_123" in url
+        assert "redirect_uri=https%3A%2F%2Fus.posthog.com%2Fcomplete%2Fgithub-link%2F" in url
 
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch(
@@ -396,10 +396,10 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             {"connect_from": "posthog_code"},
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data.get("connect_flow"), "app_install")
-        self.assertIn("github.com/apps/posthog-dev/installations/new", data["install_url"])
+        assert data.get("connect_flow") == "app_install"
+        assert "github.com/apps/posthog-dev/installations/new" in data["install_url"]
 
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch("posthog.api.user_integration._has_unlinked_github_installations", return_value=False)
@@ -416,8 +416,8 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             sensitive_config={"user_access_token": "ghu_test"},
         )
         response = self.client.post("/api/users/@me/integrations/github/start/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("already linked", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already linked" in response.json()["detail"]
 
     @override_settings(
         GITHUB_APP_CLIENT_ID="client_id",
@@ -459,14 +459,14 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             {"code": "test_code", "state": state},
         )
 
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("/account-connected/github-integration", response["Location"])
+        assert response.status_code == 302
+        assert "/account-connected/github-integration" in response["Location"]
         mock_user_from_code.assert_called_once_with(
             "test_code", redirect_uri="https://us.posthog.com/complete/github-link/"
         )
 
         integration = UserIntegration.objects.get(user=self.user, kind="github")
-        self.assertEqual(integration.integration_id, "12345")
+        assert integration.integration_id == "12345"
 
     @override_settings(
         GITHUB_APP_CLIENT_ID="client_id",
@@ -500,8 +500,8 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             {"code": "test_code", "state": state},
         )
 
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("github.com/apps/posthog-dev/installations/new", response["Location"])
+        assert response.status_code == 302
+        assert "github.com/apps/posthog-dev/installations/new" in response["Location"]
 
     @parameterized.expand(
         [
@@ -548,11 +548,11 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             {"installation_id": "12345", "code": "test_code", "state": state},
         )
 
-        self.assertEqual(response.status_code, 302)
+        assert response.status_code == 302
         loc = response["Location"]
-        self.assertIn(expected_destination, loc)
-        self.assertIn("provider=github", loc)
-        self.assertNotIn("error=", loc)
+        assert expected_destination in loc
+        assert "provider=github" in loc
+        assert "error=" not in loc
 
     def test_github_link_redirects_to_mobile_deep_link_with_error(self):
         """When GitHub returns an error, the mobile deep link still carries provider + error."""
@@ -568,11 +568,11 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             {"error": "access_denied", "state": state},
         )
 
-        self.assertEqual(response.status_code, 302)
+        assert response.status_code == 302
         loc = response["Location"]
-        self.assertIn("posthog://github/callback", loc)
-        self.assertIn("provider=github", loc)
-        self.assertIn("error=access_denied", loc)
+        assert "posthog://github/callback" in loc
+        assert "provider=github" in loc
+        assert "error=access_denied" in loc
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
@@ -627,17 +627,17 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             {"code": "test_code", "state": state},
         )
 
-        self.assertEqual(response.status_code, 302)
+        assert response.status_code == 302
         # Used the OAuth-flow redirect URI so the code exchange matches GitHub's expectation.
         mock_user_from_code.assert_called_once()
         _, kwargs = mock_user_from_code.call_args
-        self.assertTrue(kwargs.get("redirect_uri", "").endswith("/complete/github-link/"))
+        assert kwargs.get("redirect_uri", "").endswith("/complete/github-link/")
         mock_integration_from_install.assert_called_once_with("12345", self.team.pk, self.user)
         # Redirected back to the requested ``next`` URL with the install/integration ids appended.
         location = response["Location"]
-        self.assertIn(f"/project/{self.team.pk}/settings/project-integrations", location)
-        self.assertIn("installation_id=12345", location)
-        self.assertIn(f"integration_id={team_integration.id}", location)
+        assert f"/project/{self.team.pk}/settings/project-integrations" in location
+        assert "installation_id=12345" in location
+        assert f"integration_id={team_integration.id}" in location
 
     def test_github_link_callback_team_oauth_authorize_rejects_user_outside_team(self):
         state = "tok_team_outside"
@@ -658,8 +658,8 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             {"code": "test_code", "state": state},
         )
 
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("github_link_error=invalid_team", response["Location"])
+        assert response.status_code == 302
+        assert "github_link_error=invalid_team" in response["Location"]
 
 
 class TestGetGithubLoginPrecedence(APIBaseTest):

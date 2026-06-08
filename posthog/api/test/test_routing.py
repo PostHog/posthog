@@ -126,15 +126,15 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{other_team.id}/foos/current_scope/")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["team_id"], other_team.id)
-        self.assertEqual(get_current_team_id(), pre_request_scope)
+        assert response.status_code == 200
+        assert response.json()["team_id"] == other_team.id
+        assert get_current_team_id() == pre_request_scope
 
     def test_team_scope_context_set_from_url_for_project_view(self):
         response = self.client.get(f"/api/projects/{self.team.id}/foos/current_scope/")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["team_id"], self.team.id)
+        assert response.status_code == 200
+        assert response.json()["team_id"] == self.team.id
 
     def test_cannot_override_special_methods(self):
         with pytest.raises(Exception) as e:

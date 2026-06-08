@@ -98,12 +98,12 @@ class TestImpersonationOAuthRevocation(BaseTest):
         with patch("posthog.helpers.impersonation.is_impersonated_session", return_value=True):
             logout(request)
 
-        self.assertFalse(OAuthAccessToken.objects.filter(pk=impersonated_access.pk).exists())
+        assert not OAuthAccessToken.objects.filter(pk=impersonated_access.pk).exists()
         revived_refresh = OAuthRefreshToken.objects.get(pk=impersonated_refresh.pk)
-        self.assertIsNotNone(revived_refresh.revoked)
-        self.assertFalse(OAuthGrant.objects.filter(pk=impersonated_grant.pk).exists())
+        assert revived_refresh.revoked is not None
+        assert not OAuthGrant.objects.filter(pk=impersonated_grant.pk).exists()
 
-        self.assertTrue(OAuthAccessToken.objects.filter(pk=customer_owned.pk).exists())
+        assert OAuthAccessToken.objects.filter(pk=customer_owned.pk).exists()
 
 
 @override_settings(OAUTH2_PROVIDER=TEST_OAUTH2_PROVIDER_WITH_RSA)
@@ -168,16 +168,16 @@ class TestImpersonationOAuthTokenIssuance(APIBaseTest):
             content_type="application/x-www-form-urlencoded",
         )
 
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
         body = response.json()
 
-        self.assertIn("access_token", body)
-        self.assertNotIn("refresh_token", body)
-        self.assertEqual(body["expires_in"], settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS)
+        assert "access_token" in body
+        assert "refresh_token" not in body
+        assert body["expires_in"] == settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS
 
         access_token = OAuthAccessToken.objects.get(token=body["access_token"])
-        self.assertEqual(access_token.impersonated_by_id, admin.pk)
-        self.assertFalse(OAuthRefreshToken.objects.filter(application=app, user=self.user).exists())
+        assert access_token.impersonated_by_id == admin.pk
+        assert not OAuthRefreshToken.objects.filter(application=app, user=self.user).exists()
 
 
 class TestImpersonatorIdResolution(BaseTest):
@@ -206,7 +206,7 @@ class TestImpersonatorIdResolution(BaseTest):
             request.session[IMPERSONATION_READ_ONLY_SESSION_KEY] = True
         request.user = target
 
-        self.assertEqual(_impersonator_id_for_request(request), admin.pk)
+        assert _impersonator_id_for_request(request) == admin.pk
 
     def test_impersonator_id_none_when_not_impersonating(self) -> None:
         target = User.objects.create_user(email="customer@example.com", password="x", first_name="C")
@@ -214,7 +214,7 @@ class TestImpersonatorIdResolution(BaseTest):
         request.session = SessionStore()
         request.user = target
 
-        self.assertIsNone(_impersonator_id_for_request(request))
+        assert _impersonator_id_for_request(request) is None
 
 
 class TestImpersonationAIProcessingBlock(BaseTest):
@@ -245,7 +245,7 @@ class TestImpersonationAIProcessingBlock(BaseTest):
         target = self._member_of(self.organization)
         request = self._build_request(target, impersonating=False)
 
-        self.assertIsNone(_impersonation_ai_processing_block(request))
+        assert _impersonation_ai_processing_block(request) is None
 
     @parameterized.expand([("explicitly_disabled", False), ("unset", None)])
     def test_blocks_impersonation_when_org_not_approved(self, _name: str, value: bool | None) -> None:
@@ -256,8 +256,8 @@ class TestImpersonationAIProcessingBlock(BaseTest):
 
         response = _impersonation_ai_processing_block(request)
         assert response is not None
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.data["error"], "access_denied")
+        assert response.status_code == 403
+        assert response.data["error"] == "access_denied"
 
     def test_no_block_when_org_approved(self) -> None:
         self.organization.is_ai_data_processing_approved = True
@@ -265,7 +265,7 @@ class TestImpersonationAIProcessingBlock(BaseTest):
         target = self._member_of(self.organization)
         request = self._build_request(target, impersonating=True)
 
-        self.assertIsNone(_impersonation_ai_processing_block(request))
+        assert _impersonation_ai_processing_block(request) is None
 
     def test_no_block_when_disabled_org_out_of_scope(self) -> None:
         approved_org = Organization.objects.create(name="approved", is_ai_data_processing_approved=True)
@@ -276,12 +276,13 @@ class TestImpersonationAIProcessingBlock(BaseTest):
         request = self._build_request(target, impersonating=True)
 
         # Scoping the grant to the approved org only must not be blocked by the unrelated disabled org.
-        self.assertIsNone(
+        assert (
             _impersonation_ai_processing_block(
                 request,
                 access_level=OAuthApplicationAccessLevel.ORGANIZATION.value,
                 scoped_organization_ids=[str(approved_org.id)],
             )
+            is None
         )
 
     def test_blocks_when_scoped_team_belongs_to_disabled_org(self) -> None:
@@ -297,4 +298,4 @@ class TestImpersonationAIProcessingBlock(BaseTest):
             scoped_team_ids=[team.id],
         )
         assert response is not None
-        self.assertEqual(response.status_code, 403)
+        assert response.status_code == 403

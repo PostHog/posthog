@@ -29,14 +29,8 @@ class TestLLMGatewayPolicyProjection(BaseTest):
     def test_projection_has_expected_fields(self):
         # The field list must match what the serializer actually emits, so a
         # field added to one but not the other fails here.
-        self.assertEqual(
-            set(LLM_GATEWAY_POLICY_FIELDS),
-            set(_serialize_team_to_llm_gateway_policy(self.team).keys()),
-        )
-        self.assertEqual(
-            set(LLM_GATEWAY_POLICY_FIELDS),
-            {"id", "api_token", "llm_gateway_enabled_at", "llm_gateway_revoked_at"},
-        )
+        assert set(LLM_GATEWAY_POLICY_FIELDS) == set(_serialize_team_to_llm_gateway_policy(self.team).keys())
+        assert set(LLM_GATEWAY_POLICY_FIELDS) == {"id", "api_token", "llm_gateway_enabled_at", "llm_gateway_revoked_at"}
 
     def test_populated_team_round_trips_through_json(self):
         enabled_at = datetime(2026, 5, 29, 20, 46, 30, tzinfo=UTC)
@@ -48,14 +42,14 @@ class TestLLMGatewayPolicyProjection(BaseTest):
 
         policy = _serialize_team_to_llm_gateway_policy(self.team)
 
-        self.assertEqual(policy["id"], self.team.id)
-        self.assertEqual(policy["api_token"], self.team.api_token)
+        assert policy["id"] == self.team.id
+        assert policy["api_token"] == self.team.api_token
         # Datetimes must be ISO8601 so the Go service can parse them from JSON.
-        self.assertEqual(policy["llm_gateway_enabled_at"], enabled_at.isoformat())
-        self.assertEqual(policy["llm_gateway_revoked_at"], revoked_at.isoformat())
+        assert policy["llm_gateway_enabled_at"] == enabled_at.isoformat()
+        assert policy["llm_gateway_revoked_at"] == revoked_at.isoformat()
 
         rehydrated = json.loads(json.dumps(policy))
-        self.assertEqual(rehydrated, policy)
+        assert rehydrated == policy
 
     def test_unset_team_serializes_to_null_enabled_and_revoked(self):
         """
@@ -66,10 +60,10 @@ class TestLLMGatewayPolicyProjection(BaseTest):
         """
         policy = _serialize_team_to_llm_gateway_policy(self.team)
 
-        self.assertEqual(policy["id"], self.team.id)
-        self.assertEqual(policy["api_token"], self.team.api_token)
-        self.assertIsNone(policy["llm_gateway_enabled_at"])
-        self.assertIsNone(policy["llm_gateway_revoked_at"])
+        assert policy["id"] == self.team.id
+        assert policy["api_token"] == self.team.api_token
+        assert policy["llm_gateway_enabled_at"] is None
+        assert policy["llm_gateway_revoked_at"] is None
 
 
 class TestLLMGatewayPolicyCacheOps(BaseTest):
@@ -86,10 +80,10 @@ class TestLLMGatewayPolicyCacheOps(BaseTest):
         mock_hypercache.get_from_cache.return_value = mock_payload
         mock_hypercache.update_cache.return_value = True
 
-        self.assertTrue(update_team_llm_gateway_policy_cache(self.team))
+        assert update_team_llm_gateway_policy_cache(self.team)
 
         policy = get_team_llm_gateway_policy(self.team)
-        self.assertEqual(policy, mock_payload)
+        assert policy == mock_payload
 
     @patch("posthog.storage.team_llm_gateway_policy_cache.team_llm_gateway_policy_hypercache")
     def test_clear(self, mock_hypercache):
@@ -102,8 +96,8 @@ class TestLLMGatewayPolicyTasks(BaseTest):
     def test_update_task(self, mock_update):
         mock_update.return_value = True
         update_team_llm_gateway_policy_cache_task(self.team.id)
-        self.assertEqual(mock_update.call_count, 1)
-        self.assertEqual(mock_update.call_args[0][0].id, self.team.id)
+        assert mock_update.call_count == 1
+        assert mock_update.call_args[0][0].id == self.team.id
 
     def test_update_task_missing_team_is_noop(self):
         update_team_llm_gateway_policy_cache_task(999999)
@@ -256,7 +250,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
         self.team.save()
 
         cleared = [call.args[0] for call in mock_clear.call_args_list]
-        self.assertEqual(cleared, [token_a, "phc_rotated_b"])
+        assert cleared == [token_a, "phc_rotated_b"]
 
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
@@ -353,4 +347,4 @@ class TestLLMGatewayPolicySignals(BaseTest):
         self.team.llm_gateway_enabled_at = datetime(2026, 5, 30, 12, 0, 0, tzinfo=UTC)
         self.team.save()
 
-        self.assertEqual(mock_clear.call_count, 2)
+        assert mock_clear.call_count == 2

@@ -111,7 +111,7 @@ class TestBatchImportActivityLogging(ActivityLogTestHelper):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/managed_migrations/{batch_import['id']}/pause", format="json"
             )
-            self.assertEqual(response.status_code, 200)
+            assert response.status_code == 200
 
             assert ActivityLog.objects.count() == initial_count + 1
 

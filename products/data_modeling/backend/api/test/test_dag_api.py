@@ -71,16 +71,16 @@ class TestDAGViewSet(APIBaseTest):
 
         response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(DAG.objects.filter(team=self.team, id=dag.id).exists())
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not DAG.objects.filter(team=self.team, id=dag.id).exists()
 
     def test_cannot_delete_default_dag(self):
         dag = DAG.get_or_create_default(self.team)
 
         response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertTrue(DAG.objects.filter(team=self.team, id=dag.id).exists())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert DAG.objects.filter(team=self.team, id=dag.id).exists()
 
     def test_cannot_rename_default_dag(self):
         dag = DAG.get_or_create_default(self.team)
@@ -90,6 +90,6 @@ class TestDAGViewSet(APIBaseTest):
             {"name": "renamed"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         dag.refresh_from_db()
-        self.assertEqual(dag.name, "Default")
+        assert dag.name == "Default"

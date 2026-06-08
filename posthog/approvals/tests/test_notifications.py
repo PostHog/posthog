@@ -183,21 +183,21 @@ class TestRealtimeDispatchOnRequested(TestApprovalNotifications):
     def test_dispatches_one_realtime_per_approver(self, _mock_email, mock_create_notification):
         send_approval_requested_notification(self.change_request)
 
-        self.assertEqual(mock_create_notification.call_count, 2)
+        assert mock_create_notification.call_count == 2
         target_ids = {call.args[0].target_id for call in mock_create_notification.call_args_list}
-        self.assertEqual(target_ids, {str(self.approver.id), str(self.approver2.id)})
+        assert target_ids == {str(self.approver.id), str(self.approver2.id)}
 
         first_data = mock_create_notification.call_args_list[0].args[0]
-        self.assertEqual(first_data.notification_type.value, "approval_requested")
-        self.assertEqual(first_data.target_type.value, "user")
-        self.assertEqual(first_data.team_id, self.change_request.team_id)
-        self.assertEqual(first_data.resource_type.value, "approval")
-        self.assertEqual(first_data.resource_id, str(self.change_request.id))
-        self.assertEqual(first_data.priority.value, "normal")
-        self.assertIn("needs your sign-off", first_data.title)
-        self.assertEqual(first_data.body, "Update rollout to 50%")
+        assert first_data.notification_type.value == "approval_requested"
+        assert first_data.target_type.value == "user"
+        assert first_data.team_id == self.change_request.team_id
+        assert first_data.resource_type.value == "approval"
+        assert first_data.resource_id == str(self.change_request.id)
+        assert first_data.priority.value == "normal"
+        assert "needs your sign-off" in first_data.title
+        assert first_data.body == "Update rollout to 50%"
         expected_url = f"/project/{self.change_request.team.project_id}/approvals/{self.change_request.id}"
-        self.assertEqual(first_data.source_url, expected_url)
+        assert first_data.source_url == expected_url
 
     @patch("posthog.approvals.notifications.create_notification")
     @patch("posthog.approvals.notifications._send_approval_email")
@@ -208,7 +208,7 @@ class TestRealtimeDispatchOnRequested(TestApprovalNotifications):
         send_approval_requested_notification(self.change_request)
 
         first_data = mock_create_notification.call_args_list[0].args[0]
-        self.assertEqual(first_data.body, self.change_request.action_key)
+        assert first_data.body == self.change_request.action_key
 
     @patch("posthog.approvals.notifications.create_notification")
     @patch("posthog.approvals.notifications._send_approval_email")
@@ -232,9 +232,9 @@ class TestRealtimeDispatchOnRequested(TestApprovalNotifications):
 
         send_approval_requested_notification(self.change_request)
 
-        self.assertEqual(mock_create_notification.call_count, 2)
+        assert mock_create_notification.call_count == 2
         target_ids = [call.args[0].target_id for call in mock_create_notification.call_args_list]
-        self.assertEqual(set(target_ids), {str(self.approver.id), str(self.approver2.id)})
+        assert set(target_ids) == {str(self.approver.id), str(self.approver2.id)}
 
     @patch("posthog.approvals.notifications.create_notification")
     @patch("posthog.approvals.notifications._send_approval_email")
@@ -253,7 +253,7 @@ class TestRealtimeDispatchOnRequested(TestApprovalNotifications):
 
         send_approval_requested_notification(self.change_request)
 
-        self.assertEqual(mock_create_notification.call_count, 2)
+        assert mock_create_notification.call_count == 2
 
 
 class TestSendApprovalDecisionNotification(TestApprovalNotifications):

@@ -136,10 +136,10 @@ class TestWidgetAPI(BaseTest):
             },
             **self._get_headers(),
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         ticket.refresh_from_db()
-        self.assertEqual(ticket.distinct_id, self.distinct_id)
+        assert ticket.distinct_id == self.distinct_id
 
     def test_create_message_updates_session_data_on_existing_ticket(self):
         ticket = Ticket.objects.create_with_number(

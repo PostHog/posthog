@@ -114,8 +114,8 @@ class TestUsageReportEventsPreaggMV(ClickhouseTestMixin, BaseTest):
         producer.flush()
 
         unique_count, total_count = _wait_for_team_row(TEST_TEAM_ID, expected_unique=2, expected_total=2)
-        self.assertEqual(unique_count, 2)
-        self.assertEqual(total_count, 2)
+        assert unique_count == 2
+        assert total_count == 2
 
         # Verify the MV's grouping columns are populated correctly.
         rows = sync_execute(
@@ -127,13 +127,13 @@ class TestUsageReportEventsPreaggMV(ClickhouseTestMixin, BaseTest):
             """,
             {"team_id": TEST_TEAM_ID, "date": TEST_DATE},
         )
-        self.assertEqual(len(rows), 1)
+        assert len(rows) == 1
         row = rows[0]
-        self.assertEqual(row[0], datetime.strptime(TEST_DATE, "%Y-%m-%d").date())
-        self.assertEqual(row[1], TEST_TEAM_ID)
-        self.assertEqual(row[2], "full")
-        self.assertEqual(row[3], "web")
-        self.assertEqual(row[4], "pageview")
+        assert row[0] == datetime.strptime(TEST_DATE, "%Y-%m-%d").date()
+        assert row[1] == TEST_TEAM_ID
+        assert row[2] == "full"
+        assert row[3] == "web"
+        assert row[4] == "pageview"
 
     def test_kafka_replayed_event_dedupes(self) -> None:
         """Sending the same (distinct_id, uuid) pair twice yields 1 unique billable event but 2 in raw count."""
@@ -145,7 +145,7 @@ class TestUsageReportEventsPreaggMV(ClickhouseTestMixin, BaseTest):
         producer.flush()
 
         unique_count, total_count = _wait_for_team_row(TEST_TEAM_ID, expected_unique=1, expected_total=2)
-        self.assertEqual(unique_count, 1, "uniqExactMerge should dedupe identical (distinct_id, uuid, event) tuples")
+        assert unique_count == 1, "uniqExactMerge should dedupe identical (distinct_id, uuid, event) tuples"
         # event_count is summed across all rows including replays, so total_count
         # is at least 2. May be larger if the kafka consumer buffered earlier replays.
-        self.assertGreaterEqual(total_count, 2)
+        assert total_count >= 2

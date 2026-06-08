@@ -26,8 +26,8 @@ class TestTeamLogsConfig(APIBaseTest):
     def test_get_returns_default_attribute_key(self, _name: str, prefix: str):
         response = self.client.get(self._url(prefix))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"logs_distinct_id_attribute_key": "posthogDistinctId"})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"logs_distinct_id_attribute_key": "posthogDistinctId"}
 
     @parameterized.expand(URL_PREFIXES)
     def test_patch_updates_attribute_key(self, _name: str, prefix: str):
@@ -37,11 +37,11 @@ class TestTeamLogsConfig(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"logs_distinct_id_attribute_key": "user.id"})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"logs_distinct_id_attribute_key": "user.id"}
 
         config = get_or_create_team_extension(self.team, TeamLogsConfig)
-        self.assertEqual(config.logs_distinct_id_attribute_key, "user.id")
+        assert config.logs_distinct_id_attribute_key == "user.id"
 
     @parameterized.expand(URL_PREFIXES)
     def test_patch_persists_across_requests(self, _name: str, prefix: str):
@@ -52,7 +52,7 @@ class TestTeamLogsConfig(APIBaseTest):
         )
 
         response = self.client.get(self._url(prefix))
-        self.assertEqual(response.json(), {"logs_distinct_id_attribute_key": "posthog.distinct_id"})
+        assert response.json() == {"logs_distinct_id_attribute_key": "posthog.distinct_id"}
 
     @parameterized.expand(URL_PREFIXES)
     def test_patch_rejects_key_over_max_length(self, _name: str, prefix: str):
@@ -61,7 +61,7 @@ class TestTeamLogsConfig(APIBaseTest):
             {"logs_distinct_id_attribute_key": "x" * 201},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand(URL_PREFIXES)
     def test_regular_member_can_patch(self, _name: str, prefix: str):
@@ -73,8 +73,8 @@ class TestTeamLogsConfig(APIBaseTest):
             {"logs_distinct_id_attribute_key": "user.id"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"logs_distinct_id_attribute_key": "user.id"})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"logs_distinct_id_attribute_key": "user.id"}
 
     @parameterized.expand(URL_PREFIXES)
     def test_config_is_scoped_per_environment(self, _name: str, prefix: str):
@@ -93,10 +93,7 @@ class TestTeamLogsConfig(APIBaseTest):
         )
 
         sibling_response = self.client.get(f"/{prefix}/{sibling.id}/logs_config/")
-        self.assertEqual(
-            sibling_response.json(),
-            {"logs_distinct_id_attribute_key": "posthogDistinctId"},
-        )
+        assert sibling_response.json() == {"logs_distinct_id_attribute_key": "posthogDistinctId"}
 
     def test_project_and_environment_share_same_config(self):
         # Writes via the canonical /api/projects/ URL must be visible via the
@@ -108,4 +105,4 @@ class TestTeamLogsConfig(APIBaseTest):
             format="json",
         )
         env_response = self.client.get(f"/api/environments/{self.team.id}/logs_config/")
-        self.assertEqual(env_response.json(), {"logs_distinct_id_attribute_key": "user.id"})
+        assert env_response.json() == {"logs_distinct_id_attribute_key": "user.id"}

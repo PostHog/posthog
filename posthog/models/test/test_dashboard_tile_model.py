@@ -51,14 +51,14 @@ class TestDashboardTileModel(APIBaseTest):
         insight = Insight.objects.create(team=self.team, short_id="autoderive", name="autoderive")
         tile = DashboardTile(dashboard=self.dashboard, insight=insight)
         # team is unset before save
-        self.assertIsNone(tile.team_id)
+        assert tile.team_id is None
         tile.save()
         # save() copies dashboard.team_id onto the tile so HogQL queries scoped
         # by `WHERE team_id = X` find this row.
-        self.assertEqual(tile.team_id, self.dashboard.team_id)
+        assert tile.team_id == self.dashboard.team_id
 
     def test_save_does_not_overwrite_explicit_team_id(self) -> None:
         insight = Insight.objects.create(team=self.team, short_id="explicit", name="explicit")
         tile = DashboardTile(dashboard=self.dashboard, insight=insight, team_id=self.team.id)
         tile.save()
-        self.assertEqual(tile.team_id, self.team.id)
+        assert tile.team_id == self.team.id

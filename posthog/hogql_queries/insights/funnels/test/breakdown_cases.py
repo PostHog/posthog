@@ -687,7 +687,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 self._get_actor_ids_at_step(query, 2, "Other"),
                 [people["person1"].uuid],
             )
-            self.assertEqual(2, cast(ast.Constant, query_runner.to_query().limit).value)
+            assert 2 == cast(ast.Constant, query_runner.to_query().limit).value
 
         @also_test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_no_type(self):
@@ -970,7 +970,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
 
             # assert that we give 5 at a time at most and that those values are the most popular ones
             breakdown_vals = sorted([res[0]["breakdown"] for res in results])
-            self.assertEqual([["5"], ["6"], ["7"], ["8"], ["9"], ["Other"]], breakdown_vals)
+            assert [["5"], ["6"], ["7"], ["8"], ["9"], ["Other"]] == breakdown_vals
 
         @also_test_with_materialized_columns(["some_breakdown_val"])
         @skip('Using "Other" as a breakdown is not yet implemented in HogQL Actors Queries')
@@ -1036,9 +1036,9 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
             breakdown_vals = sorted([res[0]["breakdown"] for res in results])
-            self.assertEqual([["2"], ["3"], ["4"], ["Other"]], breakdown_vals)
+            assert [["2"], ["3"], ["4"], ["Other"]] == breakdown_vals
             # skipped 1 and '' because the limit was 3.
-            self.assertTrue(people["person_null"].uuid in self._get_actor_ids_at_step(query, 1, "Other"))
+            assert people["person_null"].uuid in self._get_actor_ids_at_step(query, 1, "Other")
 
         @also_test_with_materialized_columns(["some_breakdown_val"])
         def test_funnel_step_custom_breakdown_limit_with_nulls_included(self):
@@ -1103,14 +1103,14 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
             breakdown_vals = sorted([res[0]["breakdown"] for res in results])
-            self.assertEqual([[""], ["1"], ["2"], ["3"], ["4"]], breakdown_vals)
+            assert [[""], ["1"], ["2"], ["3"], ["4"]] == breakdown_vals
             # included 1 and '' because the limit was 6.
 
             for i in range(1, 5):
-                self.assertEqual(len(self._get_actor_ids_at_step(query, 3, str(i))), i)
+                assert len(self._get_actor_ids_at_step(query, 3, str(i))) == i
 
-            self.assertEqual([people["person_null"].uuid], self._get_actor_ids_at_step(query, 1, ""))
-            self.assertEqual([people["person_null"].uuid], self._get_actor_ids_at_step(query, 3, ""))
+            assert [people["person_null"].uuid] == self._get_actor_ids_at_step(query, 1, "")
+            assert [people["person_null"].uuid] == self._get_actor_ids_at_step(query, 3, "")
 
         @also_test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_single_person_multiple_breakdowns(self):
@@ -1271,7 +1271,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
 
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-            self.assertEqual(len(results), 2)
+            assert len(results) == 2
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
@@ -1363,10 +1363,10 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
 
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-            self.assertEqual(len(results[0]), 3)
-            self.assertEqual(results[0][0]["breakdown"], "all users")
-            self.assertEqual(len(results[1]), 3)
-            self.assertEqual(results[1][0]["breakdown"], "test_cohort")
+            assert len(results[0]) == 3
+            assert results[0][0]["breakdown"] == "all users"
+            assert len(results[1]) == 3
+            assert results[1][0]["breakdown"] == "test_cohort"
             self.assertCountEqual(
                 self._get_actor_ids_at_step(query, 1, cohort.pk),
                 [people["person1"].uuid],
@@ -1408,9 +1408,9 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
 
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-            self.assertEqual(len(results[0]), 3)
-            self.assertEqual(results[0][0]["breakdown"], "test_cohort")
-            self.assertEqual(results[0][0]["breakdown_value"], cohort.pk)
+            assert len(results[0]) == 3
+            assert results[0][0]["breakdown"] == "test_cohort"
+            assert results[0][0]["breakdown_value"] == cohort.pk
             self.assertCountEqual(
                 self._get_actor_ids_at_step(query, 1, cohort.pk),
                 [people["person1"].uuid],
@@ -2035,7 +2035,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
-            self.assertEqual(len(results), 5)
+            assert len(results) == 5
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
@@ -2198,7 +2198,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
-            self.assertEqual(len(results), 5)
+            assert len(results) == 5
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
@@ -2360,7 +2360,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
-            self.assertEqual(len(results), 4)
+            assert len(results) == 4
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
@@ -2500,7 +2500,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
-            self.assertEqual(len(results), 3)
+            assert len(results) == 3
             # Chrome and Mac goes away, Safari comes back
 
             self._assert_funnel_breakdown_result_is_correct(
@@ -2638,7 +2638,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
-            self.assertEqual(len(results), 5)
+            assert len(results) == 5
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
@@ -2804,7 +2804,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
-            self.assertEqual(len(results), 5)
+            assert len(results) == 5
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
@@ -2957,7 +2957,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
             # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
-            self.assertEqual(len(results), 2)
+            assert len(results) == 2
             # Chrome and Mac and Safari goes away
 
             self._assert_funnel_breakdown_result_is_correct(
@@ -3063,7 +3063,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
             # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
-            self.assertEqual(len(results), 2)
+            assert len(results) == 2
             # Chrome and Mac and Safari goes away
 
             self._assert_funnel_breakdown_result_is_correct(
@@ -3182,7 +3182,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
-            self.assertEqual(len(results), 5)
+            assert len(results) == 5
 
         @snapshot_clickhouse_queries
         def test_funnel_breakdown_correct_breakdown_props_are_chosen(self):
@@ -3264,7 +3264,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
-            self.assertEqual(len(results), 4)
+            assert len(results) == 4
 
             self.assertCountEqual(
                 [res[0]["breakdown"] for res in results],
@@ -3352,7 +3352,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
             results = sorted(results, key=lambda res: res[0]["breakdown"])
 
-            self.assertEqual(len(results), 2)
+            assert len(results) == 2
 
             self.assertCountEqual([res[0]["breakdown"] for res in results], [["Mac"], ["Safari"]])
 
@@ -3412,7 +3412,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
 
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-            self.assertEqual(len(results), 1)
+            assert len(results) == 1
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
                 [

@@ -274,26 +274,20 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-01", "2023-12-03", filter_test_accounts=False, do_path_cleaning=True
         ).results
 
-        self.assertEqual(
-            cleaned,
-            [
-                ["https://www.partner.com/catalog/items/:id", (1, 0), (2, 0)],
-                ["https://www.other.com/page", (1, 0), (1, 0)],
-            ],
-        )
+        assert cleaned == [
+            ["https://www.partner.com/catalog/items/:id", (1, 0), (2, 0)],
+            ["https://www.other.com/page", (1, 0), (1, 0)],
+        ]
 
         not_cleaned = self._run_external_clicks_table_query(
             "2023-12-01", "2023-12-03", filter_test_accounts=False, do_path_cleaning=False
         ).results
 
-        self.assertEqual(
-            not_cleaned,
-            [
-                ["https://www.other.com/page", (1, 0), (1, 0)],
-                ["https://www.partner.com/catalog/items/12345", (1, 0), (1, 0)],
-                ["https://www.partner.com/catalog/items/67890", (1, 0), (1, 0)],
-            ],
-        )
+        assert not_cleaned == [
+            ["https://www.other.com/page", (1, 0), (1, 0)],
+            ["https://www.partner.com/catalog/items/12345", (1, 0), (1, 0)],
+            ["https://www.partner.com/catalog/items/67890", (1, 0), (1, 0)],
+        ]
 
     def test_custom_order_by(self):
         s1 = str(uuid7("2023-12-02"))

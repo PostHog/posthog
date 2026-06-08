@@ -156,9 +156,9 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["attr"], "config")
-        self.assertIn("Unsupported keys", response.data["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data["attr"] == "config"
+        assert "Unsupported keys" in response.data["detail"]
 
     def test_response_exposes_current_version_id(self):
         response = self.client.post(
@@ -176,10 +176,10 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         definition = ScoreDefinition.objects.get(pk=response.data["id"])
-        self.assertEqual(response.data["current_version"], 1)
-        self.assertEqual(response.data["current_version_id"], str(definition.current_version_id))
+        assert response.data["current_version"] == 1
+        assert response.data["current_version_id"] == str(definition.current_version_id)
 
     def test_create_rejects_archived_scorers(self):
         response = self.client.post(
@@ -287,9 +287,9 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         definition.refresh_from_db()
-        self.assertEqual(self._current_version(definition).version, 2)
+        assert self._current_version(definition).version == 2
 
     def test_create_new_version_raises_when_base_version_is_stale_at_lock_time(self):
         """Lower-level guarantee: the base_version check happens inside `select_for_update`.
@@ -313,9 +313,9 @@ class TestScoreDefinitionsApi(APIBaseTest):
                 base_version=1,
             )
 
-        self.assertEqual(cm.exception.current_version, 2)
+        assert cm.exception.current_version == 2
         # No third version was created.
-        self.assertEqual(ScoreDefinitionVersion.objects.filter(definition=definition).count(), 2)
+        assert ScoreDefinitionVersion.objects.filter(definition=definition).count() == 2
 
     def test_new_version_with_stale_base_version_returns_409(self):
         definition = self._create_definition()
@@ -338,11 +338,11 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(response.data["current_version"], 2)
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.data["current_version"] == 2
         definition.refresh_from_db()
         # Scorer still at v2 — the stale request did not bump it.
-        self.assertEqual(self._current_version(definition).version, 2)
+        assert self._current_version(definition).version == 2
 
     @parameterized.expand(
         [
@@ -367,11 +367,11 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data["attr"], "config")
-        self.assertIn("Unsupported keys", response.data["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.data["attr"] == "config"
+        assert "Unsupported keys" in response.data["detail"]
         definition.refresh_from_db()
-        self.assertEqual(self._current_version(definition).version, 1)
+        assert self._current_version(definition).version == 1
 
     # The /new_version/ custom @action has to declare required_scopes explicitly;
     # without it the default scope resolver returns None for non-CRUD action names and PAK
@@ -401,7 +401,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
 
     def test_list_defaults_to_active_only_and_respects_archived_param(self):
         active = self._create_definition(name="Active scorer", kind="categorical")
@@ -409,22 +409,22 @@ class TestScoreDefinitionsApi(APIBaseTest):
 
         # Default — no archived param → active only
         response = self.client.get(self._endpoint())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         ids = [result["id"] for result in response.data["results"]]
-        self.assertIn(str(active.id), ids)
-        self.assertNotIn(str(archived.id), ids)
+        assert str(active.id) in ids
+        assert str(archived.id) not in ids
 
         # archived=false → active only (same as default)
         response = self.client.get(self._endpoint(), {"archived": "false"})
         ids = [result["id"] for result in response.data["results"]]
-        self.assertIn(str(active.id), ids)
-        self.assertNotIn(str(archived.id), ids)
+        assert str(active.id) in ids
+        assert str(archived.id) not in ids
 
         # archived=true → archived only
         response = self.client.get(self._endpoint(), {"archived": "true"})
         ids = [result["id"] for result in response.data["results"]]
-        self.assertNotIn(str(active.id), ids)
-        self.assertIn(str(archived.id), ids)
+        assert str(active.id) not in ids
+        assert str(archived.id) in ids
 
     @parameterized.expand([("empty", ""), ("whitespace", "   "), ("unparseable", "invalid")])
     def test_list_treats_non_boolean_archived_param_as_default_active_only(self, _name: str, value: str):
@@ -433,10 +433,10 @@ class TestScoreDefinitionsApi(APIBaseTest):
 
         response = self.client.get(self._endpoint(), {"archived": value})
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         ids = [result["id"] for result in response.data["results"]]
-        self.assertIn(str(active.id), ids)
-        self.assertNotIn(str(archived.id), ids)
+        assert str(active.id) in ids
+        assert str(archived.id) not in ids
 
     def test_list_supports_search_kind_archived_and_ordering(self):
         active = self._create_definition(name="Quality", kind="categorical")

@@ -782,19 +782,19 @@ class TestErrorTracking(APIBaseTest):
             data={"status": "valid", "order_by": "ref"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([symbol_set["ref"] for symbol_set in response.json()["results"]], ["source_b"])
-        self.assertEqual([symbol_set["has_uploaded_file"] for symbol_set in response.json()["results"]], [True])
-        self.assertNotIn("storage_ptr", response.json()["results"][0])
-        self.assertNotIn("content_hash", response.json()["results"][0])
+        assert response.status_code == status.HTTP_200_OK
+        assert [symbol_set["ref"] for symbol_set in response.json()["results"]] == ["source_b"]
+        assert [symbol_set["has_uploaded_file"] for symbol_set in response.json()["results"]] == [True]
+        assert "storage_ptr" not in response.json()["results"][0]
+        assert "content_hash" not in response.json()["results"][0]
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets",
             data={"ref": "source_a"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([symbol_set["ref"] for symbol_set in response.json()["results"]], ["source_a"])
+        assert response.status_code == status.HTTP_200_OK
+        assert [symbol_set["ref"] for symbol_set in response.json()["results"]] == ["source_a"]
 
     @parameterized.expand(
         [
@@ -836,8 +836,8 @@ class TestErrorTracking(APIBaseTest):
             data={"search": search},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(sorted(symbol_set["ref"] for symbol_set in response.json()["results"]), sorted(expected_refs))
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(symbol_set["ref"] for symbol_set in response.json()["results"]) == sorted(expected_refs)
 
     def test_fetching_symbol_set_by_id(self) -> None:
         other_team = self.create_team_with_organization(organization=self.organization)
@@ -846,15 +846,15 @@ class TestErrorTracking(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], str(symbol_set.id))
-        self.assertEqual(response.json()["ref"], "source_1")
-        self.assertEqual(response.json()["has_uploaded_file"], False)
-        self.assertNotIn("storage_ptr", response.json())
-        self.assertNotIn("content_hash", response.json())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(symbol_set.id)
+        assert response.json()["ref"] == "source_1"
+        assert not response.json()["has_uploaded_file"]
+        assert "storage_ptr" not in response.json()
+        assert "content_hash" not in response.json()
 
         response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{other_symbol_set.id}")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_symbol_set_list_query_validation_does_not_apply_to_retrieve(self) -> None:
         symbol_set = ErrorTrackingSymbolSet.objects.create(
@@ -865,13 +865,13 @@ class TestErrorTracking(APIBaseTest):
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets",
             data={"order_by": "storage_ptr"},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
             data={"order_by": "storage_ptr"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_symbol_set_storage_ptr_is_read_only(self) -> None:
         symbol_set = ErrorTrackingSymbolSet.objects.create(
@@ -884,9 +884,9 @@ class TestErrorTracking(APIBaseTest):
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         symbol_set.refresh_from_db()
-        self.assertEqual(symbol_set.storage_ptr, "symbolsets/source_1")
+        assert symbol_set.storage_ptr == "symbolsets/source_1"
 
     @patch("products.error_tracking.backend.api.symbol_sets.object_storage.get_presigned_url")
     def test_download_symbol_set(self, patched_get_presigned_url: Mock) -> None:
@@ -899,8 +899,8 @@ class TestErrorTracking(APIBaseTest):
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}/download"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"url": "https://example.com/source.map"})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"url": "https://example.com/source.map"}
         patched_get_presigned_url.assert_called_once_with(file_key="symbolsets/source_1", expiration=3600)
 
     def test_download_symbol_set_without_file_returns_404(self) -> None:
@@ -910,8 +910,8 @@ class TestErrorTracking(APIBaseTest):
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}/download"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(response.json(), {"detail": "Symbol set has no uploaded file."})
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json() == {"detail": "Symbol set has no uploaded file."}
 
     @patch("products.error_tracking.backend.api.issues.dispatch_issue_assigned_realtime")
     @patch("products.error_tracking.backend.api.issues.send_error_tracking_issue_assigned")

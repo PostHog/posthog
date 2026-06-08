@@ -168,6 +168,6 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
 
         # The serializer scopes the saved_query lookup by team_id, so the foreign
         # id is unknown — DRF returns 400.
-        self.assertEqual(response.status_code, 400, response.content)
+        assert response.status_code == 400, response.content
         # And no draft should have been created bound to the foreign saved_query.
         assert not DataWarehouseSavedQueryDraft.objects.filter(saved_query_id=foreign_saved_query.id).exists()

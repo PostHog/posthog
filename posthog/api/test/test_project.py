@@ -475,10 +475,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         response = self.client.post("/api/projects/", {"name": "Member Project"})
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.json()["detail"], "You need to be an organization admin or above to create new projects."
-        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "You need to be an organization admin or above to create new projects."
 
     def test_member_cannot_create_project_without_entitlement_even_when_toggle_on(self):
         # No invite-settings entitlement: the toggle is ignored and the gate behaves as admin-only.
@@ -490,10 +488,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         response = self.client.post("/api/projects/", {"name": "Member Project"})
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.json()["detail"], "You need to be an organization admin or above to create new projects."
-        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "You need to be an organization admin or above to create new projects."
 
     def test_member_can_create_project_when_org_allows(self):
         self._set_unlimited_projects()
@@ -505,7 +501,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         with patch("posthog.api.project.create_notification"):
             response = self.client.post("/api/projects/", {"name": "Member Project"})
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_member_cannot_set_admin_only_fields_when_creating_project(self):
         # A member allowed to create projects must not be able to set admin-only team fields like
@@ -521,9 +517,9 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
                 "/api/projects/", {"name": "Sneaky Project", "receive_org_level_activity_logs": True}
             )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("receive_org_level_activity_logs", response.json()["detail"])
-        self.assertFalse(self.organization.teams.filter(receive_org_level_activity_logs=True).exists())
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "receive_org_level_activity_logs" in response.json()["detail"]
+        assert not self.organization.teams.filter(receive_org_level_activity_logs=True).exists()
 
     def test_admin_can_set_admin_only_fields_when_creating_project(self):
         self._set_unlimited_projects()
@@ -534,8 +530,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "/api/projects/", {"name": "Admin Project", "receive_org_level_activity_logs": True}
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertTrue(response.json()["receive_org_level_activity_logs"])
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["receive_org_level_activity_logs"]
 
     @parameterized.expand(
         [
@@ -553,7 +549,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         with patch("posthog.api.project.create_notification") as mock_create_notification:
             response = self.client.post("/api/projects/", {"name": f"{_name} Project"})
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         # Admins/owners are the recipients, never the trigger — creating their own project must not notify
         mock_create_notification.assert_not_called()
 
@@ -581,18 +577,18 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         response = self.client.post("/api/projects/", {"name": "Member Project"})
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         # One USER-targeted notification per admin/owner, never the member creator
-        self.assertEqual(mock_create_notification.call_count, len(expected_admin_ids))
+        assert mock_create_notification.call_count == len(expected_admin_ids)
         targeted_user_ids = set()
         for call in mock_create_notification.call_args_list:
             data = call[0][0]
-            self.assertEqual(data.notification_type, NotificationType.PROJECT_CREATED)
-            self.assertEqual(data.target_type, TargetType.USER)
+            assert data.notification_type == NotificationType.PROJECT_CREATED
+            assert data.target_type == TargetType.USER
             targeted_user_ids.add(int(data.target_id))
-        self.assertEqual(targeted_user_ids, expected_admin_ids)
-        self.assertIn(admin_user.id, targeted_user_ids)
-        self.assertNotIn(self.user.id, targeted_user_ids)
+        assert targeted_user_ids == expected_admin_ids
+        assert admin_user.id in targeted_user_ids
+        assert self.user.id not in targeted_user_ids
 
     @patch("posthog.api.project.create_notification")
     def test_admin_project_creation_does_not_notify(self, mock_create_notification):
@@ -602,5 +598,5 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         response = self.client.post("/api/projects/", {"name": "Admin Project"})
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         mock_create_notification.assert_not_called()

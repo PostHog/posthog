@@ -157,9 +157,9 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # against the string actor id). The join must now run and actually match rows.
         result, _ = self._get_events_for_query(query)
         events = {item["event"]: item for item in result}
-        self.assertIn("positively_related", events)
-        self.assertEqual(events["positively_related"]["success_count"], 5)
-        self.assertEqual(events["positively_related"]["correlation_type"], "success")
+        assert "positively_related" in events
+        assert events["positively_related"]["success_count"] == 5
+        assert events["positively_related"]["correlation_type"] == "success"
 
     def test_funnel_correlation_hogql_aggregation_rejects_injection(self):
         # funnelAggregateByHogQL is user-controlled — a value that isn't a single

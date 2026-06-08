@@ -47,33 +47,33 @@ class TestLegalDocumentAdminForm(APIBaseTest):
 
     def test_valid_pdf_passes_validation(self) -> None:
         form = LegalDocumentAdminForm(data=self._form_data(), files=_files(_pdf_file()))
-        self.assertTrue(form.is_valid(), form.errors)
+        assert form.is_valid(), form.errors
 
     def test_non_pdf_extension_is_rejected(self) -> None:
         bad_file = SimpleUploadedFile("agreement.txt", b"not a pdf", content_type="text/plain")
         form = LegalDocumentAdminForm(data=self._form_data(), files=_files(bad_file))
-        self.assertFalse(form.is_valid())
-        self.assertIn("signed_pdf", form.errors)
+        assert not form.is_valid()
+        assert "signed_pdf" in form.errors
 
     def test_wrong_content_type_is_rejected(self) -> None:
         # .pdf extension passes the FileExtensionValidator, but if the browser
         # reports a non-application/pdf content type the form should still reject.
         bad_file = SimpleUploadedFile("agreement.pdf", _VALID_PDF_BYTES, content_type="image/png")
         form = LegalDocumentAdminForm(data=self._form_data(), files=_files(bad_file))
-        self.assertFalse(form.is_valid())
-        self.assertIn("signed_pdf", form.errors)
+        assert not form.is_valid()
+        assert "signed_pdf" in form.errors
 
     def test_oversized_pdf_is_rejected(self) -> None:
         # 26 MiB — over the 25 MiB cap.
         oversized = SimpleUploadedFile("big.pdf", b"x" * (26 * 1024 * 1024), content_type="application/pdf")
         form = LegalDocumentAdminForm(data=self._form_data(), files=_files(oversized))
-        self.assertFalse(form.is_valid())
-        self.assertIn("signed_pdf", form.errors)
+        assert not form.is_valid()
+        assert "signed_pdf" in form.errors
 
     def test_missing_pdf_is_rejected(self) -> None:
         form = LegalDocumentAdminForm(data=self._form_data(), files=_files())
-        self.assertFalse(form.is_valid())
-        self.assertIn("signed_pdf", form.errors)
+        assert not form.is_valid()
+        assert "signed_pdf" in form.errors
 
 
 class TestLegalDocumentAdminSave(APIBaseTest):
@@ -102,7 +102,7 @@ class TestLegalDocumentAdminSave(APIBaseTest):
             },
             files=_files(_pdf_file()),
         )
-        self.assertTrue(form.is_valid(), form.errors)
+        assert form.is_valid(), form.errors
         return form
 
     @parameterized.expand([("DPA",), ("BAA",), ("MSA",)])
@@ -114,17 +114,17 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         self.admin.save_model(self._request(), instance, form, change=False)
 
         row = LegalDocument.objects.get(id=instance.id)
-        self.assertEqual(row.document_type, document_type)
-        self.assertEqual(row.status, LegalDocument.Status.SIGNED)
-        self.assertEqual(row.created_by_id, self.user.id)
-        self.assertEqual(row.organization_id, self.organization.id)
+        assert row.document_type == document_type
+        assert row.status == LegalDocument.Status.SIGNED
+        assert row.created_by_id == self.user.id
+        assert row.organization_id == self.organization.id
 
         mock_storage.write_stream.assert_called_once()
         write_args, write_kwargs = mock_storage.write_stream.call_args
         # Key matches the canonical legal_documents/{id}.pdf shape used by the
         # public download endpoint.
-        self.assertTrue(write_args[0].endswith(f"{row.id}.pdf"))
-        self.assertEqual(write_kwargs.get("extras"), {"ContentType": "application/pdf"})
+        assert write_args[0].endswith(f"{row.id}.pdf")
+        assert write_kwargs.get("extras") == {"ContentType": "application/pdf"}
 
     @patch("products.legal_documents.backend.admin.object_storage")
     def test_s3_failure_rolls_back_row(self, mock_storage: Any) -> None:
@@ -136,7 +136,7 @@ class TestLegalDocumentAdminSave(APIBaseTest):
             self.admin.save_model(self._request(), instance, form, change=False)
 
         # Row was not persisted — transaction.atomic rolled it back when ValidationError fired.
-        self.assertFalse(LegalDocument.objects.filter(id=instance.id).exists())
+        assert not LegalDocument.objects.filter(id=instance.id).exists()
 
     def test_pre_existing_row_blocks_form_validation(self) -> None:
         # Django's ModelForm.validate_unique catches the unique-per-org-per-type
@@ -162,8 +162,8 @@ class TestLegalDocumentAdminSave(APIBaseTest):
             },
             files=_files(_pdf_file()),
         )
-        self.assertFalse(form.is_valid())
-        self.assertEqual(LegalDocument.objects.filter(document_type="DPA").count(), 1)
+        assert not form.is_valid()
+        assert LegalDocument.objects.filter(document_type="DPA").count() == 1
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
     @patch("products.legal_documents.backend.logic.object_storage")
@@ -191,7 +191,7 @@ class TestLegalDocumentAdminSave(APIBaseTest):
 
         mock_storage.delete.assert_called_once_with(expected_key)
         mock_pandadoc_cls.assert_not_called()
-        self.assertFalse(LegalDocument.objects.filter(id=document_id).exists())
+        assert not LegalDocument.objects.filter(id=document_id).exists()
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
     @patch("products.legal_documents.backend.logic.object_storage")
@@ -215,7 +215,7 @@ class TestLegalDocumentAdminSave(APIBaseTest):
 
         mock_pandadoc_cls.return_value.void_document.assert_called_once_with(document_id="doc_123")
         mock_storage.delete.assert_not_called()
-        self.assertFalse(LegalDocument.objects.filter(id=document_id).exists())
+        assert not LegalDocument.objects.filter(id=document_id).exists()
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
     @patch("products.legal_documents.backend.logic.object_storage")
@@ -245,7 +245,7 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         widget = add_form_class.base_fields["organization"].widget
         # Admin wraps FK widgets in RelatedFieldWidgetWrapper (the +add/edit links).
         inner = getattr(widget, "widget", widget)
-        self.assertIsInstance(inner, AutocompleteSelect)
+        assert isinstance(inner, AutocompleteSelect)
 
     def test_change_view_form_saves_without_signed_pdf(self) -> None:
         # The add form (LegalDocumentAdminForm) declares signed_pdf
@@ -264,7 +264,7 @@ class TestLegalDocumentAdminSave(APIBaseTest):
 
         # The change-view form must not declare signed_pdf. (Plain ModelForm
         # subclass returned by modelform_factory has no extra non-model fields.)
-        self.assertNotIn("signed_pdf", change_form_class.base_fields)
+        assert "signed_pdf" not in change_form_class.base_fields
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
     @patch("products.legal_documents.backend.logic.object_storage")
@@ -285,7 +285,7 @@ class TestLegalDocumentAdminSave(APIBaseTest):
 
         self.admin.delete_model(self._request(), document)
 
-        self.assertFalse(LegalDocument.objects.filter(id=document_id).exists())
+        assert not LegalDocument.objects.filter(id=document_id).exists()
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
     @patch("products.legal_documents.backend.logic.object_storage")
@@ -319,12 +319,12 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         self.admin.delete_queryset(self._request(), queryset)
 
         # Two distinct PandaDoc void calls, one per row.
-        self.assertEqual(mock_pandadoc_cls.return_value.void_document.call_count, 2)
+        assert mock_pandadoc_cls.return_value.void_document.call_count == 2
         called_ids = {
             call.kwargs["document_id"] for call in mock_pandadoc_cls.return_value.void_document.call_args_list
         }
-        self.assertEqual(called_ids, {"doc_111", "doc_222"})
-        self.assertFalse(LegalDocument.objects.filter(id__in=[first.id, second.id]).exists())
+        assert called_ids == {"doc_111", "doc_222"}
+        assert not LegalDocument.objects.filter(id__in=[first.id, second.id]).exists()
 
 
 class TestLegalDocumentAdminPermissions(APIBaseTest):
@@ -342,10 +342,10 @@ class TestLegalDocumentAdminPermissions(APIBaseTest):
 
     def test_staff_can_add_and_delete(self) -> None:
         request = self._request_for(is_staff=True)
-        self.assertTrue(self.admin.has_add_permission(request))
-        self.assertTrue(self.admin.has_delete_permission(request))
+        assert self.admin.has_add_permission(request)
+        assert self.admin.has_delete_permission(request)
 
     def test_non_staff_cannot_add_or_delete(self) -> None:
         request = self._request_for(is_staff=False)
-        self.assertFalse(self.admin.has_add_permission(request))
-        self.assertFalse(self.admin.has_delete_permission(request))
+        assert not self.admin.has_add_permission(request)
+        assert not self.admin.has_delete_permission(request)

@@ -29,13 +29,13 @@ class TestReplayScanner(BaseTest):
 
     def test_create_with_required_fields(self) -> None:
         scanner = self._create_scanner()
-        self.assertEqual(scanner.scanner_type, ScannerType.MONITOR)
-        self.assertTrue(scanner.enabled)
-        self.assertEqual(scanner.provider, ScannerProvider.GOOGLE)
-        self.assertEqual(scanner.sampling_rate, 1.0)
-        self.assertEqual(scanner.scanner_version, 1)
-        self.assertFalse(scanner.emits_signals)
-        self.assertIsNotNone(scanner.last_swept_at)
+        assert scanner.scanner_type == ScannerType.MONITOR
+        assert scanner.enabled
+        assert scanner.provider == ScannerProvider.GOOGLE
+        assert scanner.sampling_rate == 1.0
+        assert scanner.scanner_version == 1
+        assert not scanner.emits_signals
+        assert scanner.last_swept_at is not None
 
     def test_unique_team_name(self) -> None:
         self._create_scanner(name="dup")
@@ -55,8 +55,8 @@ class TestReplayScanner(BaseTest):
 
     def test_str_includes_name_and_type(self) -> None:
         scanner = self._create_scanner(name="checkout-friction", scanner_type=ScannerType.CLASSIFIER)
-        self.assertIn("checkout-friction", str(scanner))
-        self.assertIn(ScannerType.CLASSIFIER.value, str(scanner))
+        assert "checkout-friction" in str(scanner)
+        assert ScannerType.CLASSIFIER.value in str(scanner)
 
     @parameterized.expand(
         [
@@ -75,7 +75,7 @@ class TestReplayScanner(BaseTest):
 
     def test_scanner_version_starts_at_one(self) -> None:
         scanner = self._create_scanner()
-        self.assertEqual(scanner.scanner_version, 1)
+        assert scanner.scanner_version == 1
 
     @parameterized.expand(
         [
@@ -91,19 +91,19 @@ class TestReplayScanner(BaseTest):
         scanner = self._create_scanner()
         setattr(scanner, field, new_value)
         scanner.save()
-        self.assertEqual(scanner.scanner_version, 2)
+        assert scanner.scanner_version == 2
 
     def test_scanner_version_does_not_bump_on_metadata_change(self) -> None:
         scanner = self._create_scanner(name="original")
         scanner.name = "renamed"
         scanner.description = "now described"
         scanner.save()
-        self.assertEqual(scanner.scanner_version, 1)
+        assert scanner.scanner_version == 1
 
     def test_scanner_version_does_not_bump_on_no_change(self) -> None:
         scanner = self._create_scanner()
         scanner.save()
-        self.assertEqual(scanner.scanner_version, 1)
+        assert scanner.scanner_version == 1
 
     def test_scanner_version_bumps_per_save_of_changed_config(self) -> None:
         scanner = self._create_scanner()
@@ -111,7 +111,7 @@ class TestReplayScanner(BaseTest):
         scanner.save()
         scanner.sampling_rate = 0.25
         scanner.save()
-        self.assertEqual(scanner.scanner_version, 3)
+        assert scanner.scanner_version == 3
 
     def test_scanner_version_does_not_bump_with_non_tracked_update_fields(self) -> None:
         scanner = self._create_scanner()
@@ -119,16 +119,16 @@ class TestReplayScanner(BaseTest):
         scanner.enabled = False
         scanner.save(update_fields=["enabled"])  # save only enabled — tracked change shouldn't bump
         scanner.refresh_from_db()
-        self.assertEqual(scanner.scanner_version, 1)
-        self.assertFalse(scanner.enabled)
+        assert scanner.scanner_version == 1
+        assert not scanner.enabled
 
     def test_scanner_version_bumps_with_tracked_update_field_persists(self) -> None:
         scanner = self._create_scanner()
         scanner.scanner_config = {"prompt": "persisted"}
         scanner.save(update_fields=["scanner_config"])
         scanner.refresh_from_db()
-        self.assertEqual(scanner.scanner_version, 2)
-        self.assertEqual(scanner.scanner_config, {"prompt": "persisted"})
+        assert scanner.scanner_version == 2
+        assert scanner.scanner_config == {"prompt": "persisted"}
 
 
 class TestReplayObservation(BaseTest):
@@ -147,11 +147,11 @@ class TestReplayObservation(BaseTest):
     def test_create_with_required_fields(self) -> None:
         scanner = self._create_scanner()
         obs = self._create_observation(scanner)
-        self.assertEqual(obs.status, ObservationStatus.PENDING)
-        self.assertEqual(obs.error_reason, "")
-        self.assertEqual(obs.workflow_id, "")
-        self.assertIsNone(obs.started_at)
-        self.assertIsNone(obs.completed_at)
+        assert obs.status == ObservationStatus.PENDING
+        assert obs.error_reason == ""
+        assert obs.workflow_id == ""
+        assert obs.started_at is None
+        assert obs.completed_at is None
 
     def test_unique_scanner_session(self) -> None:
         scanner = self._create_scanner()
@@ -176,7 +176,7 @@ class TestReplayObservation(BaseTest):
         self._create_observation(scanner)
         scanner_id = scanner.id
         scanner.delete()
-        self.assertEqual(ReplayObservation.objects.filter(scanner_id=scanner_id).count(), 0)
+        assert ReplayObservation.objects.filter(scanner_id=scanner_id).count() == 0
 
     def test_team_id_auto_populated_from_scanner(self) -> None:
         scanner = self._create_scanner()
@@ -186,7 +186,7 @@ class TestReplayObservation(BaseTest):
             scanner_snapshot=_snapshot_for(scanner),
             triggered_by=ObservationTrigger.SCHEDULE,
         )
-        self.assertEqual(obs.team_id, scanner.team_id)
+        assert obs.team_id == scanner.team_id
 
     def test_mismatched_team_rejected(self) -> None:
         scanner = self._create_scanner()
@@ -238,8 +238,8 @@ class TestReplayObservation(BaseTest):
         self._create_observation(scanner, session_id="doomed-session")
         scanner_id = scanner.id
         other_team.delete()
-        self.assertFalse(ReplayScanner.objects.filter(id=scanner_id).exists())
-        self.assertEqual(ReplayObservation.objects.filter(scanner_id=scanner_id).count(), 0)
+        assert not ReplayScanner.objects.filter(id=scanner_id).exists()
+        assert ReplayObservation.objects.filter(scanner_id=scanner_id).count() == 0
 
     def test_user_delete_nulls_triggered_by_user(self) -> None:
         from django.contrib.auth import get_user_model
@@ -253,16 +253,16 @@ class TestReplayObservation(BaseTest):
             triggered_by=ObservationTrigger.ON_DEMAND,
             triggered_by_user=ephemeral,
         )
-        self.assertEqual(obs.triggered_by_user_id, ephemeral.id)
+        assert obs.triggered_by_user_id == ephemeral.id
         ephemeral.delete()
         obs.refresh_from_db()
-        self.assertIsNone(obs.triggered_by_user_id)
+        assert obs.triggered_by_user_id is None
 
     def test_scanner_snapshot_immutable_to_scanner_edits(self) -> None:
         scanner = self._create_scanner(scanner_config={"prompt": "original"})
         obs = self._create_observation(scanner, session_id="snap-test")
-        self.assertEqual(obs.scanner_snapshot["scanner_config"], {"prompt": "original"})
+        assert obs.scanner_snapshot["scanner_config"] == {"prompt": "original"}
         scanner.scanner_config = {"prompt": "edited"}
         scanner.save()
         obs.refresh_from_db()
-        self.assertEqual(obs.scanner_snapshot["scanner_config"], {"prompt": "original"})
+        assert obs.scanner_snapshot["scanner_config"] == {"prompt": "original"}

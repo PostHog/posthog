@@ -76,4 +76,4 @@ class TestExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
     )
     def test_attributes(self, _name, exclude, expected_attributes):
         results = self._run(exclude=exclude)
-        self.assertEqual(results[0]["attributes"], expected_attributes)
+        assert results[0]["attributes"] == expected_attributes

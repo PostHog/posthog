@@ -437,7 +437,7 @@ class TestSanitizeDisplayName(SimpleTestCase):
         ]
     )
     def test_returns_validated_value(self, _name: str, value: str, expected: str) -> None:
-        self.assertEqual(sanitize_display_name(value, fallback="fallback"), expected)
+        assert sanitize_display_name(value, fallback="fallback") == expected
 
     @parameterized.expand(
         [
@@ -450,10 +450,7 @@ class TestSanitizeDisplayName(SimpleTestCase):
         ]
     )
     def test_returns_fallback_when_invalid(self, _name: str, value: str) -> None:
-        self.assertEqual(
-            sanitize_display_name(value, fallback="their organization"),
-            "their organization",
-        )
+        assert sanitize_display_name(value, fallback="their organization") == "their organization"
 
     @parameterized.expand(
         [
@@ -463,7 +460,7 @@ class TestSanitizeDisplayName(SimpleTestCase):
         ]
     )
     def test_returns_fallback_when_blank(self, _name: str, value: Optional[str]) -> None:
-        self.assertEqual(sanitize_display_name(value, fallback="Someone"), "Someone")
+        assert sanitize_display_name(value, fallback="Someone") == "Someone"
 
     def test_context_is_logged_but_does_not_raise(self) -> None:
         # The context kwarg is purely diagnostic — it should never affect the return value.
@@ -472,13 +469,13 @@ class TestSanitizeDisplayName(SimpleTestCase):
             fallback="their organization",
             context={"task": "unit_test", "organization_id": "abc"},
         )
-        self.assertEqual(result, "their organization")
+        assert result == "their organization"
 
 
 class TestSanitizeMessageBody(SimpleTestCase):
     def test_returns_validated_value(self) -> None:
         value = "Hey!\nWelcome aboard."
-        self.assertEqual(sanitize_message_body(value), value)
+        assert sanitize_message_body(value) == value
 
     @parameterized.expand(
         [
@@ -489,14 +486,14 @@ class TestSanitizeMessageBody(SimpleTestCase):
         ]
     )
     def test_returns_fallback_when_invalid(self, _name: str, value: str) -> None:
-        self.assertEqual(sanitize_message_body(value), "")
-        self.assertEqual(sanitize_message_body(value, fallback="--"), "--")
+        assert sanitize_message_body(value) == ""
+        assert sanitize_message_body(value, fallback="--") == "--"
 
     def test_passes_through_none_and_blank_via_fallback(self) -> None:
         # None / empty pass through validate_message_body but the helper still returns the
         # fallback so callers can rely on getting a non-None string back.
-        self.assertEqual(sanitize_message_body(None), "")
-        self.assertEqual(sanitize_message_body(""), "")
+        assert sanitize_message_body(None) == ""
+        assert sanitize_message_body("") == ""
 
 
 class TestSanitizeEmailString(SimpleTestCase):
@@ -552,13 +549,13 @@ class TestSanitizeEmailString(SimpleTestCase):
         ]
     )
     def test_sanitizes(self, _name: str, value: str, expected: str) -> None:
-        self.assertEqual(sanitize_email_string(value), expected)
+        assert sanitize_email_string(value) == expected
 
     def test_empty_string(self) -> None:
-        self.assertEqual(sanitize_email_string(""), "")
+        assert sanitize_email_string("") == ""
 
     def test_does_not_double_encode_already_escaped(self) -> None:
         # `&amp;` survives a second pass — html.escape would re-encode the `&` in
         # the entity, which is the existing trade-off of running sanitize_email_string
         # over already-sanitized data. Documented as a guardrail.
-        self.assertEqual(sanitize_email_string("&amp;"), "&amp;amp;")
+        assert sanitize_email_string("&amp;") == "&amp;amp;"

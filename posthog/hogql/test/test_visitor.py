@@ -214,7 +214,7 @@ class TestVisitor(BaseTest):
 
         with self.assertRaises(HogQLNotImplementedError) as ctx:
             EmptyVisitor().visit(ast.Field(chain=["x"]))
-        self.assertIn("visit_field", str(ctx.exception))
+        assert "visit_field" in str(ctx.exception)
 
     @parameterized.expand(
         [

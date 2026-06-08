@@ -136,8 +136,8 @@ class TestFunnelValidationRules(BaseTest):
         with self.assertRaises(ValidationError) as context:
             ValidateFunnelExclusions().validate(self._context(query))
 
-        self.assertIn("Partial Exclusions not allowed in unordered funnels", str(context.exception))
-        self.assertEqual(context.exception.get_codes(), ["funnel_exclusions_invalid"])
+        assert "Partial Exclusions not allowed in unordered funnels" in str(context.exception)
+        assert context.exception.get_codes() == ["funnel_exclusions_invalid"]
 
     @parameterized.expand(
         [

@@ -104,7 +104,7 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
             date_from=timezone.now() - dt.timedelta(hours=1),
             date_to=timezone.now(),
         )
-        self.assertEqual(runner.run(), [])
+        assert runner.run() == []
 
     def test_aggregates_sum_per_bucket(self):
         anchor = timezone.now().replace(microsecond=0)
@@ -132,7 +132,7 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = runner.run()
 
         values_by_bucket = {row["time"]: row["value"] for row in results}
-        self.assertEqual(sum(values_by_bucket.values()), 9.0)
+        assert sum(values_by_bucket.values()) == 9.0
 
     def test_respects_team_isolation(self):
         anchor = timezone.now().replace(microsecond=0)
@@ -145,7 +145,7 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
             date_from=anchor - dt.timedelta(hours=1),
             date_to=anchor,
         )
-        self.assertEqual(runner.run(), [])
+        assert runner.run() == []
 
 
 class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
@@ -162,7 +162,7 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
             data={"query": {"metricName": "m1", "aggregation": "sum", "dateFrom": "2026-01-01T00:00:00Z"}},
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_query_validates_required_fields(self):
         response = self.client.post(
@@ -170,7 +170,7 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
             data={"query": {"aggregation": "sum", "dateFrom": "2026-01-01T00:00:00Z"}},
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_query_validates_aggregation_choice(self):
         response = self.client.post(
@@ -178,7 +178,7 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
             data={"query": {"metricName": "m1", "aggregation": "median", "dateFrom": "2026-01-01T00:00:00Z"}},
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_query_returns_aggregated_points(self):
         anchor = timezone.now().replace(microsecond=0)
@@ -202,7 +202,7 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        self.assertIn("results", body)
-        self.assertEqual(sum(point["value"] for point in body["results"]), 3.0)
+        assert "results" in body
+        assert sum(point["value"] for point in body["results"]) == 3.0

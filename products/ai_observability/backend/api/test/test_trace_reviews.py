@@ -513,12 +513,12 @@ class TestTraceReviewsApi(APIBaseTest):
 
         response = self.client.get(self._endpoint())
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(
-            results[0]["trace_url"],
-            f"https://us.posthog.com/project/{self.team.id}/ai-observability/traces/trace_link_check",
+        assert len(results) == 1
+        assert (
+            results[0]["trace_url"]
+            == f"https://us.posthog.com/project/{self.team.id}/ai-observability/traces/trace_link_check"
         )
 
     def test_delete_soft_deletes_review_and_allows_recreate(self):

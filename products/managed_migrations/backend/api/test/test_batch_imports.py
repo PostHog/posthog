@@ -79,9 +79,9 @@ class TestBatchImportConfigBuilder(BaseTest):
         )
 
         source = self.batch_import.import_config["source"]
-        self.assertEqual(source["type"], _name)
-        self.assertEqual(source["endpoint_url"], endpoint_url)
-        self.assertEqual(source["region"], "auto")
+        assert source["type"] == _name
+        assert source["endpoint_url"] == endpoint_url
+        assert source["region"] == "auto"
 
     @parameterized.expand([("s3", "from_s3"), ("s3_gzip", "from_s3_gzip")])
     def test_from_s3_without_endpoint_url_omits_key(self, _name, method):
@@ -93,7 +93,7 @@ class TestBatchImportConfigBuilder(BaseTest):
             secret_access_key="secret123",
         )
 
-        self.assertNotIn("endpoint_url", self.batch_import.import_config["source"])
+        assert "endpoint_url" not in self.batch_import.import_config["source"]
 
     def test_chained_configuration(self):
         urls = ["http://example.com/data.json"]
@@ -632,9 +632,9 @@ class TestBatchImportAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         batch_import.refresh_from_db()
-        self.assertEqual(getattr(batch_import, attr), expected)
+        assert getattr(batch_import, attr) == expected
 
     @parameterized.expand([("s3",), ("s3_gzip",)])
     def test_s3_import_with_endpoint_url(self, source_type):
@@ -652,11 +652,11 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         batch_import = BatchImport.objects.get(id=response.json()["id"])
-        self.assertEqual(batch_import.import_config["source"]["type"], source_type)
-        self.assertEqual(batch_import.import_config["source"]["endpoint_url"], "http://localhost:9000")
-        self.assertEqual(batch_import.import_config["source"]["region"], "auto")
+        assert batch_import.import_config["source"]["type"] == source_type
+        assert batch_import.import_config["source"]["endpoint_url"] == "http://localhost:9000"
+        assert batch_import.import_config["source"]["region"] == "auto"
 
     def test_s3_import_without_endpoint_url_omits_key(self):
         response = self.client.post(
@@ -672,9 +672,9 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         batch_import = BatchImport.objects.get(id=response.json()["id"])
-        self.assertNotIn("endpoint_url", batch_import.import_config["source"])
+        assert "endpoint_url" not in batch_import.import_config["source"]
 
     def test_s3_import_with_empty_endpoint_url_omits_key(self):
         response = self.client.post(
@@ -691,9 +691,9 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         batch_import = BatchImport.objects.get(id=response.json()["id"])
-        self.assertNotIn("endpoint_url", batch_import.import_config["source"])
+        assert "endpoint_url" not in batch_import.import_config["source"]
 
     def test_s3_import_with_invalid_endpoint_url_returns_400(self):
         response = self.client.post(
@@ -710,5 +710,5 @@ class TestBatchImportAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["attr"], "endpoint_url")
+        assert response.status_code == 400
+        assert response.json()["attr"] == "endpoint_url"

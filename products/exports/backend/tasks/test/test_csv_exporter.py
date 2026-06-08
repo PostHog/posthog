@@ -472,16 +472,16 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content_location is not None
             content = object_storage.read(exported_asset.content_location)
             lines = (content or "").split("\r\n")
-            self.assertEqual(len(lines), 12)
-            self.assertEqual(
-                lines[0],
-                "event,*.uuid,*.event,*.properties.prop,*.timestamp,*.team_id,*.distinct_id,*.elements_chain,*.created_at,*.person_mode",
+            assert len(lines) == 12
+            assert (
+                lines[0]
+                == "event,*.uuid,*.event,*.properties.prop,*.timestamp,*.team_id,*.distinct_id,*.elements_chain,*.created_at,*.person_mode"
             )
-            self.assertEqual(lines[11], "")
+            assert lines[11] == ""
             first_row = lines[1].split(",")
-            self.assertEqual(first_row[0], "$pageview")
-            self.assertEqual(first_row[2], "$pageview")
-            self.assertEqual(first_row[5], str(self.team.pk))
+            assert first_row[0] == "$pageview"
+            assert first_row[2] == "$pageview"
+            assert first_row[5] == str(self.team.pk)
 
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("products.exports.backend.models.exported_asset.UUIDT")
@@ -517,15 +517,15 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content_location is not None
             content = object_storage.read(exported_asset.content_location)
             lines = (content or "").split("\r\n")
-            self.assertEqual(len(lines), 12)
-            self.assertEqual(
-                lines[0],
-                "*.uuid,*.event,*.properties.prop,*.timestamp,*.team_id,*.distinct_id,*.elements_chain,*.created_at,*.person_mode",
+            assert len(lines) == 12
+            assert (
+                lines[0]
+                == "*.uuid,*.event,*.properties.prop,*.timestamp,*.team_id,*.distinct_id,*.elements_chain,*.created_at,*.person_mode"
             )
-            self.assertEqual(lines[11], "")
+            assert lines[11] == ""
             first_row = lines[1].split(",")
-            self.assertEqual(first_row[1], "$pageview")
-            self.assertEqual(first_row[4], str(self.team.pk))
+            assert first_row[1] == "$pageview"
+            assert first_row[4] == str(self.team.pk)
 
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
     @patch("products.exports.backend.models.exported_asset.UUIDT")
@@ -577,14 +577,11 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content_location is not None
             content = object_storage.read(exported_asset.content_location)
             lines = (content or "").strip().split("\r\n")
-            self.assertEqual(
-                lines,
-                [
-                    "name,breakdown_value,action_id,count,median_conversion_time (seconds),average_conversion_time (seconds)",
-                    "$pageview,test'123,$pageview,1,,",
-                    "$pageview,test'123,$pageview,1,60.0,60.0",
-                ],
-            )
+            assert lines == [
+                "name,breakdown_value,action_id,count,median_conversion_time (seconds),average_conversion_time (seconds)",
+                "$pageview,test'123,$pageview,1,,",
+                "$pageview,test'123,$pageview,1,60.0,60.0",
+            ]
 
     @patch("products.exports.backend.models.exported_asset.object_storage.write_from_file")
     @patch("products.exports.backend.tasks.csv_exporter.process_query_dict")
@@ -612,14 +609,14 @@ class TestCSVExporter(APIBaseTest):
             csv_exporter.export_tabular(exported_asset)
 
             # Verify only one call made, without limit
-            self.assertEqual(mock_process_query.call_count, 1)
+            assert mock_process_query.call_count == 1
             query_json = mock_process_query.call_args_list[0].kwargs["query_json"]
-            self.assertNotIn("limit", query_json)
+            assert "limit" not in query_json
 
             # Verify content fell back to DB storage
             content = exported_asset.content
             lines = (bytes(content) if content else b"").decode("utf-8").strip().split("\r\n")
-            self.assertEqual(lines, ["col", "value1", "value2"])
+            assert lines == ["col", "value1", "value2"]
 
     @patch("products.exports.backend.models.exported_asset.object_storage.write_from_file")
     @patch("products.exports.backend.tasks.csv_exporter.process_query_dict")
@@ -649,9 +646,9 @@ class TestCSVExporter(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
 
-            self.assertEqual(mock_process_query.call_count, 1)
+            assert mock_process_query.call_count == 1
             query_json = mock_process_query.call_args_list[0].kwargs["query_json"]
-            self.assertEqual(query_json.get("limit"), QUERY_PAGE_SIZE)
+            assert query_json.get("limit") == QUERY_PAGE_SIZE
 
     def test_funnel_time_to_convert(self) -> None:
         bins = [
@@ -724,8 +721,8 @@ class TestCSVExporter(APIBaseTest):
                 assert exported_asset.content_location is not None
                 content = object_storage.read(exported_asset.content_location)
                 lines = (content or "").split("\r\n")
-                self.assertEqual(lines[0], "error")
-                self.assertEqual(lines[1], "No data available or unable to format for export.")
+                assert lines[0] == "error"
+                assert lines[1] == "No data available or unable to format for export."
 
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
     @patch("products.exports.backend.models.exported_asset.UUIDT")
@@ -786,10 +783,7 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content_location is not None
             content = object_storage.read(exported_asset.content_location)
             lines = (content or "").strip().split("\r\n")
-            self.assertEqual(
-                lines,
-                ["series,22-Mar-2024", "Formula ((B/A)*100),100.0"],
-            )
+            assert lines == ["series,22-Mar-2024", "Formula ((B/A)*100),100.0"]
 
     def test_csv_exporter_trends_query_with_compare_previous_option(
         self,
@@ -908,7 +902,7 @@ class TestCSVExporter(APIBaseTest):
                 "$pageview - previous,Safari,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
             ]
 
-            self.assertEqual(lines, expected_lines)
+            assert lines == expected_lines
 
     def test_csv_exporter_trends_actors(
         self,
@@ -969,14 +963,11 @@ class TestCSVExporter(APIBaseTest):
             csv_exporter.export_tabular(exported_asset)
             content = object_storage.read(exported_asset.content_location)  # type: ignore
             lines = (content or "").strip().split("\r\n")
-            self.assertEqual(
-                lines,
-                [
-                    "actor.id,actor.is_identified,actor.created_at,actor.last_seen_at,actor.distinct_ids.0,actor.is_unresolved,event_count,event_distinct_ids.0",
-                    "725f10a7-26dd-fa38-f973-757866a10ad4,False,2022-06-01 12:00:00+00:00,,user_1,,2,user_1",
-                    "d0780d6b-ccd0-44fa-a227-47efe4f3f30d,,,,user_2,True,1,user_2",
-                ],
-            )
+            assert lines == [
+                "actor.id,actor.is_identified,actor.created_at,actor.last_seen_at,actor.distinct_ids.0,actor.is_unresolved,event_count,event_distinct_ids.0",
+                "725f10a7-26dd-fa38-f973-757866a10ad4,False,2022-06-01 12:00:00+00:00,,user_1,,2,user_1",
+                "d0780d6b-ccd0-44fa-a227-47efe4f3f30d,,,,user_2,True,1,user_2",
+            ]
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_query_with_formula(
@@ -1027,13 +1018,7 @@ class TestCSVExporter(APIBaseTest):
 
             content = object_storage.read(exported_asset.content_location)
             lines = (content or "").strip().split("\r\n")
-            self.assertEqual(
-                lines,
-                [
-                    "series,Total Sum",
-                    "Formula (A+B),2.0",
-                ],
-            )
+            assert lines == ["series,Total Sum", "Formula (A+B),2.0"]
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_query_with_formula_and_single_breakdown(
@@ -1105,13 +1090,7 @@ class TestCSVExporter(APIBaseTest):
 
             content = object_storage.read(exported_asset.content_location)
             lines = (content or "").strip().split("\r\n")
-            self.assertEqual(
-                lines,
-                [
-                    "series,country,Total Sum",
-                    "Formula (A+B),USA,2.0",
-                ],
-            )
+            assert lines == ["series,country,Total Sum", "Formula (A+B),USA,2.0"]
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_query_with_formula_and_multiple_breakdowns(
@@ -1197,14 +1176,11 @@ class TestCSVExporter(APIBaseTest):
             # Sort data lines for consistent comparison (order may vary)
             data_lines = sorted(lines[1:])
 
-            self.assertEqual(
-                lines[0:1] + data_lines,
-                [
-                    "series,distinct_id,$browser,Total Sum",
-                    "Formula (A+B),multi_breakdown_user_1,Chrome,2.0",
-                    "Formula (A+B),multi_breakdown_user_2,Firefox,1.0",
-                ],
-            )
+            assert lines[0:1] + data_lines == [
+                "series,distinct_id,$browser,Total Sum",
+                "Formula (A+B),multi_breakdown_user_1,Chrome,2.0",
+                "Formula (A+B),multi_breakdown_user_2,Firefox,1.0",
+            ]
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_with_breakdown(self, mocked_uuidt: Any) -> None:
@@ -1267,14 +1243,11 @@ class TestCSVExporter(APIBaseTest):
             lines = (content or "").strip().split("\r\n")
             data_lines = sorted(lines[1:])
 
-            self.assertEqual(
-                lines[0:1] + data_lines,
-                [
-                    "series,$browser,Total Sum",
-                    "test_event,Chrome,1",
-                    "test_event,Firefox,1",
-                ],
-            )
+            assert lines[0:1] + data_lines == [
+                "series,$browser,Total Sum",
+                "test_event,Chrome,1",
+                "test_event,Firefox,1",
+            ]
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_with_breakdown_and_action(self, mocked_uuidt: Any) -> None:
@@ -1343,14 +1316,11 @@ class TestCSVExporter(APIBaseTest):
             lines = (content or "").strip().split("\r\n")
             data_lines = sorted(lines[1:])
 
-            self.assertEqual(
-                lines[0:1] + data_lines,
-                [
-                    "series,$browser,Total Sum",
-                    "Test Action,Chrome,1",
-                    "Test Action,Firefox,1",
-                ],
-            )
+            assert lines[0:1] + data_lines == [
+                "series,$browser,Total Sum",
+                "Test Action,Chrome,1",
+                "Test Action,Firefox,1",
+            ]
 
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("products.exports.backend.models.exported_asset.UUIDT")

@@ -140,7 +140,7 @@ class TestSubscriptionTemporal(APILicensedTest):
                 "title": "No content source",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "must have an insight, a dashboard, or a prompt" in str(response.json())
 
     @parameterized.expand(
@@ -163,14 +163,14 @@ class TestSubscriptionTemporal(APILicensedTest):
             payload["interval"] = interval
 
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json().get("attr") == "interval"
 
     def test_can_update_subscription_without_resending_relation(self):
         sub_id = self._create_subscription().json()["id"]
         response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"title": "Updated title"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["title"], "Updated title")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["title"] == "Updated title"
 
     def test_can_create_new_subscription_without_invite_message(self):
         response = self._create_subscription(invite_message=None)

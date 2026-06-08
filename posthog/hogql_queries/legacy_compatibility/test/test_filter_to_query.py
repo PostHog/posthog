@@ -921,52 +921,55 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
-        self.assertEqual(query.kind, "TrendsQuery")
+        assert query.kind == "TrendsQuery"
 
     def test_full_trend(self):
         filter: dict[str, Any] = {}
 
         query = filter_to_query(filter)
 
-        self.assertEqual(
-            query.model_dump(exclude_defaults=True),
-            {"breakdownFilter": {}, "dateRange": {}, "compareFilter": {}, "series": [], "trendsFilter": {}},
-        )
+        assert query.model_dump(exclude_defaults=True) == {
+            "breakdownFilter": {},
+            "dateRange": {},
+            "compareFilter": {},
+            "series": [],
+            "trendsFilter": {},
+        }
 
     def test_base_funnel(self):
         filter: dict[str, Any] = {"insight": "FUNNELS"}
 
         query = filter_to_query(filter)
 
-        self.assertEqual(query.kind, "FunnelsQuery")
+        assert query.kind == "FunnelsQuery"
 
     def test_base_retention_query(self):
         filter: dict[str, Any] = {"insight": "RETENTION", "retention_type": "retention_first_time"}
 
         query = filter_to_query(filter)
 
-        self.assertEqual(query.kind, "RetentionQuery")
+        assert query.kind == "RetentionQuery"
 
     def test_base_paths_query(self):
         filter: dict[str, Any] = {"insight": "PATHS", "step_limit": 2}
 
         query = filter_to_query(filter)
 
-        self.assertEqual(query.kind, "PathsQuery")
+        assert query.kind == "PathsQuery"
 
     def test_base_lifecycle_query(self):
         filter: dict[str, Any] = {"insight": "LIFECYCLE"}
 
         query = filter_to_query(filter)
 
-        self.assertEqual(query.kind, "LifecycleQuery")
+        assert query.kind == "LifecycleQuery"
 
     def test_base_stickiness_query(self):
         filter: dict[str, Any] = {"insight": "STICKINESS"}
 
         query = filter_to_query(filter)
 
-        self.assertEqual(query.kind, "StickinessQuery")
+        assert query.kind == "StickinessQuery"
 
     def test_date_range(self):
         filter: dict[str, Any] = {"date_from": "-14d", "date_to": "-7d"}
@@ -974,8 +977,8 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query.dateRange, DateRange)
-        self.assertEqual(query.dateRange.date_from, "-14d")
-        self.assertEqual(query.dateRange.date_to, "-7d")
+        assert query.dateRange.date_from == "-14d"
+        assert query.dateRange.date_to == "-7d"
 
     def test_date_range_with_explict_date_setting(self):
         filter: dict[str, Any] = {"date_from": "-14d", "date_to": "-7d", "explicit_date": "on"}
@@ -983,9 +986,9 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query.dateRange, DateRange)
-        self.assertEqual(query.dateRange.date_from, "-14d")
-        self.assertEqual(query.dateRange.date_to, "-7d")
-        self.assertEqual(query.dateRange.explicitDate, True)
+        assert query.dateRange.date_from == "-14d"
+        assert query.dateRange.date_to == "-7d"
+        assert query.dateRange.explicitDate
 
     def test_interval(self):
         filter: dict[str, Any] = {"interval": "hour"}
@@ -993,7 +996,7 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, TrendsQuery)
-        self.assertEqual(query.interval, "hour")
+        assert query.interval == "hour"
 
     def test_series_default(self):
         filter: dict[str, Any] = {}
@@ -1001,7 +1004,7 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, TrendsQuery)
-        self.assertEqual(query.series, [])
+        assert query.series == []
 
     def test_series_custom(self):
         filter: dict[str, Any] = {
@@ -1012,15 +1015,12 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, TrendsQuery)
-        self.assertEqual(
-            query.series,
-            [
-                ActionsNode(id=1),
-                ActionsNode(id=1, math=BaseMathType.DAU),
-                EventsNode(event="$pageview", name="$pageview"),
-                EventsNode(event="$pageview", name="$pageview", math=BaseMathType.DAU),
-            ],
-        )
+        assert query.series == [
+            ActionsNode(id=1),
+            ActionsNode(id=1, math=BaseMathType.DAU),
+            EventsNode(event="$pageview", name="$pageview"),
+            EventsNode(event="$pageview", name="$pageview", math=BaseMathType.DAU),
+        ]
 
     def test_series_data_warehouse(self):
         filter: dict[str, Any] = {
@@ -1040,20 +1040,17 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, TrendsQuery)
-        self.assertEqual(
-            query.series,
-            [
-                DataWarehouseNode(
-                    id="some_table",
-                    name="some_table",
-                    math=BaseMathType.TOTAL,
-                    table_name="some_table",
-                    id_field="id",
-                    timestamp_field="created_at",
-                    distinct_id_field="id",
-                )
-            ],
-        )
+        assert query.series == [
+            DataWarehouseNode(
+                id="some_table",
+                name="some_table",
+                math=BaseMathType.TOTAL,
+                table_name="some_table",
+                id_field="id",
+                timestamp_field="created_at",
+                distinct_id_field="id",
+            )
+        ]
 
     def test_series_order(self):
         filter: dict[str, Any] = {
@@ -1067,15 +1064,12 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, TrendsQuery)
-        self.assertEqual(
-            query.series,
-            [
-                ActionsNode(id=1, math=BaseMathType.DAU),
-                EventsNode(event="$pageview", name="$pageview"),
-                EventsNode(event="$pageview", name="$pageview", math=BaseMathType.DAU),
-                ActionsNode(id=1),
-            ],
-        )
+        assert query.series == [
+            ActionsNode(id=1, math=BaseMathType.DAU),
+            EventsNode(event="$pageview", name="$pageview"),
+            EventsNode(event="$pageview", name="$pageview", math=BaseMathType.DAU),
+            ActionsNode(id=1),
+        ]
 
     def test_series_math(self):
         filter: dict[str, Any] = {
@@ -1106,35 +1100,23 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, TrendsQuery)
-        self.assertEqual(
-            query.series,
-            [
-                EventsNode(event="$pageview", name="$pageview", math=BaseMathType.DAU),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                    math=PropertyMathType.MEDIAN,
-                    math_property="$math_prop",
-                ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                    math=CountPerActorMathType.AVG_COUNT_PER_ACTOR,
-                ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                    math="unique_group",
-                    math_group_type_index=MathGroupTypeIndex.NUMBER_0,
-                ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                    math="hogql",
-                    math_hogql="avg(toInt(properties.$session_id)) + 1000",
-                ),
-            ],
-        )
+        assert query.series == [
+            EventsNode(event="$pageview", name="$pageview", math=BaseMathType.DAU),
+            EventsNode(event="$pageview", name="$pageview", math=PropertyMathType.MEDIAN, math_property="$math_prop"),
+            EventsNode(event="$pageview", name="$pageview", math=CountPerActorMathType.AVG_COUNT_PER_ACTOR),
+            EventsNode(
+                event="$pageview",
+                name="$pageview",
+                math="unique_group",
+                math_group_type_index=MathGroupTypeIndex.NUMBER_0,
+            ),
+            EventsNode(
+                event="$pageview",
+                name="$pageview",
+                math="hogql",
+                math_hogql="avg(toInt(properties.$session_id)) + 1000",
+            ),
+        ]
 
     def test_series_properties(self):
         filter: dict[str, Any] = {
@@ -1233,88 +1215,52 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, TrendsQuery)
-        self.assertEqual(
-            query.series,
-            [
-                EventsNode(event="$pageview", name="$pageview", properties=None),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                    properties=[
-                        EventPropertyFilter(
-                            key="success",
-                            value=["true"],
-                            operator=PropertyOperator.EXACT,
-                        )
-                    ],
-                ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                    properties=[
-                        PersonPropertyFilter(
-                            key="email",
-                            value="is_set",
-                            operator=PropertyOperator.IS_SET,
-                        )
-                    ],
-                ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                    properties=[
-                        ElementPropertyFilter(
-                            key=Key.TEXT,
-                            value=["some text"],
-                            operator=PropertyOperator.EXACT,
-                        )
-                    ],
-                ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                    properties=[SessionPropertyFilter(key="$session_duration", value=1, operator=PropertyOperator.GT)],
-                ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                    properties=[CohortPropertyFilter(value=2)],
-                ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                    properties=[
-                        GroupPropertyFilter(
-                            key="name",
-                            value=["Hedgebox Inc."],
-                            operator=PropertyOperator.EXACT,
-                            group_type_index=2,
-                        )
-                    ],
-                ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                    properties=[HogQLPropertyFilter(key="dateDiff('minute', timestamp, now()) < 30")],
-                ),
-                EventsNode(
-                    event="$pageview",
-                    name="$pageview",
-                    properties=[
-                        EventPropertyFilter(
-                            key="$referring_domain",
-                            value="google",
-                            operator=PropertyOperator.ICONTAINS,
-                        ),
-                        EventPropertyFilter(
-                            key="utm_source",
-                            value="is_not_set",
-                            operator=PropertyOperator.IS_NOT_SET,
-                        ),
-                    ],
-                ),
-            ],
-        )
+        assert query.series == [
+            EventsNode(event="$pageview", name="$pageview", properties=None),
+            EventsNode(
+                event="$pageview",
+                name="$pageview",
+                properties=[EventPropertyFilter(key="success", value=["true"], operator=PropertyOperator.EXACT)],
+            ),
+            EventsNode(
+                event="$pageview",
+                name="$pageview",
+                properties=[PersonPropertyFilter(key="email", value="is_set", operator=PropertyOperator.IS_SET)],
+            ),
+            EventsNode(
+                event="$pageview",
+                name="$pageview",
+                properties=[ElementPropertyFilter(key=Key.TEXT, value=["some text"], operator=PropertyOperator.EXACT)],
+            ),
+            EventsNode(
+                event="$pageview",
+                name="$pageview",
+                properties=[SessionPropertyFilter(key="$session_duration", value=1, operator=PropertyOperator.GT)],
+            ),
+            EventsNode(event="$pageview", name="$pageview", properties=[CohortPropertyFilter(value=2)]),
+            EventsNode(
+                event="$pageview",
+                name="$pageview",
+                properties=[
+                    GroupPropertyFilter(
+                        key="name", value=["Hedgebox Inc."], operator=PropertyOperator.EXACT, group_type_index=2
+                    )
+                ],
+            ),
+            EventsNode(
+                event="$pageview",
+                name="$pageview",
+                properties=[HogQLPropertyFilter(key="dateDiff('minute', timestamp, now()) < 30")],
+            ),
+            EventsNode(
+                event="$pageview",
+                name="$pageview",
+                properties=[
+                    EventPropertyFilter(key="$referring_domain", value="google", operator=PropertyOperator.ICONTAINS),
+                    EventPropertyFilter(key="utm_source", value="is_not_set", operator=PropertyOperator.IS_NOT_SET),
+                ],
+            ),
+        ]
 
     def test_breakdown(self):
         filter: dict[str, Any] = {"breakdown_type": "event", "breakdown": "$browser"}
@@ -1322,10 +1268,7 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, TrendsQuery)
-        self.assertEqual(
-            query.breakdownFilter,
-            BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
-        )
+        assert query.breakdownFilter == BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser")
 
     def test_compare(self):
         filter: dict[str, Any] = {"compare": True, "compare_to": "-5w"}
@@ -1333,10 +1276,7 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, TrendsQuery)
-        self.assertEqual(
-            query.compareFilter,
-            CompareFilter(**filter),
-        )
+        assert query.compareFilter == CompareFilter(**filter)
 
     def test_breakdown_converts_multi(self):
         filter: dict[str, Any] = {"breakdowns": [{"type": "event", "property": "$browser"}]}
@@ -1344,9 +1284,8 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, TrendsQuery)
-        self.assertEqual(
-            query.breakdownFilter,
-            BreakdownFilter(breakdowns=[{"type": BreakdownType.EVENT, "property": "$browser"}]),
+        assert query.breakdownFilter == BreakdownFilter(
+            breakdowns=[{"type": BreakdownType.EVENT, "property": "$browser"}]
         )
 
         filter_with_multiple_breakdowns: dict[str, Any] = {
@@ -1359,14 +1298,11 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter_with_multiple_breakdowns)
 
         assert isinstance(query, TrendsQuery)
-        self.assertEqual(
-            query.breakdownFilter,
-            BreakdownFilter(
-                breakdowns=[
-                    {"type": BreakdownType.EVENT, "property": "$browser"},
-                    {"type": BreakdownType.SESSION, "property": "$session_duration"},
-                ]
-            ),
+        assert query.breakdownFilter == BreakdownFilter(
+            breakdowns=[
+                {"type": BreakdownType.EVENT, "property": "$browser"},
+                {"type": BreakdownType.SESSION, "property": "$session_duration"},
+            ]
         )
 
     def test_breakdown_type_default(self):
@@ -1375,10 +1311,7 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, TrendsQuery)
-        self.assertEqual(
-            query.breakdownFilter,
-            BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="some_prop"),
-        )
+        assert query.breakdownFilter == BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="some_prop")
 
     def test_trends_filter(self):
         filter: dict[str, Any] = {
@@ -1399,21 +1332,18 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, TrendsQuery)
-        self.assertEqual(
-            query.trendsFilter,
-            TrendsFilter(
-                smoothingIntervals=2,
-                aggregationAxisFormat=AggregationAxisFormat.DURATION_MS,
-                aggregationAxisPrefix="pre",
-                aggregationAxisPostfix="post",
-                formula="A + B",
-                display=ChartDisplayType.ACTIONS_AREA_GRAPH,
-                decimalPlaces=5,
-                xAxisLabel="Signup date",
-                yAxisLabel="Unique users",
-                showLegend=True,
-                showPercentStackView=True,
-            ),
+        assert query.trendsFilter == TrendsFilter(
+            smoothingIntervals=2,
+            aggregationAxisFormat=AggregationAxisFormat.DURATION_MS,
+            aggregationAxisPrefix="pre",
+            aggregationAxisPostfix="post",
+            formula="A + B",
+            display=ChartDisplayType.ACTIONS_AREA_GRAPH,
+            decimalPlaces=5,
+            xAxisLabel="Signup date",
+            yAxisLabel="Unique users",
+            showLegend=True,
+            showPercentStackView=True,
         )
 
     def test_funnels_filter(self):
@@ -1518,29 +1448,20 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, RetentionQuery)
-        self.assertEqual(
-            query.retentionFilter,
-            RetentionFilter(
-                retentionType=RetentionType.RETENTION_FIRST_TIME,
-                totalIntervals=12,
-                period=RetentionPeriod.WEEK,
-                returningEntity={
-                    "id": "$pageview",
-                    "name": "$pageview",
-                    "type": "events",
-                    "custom_name": None,
-                    "order": None,
-                },
-                targetEntity={
-                    "id": "$pageview",
-                    "name": "$pageview",
-                    "type": "events",
-                    "custom_name": None,
-                    "order": None,
-                },
-                meanRetentionCalculation="simple",
-                cumulative=True,
-            ),
+        assert query.retentionFilter == RetentionFilter(
+            retentionType=RetentionType.RETENTION_FIRST_TIME,
+            totalIntervals=12,
+            period=RetentionPeriod.WEEK,
+            returningEntity={
+                "id": "$pageview",
+                "name": "$pageview",
+                "type": "events",
+                "custom_name": None,
+                "order": None,
+            },
+            targetEntity={"id": "$pageview", "name": "$pageview", "type": "events", "custom_name": None, "order": None},
+            meanRetentionCalculation="simple",
+            cumulative=True,
         )
 
     def test_paths_filter(self):
@@ -1581,41 +1502,30 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, PathsQuery)
-        self.assertEqual(
-            query.pathsFilter,
-            PathsFilter(
-                includeEventTypes=[PathType.FIELD_PAGEVIEW, PathType.HOGQL],
-                pathsHogQLExpression="event",
-                startPoint="http://localhost:8000/events",
-                endPoint="http://localhost:8000/home",
-                edgeLimit=50,
-                minEdgeWeight=10,
-                maxEdgeWeight=20,
-                localPathCleaningFilters=[
-                    PathCleaningFilter(alias="merchant", regex="\\/merchant\\/\\d+\\/dashboard$")
-                ],
-                pathReplacements=True,
-                excludeEvents=["http://localhost:8000/events"],
-                stepLimit=5,
-                pathGroupings=["/merchant/*/payment"],
-            ),
+        assert query.pathsFilter == PathsFilter(
+            includeEventTypes=[PathType.FIELD_PAGEVIEW, PathType.HOGQL],
+            pathsHogQLExpression="event",
+            startPoint="http://localhost:8000/events",
+            endPoint="http://localhost:8000/home",
+            edgeLimit=50,
+            minEdgeWeight=10,
+            maxEdgeWeight=20,
+            localPathCleaningFilters=[PathCleaningFilter(alias="merchant", regex="\\/merchant\\/\\d+\\/dashboard$")],
+            pathReplacements=True,
+            excludeEvents=["http://localhost:8000/events"],
+            stepLimit=5,
+            pathGroupings=["/merchant/*/payment"],
         )
-        self.assertEqual(
-            query.funnelPathsFilter,
-            FunnelPathsFilter(
-                funnelPathType=FunnelPathType.FUNNEL_PATH_BETWEEN_STEPS,
-                funnelSource=FunnelsQuery(
-                    series=[
-                        EventsNode(event="$pageview", name="$pageview"),
-                        EventsNode(event=None, name="All events"),
-                    ],
-                    filterTestAccounts=True,
-                    funnelsFilter=FunnelsFilter(funnelVizType=FunnelVizType.STEPS, exclusions=[]),
-                    breakdownFilter=BreakdownFilter(),
-                    dateRange=DateRange(),
-                ),
-                funnelStep=2,
+        assert query.funnelPathsFilter == FunnelPathsFilter(
+            funnelPathType=FunnelPathType.FUNNEL_PATH_BETWEEN_STEPS,
+            funnelSource=FunnelsQuery(
+                series=[EventsNode(event="$pageview", name="$pageview"), EventsNode(event=None, name="All events")],
+                filterTestAccounts=True,
+                funnelsFilter=FunnelsFilter(funnelVizType=FunnelVizType.STEPS, exclusions=[]),
+                breakdownFilter=BreakdownFilter(),
+                dateRange=DateRange(),
             ),
+            funnelStep=2,
         )
 
     def test_stickiness_filter(self):
@@ -1629,10 +1539,7 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, StickinessQuery)
-        self.assertEqual(
-            query.stickinessFilter,
-            StickinessFilter(showLegend=True, showValuesOnSeries=True),
-        )
+        assert query.stickinessFilter == StickinessFilter(showLegend=True, showValuesOnSeries=True)
 
     def test_lifecycle_filter(self):
         filter: dict[str, Any] = {
@@ -1645,12 +1552,8 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, LifecycleQuery)
-        self.assertEqual(
-            query.lifecycleFilter,
-            LifecycleFilter(
-                showValuesOnSeries=True,
-                toggledLifecycles=[LifecycleToggle.NEW, LifecycleToggle.DORMANT],
-            ),
+        assert query.lifecycleFilter == LifecycleFilter(
+            showValuesOnSeries=True, toggledLifecycles=[LifecycleToggle.NEW, LifecycleToggle.DORMANT]
         )
 
     def test_multiple_breakdowns(self):
@@ -1666,15 +1569,12 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, TrendsQuery)
-        self.assertEqual(
-            query.breakdownFilter,
-            BreakdownFilter(
-                breakdowns=[
-                    Breakdown(type=BreakdownType.EVENT, property="$url", normalize_url=True),
-                    Breakdown(type=BreakdownType.GROUP, property="$os", group_type_index=0),
-                    Breakdown(type=BreakdownType.SESSION, property="$session_duration", histogram_bin_count=10),
-                ]
-            ),
+        assert query.breakdownFilter == BreakdownFilter(
+            breakdowns=[
+                Breakdown(type=BreakdownType.EVENT, property="$url", normalize_url=True),
+                Breakdown(type=BreakdownType.GROUP, property="$os", group_type_index=0),
+                Breakdown(type=BreakdownType.SESSION, property="$session_duration", histogram_bin_count=10),
+            ]
         )
 
     def test_funnels_multiple_breakdowns(self):
@@ -1688,12 +1588,8 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, FunnelsQuery)
-        self.assertEqual(
-            query.breakdownFilter,
-            BreakdownFilter(
-                breakdown="$session_duration",
-                breakdown_type=BreakdownType.SESSION,
-            ),
+        assert query.breakdownFilter == BreakdownFilter(
+            breakdown="$session_duration", breakdown_type=BreakdownType.SESSION
         )
 
     def test_funnels_multiple_breakdowns_no_breakdown_type(self):
@@ -1707,13 +1603,7 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, FunnelsQuery)
-        self.assertEqual(
-            query.breakdownFilter,
-            BreakdownFilter(
-                breakdown="prop",
-                breakdown_type=BreakdownType.EVENT,
-            ),
-        )
+        assert query.breakdownFilter == BreakdownFilter(breakdown="prop", breakdown_type=BreakdownType.EVENT)
 
     def test_funnels_use_first_time_for_user_math(self):
         filter: dict[str, Any] = {
@@ -1755,15 +1645,12 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, FunnelsQuery)
-        self.assertEqual(
-            query.series,
-            [
-                EventsNode(event="signed_up", name="signed_up", math=BaseMathType.FIRST_TIME_FOR_USER),
-                EventsNode(event="upgraded_plan", name="upgraded_plan"),
-                ActionsNode(id=1, name="Interacted with file", math=BaseMathType.FIRST_TIME_FOR_USER),
-                ActionsNode(id=1, name="Interacted with file"),
-            ],
-        )
+        assert query.series == [
+            EventsNode(event="signed_up", name="signed_up", math=BaseMathType.FIRST_TIME_FOR_USER),
+            EventsNode(event="upgraded_plan", name="upgraded_plan"),
+            ActionsNode(id=1, name="Interacted with file", math=BaseMathType.FIRST_TIME_FOR_USER),
+            ActionsNode(id=1, name="Interacted with file"),
+        ]
 
 
 class TestHiddenLegendKeysToIndexes(BaseTest):
@@ -1772,14 +1659,14 @@ class TestHiddenLegendKeysToIndexes(BaseTest):
 
         indexes = hidden_legend_keys_to_indexes(hidden_legend_keys)
 
-        self.assertEqual(indexes, [1, 4])
+        assert indexes == [1, 4]
 
     def test_converts_missing_legend_keys(self):
         hidden_legend_keys = None
 
         indexes = hidden_legend_keys_to_indexes(hidden_legend_keys)
 
-        self.assertEqual(indexes, None)
+        assert indexes is None
 
     def test_converts_invalid_keys(self):
         hidden_legend_keys = {
@@ -1790,7 +1677,7 @@ class TestHiddenLegendKeysToIndexes(BaseTest):
 
         indexes = hidden_legend_keys_to_indexes(hidden_legend_keys)
 
-        self.assertEqual(indexes, [1])
+        assert indexes == [1]
 
 
 class TestHiddenLegendKeysToBreakdowns(BaseTest):
@@ -1799,14 +1686,14 @@ class TestHiddenLegendKeysToBreakdowns(BaseTest):
 
         breakdowns = hidden_legend_keys_to_breakdowns(hidden_legend_keys)
 
-        self.assertEqual(breakdowns, ["Chrome", "Chrome iOS"])
+        assert breakdowns == ["Chrome", "Chrome iOS"]
 
     def test_converts_missing_legend_keys(self):
         hidden_legend_keys = None
 
         breakdowns = hidden_legend_keys_to_breakdowns(hidden_legend_keys)
 
-        self.assertEqual(breakdowns, None)
+        assert breakdowns is None
 
     def test_converts_legacy_format(self):
         hidden_legend_keys = {
@@ -1817,7 +1704,7 @@ class TestHiddenLegendKeysToBreakdowns(BaseTest):
 
         indexes = hidden_legend_keys_to_breakdowns(hidden_legend_keys)
 
-        self.assertEqual(indexes, ["Opera", "Baseline"])
+        assert indexes == ["Opera", "Baseline"]
 
     def test_ignores_digit_only_keys(self):
         hidden_legend_keys = {
@@ -1827,7 +1714,7 @@ class TestHiddenLegendKeysToBreakdowns(BaseTest):
 
         indexes = hidden_legend_keys_to_breakdowns(hidden_legend_keys)
 
-        self.assertEqual(indexes, ["Opera"])
+        assert indexes == ["Opera"]
 
 
 class TestDashboardTemplateConversion(BaseTest):
@@ -1839,7 +1726,7 @@ class TestDashboardTemplateConversion(BaseTest):
 
         query = cast(TrendsQuery, filter_to_query(filter, allow_variables=True))
 
-        self.assertEqual(query.series, ["{VARIABLE}"])
+        assert query.series == ["{VARIABLE}"]
 
     def test_funnel_series_with_variables(self):
         filter: dict[str, Any] = {
@@ -1849,7 +1736,7 @@ class TestDashboardTemplateConversion(BaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filter, allow_variables=True))
 
-        self.assertEqual(query.series, ["{VARIABLE1}", "{VARIABLE2}"])
+        assert query.series == ["{VARIABLE1}", "{VARIABLE2}"]
 
     def test_retention_entities_with_variables(self):
         filter: dict[str, Any] = {
@@ -1860,5 +1747,5 @@ class TestDashboardTemplateConversion(BaseTest):
 
         query = cast(RetentionQuery, filter_to_query(filter, allow_variables=True))
 
-        self.assertEqual(query.retentionFilter.targetEntity, "{VARIABLE1}")
-        self.assertEqual(query.retentionFilter.returningEntity, "{VARIABLE2}")
+        assert query.retentionFilter.targetEntity == "{VARIABLE1}"
+        assert query.retentionFilter.returningEntity == "{VARIABLE2}"

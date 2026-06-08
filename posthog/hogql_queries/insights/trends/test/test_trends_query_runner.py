@@ -7143,11 +7143,11 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
         if expected_from is None:
-            self.assertIsNone(response.resolved_compare_date_range)
+            assert response.resolved_compare_date_range is None
         else:
             assert response.resolved_compare_date_range is not None
-            self.assertEqual(response.resolved_compare_date_range.date_from, expected_from.replace(tzinfo=utc))
-            self.assertEqual(response.resolved_compare_date_range.date_to, expected_to.replace(tzinfo=utc))
+            assert response.resolved_compare_date_range.date_from == expected_from.replace(tzinfo=utc)
+            assert response.resolved_compare_date_range.date_to == expected_to.replace(tzinfo=utc)
 
     @parameterized.expand(
         [

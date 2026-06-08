@@ -563,16 +563,15 @@ class TestUpsertDashboardTool(BaseTest):
 
         insights = tool._resolve_insights([StateArtifactResult(content=content)])
 
-        self.assertEqual(len(insights), 1)
+        assert len(insights) == 1
         saved_query = insights[0].query
         assert saved_query is not None
-        self.assertEqual(saved_query["kind"], "DataVisualizationNode")
-        self.assertEqual(saved_query["source"]["kind"], "HogQLQuery")
-        self.assertEqual(
-            saved_query["source"]["query"],
-            "SELECT toStartOfDay(timestamp) AS day, count() FROM events GROUP BY day",
+        assert saved_query["kind"] == "DataVisualizationNode"
+        assert saved_query["source"]["kind"] == "HogQLQuery"
+        assert (
+            saved_query["source"]["query"] == "SELECT toStartOfDay(timestamp) AS day, count() FROM events GROUP BY day"
         )
-        self.assertEqual(saved_query["display"], "ActionsLineGraph")
+        assert saved_query["display"] == "ActionsLineGraph"
 
     async def test_full_integration_positional_reordering(self):
         """

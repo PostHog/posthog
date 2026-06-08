@@ -65,10 +65,10 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
 
         response = self.client.get(self._url())
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         body = response.json()
         session_ids = {row["session_id"] for row in body["results"]}
-        self.assertEqual(session_ids, {"session-a", "session-b"})
+        assert session_ids == {"session-a", "session-b"}
 
     def test_list_dedupes_to_latest_per_session(self) -> None:
         first = self._make_summary("session-a", model_used="gpt-old")
@@ -78,10 +78,10 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
 
         response = self.client.get(self._url())
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         results = response.json()["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["model_used"], "gpt-new")
+        assert len(results) == 1
+        assert results[0]["model_used"] == "gpt-new"
 
     def test_list_returns_lightweight_shape(self) -> None:
         self._make_summary(
@@ -92,19 +92,19 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
 
         response = self.client.get(self._url())
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         row = response.json()["results"][0]
-        self.assertEqual(row["session_id"], "session-a")
-        self.assertEqual(row["distinct_id"], "user-1")
-        self.assertEqual(row["exception_count"], 2)
-        self.assertTrue(row["has_exceptions"])
-        self.assertTrue(row["visual_confirmation"])
-        self.assertEqual(row["model_used"], "gpt-4o")
-        self.assertIsNone(row["extra_summary_context"])
-        self.assertEqual(row["session_outcome"]["success"], True)
+        assert row["session_id"] == "session-a"
+        assert row["distinct_id"] == "user-1"
+        assert row["exception_count"] == 2
+        assert row["has_exceptions"]
+        assert row["visual_confirmation"]
+        assert row["model_used"] == "gpt-4o"
+        assert row["extra_summary_context"] is None
+        assert row["session_outcome"]["success"]
         # The full summary JSON must not leak into the list shape.
-        self.assertNotIn("summary", row)
-        self.assertNotIn("exception_event_ids", row)
+        assert "summary" not in row
+        assert "exception_event_ids" not in row
 
     def test_list_filter_session_ids_csv(self) -> None:
         self._make_summary("session-a")
@@ -113,9 +113,9 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
 
         response = self.client.get(self._url(), {"session_ids": "session-a,session-c"})
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         session_ids = {row["session_id"] for row in response.json()["results"]}
-        self.assertEqual(session_ids, {"session-a", "session-c"})
+        assert session_ids == {"session-a", "session-c"}
 
     def test_list_filter_outcome_success(self) -> None:
         self._make_summary("session-success", success=True)
@@ -124,11 +124,11 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
 
         response = self.client.get(self._url(), {"outcome": "success"})
         ids = {row["session_id"] for row in response.json()["results"]}
-        self.assertEqual(ids, {"session-success"})
+        assert ids == {"session-success"}
 
         response = self.client.get(self._url(), {"outcome": "failure"})
         ids = {row["session_id"] for row in response.json()["results"]}
-        self.assertEqual(ids, {"session-failure"})
+        assert ids == {"session-failure"}
 
     def test_list_filter_has_exceptions(self) -> None:
         self._make_summary("session-with-exc", exception_event_ids=["evt-1"])
@@ -136,11 +136,11 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
 
         response = self.client.get(self._url(), {"has_exceptions": "true"})
         ids = {row["session_id"] for row in response.json()["results"]}
-        self.assertEqual(ids, {"session-with-exc"})
+        assert ids == {"session-with-exc"}
 
         response = self.client.get(self._url(), {"has_exceptions": "false"})
         ids = {row["session_id"] for row in response.json()["results"]}
-        self.assertEqual(ids, {"session-no-exc"})
+        assert ids == {"session-no-exc"}
 
     def test_list_filter_has_visual_confirmation(self) -> None:
         self._make_summary("session-video", visual_confirmation=True)
@@ -148,7 +148,7 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
 
         response = self.client.get(self._url(), {"has_visual_confirmation": "true"})
         ids = {row["session_id"] for row in response.json()["results"]}
-        self.assertEqual(ids, {"session-video"})
+        assert ids == {"session-video"}
 
     def test_list_filter_distinct_id(self) -> None:
         self._make_summary("session-a", distinct_id="alice")
@@ -156,7 +156,7 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
 
         response = self.client.get(self._url(), {"distinct_id": "alice"})
         ids = {row["session_id"] for row in response.json()["results"]}
-        self.assertEqual(ids, {"session-a"})
+        assert ids == {"session-a"}
 
     def test_list_date_bounds_are_inclusive(self) -> None:
         boundary = self._make_summary("session-boundary")
@@ -169,14 +169,14 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
         # date_from equal to the boundary timestamp must include that row (inclusive lower bound).
         response = self.client.get(self._url(), {"date_from": "2026-03-01"})
         ids = {row["session_id"] for row in response.json()["results"]}
-        self.assertIn("session-boundary", ids)
-        self.assertNotIn("session-earlier", ids)
+        assert "session-boundary" in ids
+        assert "session-earlier" not in ids
 
         # date_to equal to the boundary timestamp must include that row (inclusive upper bound).
         response = self.client.get(self._url(), {"date_to": "2026-03-01"})
         ids = {row["session_id"] for row in response.json()["results"]}
-        self.assertIn("session-boundary", ids)
-        self.assertIn("session-earlier", ids)
+        assert "session-boundary" in ids
+        assert "session-earlier" in ids
 
     def test_list_orders_by_allowed_field(self) -> None:
         short = self._make_summary("session-short", session_duration=10)
@@ -184,34 +184,34 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
 
         response = self.client.get(self._url(), {"order": "-session_duration"})
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         ordered_ids = [row["session_id"] for row in response.json()["results"]]
-        self.assertEqual(ordered_ids, [long.session_id, short.session_id])
+        assert ordered_ids == [long.session_id, short.session_id]
 
     def test_list_rejects_unknown_order_field(self) -> None:
         self._make_summary("session-a")
 
         response = self.client.get(self._url(), {"order": "created_by__email"})
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["attr"], "order")
+        assert response.status_code == 400
+        assert response.json()["attr"] == "order"
 
     def test_list_rejects_invalid_created_by(self) -> None:
         self._make_summary("session-a")
         response = self.client.get(self._url(), {"created_by": "not-a-uuid"})
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["attr"], "created_by")
+        assert response.status_code == 400
+        assert response.json()["attr"] == "created_by"
 
     def test_list_rejects_unparseable_date(self) -> None:
         self._make_summary("session-a")
         response = self.client.get(self._url(), {"date_from": "yesterday"})
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["attr"], "date_from")
+        assert response.status_code == 400
+        assert response.json()["attr"] == "date_from"
 
     def test_list_accepts_relative_date_shorthand(self) -> None:
         self._make_summary("session-a")
         response = self.client.get(self._url(), {"date_from": "-30d"})
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     def test_list_state_filter_reflects_latest_summary(self) -> None:
         # A session whose older summary failed but latest succeeded must NOT appear under
@@ -222,10 +222,10 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
         self._make_summary("sess-flip", success=True)
 
         failure = self.client.get(self._url(), {"outcome": "failure"})
-        self.assertEqual([row["session_id"] for row in failure.json()["results"]], [])
+        assert [row["session_id"] for row in failure.json()["results"]] == []
 
         success = self.client.get(self._url(), {"outcome": "success"})
-        self.assertEqual({row["session_id"] for row in success.json()["results"]}, {"sess-flip"})
+        assert {row["session_id"] for row in success.json()["results"]} == {"sess-flip"}
 
     def test_list_and_retrieve_exclude_deleted_recordings(self) -> None:
         self._make_summary("live-rec")
@@ -233,10 +233,10 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
         SessionRecording.objects.create(team=self.team, session_id="deleted-rec", deleted=True)
 
         ids = {row["session_id"] for row in self.client.get(self._url()).json()["results"]}
-        self.assertIn("live-rec", ids)
-        self.assertNotIn("deleted-rec", ids)
+        assert "live-rec" in ids
+        assert "deleted-rec" not in ids
 
-        self.assertEqual(self.client.get(self._url("deleted-rec")).status_code, 404)
+        assert self.client.get(self._url("deleted-rec")).status_code == 404
 
     def test_retrieve_returns_full_summary(self) -> None:
         self._make_summary(
@@ -247,16 +247,16 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
 
         response = self.client.get(self._url("session-a"))
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         body = response.json()
-        self.assertEqual(body["session_id"], "session-a")
-        self.assertIn("segments", body["summary"])
-        self.assertIn("key_actions", body["summary"])
-        self.assertIn("session_outcome", body["summary"])
-        self.assertEqual(body["exception_event_ids"], ["evt-1"])
-        self.assertIsNone(body["extra_summary_context"])
-        self.assertEqual(body["run_metadata"]["model_used"], "gpt-4o")
-        self.assertEqual(body["run_metadata"]["visual_confirmation"], True)
+        assert body["session_id"] == "session-a"
+        assert "segments" in body["summary"]
+        assert "key_actions" in body["summary"]
+        assert "session_outcome" in body["summary"]
+        assert body["exception_event_ids"] == ["evt-1"]
+        assert body["extra_summary_context"] is None
+        assert body["run_metadata"]["model_used"] == "gpt-4o"
+        assert body["run_metadata"]["visual_confirmation"]
 
     def test_retrieve_returns_default_context_over_newer_focused_summary(self) -> None:
         # The retrieve path matches `get_summary(..., extra_summary_context=None)`: a focused
@@ -268,14 +268,14 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
 
         response = self.client.get(self._url("sess-ctx"))
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIsNone(response.json()["extra_summary_context"])
-        self.assertEqual(response.json()["run_metadata"]["model_used"], "default-model")
+        assert response.status_code == 200
+        assert response.json()["extra_summary_context"] is None
+        assert response.json()["run_metadata"]["model_used"] == "default-model"
 
     def test_retrieve_404_when_only_focused_context_exists(self) -> None:
         self._make_summary("sess-focused-only", focus_area="checkout")
         response = self.client.get(self._url("sess-focused-only"))
-        self.assertEqual(response.status_code, 404)
+        assert response.status_code == 404
 
     def test_list_only_returns_default_context_summaries(self) -> None:
         # List keys on the default (null-context) summary, like retrieve — a focused-only session
@@ -288,9 +288,9 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
         self._make_summary("sess-both", focus_area="checkout")
 
         results = {row["session_id"]: row for row in self.client.get(self._url()).json()["results"]}
-        self.assertIn("sess-default-only", results)
-        self.assertNotIn("sess-focused-only", results)
-        self.assertIsNone(results["sess-both"]["extra_summary_context"])
+        assert "sess-default-only" in results
+        assert "sess-focused-only" not in results
+        assert results["sess-both"]["extra_summary_context"] is None
 
     def test_retrieve_returns_latest_summary_when_multiple_exist(self) -> None:
         older = self._make_summary("session-a", model_used="gpt-old")
@@ -300,33 +300,33 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
 
         response = self.client.get(self._url("session-a"))
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["run_metadata"]["model_used"], "gpt-new")
+        assert response.status_code == 200
+        assert response.json()["run_metadata"]["model_used"] == "gpt-new"
 
     def test_retrieve_returns_404_when_missing(self) -> None:
         response = self.client.get(self._url("nonexistent-session"))
-        self.assertEqual(response.status_code, 404)
+        assert response.status_code == 404
 
     def test_retrieve_other_team_summary_is_404(self) -> None:
         other_team = Organization.objects.bootstrap(None)[2]
         self._make_summary("cross-team", team=other_team)
 
         response = self.client.get(self._url("cross-team"))
-        self.assertEqual(response.status_code, 404)
+        assert response.status_code == 404
 
     def test_list_unauthenticated(self) -> None:
         self.client.logout()
         response = self.client.get(self._url())
-        self.assertEqual(response.status_code, 401)
+        assert response.status_code == 401
 
     def test_create_is_not_allowed(self) -> None:
         response = self.client.post(self._url(), {"session_id": "x"}, format="json")
-        self.assertIn(response.status_code, (403, 405))
+        assert response.status_code in (403, 405)
 
     def test_delete_is_not_allowed(self) -> None:
         self._make_summary("session-a")
         response = self.client.delete(self._url("session-a"))
-        self.assertIn(response.status_code, (403, 405))
+        assert response.status_code in (403, 405)
 
     def test_run_metadata_fields_handle_none(self) -> None:
         # Older rows may have written before run_metadata was added; the API should not crash on them.
@@ -340,15 +340,15 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
         )
 
         response = self.client.get(self._url())
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         row = next(r for r in response.json()["results"] if r["session_id"] == "legacy-session")
-        self.assertIsNone(row["model_used"])
-        self.assertFalse(row["visual_confirmation"])
+        assert row["model_used"] is None
+        assert not row["visual_confirmation"]
 
         # Retrieve serializes the null run_metadata without crashing (schema marks it nullable).
         retrieve = self.client.get(self._url("legacy-session"))
-        self.assertEqual(retrieve.status_code, 200)
-        self.assertIsNone(retrieve.json()["run_metadata"])
+        assert retrieve.status_code == 200
+        assert retrieve.json()["run_metadata"] is None
 
     def test_dataclass_round_trip_via_manager(self) -> None:
         # Sanity check that the serializer produces what the manager writes via the production code path.
@@ -367,11 +367,11 @@ class TestSingleSessionSummaryViewSet(APIBaseTest):
 
         response = self.client.get(self._url("session-a"))
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         body = response.json()
-        self.assertEqual(body["session_id"], "session-a")
-        self.assertIn("segments", body["summary"])
-        self.assertIsNone(body["extra_summary_context"])
+        assert body["session_id"] == "session-a"
+        assert "segments" in body["summary"]
+        assert body["extra_summary_context"] is None
 
 
 @pytest.mark.ee
@@ -433,18 +433,18 @@ class TestSingleSessionSummaryViewSetAccessControl(APIBaseTest):
     def test_list_only_returns_summaries_for_accessible_recordings(self) -> None:
         response = self.client.get(self._url())
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         session_ids = {row["session_id"] for row in response.json()["results"]}
-        self.assertEqual(session_ids, {"rec-allowed"})
+        assert session_ids == {"rec-allowed"}
 
     def test_retrieve_accessible_recording_summary_succeeds(self) -> None:
         response = self.client.get(self._url("rec-allowed"))
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["session_id"], "rec-allowed")
+        assert response.status_code == 200
+        assert response.json()["session_id"] == "rec-allowed"
 
     def test_retrieve_inaccessible_recording_summary_is_forbidden(self) -> None:
         response = self.client.get(self._url("rec-denied"))
-        self.assertEqual(response.status_code, 403)
+        assert response.status_code == 403
 
     def test_full_recording_access_sees_all_summaries(self) -> None:
         # A user with team-wide viewer access takes the fast path (no per-recording filtering).
@@ -455,9 +455,9 @@ class TestSingleSessionSummaryViewSetAccessControl(APIBaseTest):
 
         response = self.client.get(self._url())
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         session_ids = {row["session_id"] for row in response.json()["results"]}
-        self.assertEqual(session_ids, {"rec-allowed", "rec-denied"})
+        assert session_ids == {"rec-allowed", "rec-denied"}
 
     def test_list_honors_object_level_deny_with_team_access(self) -> None:
         # Team-wide viewer access, but one recording explicitly denied: the list must exclude it
@@ -476,6 +476,6 @@ class TestSingleSessionSummaryViewSetAccessControl(APIBaseTest):
 
         response = self.client.get(self._url())
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         session_ids = {row["session_id"] for row in response.json()["results"]}
-        self.assertEqual(session_ids, {"rec-allowed"})
+        assert session_ids == {"rec-allowed"}

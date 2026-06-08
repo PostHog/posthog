@@ -790,14 +790,8 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 }
             }
         )
-        self.assertEqual(
-            [series["breakdown_value"] for series in response],
-            [series["breakdown_value"] for series in baseline],
-        )
-        self.assertEqual(
-            [series["data"] for series in response],
-            [series["data"] for series in baseline],
-        )
+        assert [series["breakdown_value"] for series in response] == [series["breakdown_value"] for series in baseline]
+        assert [series["data"] for series in response] == [series["data"] for series in baseline]
 
     def test_multiple_breakdowns_with_hogql_aliases(self):
         response = self._run(
@@ -823,14 +817,8 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 ),
             }
         )
-        self.assertEqual(
-            [series["breakdown_value"] for series in response],
-            [series["breakdown_value"] for series in baseline],
-        )
-        self.assertEqual(
-            [series["data"] for series in response],
-            [series["data"] for series in baseline],
-        )
+        assert [series["breakdown_value"] for series in response] == [series["breakdown_value"] for series in baseline]
+        assert [series["data"] for series in response] == [series["data"] for series in baseline]
 
     @snapshot_clickhouse_queries
     def test_formula_with_hogql_math_no_matching_events(self):

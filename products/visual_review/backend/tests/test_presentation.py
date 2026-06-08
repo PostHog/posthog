@@ -27,11 +27,11 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
-        self.assertEqual(data["repo_full_name"], "org/my-repo")
-        self.assertEqual(data["repo_external_id"], 12345)
-        self.assertIn("id", data)
+        assert data["repo_full_name"] == "org/my-repo"
+        assert data["repo_external_id"] == 12345
+        assert "id" in data
 
     def test_list_repos(self):
         existing_count = self.client.get(f"/api/projects/{self.team.id}/visual_review/repos/").json()["count"]
@@ -40,24 +40,24 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/repos/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["count"] - existing_count, 2)
+        assert data["count"] - existing_count == 2
 
     def test_retrieve_project(self):
         repo = api.create_repo(team_id=self.team.id, repo_external_id=333, repo_full_name="org/test")
 
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["repo_full_name"], "org/test")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["repo_full_name"] == "org/test"
 
     def test_retrieve_project_not_found(self):
         import uuid
 
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/repos/{uuid.uuid4()}/")
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
@@ -91,13 +91,13 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
-        self.assertIn("run_id", data)
-        self.assertIn("uploads", data)
-        self.assertEqual(len(data["uploads"]), 2)
+        assert "run_id" in data
+        assert "uploads" in data
+        assert len(data["uploads"]) == 2
         upload_hashes = {u["content_hash"] for u in data["uploads"]}
-        self.assertEqual(upload_hashes, {"hash1", "hash2"})
+        assert upload_hashes == {"hash1", "hash2"}
 
     def test_retrieve_run(self):
         create_result = api.create_run(
@@ -113,10 +113,10 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["commit_sha"], "abc123")
-        self.assertEqual(data["status"], "pending")
+        assert data["commit_sha"] == "abc123"
+        assert data["status"] == "pending"
 
     def test_get_run_snapshots(self):
         create_result = api.create_run(
@@ -135,12 +135,12 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/snapshots/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
         results = data["results"]
-        self.assertEqual(len(results), 2)
+        assert len(results) == 2
         identifiers = {s["identifier"] for s in results}
-        self.assertEqual(identifiers, {"Button", "Card"})
+        assert identifiers == {"Button", "Card"}
 
     @parameterized.expand(
         [
@@ -196,8 +196,8 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/complete/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], "completed")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "completed"
         mock_delay.assert_not_called()
 
     def test_approve_run(self):
@@ -229,9 +229,9 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         # Per-snapshot approval is DB only — run not finalized
-        self.assertFalse(response.json()["approved"])
+        assert not response.json()["approved"]
 
     def test_finalize_run(self):
         logic.get_or_create_artifact(
@@ -267,8 +267,8 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["run"]["approved"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["run"]["approved"]
 
     def _changed_snapshot_for_tolerate(self) -> tuple[str, str]:
         logic.get_or_create_artifact(
@@ -426,20 +426,20 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         response = self.client.get(self._history_url("Button"))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         body = response.json()
         results = body["results"]
         # Two baseline transitions: aaa1111 (inception, base-1) and bbb1111
         # (transition to base-2). aaa2222 collapses into aaa1111's period;
         # ddd0000 collapses into bbb1111's.
-        self.assertEqual(body["count"], 2)
+        assert body["count"] == 2
         # Output is newest-first.
-        self.assertEqual(results[0]["commit_sha"], "bbb1111")
-        self.assertEqual(results[1]["commit_sha"], "aaa1111")
+        assert results[0]["commit_sha"] == "bbb1111"
+        assert results[1]["commit_sha"] == "aaa1111"
         for entry in results:
-            self.assertIn("snapshot_id", entry)
-            self.assertIn("review_state", entry)
-            self.assertIn("diff_percentage", entry)
+            assert "snapshot_id" in entry
+            assert "review_state" in entry
+            assert "diff_percentage" in entry
 
     def test_snapshot_history_with_special_chars_in_identifier(self):
         """Identifiers with `--`, spaces and dots round-trip via percent-encoding.
@@ -449,5 +449,5 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         Don't ship snapshot identifiers with literal slashes.
         """
         response = self.client.get(self._history_url("Components-Button--default v2.0"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 0)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 0

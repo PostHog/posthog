@@ -24,20 +24,20 @@ class TestUserInterviewAgentToolkit(TestCase):
     def test_toolkit_includes_both_user_interview_tools(self):
         tool_class_names = [tool_class.__name__ for tool_class in _make_toolkit(UserInterviewAgentToolkit).tools]
 
-        self.assertIn("CreateUserInterviewTopicTool", tool_class_names)
-        self.assertIn("AnalyzeUserInterviewsTool", tool_class_names)
+        assert "CreateUserInterviewTopicTool" in tool_class_names
+        assert "AnalyzeUserInterviewsTool" in tool_class_names
 
     def test_read_only_toolkit_excludes_create_tool(self):
         tool_class_names = [
             tool_class.__name__ for tool_class in _make_toolkit(ReadOnlyUserInterviewAgentToolkit).tools
         ]
 
-        self.assertEqual(tool_class_names, ["AnalyzeUserInterviewsTool"])
+        assert tool_class_names == ["AnalyzeUserInterviewsTool"]
 
     def test_toolkit_has_trajectory_examples(self):
         examples = UserInterviewAgentToolkit.POSITIVE_TODO_EXAMPLES
-        self.assertIsNotNone(examples)
-        self.assertGreater(len(examples), 0)
+        assert examples is not None
+        assert len(examples) > 0
 
     @parameterized.expand(
         [
@@ -47,7 +47,7 @@ class TestUserInterviewAgentToolkit(TestCase):
         ]
     )
     def test_mode_definition_uses_user_interview_mode(self, _name, definition):
-        self.assertEqual(definition.mode, AgentMode.USER_INTERVIEW)
+        assert definition.mode == AgentMode.USER_INTERVIEW
 
     @parameterized.expand(
         [
@@ -56,4 +56,4 @@ class TestUserInterviewAgentToolkit(TestCase):
         ]
     )
     def test_read_only_variants_use_read_only_toolkit(self, _name, definition):
-        self.assertEqual(definition.toolkit_class, ReadOnlyUserInterviewAgentToolkit)
+        assert definition.toolkit_class == ReadOnlyUserInterviewAgentToolkit

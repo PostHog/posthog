@@ -161,8 +161,8 @@ class TestErrorTrackingQueryRunnerV3(
 
         results = self._calculate()["results"]
         matching = [r for r in results if r["id"] == issue_id]
-        self.assertEqual(len(matching), 1)
-        self.assertIsNone(matching[0]["assignee"])
+        assert len(matching) == 1
+        assert matching[0]["assignee"] is None
 
     @parameterized.expand(
         [
@@ -208,7 +208,7 @@ class TestErrorTrackingQueryRunnerV3(
             )
             if included
         }
-        self.assertEqual(result_ids, expected_ids)
+        assert result_ids == expected_ids
 
     @freeze_time("2022-01-10T12:11:00")
     def test_nested_filter_group_routes_issue_filters_to_issue_fields(self):
@@ -252,11 +252,11 @@ class TestErrorTrackingQueryRunnerV3(
         user_filter_expr = builder._user_filter_expr()
         assert user_filter_expr is not None
         user_filter_hogql = user_filter_expr.to_hogql()
-        self.assertIn("e.issue_name", user_filter_hogql)
-        self.assertNotIn("properties.name", user_filter_hogql)
+        assert "e.issue_name" in user_filter_hogql
+        assert "properties.name" not in user_filter_hogql
 
         results = self._calculate(filterGroup=filter_group)["results"]
-        self.assertEqual([r["id"] for r in results], [self.issue_id_one])
+        assert [r["id"] for r in results] == [self.issue_id_one]
 
     @freeze_time("2022-01-10T12:11:00")
     def test_status(self):

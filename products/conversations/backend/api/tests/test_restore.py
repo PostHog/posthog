@@ -670,7 +670,7 @@ class TestRestoreAPI(BaseTest):
             **self._get_headers(origin="https://allowed.com"),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_send_email.delay.assert_not_called()
 
     def test_restore_redeem_authentication_required(self):

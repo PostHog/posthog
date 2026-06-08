@@ -186,21 +186,21 @@ class TestEscapePreservationOnParserOutput(BaseTest):
     def test_string_constant_with_injection_chars_is_parameterized_not_inlined(self):
         # Dangerous string content lands in `context.values` (a parameter slot, escaped at bind time by the CH driver), not in the SQL body itself.
         sql, context = _print(self, parse_select("SELECT 'evil''; DROP TABLE events; --'"))
-        self.assertNotIn("DROP TABLE", sql)
-        self.assertIn("evil'; DROP TABLE events; --", context.values.values())
+        assert "DROP TABLE" not in sql
+        assert "evil'; DROP TABLE events; --" in context.values.values()
 
     def test_string_constant_with_control_chars_does_not_leak_into_sql(self):
         # Whatever subset of `\n` / `\t` / `\0` survives the HogQL parser must end up in `context.values`, not embedded in the emitted SQL where a raw newline / tab could terminate the statement.
         sql, context = _print(self, parse_select("SELECT '\\n\\t\\0'"))
-        self.assertNotIn("\n", sql)
-        self.assertNotIn("\t", sql)
-        self.assertNotIn("\0", sql)
-        self.assertGreaterEqual(len(context.values), 1)
+        assert "\n" not in sql
+        assert "\t" not in sql
+        assert "\x00" not in sql
+        assert len(context.values) >= 1
 
     def test_identifier_with_backtick_is_backtick_escaped(self):
         # HogQL accepts backtick-quoted identifiers with doubled inner backticks; printer re-emits backtick-wrapped with the inner backtick backslash-escaped.
         sql, _ = _print(self, parse_select("SELECT 1 AS `weird``name` FROM events"))
-        self.assertIn("`weird\\`name`", sql)
+        assert "`weird\\`name`" in sql
 
     def test_identifier_with_percent_rejected(self):
         # `%` is reserved for parameter placeholders downstream; every identifier escape path rejects it.
@@ -210,7 +210,7 @@ class TestEscapePreservationOnParserOutput(BaseTest):
     def test_identifier_with_semicolon_in_backticks_escaped_not_executed(self):
         # A semicolon inside a backtick-wrapped identifier lexes as part of the identifier — the backtick scope keeps it from terminating the statement.
         sql, _ = _print(self, parse_select("SELECT 1 AS `id; DROP TABLE events; --`"))
-        self.assertIn("`id; DROP TABLE events; --`", sql)
+        assert "`id; DROP TABLE events; --`" in sql
 
 
 class TestParserPathProducesOnlyAllowlistedVerbatimValues(BaseTest):

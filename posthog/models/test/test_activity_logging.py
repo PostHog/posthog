@@ -28,16 +28,13 @@ class TeatActivityLog(TestCase):
 
         description = describe_change(tile)
 
-        self.assertEqual(
-            description,
-            {
-                "dashboard": {"id": 2, "name": "Dash"},
-                "insight": {"id": 1},
-                "text": None,
-                "button_tile": None,
-                "widget": None,
-            },
-        )
+        assert description == {
+            "dashboard": {"id": 2, "name": "Dash"},
+            "insight": {"id": 1},
+            "text": None,
+            "button_tile": None,
+            "widget": None,
+        }
 
     def test_dict_changes_between_ignores_new_null_tile_content_keys(self):
         previous = {"dashboard": {"id": 1, "name": "Dash"}, "insight": {"id": 10}}
@@ -49,4 +46,4 @@ class TeatActivityLog(TestCase):
             "widget": None,
         }
 
-        self.assertEqual(dict_changes_between(cast(AuditableScope, "DashboardTile"), previous, new), [])
+        assert dict_changes_between(cast(AuditableScope, "DashboardTile"), previous, new) == []

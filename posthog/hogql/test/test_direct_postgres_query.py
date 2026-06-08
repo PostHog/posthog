@@ -434,7 +434,7 @@ class TestDirectPostgresQuery(APIBaseTest):
             executor.generate_clickhouse_sql()
 
         # Must fail at resolve time, not as an accepted opaque table (which fails generically at print).
-        self.assertNotIn("is not supported in ClickHouse dialect", str(ctx.exception))
+        assert "is not supported in ClickHouse dialect" not in str(ctx.exception)
 
     @parameterized.expand(
         [
@@ -456,7 +456,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         ]
     )
     def test_is_dangerous_table_function(self, function_name: str, expected: bool):
-        self.assertEqual(is_dangerous_table_function(function_name), expected)
+        assert is_dangerous_table_function(function_name) == expected
 
     def test_generate_sql_for_duckdb_direct_postgres_table_uses_connection_catalog(self):
         source = ExternalDataSource.objects.create(

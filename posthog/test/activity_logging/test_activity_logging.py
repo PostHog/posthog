@@ -125,7 +125,7 @@ class TestActivityLogModel(BaseTest):
             activity_storage.clear_ip_address()
 
         log: ActivityLog = ActivityLog.objects.latest("id")
-        self.assertEqual(log.ip_address, "203.0.113.42")
+        assert log.ip_address == "203.0.113.42"
 
     def test_explicit_ip_address_overrides_storage(self) -> None:
         activity_storage.set_ip_address("10.0.0.1")
@@ -145,7 +145,7 @@ class TestActivityLogModel(BaseTest):
             activity_storage.clear_ip_address()
 
         log: ActivityLog = ActivityLog.objects.latest("id")
-        self.assertEqual(log.ip_address, "198.51.100.7")
+        assert log.ip_address == "198.51.100.7"
 
     def test_ip_address_defaults_to_none_when_unset(self) -> None:
         log_activity(
@@ -159,7 +159,7 @@ class TestActivityLogModel(BaseTest):
             detail=Detail(),
         )
         log: ActivityLog = ActivityLog.objects.latest("id")
-        self.assertIsNone(log.ip_address)
+        assert log.ip_address is None
 
     def test_does_not_save_impersonated_activity_without_user(self) -> None:
         log_activity(

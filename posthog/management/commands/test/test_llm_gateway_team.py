@@ -17,17 +17,17 @@ class TestLLMGatewayTeamCommand(BaseTest):
         return out.getvalue()
 
     def test_enable_by_team_id(self) -> None:
-        self.assertIsNone(self.team.llm_gateway_enabled_at)
+        assert self.team.llm_gateway_enabled_at is None
         out = self._run("enable", str(self.team.id))
         self.team.refresh_from_db()
-        self.assertIsNotNone(self.team.llm_gateway_enabled_at)
-        self.assertIn("enable ok", out)
+        assert self.team.llm_gateway_enabled_at is not None
+        assert "enable ok" in out
 
     def test_enable_by_api_token(self) -> None:
         out = self._run("enable", self.team.api_token)
         self.team.refresh_from_db()
-        self.assertIsNotNone(self.team.llm_gateway_enabled_at)
-        self.assertIn(self.team.api_token, out)
+        assert self.team.llm_gateway_enabled_at is not None
+        assert self.team.api_token in out
 
     @parameterized.expand([("enable", "llm_gateway_enabled_at"), ("revoke", "llm_gateway_revoked_at")])
     def test_set_action_is_idempotent(self, action: str, field: str) -> None:
@@ -37,14 +37,14 @@ class TestLLMGatewayTeamCommand(BaseTest):
         self.team.save()
         out = self._run(action, str(self.team.id))
         self.team.refresh_from_db()
-        self.assertEqual(getattr(self.team, field), original)
-        self.assertIn("no-op", out)
+        assert getattr(self.team, field) == original
+        assert "no-op" in out
 
     def test_revoke_sets_revoked_at(self) -> None:
         out = self._run("revoke", str(self.team.id))
         self.team.refresh_from_db()
-        self.assertIsNotNone(self.team.llm_gateway_revoked_at)
-        self.assertIn("revoke ok", out)
+        assert self.team.llm_gateway_revoked_at is not None
+        assert "revoke ok" in out
 
     @parameterized.expand(
         [
@@ -57,8 +57,8 @@ class TestLLMGatewayTeamCommand(BaseTest):
         self.team.save()
         out = self._run(action, str(self.team.id))
         self.team.refresh_from_db()
-        self.assertIsNone(getattr(self.team, field))
-        self.assertIn(f"{action} ok", out)
+        assert getattr(self.team, field) is None
+        assert f"{action} ok" in out
 
     @parameterized.expand(
         [
@@ -67,9 +67,9 @@ class TestLLMGatewayTeamCommand(BaseTest):
         ]
     )
     def test_clear_action_on_already_null_is_noop(self, action: str, field: str) -> None:
-        self.assertIsNone(getattr(self.team, field))
+        assert getattr(self.team, field) is None
         out = self._run(action, str(self.team.id))
-        self.assertIn("no-op", out)
+        assert "no-op" in out
 
     @parameterized.expand(
         [
@@ -89,7 +89,7 @@ class TestLLMGatewayTeamCommand(BaseTest):
         self.team.llm_gateway_revoked_at = revoked_at
         self.team.save()
         out = self._run("status", str(self.team.id))
-        self.assertIn(expected_marker, out)
+        assert expected_marker in out
 
     @parameterized.expand(
         [
@@ -113,6 +113,6 @@ class TestLLMGatewayTeamCommand(BaseTest):
             out = self._run("refresh", str(self.team.id))
         self.team.refresh_from_db()
         mock_update.assert_called_once_with(self.team)
-        self.assertEqual(self.team.llm_gateway_enabled_at, before_enabled)
-        self.assertEqual(self.team.llm_gateway_revoked_at, before_revoked)
-        self.assertIn("refresh ok", out)
+        assert self.team.llm_gateway_enabled_at == before_enabled
+        assert self.team.llm_gateway_revoked_at == before_revoked
+        assert "refresh ok" in out

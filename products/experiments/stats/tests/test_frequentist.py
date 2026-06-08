@@ -197,7 +197,7 @@ class TestSequentialMath(TestCase):
         alpha = 0.05
         seq_halfwidth = sequential_interval_halfwidth(s2, n, 5000, alpha)
         fixed_halfwidth = 1.96 * math.sqrt(s2 / n)
-        self.assertGreater(seq_halfwidth, fixed_halfwidth)
+        assert seq_halfwidth > fixed_halfwidth
 
     def test_sequential_p_value_clamps_to_one_with_small_n(self):
         # Tiny effect, tiny n: e-value < 1 so p-value clamps to 1.
@@ -208,7 +208,7 @@ class TestSequentialMath(TestCase):
             sequential_tuning_parameter=5000,
             alpha=0.05,
         )
-        self.assertEqual(p, 1.0)
+        assert p == 1.0
 
     def test_sequential_p_value_drops_with_strong_evidence(self):
         # Strong, well-powered effect should produce a small always-valid p-value.
@@ -220,7 +220,7 @@ class TestSequentialMath(TestCase):
             sequential_tuning_parameter=5000,
             alpha=0.05,
         )
-        self.assertLess(p_strong, 0.05)
+        assert p_strong < 0.05
 
 
 class TestSequentialTwoSidedTTest(TestCase):
@@ -249,11 +249,11 @@ class TestSequentialTwoSidedTTest(TestCase):
         fixed_width = fixed_result.confidence_interval[1] - fixed_result.confidence_interval[0]
         seq_width = seq_result.confidence_interval[1] - seq_result.confidence_interval[0]
 
-        self.assertGreater(seq_width, fixed_width)
+        assert seq_width > fixed_width
         self.assertAlmostEqual(seq_result.point_estimate, fixed_result.point_estimate, places=6)
-        self.assertEqual(seq_result.test_type, "sequential_two_sided")
-        self.assertTrue(math.isnan(seq_result.degrees_of_freedom))
-        self.assertTrue(math.isnan(seq_result.test_statistic))
+        assert seq_result.test_type == "sequential_two_sided"
+        assert math.isnan(seq_result.degrees_of_freedom)
+        assert math.isnan(seq_result.test_statistic)
 
     def test_sequential_p_value_with_zero_effect_returns_one(self):
         from products.experiments.stats.frequentist.method import TestType
@@ -269,8 +269,8 @@ class TestSequentialTwoSidedTTest(TestCase):
             sequential_tuning_parameter=5000,
         )
         result = FrequentistMethod(config).run_test(stat_a, stat_b)
-        self.assertEqual(result.p_value, 1.0)
-        self.assertFalse(result.is_significant)
+        assert result.p_value == 1.0
+        assert not result.is_significant
 
     def test_invalid_tuning_parameter_raises(self):
         with self.assertRaises(StatisticError):
@@ -345,10 +345,10 @@ class TestSequentialTwoSidedTTestGoldenValues(TestCase):
         above = interval(10000)
 
         # Under-estimating the sample size gives the widest interval.
-        self.assertLess(below[0], near[0])
-        self.assertGreater(below[1], near[1])
-        self.assertLess(below[0], above[0])
-        self.assertGreater(below[1], above[1])
+        assert below[0] < near[0]
+        assert below[1] > near[1]
+        assert below[0] < above[0]
+        assert below[1] > above[1]
         # Over-estimating is wider than estimating well, but narrower than under-estimating.
-        self.assertLess(above[0], near[0])
-        self.assertGreater(above[1], near[1])
+        assert above[0] < near[0]
+        assert above[1] > near[1]

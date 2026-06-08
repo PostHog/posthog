@@ -109,9 +109,9 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
         names = {r["name"] for r in results}
         # Trace A's root always matches the filter, and its children are always prefetched for the
         # waterfall regardless of rootSpans — this is the regression guard for the root_filter fix.
-        self.assertIn(ROOT_NAME, names)
-        self.assertIn(CHILD_NAME, names)
+        assert ROOT_NAME in names
+        assert CHILD_NAME in names
         if expect_other_trace:
-            self.assertIn(OTHER_ROOT_NAME, names)
+            assert OTHER_ROOT_NAME in names
         else:
-            self.assertNotIn(OTHER_ROOT_NAME, names)
+            assert OTHER_ROOT_NAME not in names

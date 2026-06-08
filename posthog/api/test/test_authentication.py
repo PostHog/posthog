@@ -81,10 +81,8 @@ class TestLoginPrecheckAPI(APIBaseTest):
         )
 
         response = self.client.post("/api/login/precheck", {"email": "any_user_name_here@witw.app"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
-        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
 
     def test_login_precheck_with_sso_enforced_with_invalid_license(self):
         # Note no Enterprise license can be found
@@ -97,10 +95,8 @@ class TestLoginPrecheckAPI(APIBaseTest):
         User.objects.create_and_join(self.organization, "spain@witw.app", self.CONFIG_PASSWORD)
 
         response = self.client.post("/api/login/precheck", {"email": "spain@witw.app"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
-        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
 
     def test_login_precheck_returns_webauthn_credentials_for_user_with_verified_passkey(self):
         from posthog.models.webauthn_credential import WebauthnCredential
@@ -118,14 +114,14 @@ class TestLoginPrecheckAPI(APIBaseTest):
         )
 
         response = self.client.post("/api/login/precheck", {"email": "passkey_user@posthog.com"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
-        self.assertEqual(response_data["sso_enforcement"], None)
-        self.assertEqual(response_data["saml_available"], False)
-        self.assertEqual(len(response_data["webauthn_credentials"]), 1)
-        self.assertEqual(response_data["webauthn_credentials"][0]["type"], "public-key")
-        self.assertEqual(response_data["webauthn_credentials"][0]["transports"], ["internal", "hybrid"])
+        assert response_data["sso_enforcement"] is None
+        assert not response_data["saml_available"]
+        assert len(response_data["webauthn_credentials"]) == 1
+        assert response_data["webauthn_credentials"][0]["type"] == "public-key"
+        assert response_data["webauthn_credentials"][0]["transports"] == ["internal", "hybrid"]
 
     def test_login_precheck_does_not_return_unverified_webauthn_credentials(self):
         from posthog.models.webauthn_credential import WebauthnCredential
@@ -143,17 +139,17 @@ class TestLoginPrecheckAPI(APIBaseTest):
         )
 
         response = self.client.post("/api/login/precheck", {"email": "unverified_passkey@posthog.com"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
-        self.assertEqual(response_data["webauthn_credentials"], [])
+        assert response_data["webauthn_credentials"] == []
 
     def test_login_precheck_returns_empty_webauthn_credentials_for_unknown_user(self):
         response = self.client.post("/api/login/precheck", {"email": "nonexistent@posthog.com"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
-        self.assertEqual(response_data["webauthn_credentials"], [])
+        assert response_data["webauthn_credentials"] == []
 
     def test_login_precheck_returns_multiple_webauthn_credentials(self):
         from posthog.models.webauthn_credential import WebauthnCredential
@@ -181,10 +177,10 @@ class TestLoginPrecheckAPI(APIBaseTest):
         )
 
         response = self.client.post("/api/login/precheck", {"email": "multi_passkey@posthog.com"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
-        self.assertEqual(len(response_data["webauthn_credentials"]), 2)
+        assert len(response_data["webauthn_credentials"]) == 2
 
 
 class TestLoginAPI(APIBaseTest):
@@ -200,13 +196,13 @@ class TestLoginAPI(APIBaseTest):
         self.user.is_email_verified = True
         self.user.save()
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"success": True}
 
         # Test that we're actually logged in
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["email"], self.user.email)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["email"] == self.user.email
 
         # Assert the event was captured.
         mock_capture.assert_any_call(
@@ -227,13 +223,13 @@ class TestLoginAPI(APIBaseTest):
     ):
         self.user.is_email_verified = False
         self.user.save()
-        self.assertEqual(self.user.is_email_verified, False)
+        assert not self.user.is_email_verified
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         # Test that we're not logged in
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
         mock_is_email_available.assert_called_once()
 
@@ -248,15 +244,15 @@ class TestLoginAPI(APIBaseTest):
     ):
         self.user.is_email_verified = False
         self.user.save()
-        self.assertEqual(self.user.is_email_verified, False)
+        assert not self.user.is_email_verified
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"success": True}
 
         # Test that we're actually logged in
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["email"], self.user.email)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["email"] == self.user.email
 
         mock_is_verification_disabled.assert_called_once()
         mock_is_email_available.assert_called_once()
@@ -269,13 +265,13 @@ class TestLoginAPI(APIBaseTest):
     ):
         """When email verification was added, existing users were set to is_email_verified=null.
         If someone is null they should still be allowed to log in until we explicitly decide to lock them out."""
-        self.assertEqual(self.user.is_email_verified, None)
+        assert self.user.is_email_verified is None
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Test that we are logged in
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         mock_is_email_available.assert_called_once()
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user)
@@ -286,13 +282,13 @@ class TestLoginAPI(APIBaseTest):
 
         for password in invalid_passwords:
             response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": password})
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json() == self.ERROR_INVALID_CREDENTIALS
 
             # Assert user is not logged in
             response = self.client.get("/api/users/@me/")
-            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-            self.assertNotIn("email", response.json())
+            assert response.status_code == status.HTTP_401_UNAUTHORIZED
+            assert "email" not in response.json()
 
         # Events never get reported
         mock_capture.assert_not_called()
@@ -303,13 +299,13 @@ class TestLoginAPI(APIBaseTest):
             "/api/login",
             {"email": "user2@posthog.com", "password": self.CONFIG_PASSWORD},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == self.ERROR_INVALID_CREDENTIALS
 
         # Assert user is not logged in
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertNotIn("email", response.json())
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert "email" not in response.json()
 
         # Events never get reported
         mock_capture.assert_not_called()
@@ -322,20 +318,17 @@ class TestLoginAPI(APIBaseTest):
             body.pop(attribute)
 
             response = self.client.post("/api/login/", body)
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "required",
-                    "detail": "This field is required.",
-                    "attr": attribute,
-                },
-            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json() == {
+                "type": "validation_error",
+                "code": "required",
+                "detail": "This field is required.",
+                "attr": attribute,
+            }
 
             # Assert user is not logged in
             response = self.client.get("/api/users/@me/")
-            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_login_endpoint_is_protected_against_brute_force_attempts(self):
         User.objects.create(email="new_user@posthog.com", password="87654321")
@@ -347,24 +340,21 @@ class TestLoginAPI(APIBaseTest):
                     "/api/login",
                     {"email": "new_user@posthog.com", "password": "invalid"},
                 )
-                self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST, status.HTTP_403_FORBIDDEN])
-                self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
+                assert response.status_code in [status.HTTP_400_BAD_REQUEST, status.HTTP_403_FORBIDDEN]
+                assert response.json() == self.ERROR_INVALID_CREDENTIALS
 
                 # Assert user is not logged in
                 response = self.client.get("/api/users/@me/")
-                self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+                assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
             response = self.client.post("/api/login", {"email": "new_user@posthog.com", "password": "invalid"})
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "authentication_error",
-                    "code": "too_many_failed_attempts",
-                    "detail": "Too many failed login attempts. Please try again in 10 minutes.",
-                    "attr": None,
-                },
-            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert response.json() == {
+                "type": "authentication_error",
+                "code": "too_many_failed_attempts",
+                "detail": "Too many failed login attempts. Please try again in 10 minutes.",
+                "attr": None,
+            }
 
     def test_login_lockout_is_ip_based(self):
         """Verify brute force lockout applies per-IP, not globally"""
@@ -385,8 +375,8 @@ class TestLoginAPI(APIBaseTest):
                 {"email": "locktest@posthog.com", "password": "87654321"},
                 REMOTE_ADDR="1.1.1.1",
             )
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-            self.assertEqual(response.json()["code"], "too_many_failed_attempts")
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert response.json()["code"] == "too_many_failed_attempts"
 
             # Verify different IP 2.2.2.2 can still attempt login (not locked)
             response = self.client.post(
@@ -395,7 +385,7 @@ class TestLoginAPI(APIBaseTest):
                 REMOTE_ADDR="2.2.2.2",
             )
             # Second IP is not locked, so can attempt login
-            self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            assert response.status_code != status.HTTP_403_FORBIDDEN
 
 
 class TestDevLoginAPI(APIBaseTest):
@@ -404,27 +394,27 @@ class TestDevLoginAPI(APIBaseTest):
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
     def test_dev_login_list_and_create_when_allowed(self):
         response = self.client.get("/api/login/dev")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         emails = {user["email"] for user in response.json()["users"]}
-        self.assertIn(self.user.email, emails)
+        assert self.user.email in emails
 
         self.client.logout()
         response = self.client.post("/api/login/dev", {"email": self.user.email})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"success": True}
 
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
     def test_dev_login_hidden_when_allow_dev_login_disabled(self):
         response = self.client.get("/api/login/dev")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
         response = self.client.post("/api/login/dev", {"email": self.user.email})
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @override_settings(DEBUG=False, ALLOW_DEV_LOGIN=True)
     def test_dev_login_hidden_when_not_debug(self):
         response = self.client.get("/api/login/dev")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 class TestLogoutRedirect(APIBaseTest):
@@ -435,13 +425,13 @@ class TestLogoutRedirect(APIBaseTest):
 
     def test_logout_without_next_redirects_to_login(self):
         response = self.client.post("/logout")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(response["Location"], settings.LOGIN_URL)
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response["Location"] == settings.LOGIN_URL
 
     def test_logout_forwards_safe_next_param(self):
         response = self.client.post("/logout", {"next": "/settings/user-notifications"}, format="multipart")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(response["Location"], "/login?next=/settings/user-notifications")
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response["Location"] == "/login?next=/settings/user-notifications"
 
     @parameterized.expand(
         [
@@ -452,8 +442,8 @@ class TestLogoutRedirect(APIBaseTest):
     )
     def test_logout_ignores_unsafe_next_param(self, _name, unsafe):
         response = self.client.post("/logout", {"next": unsafe}, format="multipart")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(response["Location"], settings.LOGIN_URL, f"Unsafe next was preserved: {unsafe}")
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response["Location"] == settings.LOGIN_URL, f"Unsafe next was preserved: {unsafe}"
 
 
 class TestTwoFactorAPI(APIBaseTest):
@@ -467,33 +457,30 @@ class TestTwoFactorAPI(APIBaseTest):
         device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
 
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "server_error",
-                "code": "2fa_required",
-                "detail": "2FA is required.",
-                "attr": None,
-            },
-        )
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.json() == {
+            "type": "server_error",
+            "code": "2fa_required",
+            "detail": "2FA is required.",
+            "attr": None,
+        }
 
         # Assert user is not logged in
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertNotIn("email", response.json())
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert "email" not in response.json()
 
         response = self.client.post("/api/login/token", {"token": totp_str(device.bin_key)})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["email"], self.user.email)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["email"] == self.user.email
 
         # Test remembering cookie
         self.client.post("/logout", follow=True)
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_2fa_expired(self):
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
@@ -504,28 +491,22 @@ class TestTwoFactorAPI(APIBaseTest):
                 {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
             )
             assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "server_error",
-                    "code": "2fa_required",
-                    "detail": "2FA is required.",
-                    "attr": None,
-                },
-            )
+            assert response.json() == {
+                "type": "server_error",
+                "code": "2fa_required",
+                "detail": "2FA is required.",
+                "attr": None,
+            }
 
         with freeze_time("2023-01-01T10:30:00"):
             response = self.client.post("/api/login/token", {"token": "abcdefg"})
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "2fa_expired",
-                    "detail": "Login attempt has expired. Re-enter username/password.",
-                    "attr": None,
-                },
-            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json() == {
+                "type": "validation_error",
+                "code": "2fa_expired",
+                "detail": "Login attempt has expired. Re-enter username/password.",
+                "attr": None,
+            }
 
         response = self.client.get("/api/users/@me/")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
@@ -533,14 +514,8 @@ class TestTwoFactorAPI(APIBaseTest):
     def test_2fa_throttling(self):
         self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
         self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(
-            self.client.post("/api/login/token", {"token": "abcdefg"}).json()["code"],
-            "2fa_invalid",
-        )
-        self.assertEqual(
-            self.client.post("/api/login/token", {"token": "abcdefg"}).json()["code"],
-            "2fa_too_many_attempts",
-        )
+        assert self.client.post("/api/login/token", {"token": "abcdefg"}).json()["code"] == "2fa_invalid"
+        assert self.client.post("/api/login/token", {"token": "abcdefg"}).json()["code"] == "2fa_too_many_attempts"
 
     @patch("posthog.api.authentication.send_two_factor_auth_backup_code_used_email")
     def test_login_with_backup_code(self, mock_send_email):
@@ -551,20 +526,20 @@ class TestTwoFactorAPI(APIBaseTest):
 
         # First authenticate with username/password
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json()["code"], "2fa_required")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.json()["code"] == "2fa_required"
 
         # Then authenticate with backup code
         response = self.client.post("/api/login/token", {"token": "123456"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify we're logged in
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["email"], self.user.email)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["email"] == self.user.email
 
         # Verify the backup code was consumed (can't be reused)
-        self.assertFalse(static_device.token_set.filter(token="123456").exists())
+        assert not static_device.token_set.filter(token="123456").exists()
 
         # Verify email was triggered
         mock_send_email.delay.assert_called_once_with(self.user.id)
@@ -581,7 +556,7 @@ class TestTwoFactorAPI(APIBaseTest):
 
         # Use backup code once
         response = self.client.post("/api/login/token", {"token": "123456"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify email was triggered
         mock_send_email.delay.assert_called_once_with(self.user.id)
@@ -595,8 +570,8 @@ class TestTwoFactorAPI(APIBaseTest):
         # Try to authenticate again with same backup code
         self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         response = self.client.post("/api/login/token", {"token": "123456"})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["code"], "2fa_invalid")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "2fa_invalid"
 
     @patch("posthog.api.authentication.send_two_factor_auth_backup_code_used_email")
     def test_backup_codes_work_when_totp_device_is_throttled(self, mock_send_email):
@@ -619,7 +594,7 @@ class TestTwoFactorAPI(APIBaseTest):
 
         # Backup code should still work
         response = self.client.post("/api/login/token", {"token": "123456"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify email was triggered
         mock_send_email.delay.assert_called_once_with(self.user.id)
@@ -640,19 +615,19 @@ class TestTwoFactorAPI(APIBaseTest):
         )
 
         response = self.client.post("/api/login/2fa/passkey/begin/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("No pending 2FA session", response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "No pending 2FA session" in response.json()["error"]
 
     def test_passkey_2fa_begin_requires_passkeys(self):
         """Test that passkey 2FA begin fails if user has no passkeys"""
         # First authenticate with username/password to create session
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Try to begin passkey 2FA without passkeys
         response = self.client.post("/api/login/2fa/passkey/begin/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("No passkeys found", response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "No passkeys found" in response.json()["error"]
 
     def test_login_with_passkeys_disabled_for_2fa_succeeds(self):
         """Test that login succeeds when passkeys exist but are disabled for 2FA"""
@@ -675,13 +650,13 @@ class TestTwoFactorAPI(APIBaseTest):
 
         # Login should succeed without requiring 2FA
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"success": True}
 
         # Verify we're logged in
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["email"], self.user.email)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["email"] == self.user.email
 
     def test_passkey_2fa_begin_requires_passkeys_enabled_for_2fa(self):
         """Test that passkey 2FA begin fails if passkeys are disabled for 2FA"""
@@ -707,13 +682,13 @@ class TestTwoFactorAPI(APIBaseTest):
 
         TOTPDevice.objects.create(user=self.user, name="default", key=random_hex(), digits=6)
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json()["code"], "2fa_required")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.json()["code"] == "2fa_required"
 
         # Try to begin passkey 2FA - should fail because passkeys are disabled for 2FA
         response = self.client.post("/api/login/2fa/passkey/begin/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Passkeys are not enabled for 2FA", response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Passkeys are not enabled for 2FA" in response.json()["error"]
 
     @patch("posthog.api.authentication.verify_passkey_authentication_response")
     def test_passkey_2fa_begin_returns_options(self, mock_verify):
@@ -739,20 +714,20 @@ class TestTwoFactorAPI(APIBaseTest):
         # First authenticate with username/password to create session
         # When user has passkeys enabled for 2FA, login requires 2FA
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json()["code"], "2fa_required")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.json()["code"] == "2fa_required"
 
         # Begin passkey 2FA
         response = self.client.post("/api/login/2fa/passkey/begin/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertIn("challenge", data)
-        self.assertIn("timeout", data)
-        self.assertIn("rpId", data)
-        self.assertIn("allowCredentials", data)
-        self.assertEqual(len(data["allowCredentials"]), 1)
-        self.assertEqual(data["allowCredentials"][0]["id"], bytes_to_base64url(credential.credential_id))
+        assert "challenge" in data
+        assert "timeout" in data
+        assert "rpId" in data
+        assert "allowCredentials" in data
+        assert len(data["allowCredentials"]) == 1
+        assert data["allowCredentials"][0]["id"] == bytes_to_base64url(credential.credential_id)
 
     def test_passkey_2fa_methods_endpoint(self):
         """Test the methods endpoint returns available 2FA methods"""
@@ -764,15 +739,15 @@ class TestTwoFactorAPI(APIBaseTest):
         # Simulate login that requires 2FA
         TOTPDevice.objects.create(user=self.user, name="default", key=random_hex(), digits=6)
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json()["code"], "2fa_required")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.json()["code"] == "2fa_required"
 
         # Now check methods - should show TOTP but no passkeys
         response = self.client.get("/api/login/2fa/passkey/methods/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertTrue(data["has_totp"])
-        self.assertFalse(data["has_passkeys"])
+        assert data["has_totp"]
+        assert not data["has_passkeys"]
 
         # User with passkeys only
         TOTPDevice.objects.filter(user=self.user).delete()
@@ -792,34 +767,34 @@ class TestTwoFactorAPI(APIBaseTest):
 
         # Create new 2FA session
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json()["code"], "2fa_required")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.json()["code"] == "2fa_required"
 
         response = self.client.get("/api/login/2fa/passkey/methods/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertFalse(data["has_totp"])
-        self.assertTrue(data["has_passkeys"])
+        assert not data["has_totp"]
+        assert data["has_passkeys"]
 
         # User with both TOTP and passkeys
         TOTPDevice.objects.create(user=self.user, name="default", key=random_hex(), digits=6)
 
         # Create new 2FA session
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json()["code"], "2fa_required")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.json()["code"] == "2fa_required"
 
         response = self.client.get("/api/login/2fa/passkey/methods/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertTrue(data["has_totp"])
-        self.assertTrue(data["has_passkeys"])
+        assert data["has_totp"]
+        assert data["has_passkeys"]
 
     def test_passkey_2fa_methods_endpoint_requires_session(self):
         """Test that methods endpoint requires a pending 2FA session"""
         response = self.client.get("/api/login/2fa/passkey/methods/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("No pending 2FA session", response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "No pending 2FA session" in response.json()["error"]
 
     @patch("posthog.api.authentication.verify_passkey_authentication_response")
     def test_passkey_2fa_complete_success(self, mock_verify):
@@ -845,12 +820,12 @@ class TestTwoFactorAPI(APIBaseTest):
         # First authenticate with username/password to create session
         # When user has passkeys enabled for 2FA, login requires 2FA
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json()["code"], "2fa_required")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.json()["code"] == "2fa_required"
 
         # Begin passkey 2FA to get challenge
         begin_response = self.client.post("/api/login/2fa/passkey/begin/")
-        self.assertEqual(begin_response.status_code, status.HTTP_200_OK)
+        assert begin_response.status_code == status.HTTP_200_OK
 
         # Mock verification
         mock_verify.return_value = MagicMock(new_sign_count=1)
@@ -868,17 +843,17 @@ class TestTwoFactorAPI(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["success"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["success"]
 
         # Verify we're logged in
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["email"], self.user.email)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["email"] == self.user.email
 
         # Verify credential counter was updated
         credential.refresh_from_db()
-        self.assertEqual(credential.counter, 1)
+        assert credential.counter == 1
 
     def test_passkey_2fa_complete_without_challenge_fails(self):
         """Test that passkey 2FA completion fails without a challenge"""
@@ -903,8 +878,8 @@ class TestTwoFactorAPI(APIBaseTest):
         # First authenticate with username/password to create session
         # When user has passkeys enabled for 2FA, login requires 2FA
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json()["code"], "2fa_required")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.json()["code"] == "2fa_required"
 
         # Try to complete passkey 2FA without beginning (no challenge)
         response = self.client.post(
@@ -919,8 +894,8 @@ class TestTwoFactorAPI(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["code"], "2fa_no_challenge")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "2fa_no_challenge"
 
     def test_passkey_2fa_complete_with_invalid_credential_fails(self):
         """Test that passkey 2FA completion fails with invalid credential"""
@@ -946,12 +921,12 @@ class TestTwoFactorAPI(APIBaseTest):
         # First authenticate with username/password to create session
         # When user has passkeys enabled for 2FA, login requires 2FA
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json()["code"], "2fa_required")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.json()["code"] == "2fa_required"
 
         # Begin passkey 2FA to get challenge
         begin_response = self.client.post("/api/login/2fa/passkey/begin/")
-        self.assertEqual(begin_response.status_code, status.HTTP_200_OK)
+        assert begin_response.status_code == status.HTTP_200_OK
 
         # Try to complete with invalid credential ID
         response = self.client.post(
@@ -966,8 +941,8 @@ class TestTwoFactorAPI(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["code"], "2fa_invalid_passkey")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "2fa_invalid_passkey"
 
     def test_passkey_2fa_complete_with_unverified_credential_fails(self):
         """Test that passkey 2FA completion fails with unverified credential"""
@@ -986,12 +961,12 @@ class TestTwoFactorAPI(APIBaseTest):
 
         # First authenticate with username/password to create session
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Begin passkey 2FA to get challenge
         begin_response = self.client.post("/api/login/2fa/passkey/begin/")
-        self.assertEqual(begin_response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("No passkeys found", begin_response.json()["error"])
+        assert begin_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "No passkeys found" in begin_response.json()["error"]
 
     @patch("posthog.api.authentication.verify_passkey_authentication_response")
     def test_passkey_2fa_complete_with_multiple_passkeys(self, mock_verify):
@@ -1029,14 +1004,14 @@ class TestTwoFactorAPI(APIBaseTest):
         # First authenticate with username/password to create session
         # When user has passkeys enabled for 2FA, login requires 2FA
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json()["code"], "2fa_required")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.json()["code"] == "2fa_required"
 
         # Begin passkey 2FA
         begin_response = self.client.post("/api/login/2fa/passkey/begin/")
-        self.assertEqual(begin_response.status_code, status.HTTP_200_OK)
+        assert begin_response.status_code == status.HTTP_200_OK
         data = begin_response.json()
-        self.assertEqual(len(data["allowCredentials"]), 2)
+        assert len(data["allowCredentials"]) == 2
 
         # Mock verification
         mock_verify.return_value = MagicMock(new_sign_count=1)
@@ -1054,8 +1029,8 @@ class TestTwoFactorAPI(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["success"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["success"]
 
     def test_passkey_2fa_begin_includes_all_verified_passkeys(self):
         """Test that begin endpoint includes all verified passkeys in allowCredentials"""
@@ -1104,20 +1079,20 @@ class TestTwoFactorAPI(APIBaseTest):
         # First authenticate with username/password to create session
         # When user has passkeys enabled for 2FA, login requires 2FA
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json()["code"], "2fa_required")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.json()["code"] == "2fa_required"
 
         # Begin passkey 2FA
         begin_response = self.client.post("/api/login/2fa/passkey/begin/")
-        self.assertEqual(begin_response.status_code, status.HTTP_200_OK)
+        assert begin_response.status_code == status.HTTP_200_OK
         data = begin_response.json()
 
         # Should only include verified passkeys
-        self.assertEqual(len(data["allowCredentials"]), 2)
+        assert len(data["allowCredentials"]) == 2
         credential_ids = [cred["id"] for cred in data["allowCredentials"]]
-        self.assertIn(bytes_to_base64url(credential1.credential_id), credential_ids)
-        self.assertIn(bytes_to_base64url(credential2.credential_id), credential_ids)
-        self.assertNotIn(bytes_to_base64url(b"credential-3"), credential_ids)
+        assert bytes_to_base64url(credential1.credential_id) in credential_ids
+        assert bytes_to_base64url(credential2.credential_id) in credential_ids
+        assert bytes_to_base64url(b"credential-3") not in credential_ids
 
     def test_passkey_2fa_rejects_credential_from_different_user(self):
         """Test that passkey 2FA fails when using a credential belonging to another user"""
@@ -1155,12 +1130,12 @@ class TestTwoFactorAPI(APIBaseTest):
 
         # First authenticate with username/password to create session
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json()["code"], "2fa_required")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.json()["code"] == "2fa_required"
 
         # Begin passkey 2FA to get challenge
         begin_response = self.client.post("/api/login/2fa/passkey/begin/")
-        self.assertEqual(begin_response.status_code, status.HTTP_200_OK)
+        assert begin_response.status_code == status.HTTP_200_OK
 
         # Try to complete with the other user's credential ID
         response = self.client.post(
@@ -1175,8 +1150,8 @@ class TestTwoFactorAPI(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["code"], "2fa_invalid_passkey")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "2fa_invalid_passkey"
 
 
 class TestPasswordResetAPI(APIBaseTest):
@@ -1197,20 +1172,17 @@ class TestPasswordResetAPI(APIBaseTest):
 
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(response.content.decode(), "")
-        self.assertEqual(response.headers["Content-Length"], "0")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.content.decode() == ""
+        assert response.headers["Content-Length"] == "0"
 
         user: User = User.objects.get(email=self.CONFIG_EMAIL)
-        self.assertEqual(
-            user.requested_password_reset_at,
-            datetime(2021, 10, 5, 12, 0, 0, tzinfo=UTC),
-        )
+        assert user.requested_password_reset_at == datetime(2021, 10, 5, 12, 0, 0, tzinfo=UTC)
 
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
 
-        self.assertEqual(mail.outbox[0].subject, "Reset your PostHog password")
-        self.assertEqual(mail.outbox[0].body, "")  # no plain-text version support yet
+        assert mail.outbox[0].subject == "Reset your PostHog password"
+        assert mail.outbox[0].body == ""  # no plain-text version support yet
 
         html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
         self.validate_basic_html(
@@ -1222,11 +1194,8 @@ class TestPasswordResetAPI(APIBaseTest):
         # validate reset token
         link_index = html_message.find("https://my.posthog.net/reset")
         reset_link = html_message[link_index : html_message.find('"', link_index)]
-        self.assertTrue(
-            password_reset_token_generator.check_token(
-                self.user,
-                reset_link.replace("https://my.posthog.net/reset/", "").replace(f"{self.user.uuid}/", ""),
-            )
+        assert password_reset_token_generator.check_token(
+            self.user, reset_link.replace("https://my.posthog.net/reset/", "").replace(f"{self.user.uuid}/", "")
         )
 
     def test_password_reset_is_case_insensitive(self):
@@ -1236,10 +1205,10 @@ class TestPasswordResetAPI(APIBaseTest):
         # User registered as "user1@posthog.com", request reset with different casing
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL.upper()})
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
         # Email should still be sent
-        self.assertEqual(len(mail.outbox), 1)
+        assert len(mail.outbox) == 1
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
 
     def test_reset_with_sso_available(self):
@@ -1264,7 +1233,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
 
@@ -1278,40 +1247,34 @@ class TestPasswordResetAPI(APIBaseTest):
         # validate reset token
         link_index = html_message.find("https://my.posthog.net/reset")
         reset_link = html_message[link_index : html_message.find('"', link_index)]
-        self.assertTrue(
-            password_reset_token_generator.check_token(
-                self.user,
-                reset_link.replace(f"https://my.posthog.net/reset/{self.user.uuid}/", ""),
-            )
+        assert password_reset_token_generator.check_token(
+            self.user, reset_link.replace(f"https://my.posthog.net/reset/{self.user.uuid}/", "")
         )
 
         # check we mention SSO providers
-        self.assertIn("Google, GitHub", html_message)
-        self.assertIn("https://my.posthog.net/login", html_message)  # CTA link
+        assert "Google, GitHub" in html_message
+        assert "https://my.posthog.net/login" in html_message  # CTA link
 
     def test_success_response_even_on_invalid_email(self):
         set_instance_setting("EMAIL_HOST", "localhost")
 
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
             response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
         # No emails should be sent
-        self.assertEqual(len(mail.outbox), 0)
+        assert len(mail.outbox) == 0
 
     def test_cant_reset_if_email_is_not_configured(self):
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
             response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "email_not_available",
-                "detail": "Cannot reset passwords because email is not configured for your instance. Please contact your administrator.",
-                "attr": None,
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "email_not_available",
+            "detail": "Cannot reset passwords because email is not configured for your instance. Please contact your administrator.",
+            "attr": None,
+        }
 
     def test_cant_reset_more_than_six_times(self):
         set_instance_setting("EMAIL_HOST", "localhost")
@@ -1320,17 +1283,14 @@ class TestPasswordResetAPI(APIBaseTest):
             with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
                 response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
             if i < 6:
-                self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+                assert response.status_code == status.HTTP_204_NO_CONTENT
             else:
                 # Fourth request should fail
-                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-                self.assertLessEqual(
-                    {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
-                    response.json().items(),
-                )
+                assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+                assert {"attr": None, "code": "throttled", "type": "throttled_error"}.items() <= response.json().items()
 
         # Three emails should be sent, fourth should not
-        self.assertEqual(len(mail.outbox), 6)
+        assert len(mail.outbox) == 6
 
     def test_is_rate_limited_on_email_not_ip(self):
         set_instance_setting("EMAIL_HOST", "localhost")
@@ -1340,36 +1300,34 @@ class TestPasswordResetAPI(APIBaseTest):
                 with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
                     response = self.client.post("/api/reset/", {"email": email})
                 if i < 6:
-                    self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+                    assert response.status_code == status.HTTP_204_NO_CONTENT
                 else:
                     # Fourth request should fail
-                    self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-                    self.assertLessEqual(
-                        {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
-                        response.json().items(),
-                    )
+                    assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+                    assert {
+                        "attr": None,
+                        "code": "throttled",
+                        "type": "throttled_error",
+                    }.items() <= response.json().items()
 
     # Token validation
 
     def test_can_validate_token(self):
         token = password_reset_token_generator.make_token(self.user)
         response = self.client.get(f"/api/reset/{self.user.uuid}/?token={token}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.content.decode(), "")
-        self.assertEqual(response.headers["Content-Length"], "0")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.content.decode() == ""
+        assert response.headers["Content-Length"] == "0"
 
     def test_cant_validate_token_without_a_token(self):
         response = self.client.get(f"/api/reset/{self.user.uuid}/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "required",
-                "detail": "This field is required.",
-                "attr": "token",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "required",
+            "detail": "This field is required.",
+            "attr": "token",
+        }
 
     def test_invalid_token_returns_error(self):
         valid_token = password_reset_token_generator.make_token(self.user)
@@ -1385,16 +1343,13 @@ class TestPasswordResetAPI(APIBaseTest):
             expired_token,
         ]:
             response = self.client.get(f"/api/reset/{self.user.uuid}/?token={token}")
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "invalid_token",
-                    "detail": "This reset token is invalid or has expired.",
-                    "attr": "token",
-                },
-            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json() == {
+                "type": "validation_error",
+                "code": "invalid_token",
+                "detail": "This reset token is invalid or has expired.",
+                "attr": "token",
+            }
 
     # Password reset completion
 
@@ -1406,27 +1361,27 @@ class TestPasswordResetAPI(APIBaseTest):
         self.user.save()
         token = password_reset_token_generator.make_token(self.user)
         response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": VALID_TEST_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.content.decode(), f'{{"success":true,"email":"{self.user.email}"}}')
+        assert response.status_code == status.HTTP_200_OK
+        assert response.content.decode() == f'{{"success":true,"email":"{self.user.email}"}}'
 
         # assert the user DOES NOT get logged in automatically
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
         # check password was changed
         self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password(VALID_TEST_PASSWORD))
-        self.assertFalse(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
-        self.assertEqual(self.user.requested_password_reset_at, None)
+        assert self.user.check_password(VALID_TEST_PASSWORD)
+        assert not self.user.check_password(self.CONFIG_PASSWORD)  # type: ignore
+        assert self.user.requested_password_reset_at is None
 
         # old password is gone
         self.client.logout()
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         # new password can be used immediately
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": VALID_TEST_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # assert events were captured
         mock_capture.assert_any_call(
@@ -1448,52 +1403,46 @@ class TestPasswordResetAPI(APIBaseTest):
                 "project": str(self.team.uuid),
             },
         )
-        self.assertEqual(mock_capture.call_count, 2)
+        assert mock_capture.call_count == 2
 
     def test_cant_set_short_password(self):
         token = password_reset_token_generator.make_token(self.user)
         response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": "123"})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "This password is too short. It must contain at least 8 characters.",
-                "attr": "password",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "This password is too short. It must contain at least 8 characters.",
+            "attr": "password",
+        }
 
         # user remains logged out
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
         # password was not changed
         self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
-        self.assertFalse(self.user.check_password("123"))
+        assert self.user.check_password(self.CONFIG_PASSWORD)  # type: ignore
+        assert not self.user.check_password("123")
 
     def test_cant_reset_password_with_no_token(self):
         response = self.client.post(f"/api/reset/{self.user.uuid}/", {"password": "a12345678"})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "required",
-                "detail": "This field is required.",
-                "attr": "token",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "required",
+            "detail": "This field is required.",
+            "attr": "token",
+        }
 
         # user remains logged out
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
         # password was not changed
         self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
-        self.assertFalse(self.user.check_password("a12345678"))
+        assert self.user.check_password(self.CONFIG_PASSWORD)  # type: ignore
+        assert not self.user.check_password("a12345678")
 
     def test_cant_reset_password_with_invalid_token(self):
         valid_token = password_reset_token_generator.make_token(self.user)
@@ -1512,79 +1461,67 @@ class TestPasswordResetAPI(APIBaseTest):
                 f"/api/reset/{self.user.uuid}/",
                 {"token": token, "password": "a12345678"},
             )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "invalid_token",
-                    "detail": "This reset token is invalid or has expired.",
-                    "attr": "token",
-                },
-            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json() == {
+                "type": "validation_error",
+                "code": "invalid_token",
+                "detail": "This reset token is invalid or has expired.",
+                "attr": "token",
+            }
 
             # user remains logged out
             response = self.client.get("/api/users/@me/")
-            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
             # password was not changed
             self.user.refresh_from_db()
-            self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
-            self.assertFalse(self.user.check_password("a12345678"))
+            assert self.user.check_password(self.CONFIG_PASSWORD)  # type: ignore
+            assert not self.user.check_password("a12345678")
 
     def test_cant_reset_password_with_invalid_user_id(self):
         token = password_reset_token_generator.make_token(self.user)
 
         response = self.client.post(f"/api/reset/{uuid.uuid4()}/", {"token": token, "password": "a12345678"})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_token",
-                "detail": "This reset token is invalid or has expired.",
-                "attr": "token",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_token",
+            "detail": "This reset token is invalid or has expired.",
+            "attr": "token",
+        }
 
         # user remains logged out
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
         # password was not changed
         self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
-        self.assertFalse(self.user.check_password("a12345678"))
+        assert self.user.check_password(self.CONFIG_PASSWORD)  # type: ignore
+        assert not self.user.check_password("a12345678")
 
     def test_cant_reset_password_with_non_uuid_user_id(self):
         token = password_reset_token_generator.make_token(self.user)
 
         response = self.client.post("/api/reset/confirm/", {"token": token, "password": "a12345678"})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_token",
-                "detail": "This reset token is invalid or has expired.",
-                "attr": "token",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_token",
+            "detail": "This reset token is invalid or has expired.",
+            "attr": "token",
+        }
 
     def test_cant_validate_token_with_non_uuid_user_id(self):
         token = password_reset_token_generator.make_token(self.user)
 
         response = self.client.get(f"/api/reset/confirm/?token={token}")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_token",
-                "detail": "This reset token is invalid or has expired.",
-                "attr": "token",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_token",
+            "detail": "This reset token is invalid or has expired.",
+            "attr": "token",
+        }
 
     @parameterized.expand(
         [
@@ -1603,10 +1540,10 @@ class TestPasswordResetAPI(APIBaseTest):
             f"/api/reset/{self.user.uuid}/",
             {"token": token, "password": VALID_TEST_PASSWORD},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         self.user.refresh_from_db()
-        self.assertEqual(self.user.is_email_verified, True)
+        assert self.user.is_email_verified
 
     def test_password_reset_does_not_clear_pending_email(self):
         self.user.is_email_verified = False
@@ -1619,15 +1556,15 @@ class TestPasswordResetAPI(APIBaseTest):
             f"/api/reset/{self.user.uuid}/",
             {"token": token, "password": VALID_TEST_PASSWORD},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         self.user.refresh_from_db()
-        self.assertEqual(self.user.pending_email, "new-address@example.com")
+        assert self.user.pending_email == "new-address@example.com"
 
     @patch("posthog.tasks.email.send_password_changed_email.delay")
     def test_password_change_invalidates_reset_token(self, mock_send_email):
         token = password_reset_token_generator.make_token(self.user)
-        self.assertTrue(password_reset_token_generator.check_token(self.user, token))
+        assert password_reset_token_generator.check_token(self.user, token)
 
         # change password via account settings
         self.client.force_login(self.user)
@@ -1636,24 +1573,24 @@ class TestPasswordResetAPI(APIBaseTest):
             {"current_password": self.CONFIG_PASSWORD, "password": VALID_TEST_PASSWORD},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         self.user.refresh_from_db()
-        self.assertFalse(password_reset_token_generator.check_token(self.user, token))
+        assert not password_reset_token_generator.check_token(self.user, token)
 
     def test_e2e_test_special_handlers(self):
         self.ensure_url_patterns_loaded()
 
         with self.settings(E2E_TESTING=True):
             response = self.client.get("/api/reset/e2e_test_user/?token=e2e_test_token")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         with self.settings(E2E_TESTING=True):
             response = self.client.post(
                 "/api/reset/e2e_test_user/",
                 {"token": "e2e_test_token", "password": "a12345678"},
             )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
 
 class TestPersonalAPIKeyAuthentication(APIBaseTest):
@@ -1674,11 +1611,11 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
                 f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             model_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(personal_api_key))
 
-            self.assertEqual(str(model_key.last_used_at), "2021-08-25 22:10:14.252000+00:00")
+            assert str(model_key.last_used_at) == "2021-08-25 22:10:14.252000+00:00"
 
     def test_personal_api_key_updates_last_used_at_outside_the_year(self):
         self.client.logout()
@@ -1697,11 +1634,11 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
                 f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             model_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(personal_api_key))
 
-            self.assertEqual(str(model_key.last_used_at), "2022-08-25 22:00:14.252000+00:00")
+            assert str(model_key.last_used_at) == "2022-08-25 22:00:14.252000+00:00"
 
     def test_personal_api_key_updates_last_used_at_outside_the_day(self):
         self.client.logout()
@@ -1720,11 +1657,11 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
                 f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             model_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(personal_api_key))
 
-            self.assertEqual(str(model_key.last_used_at), "2021-08-26 22:00:14.252000+00:00")
+            assert str(model_key.last_used_at) == "2021-08-26 22:00:14.252000+00:00"
 
     def test_personal_api_key_updates_last_used_when_none(self):
         self.client.logout()
@@ -1739,11 +1676,11 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
                 f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             model_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(personal_api_key))
 
-            self.assertEqual(str(model_key.last_used_at), "2022-08-25 22:00:14.252000+00:00")
+            assert str(model_key.last_used_at) == "2022-08-25 22:00:14.252000+00:00"
 
     def test_personal_api_key_does_not_update_last_used_at_within_the_hour(self):
         self.client.logout()
@@ -1762,10 +1699,10 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
                 f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             model_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(personal_api_key))
-            self.assertEqual(str(model_key.last_used_at), "2021-08-25 21:09:14+00:00")
+            assert str(model_key.last_used_at) == "2021-08-25 21:09:14+00:00"
 
     def test_personal_api_key_does_not_update_last_used_at_when_in_the_past(self):
         self.client.logout()
@@ -1784,10 +1721,10 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
                 f"/api/projects/{self.team.pk}/feature_flags/", headers={"authorization": f"Bearer {personal_api_key}"}
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             model_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(personal_api_key))
-            self.assertEqual(str(model_key.last_used_at), "2021-08-25 21:09:14+00:00")
+            assert str(model_key.last_used_at) == "2021-08-25 21:09:14+00:00"
 
 
 class TestTimeSensitivePermissions(APIBaseTest):
@@ -1934,9 +1871,9 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         assert result is not None
         user, _ = result
 
-        self.assertIsNotNone(user)
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
-        self.assertEqual(user.team, self.team)
+        assert user is not None
+        assert isinstance(user, ProjectSecretAPIKeyUser)
+        assert user.team == self.team
 
     def test_authenticate_with_valid_secret_api_key_in_body(self):
         # Simulate a request with a valid secret API key
@@ -1953,9 +1890,9 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         assert result is not None
         user, _ = result
 
-        self.assertIsNotNone(user)
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
-        self.assertEqual(user.team, self.team)
+        assert user is not None
+        assert isinstance(user, ProjectSecretAPIKeyUser)
+        assert user.team == self.team
 
     def test_authenticate_with_secret_api_key_in_query_string_not_supported(self):
         # Query string authentication should not be supported for security reasons
@@ -1965,7 +1902,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         authenticator = ProjectSecretAPIKeyAuthentication()
         result = authenticator.authenticate(request)
 
-        self.assertIsNone(result)
+        assert result is None
 
     def test_authenticate_with_invalid_secret_api_key(self):
         # Simulate a request with an invalid secret API key
@@ -1975,7 +1912,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         authenticator = ProjectSecretAPIKeyAuthentication()
         result = authenticator.authenticate(request)
 
-        self.assertIsNone(result)
+        assert result is None
 
     def test_authenticate_without_secret_api_key(self):
         # Simulate a request without a secret API key
@@ -1985,7 +1922,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         authenticator = ProjectSecretAPIKeyAuthentication()
         result = authenticator.authenticate(request)
 
-        self.assertIsNone(result)
+        assert result is None
 
     def test_authenticate_with_matching_project_api_key_in_body(self):
         # Test that when project token in body matches the secret key's team, it passes
@@ -2003,8 +1940,8 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
 
         assert result is not None
         user, _ = result
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
-        self.assertEqual(user.team, self.team)
+        assert isinstance(user, ProjectSecretAPIKeyUser)
+        assert user.team == self.team
 
     def test_authenticate_with_no_project_api_key_in_body_passes(self):
         # Test that when there's no project token in body, it still works normally
@@ -2022,8 +1959,8 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
 
         assert result is not None
         user, _ = result
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
-        self.assertEqual(user.team, self.team)
+        assert isinstance(user, ProjectSecretAPIKeyUser)
+        assert user.team == self.team
 
     @parameterized.expand(
         [
@@ -2042,7 +1979,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         authenticator = ProjectSecretAPIKeyAuthentication()
         result = authenticator.authenticate(request)
 
-        self.assertIsNone(result)
+        assert result is None
 
 
 @override_settings(
@@ -2085,11 +2022,11 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         authenticator = OAuthAccessTokenAuthentication()
         result = authenticator.authenticate(request)
 
-        self.assertIsNotNone(result)
+        assert result is not None
         user, _ = cast(tuple[User, None], result)
 
-        self.assertEqual(user, self.user)
-        self.assertIsNone(_)
+        assert user == self.user
+        assert _ is None
 
     def test_authenticate_with_invalid_oauth_token(self):
         wsgi_request = self.factory.get(
@@ -2103,7 +2040,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         with self.assertRaises(AuthenticationFailed) as context:
             authenticator.authenticate(request)
 
-        self.assertEqual(str(context.exception.detail), "Invalid access token.")
+        assert str(context.exception.detail) == "Invalid access token."
 
     def test_authenticate_with_expired_oauth_token(self):
         expired_token = OAuthAccessToken.objects.create(
@@ -2125,7 +2062,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         with self.assertRaises(AuthenticationFailed) as context:
             authenticator.authenticate(request)
 
-        self.assertIn("Access token has expired", str(context.exception))
+        assert "Access token has expired" in str(context.exception)
 
     def test_authenticate_with_inactive_user(self):
         self.user.is_active = False
@@ -2142,7 +2079,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         with self.assertRaises(AuthenticationFailed) as context:
             authenticator.authenticate(request)
 
-        self.assertIn("User associated with access token is disabled", str(context.exception))
+        assert "User associated with access token is disabled" in str(context.exception)
 
     def test_authenticate_without_bearer_token(self):
         wsgi_request = self.factory.get("/")
@@ -2151,7 +2088,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         authenticator = OAuthAccessTokenAuthentication()
         result = authenticator.authenticate(request)
 
-        self.assertIsNone(result)
+        assert result is None
 
     @patch("posthog.auth.tag_queries")
     def test_authenticate_tags_queries_correctly(self, mock_tag_queries):
@@ -2164,7 +2101,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         authenticator = OAuthAccessTokenAuthentication()
         result = authenticator.authenticate(request)
 
-        self.assertIsNotNone(result)
+        assert result is not None
 
         mock_tag_queries.assert_called_once_with(
             user_id=self.user.pk,
@@ -2179,7 +2116,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         authenticator = OAuthAccessTokenAuthentication()
         header = authenticator.authenticate_header(request)
 
-        self.assertEqual(header, "Bearer")
+        assert header == "Bearer"
 
     def test_authenticate_with_nonexistent_token_returns_none_for_next_auth_method(self):
         """Test that when a token doesn't exist in the database, the method returns None
@@ -2194,7 +2131,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         result = authenticator.authenticate(request)
 
         # Should return None, not raise an exception
-        self.assertIsNone(result)
+        assert result is None
 
     def test_authenticate_with_token_validation_error_raises_exception(self):
         """Test that when there's an error during token validation (not just token not found),
@@ -2219,7 +2156,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         with self.assertRaises(AuthenticationFailed) as context:
             authenticator.authenticate(request)
 
-        self.assertIn("Access token is not associated with a valid application", str(context.exception))
+        assert "Access token is not associated with a valid application" in str(context.exception)
 
     def test_authenticate_with_user_not_found_raises_exception(self):
         """Test that when the user associated with the token is not found,
@@ -2244,19 +2181,19 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         with self.assertRaises(AuthenticationFailed) as context:
             authenticator.authenticate(request)
 
-        self.assertIn("User associated with access token not found", str(context.exception))
+        assert "User associated with access token not found" in str(context.exception)
 
     def test_oauth_access_token_user_properties_are_accessible(self):
         """Test that user.id and user.current_team_id are accessible for tag_queries."""
         # Test that the user has the required properties
-        self.assertIsNotNone(self.access_token.user.id)
-        self.assertIsInstance(self.access_token.user.id, int)
-        self.assertEqual(self.access_token.user.id, self.user.pk)
+        assert self.access_token.user.id is not None
+        assert isinstance(self.access_token.user.id, int)
+        assert self.access_token.user.id == self.user.pk
 
         # Test that current_team_id is accessible
-        self.assertIsNotNone(self.access_token.user.current_team_id)
-        self.assertIsInstance(self.access_token.user.current_team_id, int)
-        self.assertEqual(self.access_token.user.current_team_id, self.team.pk)
+        assert self.access_token.user.current_team_id is not None
+        assert isinstance(self.access_token.user.current_team_id, int)
+        assert self.access_token.user.current_team_id == self.team.pk
 
     def test_oauth_access_token_calls_tag_queries_with_correct_parameters(self):
         """Test that tag_queries is called with the correct user_id and team_id."""
@@ -2270,9 +2207,9 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             authenticator = OAuthAccessTokenAuthentication()
             result = authenticator.authenticate(request)
 
-            self.assertIsNotNone(result)
-            self.assertIsInstance(self.user.pk, int)
-            self.assertIsInstance(self.user.current_team_id, int)
+            assert result is not None
+            assert isinstance(self.user.pk, int)
+            assert isinstance(self.user.current_team_id, int)
 
             # Verify tag_queries was called with correct parameters
             mock_tag_queries.assert_called_once_with(
@@ -2293,7 +2230,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         authenticator = OAuthAccessTokenAuthentication()
         result = authenticator.authenticate(request)
 
-        self.assertIsNone(result)
+        assert result is None
 
 
 class TestOAuthLoginNotification(APIBaseTest):

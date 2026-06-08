@@ -703,9 +703,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         query = DataVisualizationNode(source=HogQLQuery(query="SELECT count() FROM events"))
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
 
-        self.assertIsInstance(result, str)
-        self.assertFalse(used_fallback)
-        self.assertIn("count\n100\n200", result)
+        assert isinstance(result, str)
+        assert not used_fallback
+        assert "count\n100\n200" in result
         mock_process_query.assert_called_once()
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -727,13 +727,13 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             await self.query_runner.arun_and_format_query(query, insight_id=42)
 
         # Outer-context tags propagated through the sync boundary
-        self.assertEqual(captured_tags.get("scene"), "my-scene")
+        assert captured_tags.get("scene") == "my-scene"
         # Outer feature wins over the default POSTHOG_AI fallback in arun_and_format_query
-        self.assertEqual(captured_tags.get("feature"), Feature.MCP.value)
+        assert captured_tags.get("feature") == Feature.MCP.value
         # Tags applied by arun_and_format_query also propagate
-        self.assertEqual(captured_tags.get("product"), Product.MAX_AI.value)
-        self.assertEqual(captured_tags.get("team_id"), self.team.pk)
-        self.assertEqual(captured_tags.get("insight_id"), 42)
+        assert captured_tags.get("product") == Product.MAX_AI.value
+        assert captured_tags.get("team_id") == self.team.pk
+        assert captured_tags.get("insight_id") == 42
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_default_feature_when_no_outer_feature(self, mock_process_query):
@@ -749,8 +749,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         query = AssistantTrendsQuery(series=[])
         await self.query_runner.arun_and_format_query(query)
 
-        self.assertEqual(captured_tags.get("feature"), Feature.POSTHOG_AI.value)
-        self.assertEqual(captured_tags.get("product"), Product.MAX_AI.value)
+        assert captured_tags.get("feature") == Feature.POSTHOG_AI.value
+        assert captured_tags.get("product") == Product.MAX_AI.value
 
 
 class TestAssistantQueryExecutorAsync(NonAtomicBaseTest):

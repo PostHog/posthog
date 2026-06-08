@@ -1405,10 +1405,10 @@ class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         comment = self._get_log_comment_for_team()
-        self.assertEqual(comment["source"], "mcp")
-        self.assertEqual(comment["product"], Product.MCP.value)
+        assert comment["source"] == "mcp"
+        assert comment["product"] == Product.MCP.value
 
     def test_mcp_request_with_kind_uses_kind_product_not_mcp(self):
         # EventsQuery → product_analytics via kind_fallback_tags. The mcp source fallback
@@ -1419,10 +1419,10 @@ class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         comment = self._get_log_comment_for_team()
-        self.assertEqual(comment["source"], "mcp")
-        self.assertEqual(comment["product"], Product.PRODUCT_ANALYTICS.value)
+        assert comment["source"] == "mcp"
+        assert comment["product"] == Product.PRODUCT_ANALYTICS.value
 
     def test_mcp_request_with_inferred_product_keeps_inferred_product(self):
         # `tags.scene="SQLEditor"` → product=warehouse via SCENE_TO_TAGS.
@@ -1438,10 +1438,10 @@ class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         comment = self._get_log_comment_for_team()
-        self.assertEqual(comment["source"], "mcp")
-        self.assertEqual(comment["product"], Product.WAREHOUSE.value)
+        assert comment["source"] == "mcp"
+        assert comment["product"] == Product.WAREHOUSE.value
 
     def test_non_mcp_request_does_not_set_product_to_mcp(self):
         response = self.client.post(
@@ -1449,7 +1449,7 @@ class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):
             {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         comment = self._get_log_comment_for_team()
-        self.assertNotEqual(comment.get("source"), "mcp")
-        self.assertNotEqual(comment.get("product"), Product.MCP.value)
+        assert comment.get("source") != "mcp"
+        assert comment.get("product") != Product.MCP.value

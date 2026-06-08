@@ -148,9 +148,9 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert "graph.facebook.com/v25.0/" in self.meta_ads_function2.hog
 
         output = out.getvalue()
-        self.assertIn("Found 2 destinations to process", output)
-        self.assertIn("Updated: 1", output)
-        self.assertIn("Update completed", output)
+        assert "Found 2 destinations to process" in output
+        assert "Updated: 1" in output
+        assert "Update completed" in output
 
     @patch("posthog.management.commands.update_hog_function_code.compile_hog")
     def test_update_skips_destinations_that_fail_to_compile(self, mock_compile_hog):
@@ -185,10 +185,10 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert "graph.facebook.com/v21.0/" in bad_function.hog
 
         output = out.getvalue()
-        self.assertIn("Found 3 destinations to process", output)
-        self.assertIn("Updated: 1", output)
-        self.assertIn("Failed: 1", output)
-        self.assertIn(str(bad_function.id), output)
+        assert "Found 3 destinations to process" in output
+        assert "Updated: 1" in output
+        assert "Failed: 1" in output
+        assert str(bad_function.id) in output
 
     @patch("posthog.cdp.validation.compile_hog")
     def test_invalid_replace_key(self, mock_compile_hog):

@@ -43,23 +43,20 @@ class TestPandaDocClient(TestCase):
 
         mock_post.assert_called_once()
         args, kwargs = mock_post.call_args
-        self.assertEqual(args[0], "https://api.pandadoc.com/public/v1/documents")
-        self.assertEqual(kwargs["headers"]["Authorization"], "API-Key key")
+        assert args[0] == "https://api.pandadoc.com/public/v1/documents"
+        assert kwargs["headers"]["Authorization"] == "API-Key key"
         body = kwargs["json"]
-        self.assertEqual(body["template_uuid"], "tpl")
-        self.assertEqual(body["name"], "PostHog BAA")
-        self.assertEqual(body["recipients"], [{"email": "ada@acme.example", "role": "Client"}])
-        self.assertEqual(
-            body["tokens"],
-            [
-                {"name": "Client.Company", "value": "Acme, Inc."},
-                {"name": "Client.StreetAddress", "value": "1 Analytics Way"},
-            ],
-        )
-        self.assertEqual(body["metadata"], {"legal_document_id": "lid-1"})
-        self.assertEqual(body["owner"], {"email": "privacy@posthog.com"})
-        self.assertNotIn("sender", body)
-        self.assertEqual(result.id, "doc_123")
+        assert body["template_uuid"] == "tpl"
+        assert body["name"] == "PostHog BAA"
+        assert body["recipients"] == [{"email": "ada@acme.example", "role": "Client"}]
+        assert body["tokens"] == [
+            {"name": "Client.Company", "value": "Acme, Inc."},
+            {"name": "Client.StreetAddress", "value": "1 Analytics Way"},
+        ]
+        assert body["metadata"] == {"legal_document_id": "lid-1"}
+        assert body["owner"] == {"email": "privacy@posthog.com"}
+        assert "sender" not in body
+        assert result.id == "doc_123"
 
     @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
     def test_create_document_omits_owner_when_not_provided(self) -> None:
@@ -80,8 +77,8 @@ class TestPandaDocClient(TestCase):
             )
 
         body = mock_post.call_args.kwargs["json"]
-        self.assertNotIn("owner", body)
-        self.assertNotIn("sender", body)
+        assert "owner" not in body
+        assert "sender" not in body
 
     @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
     def test_stream_document_yields_raw_binary_stream(self) -> None:
@@ -96,15 +93,15 @@ class TestPandaDocClient(TestCase):
         ) as mock_get:
             client = pandadoc.PandaDocClient()
             with client.stream_document(document_id="doc_123") as stream:
-                self.assertIs(stream, fake_response.raw)
+                assert stream is fake_response.raw
 
         mock_get.assert_called_once()
         args, kwargs = mock_get.call_args
-        self.assertEqual(args[0], "https://api.pandadoc.com/public/v1/documents/doc_123/download")
-        self.assertEqual(kwargs["headers"]["Authorization"], "API-Key key")
-        self.assertTrue(kwargs["stream"])
+        assert args[0] == "https://api.pandadoc.com/public/v1/documents/doc_123/download"
+        assert kwargs["headers"]["Authorization"] == "API-Key key"
+        assert kwargs["stream"]
         # Transparent decompression so gzip'd responses look like raw bytes.
-        self.assertTrue(fake_response.raw.decode_content)
+        assert fake_response.raw.decode_content
 
     @override_settings(PANDADOC_API_KEY="key")
     def test_stream_document_non_2xx_raises(self) -> None:
@@ -141,8 +138,8 @@ class TestPandaDocClient(TestCase):
             )
 
         args, kwargs = mock_post.call_args
-        self.assertEqual(args[0], "https://api.pandadoc.com/public/v1/documents/doc_123/send")
-        self.assertEqual(kwargs["json"]["sender"], {"email": "privacy@posthog.com"})
+        assert args[0] == "https://api.pandadoc.com/public/v1/documents/doc_123/send"
+        assert kwargs["json"]["sender"] == {"email": "privacy@posthog.com"}
 
     @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
     def test_send_document_omits_sender_when_not_provided(self) -> None:
@@ -155,7 +152,7 @@ class TestPandaDocClient(TestCase):
         ) as mock_post:
             pandadoc.PandaDocClient().send_document(document_id="doc_123", subject="s", message="m")
 
-        self.assertNotIn("sender", mock_post.call_args.kwargs["json"])
+        assert "sender" not in mock_post.call_args.kwargs["json"]
 
     @override_settings(PANDADOC_API_KEY="key")
     def test_non_2xx_response_raises(self) -> None:
@@ -172,22 +169,22 @@ class TestPandaDocClient(TestCase):
         secret = "shhh"
         body = b'{"event": "document_state_changed"}'
         signature = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-        self.assertTrue(pandadoc.verify_webhook_signature(secret=secret, body=body, signature=signature))
+        assert pandadoc.verify_webhook_signature(secret=secret, body=body, signature=signature)
 
     def test_verify_webhook_signature_rejects_bad_hmac(self) -> None:
-        self.assertFalse(pandadoc.verify_webhook_signature(secret="shhh", body=b"{}", signature="0" * 64))
+        assert not pandadoc.verify_webhook_signature(secret="shhh", body=b"{}", signature="0" * 64)
 
     def test_verify_webhook_signature_rejects_empty_inputs(self) -> None:
-        self.assertFalse(pandadoc.verify_webhook_signature(secret="", body=b"{}", signature="abc"))
-        self.assertFalse(pandadoc.verify_webhook_signature(secret="k", body=b"{}", signature=""))
+        assert not pandadoc.verify_webhook_signature(secret="", body=b"{}", signature="abc")
+        assert not pandadoc.verify_webhook_signature(secret="k", body=b"{}", signature="")
 
     def test_serialize_recipient_emits_flat_email_and_role_for_each_role(self) -> None:
         # Both the Client signer and the PostHog CC serialize to the same
         # minimal shape; tokens carry all template content.
         client = pandadoc.PandaDocRecipient(email="ada@acme.example", role=pandadoc.PandaDocRole.CLIENT)
-        self.assertEqual(pandadoc._serialize_recipient(client), {"email": "ada@acme.example", "role": "Client"})
+        assert pandadoc._serialize_recipient(client) == {"email": "ada@acme.example", "role": "Client"}
         posthog = pandadoc.PandaDocRecipient(email="privacy@posthog.com", role=pandadoc.PandaDocRole.POSTHOG)
-        self.assertEqual(pandadoc._serialize_recipient(posthog), {"email": "privacy@posthog.com", "role": "PostHog"})
+        assert pandadoc._serialize_recipient(posthog) == {"email": "privacy@posthog.com", "role": "PostHog"}
 
     @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
     def test_void_document_patches_status_endpoint_with_voided_code(self) -> None:
@@ -204,9 +201,9 @@ class TestPandaDocClient(TestCase):
 
         mock_patch.assert_called_once()
         args, kwargs = mock_patch.call_args
-        self.assertEqual(args[0], "https://api.pandadoc.com/public/v1/documents/doc_123/status")
-        self.assertEqual(kwargs["headers"]["Authorization"], "API-Key key")
-        self.assertEqual(kwargs["json"], {"status": 11, "notify_recipients": True})
+        assert args[0] == "https://api.pandadoc.com/public/v1/documents/doc_123/status"
+        assert kwargs["headers"]["Authorization"] == "API-Key key"
+        assert kwargs["json"] == {"status": 11, "notify_recipients": True}
 
     @override_settings(PANDADOC_API_KEY="key")
     def test_void_document_can_opt_out_of_recipient_notification(self) -> None:
@@ -221,7 +218,7 @@ class TestPandaDocClient(TestCase):
         ) as mock_patch:
             pandadoc.PandaDocClient().void_document(document_id="doc_123", notify_recipients=False)
 
-        self.assertEqual(mock_patch.call_args.kwargs["json"]["notify_recipients"], False)
+        assert not mock_patch.call_args.kwargs["json"]["notify_recipients"]
 
     @parameterized.expand(
         [

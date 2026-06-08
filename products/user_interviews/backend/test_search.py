@@ -75,23 +75,23 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         )
 
         response = self.client.post(self._url(), {"query": "is session replay slow?"}, content_type="application/json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        assert response.status_code == status.HTTP_200_OK, response.content
 
         body = response.json()
-        self.assertEqual(len(body), 3)
-        self.assertEqual(body[0]["interview_id"], str(self.interview_a.id))
-        self.assertEqual(body[0]["document_type"], "transcript")
+        assert len(body) == 3
+        assert body[0]["interview_id"] == str(self.interview_a.id)
+        assert body[0]["document_type"] == "transcript"
         self.assertAlmostEqual(body[0]["similarity"], 0.88, places=5)
-        self.assertEqual(body[0]["content_snippet"], "alex talked about session replay buffering")
-        self.assertEqual(body[0]["interviewee_identifier"], "alex@example.com")
-        self.assertEqual(body[0]["topic_id"], str(self.topic.id))
-        self.assertGreater(body[0]["similarity"], body[2]["similarity"])
+        assert body[0]["content_snippet"] == "alex talked about session replay buffering"
+        assert body[0]["interviewee_identifier"] == "alex@example.com"
+        assert body[0]["topic_id"] == str(self.topic.id)
+        assert body[0]["similarity"] > body[2]["similarity"]
 
         mock_embed.assert_called_once()
         embed_args, embed_kwargs = mock_embed.call_args
-        self.assertEqual(embed_args[0], self.team)
-        self.assertEqual(embed_args[1], "is session replay slow?")
-        self.assertEqual(embed_kwargs["model"], "text-embedding-3-large-3072")
+        assert embed_args[0] == self.team
+        assert embed_args[1] == "is session replay slow?"
+        assert embed_kwargs["model"] == "text-embedding-3-large-3072"
 
     @parameterized.expand(
         [
@@ -105,8 +105,8 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         mock_embed.return_value = self._embedding_response()
         mock_hogql.return_value = self._hogql_rows([(str(self.interview_a.id), "transcript", distance)])
         response = self.client.post(self._url(), {"query": "x"}, content_type="application/json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()[0]["similarity"], expected)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["similarity"] == expected
 
     @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
     @patch("products.user_interviews.backend.presentation.views.generate_embedding")
@@ -121,7 +121,7 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         self.interview_a.save(update_fields=["transcript"])
 
         response = self.client.post(self._url(), {"query": "x"}, content_type="application/json")
-        self.assertEqual(response.json()[0]["content_snippet"], "alex's edited transcript: replay is faster now")
+        assert response.json()[0]["content_snippet"] == "alex's edited transcript: replay is faster now"
 
     @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
     @patch("products.user_interviews.backend.presentation.views.generate_embedding")
@@ -131,7 +131,7 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         self.interview_a.save(update_fields=["transcript"])
         mock_hogql.return_value = self._hogql_rows([(str(self.interview_a.id), "transcript", 0.1)])
         response = self.client.post(self._url(), {"query": "x"}, content_type="application/json")
-        self.assertEqual(len(response.json()[0]["content_snippet"]), 500)
+        assert len(response.json()[0]["content_snippet"]) == 500
 
     @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
     @patch("products.user_interviews.backend.presentation.views.generate_embedding")
@@ -146,8 +146,8 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         )
         response = self.client.post(self._url(), {"query": "x"}, content_type="application/json")
         body = response.json()
-        self.assertEqual(len(body), 1)
-        self.assertEqual(body[0]["interview_id"], str(self.interview_a.id))
+        assert len(body) == 1
+        assert body[0]["interview_id"] == str(self.interview_a.id)
 
     @parameterized.expand(
         [
@@ -172,7 +172,7 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
 
         mock_hogql.assert_called_once()
         placeholders = mock_hogql.call_args.kwargs["placeholders"]
-        self.assertEqual(set(placeholders["document_types"].value), expected_in_placeholders)
+        assert set(placeholders["document_types"].value) == expected_in_placeholders
 
     @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
     @patch("products.user_interviews.backend.presentation.views.generate_embedding")
@@ -189,13 +189,10 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         placeholders = mock_hogql.call_args.kwargs["placeholders"]
         # Both seeded interviews are currently linked to the topic; the search WHERE clause
         # is built from that *current* linkage, not from the embedding-time metadata snapshot.
-        self.assertEqual(
-            set(placeholders["scoped_document_ids"].value),
-            {str(self.interview_a.id), str(self.interview_b.id)},
-        )
+        assert set(placeholders["scoped_document_ids"].value) == {str(self.interview_a.id), str(self.interview_b.id)}
         hogql_query = mock_hogql.call_args.kwargs["query"]
-        self.assertIn("document_id IN {scoped_document_ids}", hogql_query)
-        self.assertNotIn("JSONExtractString(metadata, 'topic_id')", hogql_query)
+        assert "document_id IN {scoped_document_ids}" in hogql_query
+        assert "JSONExtractString(metadata, 'topic_id')" not in hogql_query
 
     @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
     @patch("products.user_interviews.backend.presentation.views.generate_embedding")
@@ -214,7 +211,7 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         )
 
         placeholders = mock_hogql.call_args.kwargs["placeholders"]
-        self.assertEqual(set(placeholders["scoped_document_ids"].value), {str(self.interview_a.id)})
+        assert set(placeholders["scoped_document_ids"].value) == {str(self.interview_a.id)}
 
     @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
     @patch("products.user_interviews.backend.presentation.views.generate_embedding")
@@ -236,8 +233,8 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), [])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
         mock_hogql.assert_not_called()
         mock_embed.assert_not_called()
 
@@ -250,7 +247,7 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         self.client.post(self._url(), {"query": "x"}, content_type="application/json")
 
         placeholders = mock_hogql.call_args.kwargs["placeholders"]
-        self.assertEqual(set(placeholders["document_types"].value), {"transcript", "summary"})
+        assert set(placeholders["document_types"].value) == {"transcript", "summary"}
 
     @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
     @patch("products.user_interviews.backend.presentation.views.generate_embedding")
@@ -261,7 +258,7 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         self.client.post(self._url(), {"query": "x"}, content_type="application/json")
 
         placeholders = mock_hogql.call_args.kwargs["placeholders"]
-        self.assertEqual(placeholders["limit"].value, 10)
+        assert placeholders["limit"].value == 10
 
     @parameterized.expand(
         [
@@ -274,12 +271,12 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
     )
     def test_search_rejects_invalid_request(self, _name, payload):
         response = self.client.post(self._url(), payload, content_type="application/json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_search_action_declares_read_scope(self):
         from products.user_interviews.backend.presentation.views import UserInterviewViewSet
 
-        self.assertEqual(UserInterviewViewSet.search.kwargs["required_scopes"], ["user_interview:read"])
+        assert UserInterviewViewSet.search.kwargs["required_scopes"] == ["user_interview:read"]
 
     @patch("products.user_interviews.backend.presentation.views.tag_queries")
     @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
@@ -301,8 +298,8 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
     )
     def test_search_returns_502_when_embedding_service_fails(self, _mock_embed, mock_hogql):
         response = self.client.post(self._url(), {"query": "x"}, content_type="application/json")
-        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
-        self.assertIn("Embedding service", response.json()["detail"])
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+        assert "Embedding service" in response.json()["detail"]
         mock_hogql.assert_not_called()
 
     @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
@@ -335,7 +332,7 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         )
 
         placeholders = mock_hogql.call_args.kwargs["placeholders"]
-        self.assertEqual(len(placeholders["scoped_document_ids"].value), SEARCH_TOPIC_INTERVIEW_CAP)
+        assert len(placeholders["scoped_document_ids"].value) == SEARCH_TOPIC_INTERVIEW_CAP
 
     @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
     @patch("products.user_interviews.backend.presentation.views.generate_embedding")
@@ -346,4 +343,4 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         self.client.post(self._url(), {"query": "x"}, content_type="application/json")
 
         placeholders = mock_hogql.call_args.kwargs["placeholders"]
-        self.assertEqual(placeholders["team_id"].value, self.team.id)
+        assert placeholders["team_id"].value == self.team.id

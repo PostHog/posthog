@@ -31,19 +31,19 @@ class TestOrganizationMembersForAccountAPI(APIBaseTest):
 
         response = self.client.get(self._url(self.target_org.id))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        self.assertIn("count", body)
-        self.assertEqual(body["count"], 2)
+        assert "count" in body
+        assert body["count"] == 2
         results = body["results"]
-        self.assertEqual({r["user"]["email"] for r in results}, {"cust1@example.com", "cust2@example.com"})
-        self.assertEqual({r["user"]["distinct_id"] for r in results}, {"distinct-1", "distinct-2"})
-        self.assertEqual(set(results[0].keys()), {"id", "user"})
+        assert {r["user"]["email"] for r in results} == {"cust1@example.com", "cust2@example.com"}
+        assert {r["user"]["distinct_id"] for r in results} == {"distinct-1", "distinct-2"}
+        assert set(results[0].keys()) == {"id", "user"}
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_forbidden_when_flag_disabled(self, _mock_flag):
         response = self.client.get(self._url(self.target_org.id))
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_forbidden_when_not_staff(self, _mock_flag):
@@ -51,7 +51,7 @@ class TestOrganizationMembersForAccountAPI(APIBaseTest):
         self.user.save()
 
         response = self.client.get(self._url(self.target_org.id))
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @parameterized.expand(
         [
@@ -63,8 +63,8 @@ class TestOrganizationMembersForAccountAPI(APIBaseTest):
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_empty_results_for_bad_organization_id(self, _name, query_string, _mock_flag):
         response = self.client.get(f"/api/projects/{self.team.id}/organization_members/{query_string}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["results"], [])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_paginates_results(self, _mock_flag):
@@ -72,14 +72,14 @@ class TestOrganizationMembersForAccountAPI(APIBaseTest):
             self._join(f"member{index}@example.com", distinct_id=f"distinct-{index}")
 
         first_page = self.client.get(self._url(self.target_org.id) + "&limit=5&offset=0")
-        self.assertEqual(first_page.status_code, status.HTTP_200_OK)
+        assert first_page.status_code == status.HTTP_200_OK
         first_body = first_page.json()
-        self.assertEqual(first_body["count"], 7)
-        self.assertEqual(len(first_body["results"]), 5)
+        assert first_body["count"] == 7
+        assert len(first_body["results"]) == 5
 
         second_page = self.client.get(self._url(self.target_org.id) + "&limit=5&offset=5")
-        self.assertEqual(second_page.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(second_page.json()["results"]), 2)
+        assert second_page.status_code == status.HTTP_200_OK
+        assert len(second_page.json()["results"]) == 2
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_excludes_inactive_and_bot_users(self, _mock_flag):
@@ -89,6 +89,6 @@ class TestOrganizationMembersForAccountAPI(APIBaseTest):
 
         response = self.client.get(self._url(self.target_org.id))
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         emails = {r["user"]["email"] for r in response.json()["results"]}
-        self.assertEqual(emails, {active.email})
+        assert emails == {active.email}

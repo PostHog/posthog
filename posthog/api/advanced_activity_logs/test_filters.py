@@ -253,7 +253,7 @@ class TestIpAddressFilter(BaseTest):
 
         queryset = ActivityLog.objects.filter(team_id=self.team.id)
         filtered = self.filter_manager.apply_filters(queryset, {"ip_addresses": ["203.0.113.42"]})
-        self.assertEqual(set(filtered.values_list("id", flat=True)), {match.id})
+        assert set(filtered.values_list("id", flat=True)) == {match.id}
 
     def test_filters_by_multiple_ips(self):
         match1 = self._create_log("203.0.113.42")
@@ -262,7 +262,7 @@ class TestIpAddressFilter(BaseTest):
 
         queryset = ActivityLog.objects.filter(team_id=self.team.id)
         filtered = self.filter_manager.apply_filters(queryset, {"ip_addresses": ["203.0.113.42", "198.51.100.7"]})
-        self.assertEqual(set(filtered.values_list("id", flat=True)), {match1.id, match2.id})
+        assert set(filtered.values_list("id", flat=True)) == {match1.id, match2.id}
 
     def test_no_ip_filter_returns_all(self):
         log1 = self._create_log("203.0.113.42")
@@ -270,7 +270,7 @@ class TestIpAddressFilter(BaseTest):
 
         queryset = ActivityLog.objects.filter(team_id=self.team.id)
         filtered = self.filter_manager.apply_filters(queryset, {"ip_addresses": []})
-        self.assertEqual(set(filtered.values_list("id", flat=True)), {log1.id, log2.id})
+        assert set(filtered.values_list("id", flat=True)) == {log1.id, log2.id}
 
     def test_filters_by_wildcard_prefix(self):
         match1 = self._create_log("203.0.113.42")
@@ -280,7 +280,7 @@ class TestIpAddressFilter(BaseTest):
 
         queryset = ActivityLog.objects.filter(team_id=self.team.id)
         filtered = self.filter_manager.apply_filters(queryset, {"ip_addresses": ["203.0.113.*"]})
-        self.assertEqual(set(filtered.values_list("id", flat=True)), {match1.id, match2.id})
+        assert set(filtered.values_list("id", flat=True)) == {match1.id, match2.id}
 
     def test_combines_exact_and_wildcard(self):
         exact_match = self._create_log("198.51.100.7")
@@ -289,7 +289,7 @@ class TestIpAddressFilter(BaseTest):
 
         queryset = ActivityLog.objects.filter(team_id=self.team.id)
         filtered = self.filter_manager.apply_filters(queryset, {"ip_addresses": ["198.51.100.7", "203.0.*"]})
-        self.assertEqual(set(filtered.values_list("id", flat=True)), {exact_match.id, wildcard_match.id})
+        assert set(filtered.values_list("id", flat=True)) == {exact_match.id, wildcard_match.id}
 
     @parameterized.expand(
         [
@@ -305,7 +305,7 @@ class TestIpAddressFilter(BaseTest):
         query = QueryDict(mutable=True)
         query.appendlist("ip_addresses", value)
         serializer = AdvancedActivityLogFiltersSerializer(data=query)
-        self.assertEqual(serializer.is_valid(), expected, serializer.errors)
+        assert serializer.is_valid() == expected, serializer.errors
 
 
 class TestTypeConversionIntegration(BaseTest):

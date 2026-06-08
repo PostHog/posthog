@@ -183,22 +183,16 @@ class TestFileSystemShortcutSurface(APIBaseTest):
         web_paths = {r["path"] for r in self.client.get(self.web_url).json()["results"]}
         desktop_paths = {r["path"] for r in self.client.get(self.desktop_url).json()["results"]}
 
-        self.assertEqual(web_paths, {"Web pin"})
-        self.assertEqual(desktop_paths, {"Desktop pin"})
+        assert web_paths == {"Web pin"}
+        assert desktop_paths == {"Desktop pin"}
 
     def test_web_create_stamps_web_surface(self):
         self.client.post(self.web_url, {"path": "Web pin", "type": "doc"})
-        self.assertEqual(
-            FileSystemShortcut.objects.get(team=self.team, path="Web pin").surface,
-            "web",
-        )
+        assert FileSystemShortcut.objects.get(team=self.team, path="Web pin").surface == "web"
 
     def test_desktop_create_stamps_desktop_surface(self):
         self.client.post(self.desktop_url, {"path": "Desktop pin", "type": "doc"})
-        self.assertEqual(
-            FileSystemShortcut.objects.get(team=self.team, path="Desktop pin").surface,
-            "desktop",
-        )
+        assert FileSystemShortcut.objects.get(team=self.team, path="Desktop pin").surface == "desktop"
 
     def test_legacy_null_shortcut_appears_on_web_route_only(self):
         FileSystemShortcut.objects.create(team=self.team, path="Legacy pin", type="doc", user=self.user, surface=None)
@@ -206,8 +200,8 @@ class TestFileSystemShortcutSurface(APIBaseTest):
         web_paths = {r["path"] for r in self.client.get(self.web_url).json()["results"]}
         desktop_paths = {r["path"] for r in self.client.get(self.desktop_url).json()["results"]}
 
-        self.assertIn("Legacy pin", web_paths)
-        self.assertNotIn("Legacy pin", desktop_paths)
+        assert "Legacy pin" in web_paths
+        assert "Legacy pin" not in desktop_paths
 
     def test_reorder_is_scoped_to_surface(self):
         web = FileSystemShortcut.objects.create(team=self.team, path="Web", type="t", user=self.user, surface="web")
@@ -221,8 +215,8 @@ class TestFileSystemShortcutSurface(APIBaseTest):
             {"ordered_ids": [str(web.id)]},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
-        self.assertIn(str(web.id), response.json()["unknown_ids"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert str(web.id) in response.json()["unknown_ids"]
 
         # But it accepts its own surface's shortcut.
         ok = self.client.post(
@@ -230,4 +224,4 @@ class TestFileSystemShortcutSurface(APIBaseTest):
             {"ordered_ids": [str(desktop.id)]},
             format="json",
         )
-        self.assertEqual(ok.status_code, status.HTTP_200_OK, ok.json())
+        assert ok.status_code == status.HTTP_200_OK, ok.json()

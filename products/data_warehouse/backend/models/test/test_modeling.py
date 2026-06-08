@@ -382,8 +382,8 @@ class TestModelPath(BaseTest):
         # `posthog.ai_events` is stored as two ltree labels (LabelTreeField splits on "."), exactly
         # as the create path stores it — the update path must converge on the same single path.
         paths = [mp.path for mp in DataWarehouseModelPath.objects.filter(team=self.team, saved_query=saved_query)]
-        self.assertEqual(len(paths), 1)
-        self.assertIn(["posthog", "ai_events", saved_query.id.hex], paths)
+        assert len(paths) == 1
+        assert ["posthog", "ai_events", saved_query.id.hex] in paths
 
     def test_update_child_when_parent_has_multiple_paths_does_not_crash(self):
         """Test updating a child model when its parent has multiple paths doesn't crash.

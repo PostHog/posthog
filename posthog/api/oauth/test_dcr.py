@@ -430,13 +430,13 @@ class TestDynamicClientRegistration(APIBaseTest):
             {"redirect_uris": ["https://example.com/callback"], "scope": scope},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         app = OAuthApplication.objects.get(client_id=response.json()["client_id"])
-        self.assertEqual(app.scopes, expected_scopes)
+        assert app.scopes == expected_scopes
         if expected_response_scope is None:
-            self.assertNotIn("scope", response.json())
+            assert "scope" not in response.json()
         else:
-            self.assertEqual(response.json()["scope"], expected_response_scope)
+            assert response.json()["scope"] == expected_response_scope
 
     @parameterized.expand(
         [
@@ -450,8 +450,8 @@ class TestDynamicClientRegistration(APIBaseTest):
             {"redirect_uris": ["https://example.com/callback"], "scope": scope},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "invalid_client_metadata")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["error"] == "invalid_client_metadata"
 
     def test_register_without_scope_leaves_ceiling_empty(self):
         # Distinct from blank_string above: the `scope` key is absent entirely, exercising
@@ -461,10 +461,10 @@ class TestDynamicClientRegistration(APIBaseTest):
             {"redirect_uris": ["https://example.com/callback"]},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         app = OAuthApplication.objects.get(client_id=response.json()["client_id"])
-        self.assertEqual(app.scopes, [])
-        self.assertNotIn("scope", response.json())
+        assert app.scopes == []
+        assert "scope" not in response.json()
 
     CODE_VERIFIER = "dcr_scope_test_verifier"
 
@@ -476,7 +476,7 @@ class TestDynamicClientRegistration(APIBaseTest):
     def _register_dcr_client(self, **extra) -> str:
         body = {"redirect_uris": ["https://example.com/callback"], **extra}
         response = self.client.post("/oauth/register/", body, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         return response.json()["client_id"]
 
     def _authorize_consent_post(self, client_id: str, scope: str):
@@ -506,10 +506,10 @@ class TestDynamicClientRegistration(APIBaseTest):
         an unprivileged scope is granted (code issued, not invalid_scope)."""
         client_id = self._register_dcr_client()
         response = self._authorize_consent_post(client_id, "experiment:read")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         redirect_to = response.json()["redirect_to"]
-        self.assertNotIn("error=invalid_scope", redirect_to)
-        self.assertIn("code=", redirect_to)
+        assert "error=invalid_scope" not in redirect_to
+        assert "code=" in redirect_to
 
     def test_no_scope_dcr_client_rejects_privileged_scope_at_authorize(self):
         """The broad default excludes PRIVILEGED_SCOPES, so a no-ceiling DCR
@@ -528,7 +528,7 @@ class TestDynamicClientRegistration(APIBaseTest):
                 "state": "test123",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
         location = response.get("Location")
         assert location
-        self.assertIn("error=invalid_scope", location)
+        assert "error=invalid_scope" in location

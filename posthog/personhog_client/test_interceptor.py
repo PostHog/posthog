@@ -137,7 +137,7 @@ class TestConsistencyHeaderInterceptor(BaseTest):
 
         result = interceptor.intercept_unary_unary(mock_continuation, original_details, request=request)
 
-        self.assertEqual(result, "ok")
-        self.assertEqual(len(captured_details), 1)
+        assert result == "ok"
+        assert len(captured_details) == 1
         metadata = dict(captured_details[0].metadata)
-        self.assertEqual(metadata["x-read-consistency"], expected)
+        assert metadata["x-read-consistency"] == expected

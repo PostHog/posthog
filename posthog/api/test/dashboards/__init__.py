@@ -340,6 +340,6 @@ class DashboardAPI:
             f"/api/projects/{team_id}/dashboards/{dashboard_id}",
             {"tiles": [{"widget": {"widget_type": widget_type, "config": config}}]},
         )
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
         response_json = response.json()
         return dashboard_id, response_json

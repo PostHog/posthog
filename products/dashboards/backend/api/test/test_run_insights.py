@@ -184,7 +184,7 @@ class TestDashboardRunInsights(APIBaseTest):
 
         # Without override → default value.
         baseline = self._run(dashboard.pk, output_format="json", refresh="blocking")
-        self.assertEqual(baseline["results"][0]["insight"]["result"][0][0], 10)
+        assert baseline["results"][0]["insight"]["result"][0][0] == 10
 
         # With override → overridden value.
         overridden = self._run(
@@ -201,4 +201,4 @@ class TestDashboardRunInsights(APIBaseTest):
                 }
             ),
         )
-        self.assertEqual(overridden["results"][0]["insight"]["result"][0][0], 99)
+        assert overridden["results"][0]["insight"]["result"][0][0] == 99

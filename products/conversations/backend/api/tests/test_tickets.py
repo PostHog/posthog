@@ -708,13 +708,13 @@ class TestBulkUpdateStatus(APIBaseTest):
             {"ids": ids, "status": "open"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["updated"], 3)
-        self.assertEqual(set(data["ids"]), set(ids))
+        assert data["updated"] == 3
+        assert set(data["ids"]) == set(ids)
         for t in self.tickets:
             t.refresh_from_db()
-            self.assertEqual(t.status, Status.OPEN)
+            assert t.status == Status.OPEN
 
     def test_skips_tickets_already_in_target_status(self, mock_on_commit):
         self.tickets[0].status = Status.OPEN
@@ -725,9 +725,9 @@ class TestBulkUpdateStatus(APIBaseTest):
             {"ids": ids, "status": "open"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["updated"], 2)
-        self.assertNotIn(str(self.tickets[0].id), response.json()["ids"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["updated"] == 2
+        assert str(self.tickets[0].id) not in response.json()["ids"]
 
     def test_ignores_other_team_ids(self, mock_on_commit):
         other_org = Organization.objects.create(name="Other Org")
@@ -745,11 +745,11 @@ class TestBulkUpdateStatus(APIBaseTest):
             {"ids": ids, "status": "open"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["updated"], 1)
-        self.assertEqual(response.json()["ids"], [str(self.tickets[0].id)])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["updated"] == 1
+        assert response.json()["ids"] == [str(self.tickets[0].id)]
         other_ticket.refresh_from_db()
-        self.assertEqual(other_ticket.status, Status.NEW)
+        assert other_ticket.status == Status.NEW
 
     def test_creates_activity_log_entries(self, mock_on_commit):
         ids = [str(t.id) for t in self.tickets[:2]]
@@ -763,9 +763,9 @@ class TestBulkUpdateStatus(APIBaseTest):
             scope="Ticket",
             activity="updated",
         )
-        self.assertEqual(logs.count(), 2)
+        assert logs.count() == 2
         logged_ids = {log.item_id for log in logs}
-        self.assertEqual(logged_ids, set(ids))
+        assert logged_ids == set(ids)
 
     @patch("products.conversations.backend.api.tickets.invalidate_unread_count_cache")
     def test_invalidates_cache_on_resolved_transition(self, mock_invalidate, mock_on_commit):
@@ -793,7 +793,7 @@ class TestBulkUpdateStatus(APIBaseTest):
             {"ids": [], "status": "open"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_rejects_invalid_status(self, mock_on_commit):
         response = self.client.post(
@@ -801,7 +801,7 @@ class TestBulkUpdateStatus(APIBaseTest):
             {"ids": [str(self.tickets[0].id)], "status": "bogus"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 class TestTicketAssignment(APIBaseTest):

@@ -758,7 +758,7 @@ class TestErrorTrackingQueryRunner(ErrorTrackingQueryRunnerTestsMixin, Clickhous
                 values=[PropertyGroupFilterValue(type=FilterLogicalOperator.OR_, values=browser_filters)],
             )
         )["results"]
-        self.assertEqual({result["id"] for result in or_results}, {firefox_issue_id, chrome_issue_id})
+        assert {result["id"] for result in or_results} == {firefox_issue_id, chrome_issue_id}
 
         and_results = self._calculate(
             filterGroup=PropertyGroupFilter(
@@ -766,7 +766,7 @@ class TestErrorTrackingQueryRunner(ErrorTrackingQueryRunnerTestsMixin, Clickhous
                 values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=browser_filters)],
             )
         )["results"]
-        self.assertEqual([result["id"] for result in and_results], [])
+        assert [result["id"] for result in and_results] == []
 
 
 class TestSearchTokenizer(TestCase):

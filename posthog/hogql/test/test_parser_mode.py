@@ -32,16 +32,16 @@ class TestParserMode(BaseTest):
         ]
     )
     def test_resolve_parser_mode(self, mode, backend, expected):
-        self.assertEqual(_resolve_parser_mode(mode, backend), expected)
+        assert _resolve_parser_mode(mode, backend) == expected
 
     def test_resolve_parser_mode_default_shadows_in_prod_not_only_in_test(self):
         with patch("posthog.hogql.parser.settings") as mock_settings:
             mock_settings.TEST = False
-            self.assertEqual(_resolve_parser_mode(None, None), ("rust-py", "cpp-json"))
+            assert _resolve_parser_mode(None, None) == ("rust-py", "cpp-json")
 
     def test_resolve_parser_mode_drops_shadow_when_rust_unavailable(self):
         with patch("posthog.hogql.parser._RUST_PARSER_AVAILABLE", False):
-            self.assertEqual(_resolve_parser_mode(None, None), ("cpp-json", None))
+            assert _resolve_parser_mode(None, None) == ("cpp-json", None)
 
     def test_resolve_parser_mode_rejects_both_mode_and_backend(self):
         with self.assertRaises(ValueError):
@@ -51,7 +51,7 @@ class TestParserMode(BaseTest):
         with patch("posthog.hogql.parser._SHADOW_SAMPLE_RATE", 1.0):
             with patch("posthog.hogql.parser.capture_exception") as captured:
                 node = parse_select("select 1 from events", parser_mode=ParserMode.CPP_WITH_RUST_SHADOW)
-        self.assertIsInstance(node, ast.SelectQuery)
+        assert isinstance(node, ast.SelectQuery)
         captured.assert_not_called()
 
     def test_shadow_raises_mismatch_in_test_mode(self):
@@ -88,13 +88,13 @@ class TestParserMode(BaseTest):
                             "select shadow_mismatch_probe from events",
                             parser_mode=ParserMode.CPP_WITH_RUST_SHADOW,
                         )
-        self.assertIsInstance(node, ast.SelectQuery)
+        assert isinstance(node, ast.SelectQuery)
         captured.assert_called_once()
-        self.assertIsInstance(captured.call_args.args[0], HogQLParserShadowMismatch)
+        assert isinstance(captured.call_args.args[0], HogQLParserShadowMismatch)
 
     def test_rust_only_parses_through_the_rust_backend(self):
         node = parse_select("select a, b from events where a > 1", parser_mode=ParserMode.RUST_ONLY)
-        self.assertIsInstance(node, ast.SelectQuery)
+        assert isinstance(node, ast.SelectQuery)
 
     def test_shadow_raises_when_shadow_rejects_primary_accepted_input_in_test_mode(self):
         real_invoke = parser_module._invoke_parser
@@ -127,13 +127,13 @@ class TestParserMode(BaseTest):
                                 "select shadow_rejected_probe from events",
                                 parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW,
                             )
-        self.assertIsInstance(node, ast.SelectQuery)
+        assert isinstance(node, ast.SelectQuery)
         results = [c.kwargs.get("result") for c in counter.labels.call_args_list]
-        self.assertIn("shadow_rejected", results)
+        assert "shadow_rejected" in results
         captured.assert_called_once()
         props = captured.call_args.kwargs["additional_properties"]
-        self.assertIn("shadow_rejected_probe", props["hogql_parser_statement"])
-        self.assertEqual(props["hogql_parser_shadow_version"], parser_module._BACKEND_VERSION["rust-py"])
+        assert "shadow_rejected_probe" in props["hogql_parser_statement"]
+        assert props["hogql_parser_shadow_version"] == parser_module._BACKEND_VERSION["rust-py"]
 
     def test_shadow_swallows_non_parser_packaging_error_even_in_test_mode(self):
         real_invoke = parser_module._invoke_parser
@@ -146,18 +146,18 @@ class TestParserMode(BaseTest):
         with patch("posthog.hogql.parser._invoke_parser", side_effect=shadow_throws_packaging):
             with patch("posthog.hogql.parser.capture_exception") as captured:
                 node = parse_select("select 1 from events", parser_mode=ParserMode.CPP_WITH_RUST_SHADOW)
-        self.assertIsInstance(node, ast.SelectQuery)
+        assert isinstance(node, ast.SelectQuery)
         captured.assert_called_once()
-        self.assertIsInstance(captured.call_args.args[0], ImportError)
+        assert isinstance(captured.call_args.args[0], ImportError)
 
     def test_shadow_agreement_counts_as_agree_with_parser_version_labels(self):
         with patch("posthog.hogql.parser._SHADOW_COMPARISONS") as counter:
             with patch("posthog.hogql.parser.capture_exception") as captured:
                 parse_select("select 1 from events", parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW)
-        self.assertEqual([c.kwargs.get("result") for c in counter.labels.call_args_list], ["agree"])
+        assert [c.kwargs.get("result") for c in counter.labels.call_args_list] == ["agree"]
         agree_call = counter.labels.call_args_list[0]
-        self.assertEqual(agree_call.kwargs["primary_version"], parser_module._BACKEND_VERSION["cpp-json"])
-        self.assertEqual(agree_call.kwargs["shadow_version"], parser_module._BACKEND_VERSION["rust-py"])
+        assert agree_call.kwargs["primary_version"] == parser_module._BACKEND_VERSION["cpp-json"]
+        assert agree_call.kwargs["shadow_version"] == parser_module._BACKEND_VERSION["rust-py"]
         captured.assert_not_called()
 
     def test_shadow_divergence_counts_as_disagree_and_captures_sql_in_prod(self):
@@ -180,23 +180,23 @@ class TestParserMode(BaseTest):
                                 parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW,
                             )
         results = [c.kwargs.get("result") for c in counter.labels.call_args_list]
-        self.assertIn("disagree", results)
+        assert "disagree" in results
         captured.assert_called_once()
-        self.assertIsInstance(captured.call_args.args[0], HogQLParserShadowMismatch)
+        assert isinstance(captured.call_args.args[0], HogQLParserShadowMismatch)
         props = captured.call_args.kwargs["additional_properties"]
-        self.assertEqual(props["hogql_parser_rule"], "select")
-        self.assertIn("sql_attach_probe", props["hogql_parser_statement"])
-        self.assertEqual(props["hogql_parser_primary_version"], parser_module._BACKEND_VERSION["cpp-json"])
-        self.assertEqual(props["hogql_parser_shadow_version"], parser_module._BACKEND_VERSION["rust-py"])
+        assert props["hogql_parser_rule"] == "select"
+        assert "sql_attach_probe" in props["hogql_parser_statement"]
+        assert props["hogql_parser_primary_version"] == parser_module._BACKEND_VERSION["cpp-json"]
+        assert props["hogql_parser_shadow_version"] == parser_module._BACKEND_VERSION["rust-py"]
 
     def test_shadow_treats_nan_constant_as_agreement_not_divergence(self):
         with patch("posthog.hogql.parser._SHADOW_COMPARISONS") as counter:
             node = parse_expr("nan", parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW)
-        self.assertIsInstance(node, ast.Constant)
-        self.assertEqual([c.kwargs.get("result") for c in counter.labels.call_args_list], ["agree"])
+        assert isinstance(node, ast.Constant)
+        assert [c.kwargs.get("result") for c in counter.labels.call_args_list] == ["agree"]
 
     def test_parser_version_falls_back_to_unknown_for_missing_dist(self):
-        self.assertEqual(parser_module._parser_version("definitely-not-a-real-distribution"), "unknown")
+        assert parser_module._parser_version("definitely-not-a-real-distribution") == "unknown"
 
     def test_backend_version_map_covers_every_parse_backend(self):
-        self.assertEqual(set(parser_module._BACKEND_VERSION), set(parser_module.RULE_TO_PARSE_FUNCTION))
+        assert set(parser_module._BACKEND_VERSION) == set(parser_module.RULE_TO_PARSE_FUNCTION)

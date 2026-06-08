@@ -369,8 +369,8 @@ class TestNodeViewSet(APIBaseTest):
                 data={"name": "new_table", "type": NodeType.TABLE, "dag": str(foreign_dag.id)},
                 format="json",
             )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertFalse(Node.objects.filter(name="new_table", dag=foreign_dag).exists())
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert not Node.objects.filter(name="new_table", dag=foreign_dag).exists()
             return
 
         original_dag_id = self.view_node.dag_id
@@ -384,9 +384,9 @@ class TestNodeViewSet(APIBaseTest):
                 format="json",
             )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         self.view_node.refresh_from_db()
-        self.assertEqual(self.view_node.dag_id, original_dag_id)
+        assert self.view_node.dag_id == original_dag_id
 
     @parameterized.expand(["put", "patch"])
     def test_saved_query_id_cannot_be_bound_to_other_teams_query(self, method):
@@ -414,8 +414,8 @@ class TestNodeViewSet(APIBaseTest):
             )
 
         self.view_node.refresh_from_db()
-        self.assertEqual(self.view_node.saved_query_id, original_saved_query_id)
-        self.assertNotEqual(self.view_node.name, foreign_sq.name)
+        assert self.view_node.saved_query_id == original_saved_query_id
+        assert self.view_node.name != foreign_sq.name
 
 
 class TestEdgeViewSet(APIBaseTest):

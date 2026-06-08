@@ -1364,22 +1364,22 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 10)
+        assert control_variant.number_of_samples == 10
+        assert test_variant.number_of_samples == 10
 
         # Numerator capped at 200: control unchanged (no outlier), test's 5000 -> 200.
         # control: 9*100 + 200 = 1100 ; test: 9*100 + 200 = 1100
-        self.assertEqual(control_variant.sum, 1100)
-        self.assertEqual(test_variant.sum, 1100)
+        assert control_variant.sum == 1100
+        assert test_variant.sum == 1100
 
         # Denominator left uncapped: control = 50 + 8*2 + 5 = 71 ; test = 10*2 = 20
-        self.assertEqual(control_variant.denominator_sum, 71)
-        self.assertEqual(test_variant.denominator_sum, 20)
+        assert control_variant.denominator_sum == 71
+        assert test_variant.denominator_sum == 20
 
     @parameterized.expand(
         [
@@ -1425,22 +1425,22 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 10)
+        assert control_variant.number_of_samples == 10
+        assert test_variant.number_of_samples == 10
 
         # Numerator capped at 200 -> both variants 1100 (as above).
-        self.assertEqual(control_variant.sum, 1100)
-        self.assertEqual(test_variant.sum, 1100)
+        assert control_variant.sum == 1100
+        assert test_variant.sum == 1100
 
         # Denominator capped at 5: control's outlier 50 -> 5, so control = 5 + 8*2 + 5 = 26 ;
         # test has no denominator outlier so it stays 10*2 = 20.
-        self.assertEqual(control_variant.denominator_sum, 26)
-        self.assertEqual(test_variant.denominator_sum, 20)
+        assert control_variant.denominator_sum == 26
+        assert test_variant.denominator_sum == 20
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1510,9 +1510,9 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         # The query builds and runs with per-breakdown winsorization.
-        self.assertIsNotNone(result.breakdown_results)
         assert result.breakdown_results is not None
-        self.assertEqual(len(result.breakdown_results), 2)
+        assert result.breakdown_results is not None
+        assert len(result.breakdown_results) == 2
         for breakdown_result in result.breakdown_results:
-            self.assertIsNotNone(breakdown_result.baseline)
-            self.assertIsInstance(breakdown_result.variants, list)
+            assert breakdown_result.baseline is not None
+            assert isinstance(breakdown_result.variants, list)

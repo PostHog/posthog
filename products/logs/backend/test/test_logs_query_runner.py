@@ -579,11 +579,11 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = response["results"]
 
         # at least some logs come back (sanity check)
-        self.assertGreater(len(results), 0)
+        assert len(results) > 0
         # neither excluded value appears anywhere — proves OR semantics
         for result in results:
-            self.assertNotEqual(result["resource_attributes"].get("k8s.container.name"), "envoy")
-            self.assertNotEqual(result["resource_attributes"].get("k8s.namespace.name"), "kube-system")
+            assert result["resource_attributes"].get("k8s.container.name") != "envoy"
+            assert result["resource_attributes"].get("k8s.namespace.name") != "kube-system"
         # both excluded groups exist in the test data, so the result count must be strictly less than
         # the unfiltered count. Pre-fix this would have returned every log in range (since no resource
         # matched both filters at once).
@@ -594,7 +594,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
             }
         )
-        self.assertLess(len(results), len(unfiltered["results"]))
+        assert len(results) < len(unfiltered["results"])
 
     @freeze_time("2025-12-16T10:33:00Z")
     def test_resource_negative_attribute_filters(self):

@@ -37,18 +37,18 @@ class TestViewLinkAccessControl(WarehouseAccessControlTestMixin):
         self.client.force_login(user)
 
         response = self.client.post(self._list_url(), data=self._join_payload())
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
 
     def test_project_default_none_blocks_join_creation(self):
         self._create_project_default(access_level="none")
         self.client.force_login(self.viewer_user)
 
         response = self.client.post(self._list_url(), data=self._join_payload())
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_can_list_joins(self):
         self._create_access_control(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(self._list_url())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK

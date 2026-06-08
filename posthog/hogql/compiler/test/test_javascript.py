@@ -117,8 +117,8 @@ class TestJavaScript(BaseTest):
         compiler = JavaScriptCompiler()
         compiler.stl_functions.add("randomFloat")
         stl_code = compiler.get_stl_code()
-        self.assertIn("function randomFloat", stl_code)
-        self.assertIn("Math.random()", stl_code)
+        assert "function randomFloat" in stl_code
+        assert "Math.random()" in stl_code
 
     def test_sanitize_keywords(self):
         assert _sanitize_identifier("for") == "__x_for"

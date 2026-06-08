@@ -187,5 +187,5 @@ class TestSlashCommandHandlerNode(BaseTest):
         msg = stamped.messages[0]
         assert isinstance(msg, AssistantMessage)
         assert msg.meta is not None
-        self.assertEqual(msg.meta.source, expected_source)
-        self.assertEqual(msg.meta.thinking, expected_thinking)
+        assert msg.meta.source == expected_source
+        assert msg.meta.thinking == expected_thinking

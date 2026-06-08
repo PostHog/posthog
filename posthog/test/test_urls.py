@@ -57,8 +57,8 @@ class TestUrls(APIBaseTest):
     def test_sign_up_redirects_to_signup(self, _name, request_path, expected_location):
         self.client.logout()
         response = self.client.get(request_path, follow=False)
-        self.assertEqual(response.status_code, status.HTTP_301_MOVED_PERMANENTLY)
-        self.assertEqual(response["Location"], expected_location)
+        assert response.status_code == status.HTTP_301_MOVED_PERMANENTLY
+        assert response["Location"] == expected_location
 
     @parameterized.expand(
         [

@@ -413,8 +413,8 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
 
         results = self._execute_sessions_query()
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["distinct_id"], "early-user")
+        assert len(results) == 1
+        assert results[0]["distinct_id"] == "early-user"
 
     @parameterized.expand(
         [
@@ -441,8 +441,8 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
 
         results = self._execute_sessions_query()
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(sorted(results[0]["tools"]), expected_tools)
+        assert len(results) == 1
+        assert sorted(results[0]["tools"]) == expected_tools
 
     def test_mixed_traces_with_and_without_trace_event(self):
         _create_person(distinct_ids=["test-user"], team=self.team)

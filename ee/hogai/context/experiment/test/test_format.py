@@ -38,17 +38,14 @@ def _bayesian_day(
 class TestExperimentTimeseriesFormatter(TestCase):
     def test_empty_timeseries(self):
         result = ExperimentTimeseriesFormatter({"timeseries": {}}).format()
-        self.assertEqual(result, "No timeseries data.")
+        assert result == "No timeseries data."
 
     def test_all_days_pending(self):
         response = {
             "status": "pending",
             "timeseries": {"2026-04-01": None, "2026-04-02": None},
         }
-        self.assertEqual(
-            ExperimentTimeseriesFormatter(response).format(),
-            "No completed timeseries data (status: pending).",
-        )
+        assert ExperimentTimeseriesFormatter(response).format() == "No completed timeseries data (status: pending)."
 
     def test_bayesian_two_days(self):
         response = {
@@ -60,15 +57,14 @@ class TestExperimentTimeseriesFormatter(TestCase):
         }
         out = ExperimentTimeseriesFormatter(response).format()
         lines = out.splitlines()
-        self.assertEqual(lines[0], "Method: bayesian")
-        self.assertEqual(lines[1], "Variants: control (baseline), test")
-        self.assertEqual(lines[2], "Status: completed")
-        self.assertEqual(
-            lines[3],
-            "Date|control n|control mean|test n|test mean|test interval|test chance_to_win|test significant",
+        assert lines[0] == "Method: bayesian"
+        assert lines[1] == "Variants: control (baseline), test"
+        assert lines[2] == "Status: completed"
+        assert (
+            lines[3] == "Date|control n|control mean|test n|test mean|test interval|test chance_to_win|test significant"
         )
-        self.assertEqual(lines[4], "2026-04-01|1000|0.05|1010|0.069307|0.01..0.05|0.92|true")
-        self.assertEqual(lines[5], "2026-04-02|1000|0.05|1010|0.079208|0.01..0.05|0.97|true")
+        assert lines[4] == "2026-04-01|1000|0.05|1010|0.069307|0.01..0.05|0.92|true"
+        assert lines[5] == "2026-04-02|1000|0.05|1010|0.079208|0.01..0.05|0.97|true"
 
     def test_skips_null_days(self):
         response = {
@@ -81,8 +77,8 @@ class TestExperimentTimeseriesFormatter(TestCase):
         }
         out = ExperimentTimeseriesFormatter(response).format()
         lines = out.splitlines()
-        self.assertEqual(lines[5], "2026-04-02|—")
-        self.assertTrue(lines[6].startswith("2026-04-03|"))
+        assert lines[5] == "2026-04-02|—"
+        assert lines[6].startswith("2026-04-03|")
 
     def test_frequentist_uses_p_value_and_confidence_interval(self):
         response = {
@@ -106,9 +102,9 @@ class TestExperimentTimeseriesFormatter(TestCase):
         }
         out = ExperimentTimeseriesFormatter(response).format()
         lines = out.splitlines()
-        self.assertEqual(lines[0], "Method: frequentist")
-        self.assertIn("test p_value", lines[3])
-        self.assertEqual(lines[4], "2026-04-01|800|0.05|820|0.073171|0.005..0.04|0.012|true")
+        assert lines[0] == "Method: frequentist"
+        assert "test p_value" in lines[3]
+        assert lines[4] == "2026-04-01|800|0.05|820|0.073171|0.005..0.04|0.012|true"
 
     def test_handles_missing_variant_fields(self):
         response = {
@@ -131,7 +127,7 @@ class TestExperimentTimeseriesFormatter(TestCase):
         }
         out = ExperimentTimeseriesFormatter(response).format()
         lines = out.splitlines()
-        self.assertEqual(lines[4], "2026-04-01|0|N/A|0|N/A|N/A|N/A|N/A")
+        assert lines[4] == "2026-04-01|0|N/A|0|N/A|N/A|N/A|N/A"
 
     def test_multi_variant_ordering(self):
         response = {
@@ -164,9 +160,9 @@ class TestExperimentTimeseriesFormatter(TestCase):
         }
         out = ExperimentTimeseriesFormatter(response).format()
         lines = out.splitlines()
-        self.assertEqual(lines[1], "Variants: control (baseline), blue, green")
-        self.assertIn("blue chance_to_win", lines[3])
-        self.assertIn("green chance_to_win", lines[3])
+        assert lines[1] == "Variants: control (baseline), blue, green"
+        assert "blue chance_to_win" in lines[3]
+        assert "green chance_to_win" in lines[3]
 
     def test_step_sessions_are_ignored_when_present(self):
         day = _bayesian_day()
@@ -178,5 +174,5 @@ class TestExperimentTimeseriesFormatter(TestCase):
         ]
         response = {"status": "completed", "timeseries": {"2026-04-01": day}}
         out = ExperimentTimeseriesFormatter(response).format()
-        self.assertNotIn("step_sessions", out)
-        self.assertNotIn("event_uuid", out)
+        assert "step_sessions" not in out
+        assert "event_uuid" not in out

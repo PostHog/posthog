@@ -1089,9 +1089,9 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
         response = self.client.get("/api/organizations/@current/plugins/unused/")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(own_unused.id, response.json())
-        self.assertNotIn(other_org_unused.id, response.json())
+        assert response.status_code == 200
+        assert own_unused.id in response.json()
+        assert other_org_unused.id not in response.json()
 
 
 class TestPluginsAccessLevelAPI(APIBaseTest):

@@ -1722,9 +1722,9 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         request = self.factory.get("/", REMOTE_ADDR="203.0.113.42")
         request.user = self.user
         self.middleware(request)
-        self.assertEqual(self.captured["ip_address"], "203.0.113.42")
+        assert self.captured["ip_address"] == "203.0.113.42"
         # Storage is cleared after the request finishes
-        self.assertIsNone(self.activity_storage.get_ip_address())
+        assert self.activity_storage.get_ip_address() is None
 
     def test_captures_ip_address_from_x_forwarded_for(self):
         request = self.factory.get(
@@ -1735,13 +1735,13 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         request.user = self.user
         self.middleware(request)
         # leftmost XFF entry wins
-        self.assertEqual(self.captured["ip_address"], "198.51.100.7")
+        assert self.captured["ip_address"] == "198.51.100.7"
 
     def test_invalid_ip_stored_as_none(self):
         request = self.factory.get("/", REMOTE_ADDR="not-an-ip")
         request.user = self.user
         self.middleware(request)
-        self.assertIsNone(self.captured["ip_address"])
+        assert self.captured["ip_address"] is None
 
 
 class TestCSPMiddleware(APIBaseTest):

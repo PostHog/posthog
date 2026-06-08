@@ -142,7 +142,7 @@ class TestLogParserSkillCalls(unittest.TestCase):
             {"skill": "improving-drf-endpoints", "args": ""},
         )
         parser = LogParser(raw, initial_prompt="hi")
-        self.assertTrue(parser.was_skill_called("improving-drf-endpoints"))
+        assert parser.was_skill_called("improving-drf-endpoints")
 
     def test_was_skill_called_returns_false_for_unmatched_skill(self):
         raw = _make_tool_log(
@@ -150,12 +150,12 @@ class TestLogParserSkillCalls(unittest.TestCase):
             {"skill": "improving-drf-endpoints", "args": ""},
         )
         parser = LogParser(raw, initial_prompt="hi")
-        self.assertFalse(parser.was_skill_called("django-migrations"))
+        assert not parser.was_skill_called("django-migrations")
 
     def test_was_skill_called_returns_false_when_no_skill_calls(self):
         raw = _make_tool_log("query-trends", {"foo": 1})
         parser = LogParser(raw, initial_prompt="hi")
-        self.assertFalse(parser.was_skill_called("anything"))
+        assert not parser.was_skill_called("anything")
 
     def test_get_skill_calls_returns_chronological_list(self):
         raw = _join(
@@ -175,14 +175,14 @@ class TestLogParserSkillCalls(unittest.TestCase):
         parser = LogParser(raw, initial_prompt="hi")
         calls = parser.get_skill_calls()
 
-        self.assertEqual(len(calls), 2)
-        self.assertEqual(calls[0].name, "first")
-        self.assertEqual(calls[0].args, "a")
-        self.assertEqual(calls[0].output, "r1")
-        self.assertFalse(calls[0].is_error)
-        self.assertEqual(calls[1].name, "second")
-        self.assertIsNone(calls[1].args)
-        self.assertLess(calls[0].position, calls[1].position)
+        assert len(calls) == 2
+        assert calls[0].name == "first"
+        assert calls[0].args == "a"
+        assert calls[0].output == "r1"
+        assert not calls[0].is_error
+        assert calls[1].name == "second"
+        assert calls[1].args is None
+        assert calls[0].position < calls[1].position
 
     def test_get_skill_calls_filters_by_name(self):
         raw = _join(
@@ -202,15 +202,15 @@ class TestLogParserSkillCalls(unittest.TestCase):
         parser = LogParser(raw, initial_prompt="hi")
         only_first = parser.get_skill_calls("first")
 
-        self.assertEqual(len(only_first), 1)
-        self.assertEqual(only_first[0].name, "first")
+        assert len(only_first) == 1
+        assert only_first[0].name == "first"
 
     def test_skill_calls_are_excluded_from_get_tool_calls(self):
         raw = _make_tool_log(SKILL_TOOL_NAME, {"skill": "x"})
         parser = LogParser(raw, initial_prompt="hi")
 
-        self.assertEqual(parser.get_tool_calls(), [])
-        self.assertEqual(len(parser.get_skill_calls()), 1)
+        assert parser.get_tool_calls() == []
+        assert len(parser.get_skill_calls()) == 1
 
 
 class TestLogParserToolCalls(unittest.TestCase):
@@ -219,14 +219,14 @@ class TestLogParserToolCalls(unittest.TestCase):
         parser = LogParser(raw, initial_prompt="hi")
 
         calls = parser.get_tool_calls()
-        self.assertEqual(len(calls), 1)
+        assert len(calls) == 1
         call = calls[0]
-        self.assertEqual(call.name, "query-trends")
-        self.assertEqual(call.input, {"foo": 1})
-        self.assertEqual(call.output, "ok")
-        self.assertFalse(call.is_error)
-        self.assertFalse(call.is_exec_unwrapped)
-        self.assertEqual(call.raw_name, "query-trends")
+        assert call.name == "query-trends"
+        assert call.input == {"foo": 1}
+        assert call.output == "ok"
+        assert not call.is_error
+        assert not call.is_exec_unwrapped
+        assert call.raw_name == "query-trends"
 
     def test_get_tool_calls_filters_by_normalized_name(self):
         raw = _join(
@@ -247,19 +247,19 @@ class TestLogParserToolCalls(unittest.TestCase):
         trends = parser.get_tool_calls("query-trends")
         funnels = parser.get_tool_calls("query-funnel")
 
-        self.assertEqual(len(trends), 1)
-        self.assertEqual(trends[0].input, {"a": 1})
-        self.assertEqual(len(funnels), 1)
-        self.assertEqual(funnels[0].input, {"b": 2})
+        assert len(trends) == 1
+        assert trends[0].input == {"a": 1}
+        assert len(funnels) == 1
+        assert funnels[0].input == {"b": 2}
 
     def test_failed_tool_calls_surface_with_is_error_true(self):
         raw = _make_tool_log("query-trends", {"foo": 1}, output="boom", status="failed")
         parser = LogParser(raw, initial_prompt="hi")
 
         calls = parser.get_tool_calls()
-        self.assertEqual(len(calls), 1)
-        self.assertTrue(calls[0].is_error)
-        self.assertEqual(calls[0].output, "boom")
+        assert len(calls) == 1
+        assert calls[0].is_error
+        assert calls[0].output == "boom"
 
     def test_unpaired_tool_use_surfaces_with_is_error_true_and_empty_output(self):
         """When tool_call starts but no completion update arrives, the parser
@@ -277,17 +277,17 @@ class TestLogParserToolCalls(unittest.TestCase):
         parser = LogParser(raw, initial_prompt="hi")
 
         calls = parser.get_tool_calls()
-        self.assertEqual(len(calls), 1)
-        self.assertTrue(calls[0].is_error)
-        self.assertEqual(calls[0].output, "")
+        assert len(calls) == 1
+        assert calls[0].is_error
+        assert calls[0].output == ""
 
     def test_mcp_prefix_is_stripped_in_normalized_name(self):
         raw = _make_tool_log("mcp__posthog__query-trends", {"foo": 1})
         parser = LogParser(raw, initial_prompt="hi")
 
         call = parser.get_tool_calls()[0]
-        self.assertEqual(call.name, "query-trends")
-        self.assertEqual(call.raw_name, "mcp__posthog__query-trends")
+        assert call.name == "query-trends"
+        assert call.raw_name == "mcp__posthog__query-trends"
 
     def test_exec_call_command_is_unwrapped(self):
         raw = _make_tool_log(
@@ -298,13 +298,13 @@ class TestLogParserToolCalls(unittest.TestCase):
         parser = LogParser(raw, initial_prompt="hi")
 
         calls = parser.get_tool_calls()
-        self.assertEqual(len(calls), 1)
+        assert len(calls) == 1
         call = calls[0]
-        self.assertEqual(call.name, "query-retention")
-        self.assertEqual(call.input, {"foo": 1})
-        self.assertTrue(call.is_exec_unwrapped)
-        self.assertEqual(call.raw_name, EXEC_TOOL_NAME)
-        self.assertEqual(call.output, "results")
+        assert call.name == "query-retention"
+        assert call.input == {"foo": 1}
+        assert call.is_exec_unwrapped
+        assert call.raw_name == EXEC_TOOL_NAME
+        assert call.output == "results"
 
     def test_exec_call_with_json_flag_is_unwrapped(self):
         raw = _make_tool_log(
@@ -314,9 +314,9 @@ class TestLogParserToolCalls(unittest.TestCase):
         parser = LogParser(raw, initial_prompt="hi")
 
         call = parser.get_tool_calls()[0]
-        self.assertEqual(call.name, "query-trends")
-        self.assertEqual(call.input, {"x": 2})
-        self.assertTrue(call.is_exec_unwrapped)
+        assert call.name == "query-trends"
+        assert call.input == {"x": 2}
+        assert call.is_exec_unwrapped
 
     def test_exec_info_command_produces_synthetic_name(self):
         raw = _make_tool_log(
@@ -326,9 +326,9 @@ class TestLogParserToolCalls(unittest.TestCase):
         parser = LogParser(raw, initial_prompt="hi")
 
         call = parser.get_tool_calls()[0]
-        self.assertEqual(call.name, f"{INFO_SYNTHETIC_PREFIX}query-trends")
-        self.assertEqual(call.input, {})
-        self.assertTrue(call.is_exec_unwrapped)
+        assert call.name == f"{INFO_SYNTHETIC_PREFIX}query-trends"
+        assert call.input == {}
+        assert call.is_exec_unwrapped
 
     def test_exec_unrecognized_command_falls_back_to_raw_exec(self):
         raw = _make_tool_log(
@@ -338,9 +338,9 @@ class TestLogParserToolCalls(unittest.TestCase):
         parser = LogParser(raw, initial_prompt="hi")
 
         call = parser.get_tool_calls()[0]
-        self.assertEqual(call.name, EXEC_TOOL_NAME)
-        self.assertFalse(call.is_exec_unwrapped)
-        self.assertEqual(call.input, {"command": "search foo"})
+        assert call.name == EXEC_TOOL_NAME
+        assert not call.is_exec_unwrapped
+        assert call.input == {"command": "search foo"}
 
     def test_filter_by_name_matches_exec_unwrapped_inner_tool(self):
         raw = _make_tool_log(
@@ -349,8 +349,8 @@ class TestLogParserToolCalls(unittest.TestCase):
         )
         parser = LogParser(raw, initial_prompt="hi")
 
-        self.assertEqual(len(parser.get_tool_calls("query-retention")), 1)
-        self.assertEqual(parser.get_tool_calls("exec"), [])
+        assert len(parser.get_tool_calls("query-retention")) == 1
+        assert parser.get_tool_calls("exec") == []
 
     def test_position_is_chronological(self):
         raw = _join(
@@ -369,8 +369,8 @@ class TestLogParserToolCalls(unittest.TestCase):
         parser = LogParser(raw, initial_prompt="hi")
 
         calls = parser.get_tool_calls()
-        self.assertEqual([c.name for c in calls], ["first", "second"])
-        self.assertLess(calls[0].position, calls[1].position)
+        assert [c.name for c in calls] == ["first", "second"]
+        assert calls[0].position < calls[1].position
 
 
 class TestLogParserMessages(unittest.TestCase):
@@ -387,7 +387,7 @@ class TestLogParserMessages(unittest.TestCase):
             ]
         )
         parser = LogParser(raw, initial_prompt="hi")
-        self.assertEqual(parser.get_final_agent_message(), "final reply")
+        assert parser.get_final_agent_message() == "final reply"
 
     def test_get_final_agent_message_returns_none_when_run_ends_on_tool_use(self):
         raw = _join(
@@ -400,7 +400,7 @@ class TestLogParserMessages(unittest.TestCase):
             ]
         )
         parser = LogParser(raw, initial_prompt="hi")
-        self.assertIsNone(parser.get_final_agent_message())
+        assert parser.get_final_agent_message() is None
 
     def test_get_user_prompt_returns_initial_prompt_when_seeded(self):
         raw = _join(
@@ -411,7 +411,7 @@ class TestLogParserMessages(unittest.TestCase):
             ]
         )
         parser = LogParser(raw, initial_prompt="seeded prompt")
-        self.assertEqual(parser.get_user_prompt(), "seeded prompt")
+        assert parser.get_user_prompt() == "seeded prompt"
 
     def test_get_user_prompt_falls_back_when_no_initial_prompt(self):
         raw = _join(
@@ -421,7 +421,7 @@ class TestLogParserMessages(unittest.TestCase):
             ]
         )
         parser = LogParser(raw)
-        self.assertEqual(parser.get_user_prompt(), "")
+        assert parser.get_user_prompt() == ""
 
 
 class TestLogParserModels(unittest.TestCase):
@@ -447,11 +447,11 @@ class TestLogParserModels(unittest.TestCase):
 
 class TestNormalizeToolName(unittest.TestCase):
     def test_strips_mcp_prefix(self):
-        self.assertEqual(normalize_tool_name("mcp__posthog__query-trends"), "query-trends")
+        assert normalize_tool_name("mcp__posthog__query-trends") == "query-trends"
 
     def test_passes_through_bare_names(self):
-        self.assertEqual(normalize_tool_name("query-trends"), "query-trends")
+        assert normalize_tool_name("query-trends") == "query-trends"
 
     def test_handles_empty_and_none(self):
-        self.assertEqual(normalize_tool_name(None), "")
-        self.assertEqual(normalize_tool_name(""), "")
+        assert normalize_tool_name(None) == ""
+        assert normalize_tool_name("") == ""

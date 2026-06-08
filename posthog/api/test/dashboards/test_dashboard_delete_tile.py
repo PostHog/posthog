@@ -21,7 +21,7 @@ class TestDashboardDeleteTile(APIBaseTest):
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/delete_tile",
             {"tile_id": tile_id},
         )
-        self.assertEqual(response.status_code, expected_status, response.content)
+        assert response.status_code == expected_status, response.content
         return response
 
     def test_can_delete_a_text_tile(self) -> None:
@@ -94,7 +94,7 @@ class TestDashboardDeleteTile(APIBaseTest):
     def test_delete_tile_requires_tile_id(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         response = self.client.post(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/delete_tile", {})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_delete_tile_compacts_remaining_layout(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})

@@ -97,7 +97,7 @@ class TestClassnameToFilepath(unittest.TestCase):
     )
     def test_maps_classname(self, _name: str, classname: str, expected: str) -> None:
         verdict = _load_verdict_module()
-        self.assertEqual(verdict.classname_to_filepath(classname), expected)
+        assert verdict.classname_to_filepath(classname) == expected
 
 
 class TestParseJunitFailures(unittest.TestCase):
@@ -105,9 +105,9 @@ class TestParseJunitFailures(unittest.TestCase):
         verdict = _load_verdict_module()
         with tempfile.TemporaryDirectory() as root:
             failures, total, seen = verdict.parse_junit_failures(Path(root) / "missing")
-            self.assertEqual(failures, [])
-            self.assertEqual(total, 0)
-            self.assertEqual(seen, 0)
+            assert failures == []
+            assert total == 0
+            assert seen == 0
 
     def test_extracts_failures_with_classname_mapping(self) -> None:
         verdict = _load_verdict_module()
@@ -115,9 +115,9 @@ class TestParseJunitFailures(unittest.TestCase):
             junit_dir = Path(root)
             _write_junit(junit_dir, "junit-core.xml", JUNIT_FAILURE)
             failures, total, seen = verdict.parse_junit_failures(junit_dir)
-            self.assertEqual(failures, ["posthog/api/test/test_foo.py"])
-            self.assertEqual(total, 2)
-            self.assertEqual(seen, 1)
+            assert failures == ["posthog/api/test/test_foo.py"]
+            assert total == 2
+            assert seen == 1
 
     def test_finds_testcases_in_nested_testsuites(self) -> None:
         verdict = _load_verdict_module()
@@ -125,8 +125,8 @@ class TestParseJunitFailures(unittest.TestCase):
             junit_dir = Path(root)
             _write_junit(junit_dir, "junit.xml", JUNIT_NESTED_FAILURE)
             failures, total, _seen = verdict.parse_junit_failures(junit_dir)
-            self.assertEqual(failures, ["posthog/api/test/test_nested.py"])
-            self.assertEqual(total, 1)
+            assert failures == ["posthog/api/test/test_nested.py"]
+            assert total == 1
 
     def test_skips_malformed_xml(self) -> None:
         verdict = _load_verdict_module()
@@ -135,9 +135,9 @@ class TestParseJunitFailures(unittest.TestCase):
             _write_junit(junit_dir, "good.xml", JUNIT_ALL_PASS)
             _write_junit(junit_dir, "bad.xml", "<not valid xml")
             failures, total, seen = verdict.parse_junit_failures(junit_dir)
-            self.assertEqual(failures, [])
-            self.assertEqual(total, 1)
-            self.assertEqual(seen, 2)
+            assert failures == []
+            assert total == 1
+            assert seen == 2
 
 
 class TestComputeVerdict(unittest.TestCase):
@@ -162,40 +162,40 @@ class TestComputeVerdict(unittest.TestCase):
 
     def test_unknown_when_no_junit_xmls_found(self) -> None:
         result = self._run(combined_tests=["posthog/api/test/test_foo.py"])
-        self.assertEqual(result["backend_conclusion"], "unknown")
-        self.assertIsNone(result["recall"])
-        self.assertEqual(result["caught"], [])
-        self.assertEqual(result["missed"], [])
-        self.assertEqual(result["junit_xml_files_seen"], 0)
+        assert result["backend_conclusion"] == "unknown"
+        assert result["recall"] is None
+        assert result["caught"] == []
+        assert result["missed"] == []
+        assert result["junit_xml_files_seen"] == 0
 
     def test_success_when_all_pass(self) -> None:
         result = self._run(
             combined_tests=["posthog/api/test/test_bar.py"],
             junit_files=[("junit.xml", JUNIT_ALL_PASS)],
         )
-        self.assertEqual(result["backend_conclusion"], "success")
-        self.assertIsNone(result["recall"])
-        self.assertEqual(result["failure_count"], 0)
+        assert result["backend_conclusion"] == "success"
+        assert result["recall"] is None
+        assert result["failure_count"] == 0
 
     def test_failure_caught_when_in_selection(self) -> None:
         result = self._run(
             combined_tests=["posthog/api/test/test_foo.py", "posthog/api/test/test_other.py"],
             junit_files=[("junit.xml", JUNIT_FAILURE)],
         )
-        self.assertEqual(result["backend_conclusion"], "failure")
-        self.assertEqual(result["recall"], 1.0)
-        self.assertEqual(result["caught"], ["posthog/api/test/test_foo.py"])
-        self.assertEqual(result["missed"], [])
+        assert result["backend_conclusion"] == "failure"
+        assert result["recall"] == 1.0
+        assert result["caught"] == ["posthog/api/test/test_foo.py"]
+        assert result["missed"] == []
 
     def test_failure_missed_when_not_in_selection(self) -> None:
         result = self._run(
             combined_tests=["posthog/api/test/test_unrelated.py"],
             junit_files=[("junit.xml", JUNIT_FAILURE)],
         )
-        self.assertEqual(result["backend_conclusion"], "failure")
-        self.assertEqual(result["recall"], 0.0)
-        self.assertEqual(result["caught"], [])
-        self.assertEqual(result["missed"], ["posthog/api/test/test_foo.py"])
+        assert result["backend_conclusion"] == "failure"
+        assert result["recall"] == 0.0
+        assert result["caught"] == []
+        assert result["missed"] == ["posthog/api/test/test_foo.py"]
 
     def test_full_run_treats_failures_as_caught(self) -> None:
         # Selection's combined.tests does NOT include the failing file, but
@@ -205,11 +205,11 @@ class TestComputeVerdict(unittest.TestCase):
             full_run_reasons=["conftest.py matches full-run pattern"],
             junit_files=[("junit.xml", JUNIT_FAILURE)],
         )
-        self.assertEqual(result["backend_conclusion"], "failure")
-        self.assertTrue(result["full_run_triggered"])
-        self.assertEqual(result["recall"], 1.0)
-        self.assertEqual(result["caught"], ["posthog/api/test/test_foo.py"])
-        self.assertEqual(result["missed"], [])
+        assert result["backend_conclusion"] == "failure"
+        assert result["full_run_triggered"]
+        assert result["recall"] == 1.0
+        assert result["caught"] == ["posthog/api/test/test_foo.py"]
+        assert result["missed"] == []
 
 
 if __name__ == "__main__":

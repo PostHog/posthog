@@ -72,14 +72,14 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         return_value=MOCK_ALERTS_META,
     )
     def test_first_list_creates_all_recommendations(self, mock_alerts, mock_long_running):
-        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 0)
+        assert ErrorTrackingRecommendation.objects.filter(team=self.team).count() == 0
 
         response = self._list()
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 3)
+        assert response.status_code == status.HTTP_200_OK
+        assert ErrorTrackingRecommendation.objects.filter(team=self.team).count() == 3
         types = {r["type"] for r in response.json()["results"]}
-        self.assertEqual(types, {"alerts", "long_running_issues", "source_maps"})
+        assert types == {"alerts", "long_running_issues", "source_maps"}
 
     @patch(
         "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
@@ -95,9 +95,9 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         mock_alerts.return_value = MOCK_ALERTS_META_UPDATED
         response = self._list()
 
-        self.assertEqual(mock_alerts.call_count, 2)
+        assert mock_alerts.call_count == 2
         alerts = next(r for r in response.json()["results"] if r["type"] == "alerts")
-        self.assertEqual(alerts["meta"], MOCK_ALERTS_META_UPDATED)
+        assert alerts["meta"] == MOCK_ALERTS_META_UPDATED
 
     @freeze_time("2026-01-01T00:00:00Z", as_kwarg="frozen_time")
     @patch(
@@ -110,15 +110,15 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
     def test_long_running_is_cached_until_interval_elapses(self, mock_alerts, mock_long_running, frozen_time):
         mock_long_running.return_value = {"issues": []}
         self._list()
-        self.assertEqual(mock_long_running.call_count, 1)
+        assert mock_long_running.call_count == 1
 
         frozen_time.tick(timedelta(minutes=30))
         self._list()
-        self.assertEqual(mock_long_running.call_count, 1)
+        assert mock_long_running.call_count == 1
 
         frozen_time.tick(timedelta(hours=1))
         self._list()
-        self.assertEqual(mock_long_running.call_count, 2)
+        assert mock_long_running.call_count == 2
 
     @patch(
         "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
@@ -136,7 +136,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
         response = self._list()
         alerts = next(r for r in response.json()["results"] if r["type"] == "alerts")
-        self.assertIsNotNone(alerts["dismissed_at"])
+        assert alerts["dismissed_at"] is not None
 
     def test_alerts_recommendation_detects_existing_alerts(self):
         HogFunction.objects.create(
@@ -147,9 +147,9 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         )
         meta = AlertsRecommendation().compute(self.team)
         by_key = {a["key"]: a["enabled"] for a in meta["alerts"]}
-        self.assertTrue(by_key["error-tracking-issue-created"])
-        self.assertFalse(by_key["error-tracking-issue-reopened"])
-        self.assertFalse(by_key["error-tracking-issue-spiking"])
+        assert by_key["error-tracking-issue-created"]
+        assert not by_key["error-tracking-issue-reopened"]
+        assert not by_key["error-tracking-issue-spiking"]
 
     def test_alerts_recommendation_ignores_deleted_alerts(self):
         HogFunction.objects.create(
@@ -161,7 +161,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         )
         meta = AlertsRecommendation().compute(self.team)
         by_key = {a["key"]: a["enabled"] for a in meta["alerts"]}
-        self.assertFalse(by_key["error-tracking-issue-created"])
+        assert not by_key["error-tracking-issue-created"]
 
     def _create_issue(self, created_at, status=ErrorTrackingIssue.Status.ACTIVE, name="TestError"):
         issue = ErrorTrackingIssue.objects.create(
@@ -206,7 +206,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         meta = LongRunningIssuesRecommendation().compute(self.team)
 
         names = [i["name"] for i in meta["issues"]]
-        self.assertEqual(names, ["Oldest", "MidAged"])
+        assert names == ["Oldest", "MidAged"]
 
     def test_long_running_ignores_issues_without_recent_occurrences(self):
         stale = self._create_issue(created_at=timezone.now() - timedelta(days=60), name="Stale")
@@ -215,7 +215,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
         meta = LongRunningIssuesRecommendation().compute(self.team)
 
-        self.assertEqual(meta["issues"], [])
+        assert meta["issues"] == []
 
     def test_long_running_excludes_non_active_issues(self):
         resolved = self._create_issue(
@@ -228,7 +228,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
         meta = LongRunningIssuesRecommendation().compute(self.team)
 
-        self.assertEqual(meta["issues"], [])
+        assert meta["issues"] == []
 
     def test_long_running_limits_to_ten(self):
         for i in range(15):
@@ -241,9 +241,9 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
         meta = LongRunningIssuesRecommendation().compute(self.team)
 
-        self.assertEqual(len(meta["issues"]), 10)
-        self.assertEqual(meta["issues"][0]["name"], "Issue 00")
-        self.assertEqual(meta["issues"][9]["name"], "Issue 09")
+        assert len(meta["issues"]) == 10
+        assert meta["issues"][0]["name"] == "Issue 00"
+        assert meta["issues"][9]["name"] == "Issue 09"
 
     def test_long_running_ignores_other_teams_issues(self):
         other_issue_id = str(uuid4())
@@ -252,7 +252,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
         meta = LongRunningIssuesRecommendation().compute(self.team)
 
-        self.assertEqual(meta["issues"], [])
+        assert meta["issues"] == []
 
     def test_long_running_enrich_overrides_status_with_live_value(self):
         issue = self._create_issue(created_at=timezone.now() - timedelta(days=60), name="Boom")
@@ -261,31 +261,31 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
         enriched = LongRunningIssuesRecommendation().enrich(self.team, meta)
 
-        self.assertEqual(enriched["issues"][0]["status"], ErrorTrackingIssue.Status.SUPPRESSED)
+        assert enriched["issues"][0]["status"] == ErrorTrackingIssue.Status.SUPPRESSED
 
     def test_long_running_enrich_with_empty_issues_returns_unchanged(self):
         meta: dict = {"issues": []}
 
         enriched = LongRunningIssuesRecommendation().enrich(self.team, meta)
 
-        self.assertEqual(enriched, {"issues": []})
+        assert enriched == {"issues": []}
 
     def test_long_running_enrich_keeps_cached_status_when_issue_missing(self):
         meta = {"issues": [{"id": str(uuid4()), "name": "Gone", "status": ErrorTrackingIssue.Status.ACTIVE}]}
 
         enriched = LongRunningIssuesRecommendation().enrich(self.team, meta)
 
-        self.assertEqual(enriched["issues"][0]["status"], ErrorTrackingIssue.Status.ACTIVE)
+        assert enriched["issues"][0]["status"] == ErrorTrackingIssue.Status.ACTIVE
 
     def test_long_running_is_completed_when_no_issues(self):
-        self.assertTrue(LongRunningIssuesRecommendation().is_completed({"issues": []}))
+        assert LongRunningIssuesRecommendation().is_completed({"issues": []})
 
     def test_long_running_is_completed_false_when_issues_present(self):
         meta = {"issues": [{"id": "x"}]}
-        self.assertFalse(LongRunningIssuesRecommendation().is_completed(meta))
+        assert not LongRunningIssuesRecommendation().is_completed(meta)
 
     def test_alerts_is_completed_when_all_enabled(self):
-        self.assertTrue(AlertsRecommendation().is_completed(MOCK_ALERTS_META_UPDATED))
+        assert AlertsRecommendation().is_completed(MOCK_ALERTS_META_UPDATED)
 
     def test_alerts_is_completed_false_when_any_disabled(self):
         partial = {
@@ -295,10 +295,10 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
                 {"key": "error-tracking-issue-spiking", "enabled": True},
             ]
         }
-        self.assertFalse(AlertsRecommendation().is_completed(partial))
+        assert not AlertsRecommendation().is_completed(partial)
 
     def test_alerts_is_completed_false_when_empty(self):
-        self.assertFalse(AlertsRecommendation().is_completed({"alerts": []}))
+        assert not AlertsRecommendation().is_completed({"alerts": []})
 
     @patch(
         "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
@@ -317,7 +317,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/error_tracking/recommendations/{rec_id}/refresh/?force=false"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         mock_long_running.assert_not_called()
 
     @patch(
@@ -335,7 +335,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
         response = self._refresh(rec_id)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         mock_long_running.assert_called_once()
 
     @patch(
@@ -349,12 +349,12 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
     def test_list_marks_recommendations_ready_after_compute(self, mock_alerts, mock_long_running):
         response = self._list()
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         statuses = {r["type"]: r["status"] for r in response.json()["results"]}
-        self.assertEqual(statuses, {"alerts": "ready", "long_running_issues": "ready", "source_maps": "ready"})
+        assert statuses == {"alerts": "ready", "long_running_issues": "ready", "source_maps": "ready"}
         # Each recommendation row should have been computed exactly once via the celery task path.
-        self.assertEqual(mock_alerts.call_count, 1)
-        self.assertEqual(mock_long_running.call_count, 1)
+        assert mock_alerts.call_count == 1
+        assert mock_long_running.call_count == 1
 
     @patch(
         "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
@@ -371,7 +371,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
         response = self._poll()
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         mock_alerts.assert_not_called()
         mock_long_running.assert_not_called()
 
@@ -390,9 +390,9 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
     def test_source_maps_compute_with_no_frames(self):
         meta = SourceMapsRecommendation().compute(self.team)
 
-        self.assertEqual(meta["total_frames"], 0)
-        self.assertEqual(meta["unresolved_frames"], 0)
-        self.assertEqual(meta["unresolved_pct"], 0.0)
+        assert meta["total_frames"] == 0
+        assert meta["unresolved_frames"] == 0
+        assert meta["unresolved_pct"] == 0.0
 
     def test_source_maps_compute_counts_unresolved_js_frames(self):
         for _ in range(8):
@@ -402,9 +402,9 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
         meta = SourceMapsRecommendation().compute(self.team)
 
-        self.assertEqual(meta["total_frames"], 10)
-        self.assertEqual(meta["unresolved_frames"], 2)
-        self.assertEqual(meta["unresolved_pct"], 0.2)
+        assert meta["total_frames"] == 10
+        assert meta["unresolved_frames"] == 2
+        assert meta["unresolved_pct"] == 0.2
 
     def test_source_maps_compute_ignores_non_js_frames(self):
         self._make_frame(lang="python", resolved=False)
@@ -413,8 +413,8 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
         meta = SourceMapsRecommendation().compute(self.team)
 
-        self.assertEqual(meta["total_frames"], 1)
-        self.assertEqual(meta["unresolved_frames"], 0)
+        assert meta["total_frames"] == 1
+        assert meta["unresolved_frames"] == 0
 
     def test_source_maps_compute_ignores_frames_outside_lookback(self):
         self._make_frame(lang="javascript", resolved=False, created_hours_ago=48)
@@ -422,8 +422,8 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
         meta = SourceMapsRecommendation().compute(self.team)
 
-        self.assertEqual(meta["total_frames"], 1)
-        self.assertEqual(meta["unresolved_frames"], 0)
+        assert meta["total_frames"] == 1
+        assert meta["unresolved_frames"] == 0
 
     def test_source_maps_compute_ignores_other_teams_frames(self):
         other_team = self.organization.teams.create(name="other")
@@ -436,7 +436,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
         meta = SourceMapsRecommendation().compute(self.team)
 
-        self.assertEqual(meta["total_frames"], 0)
+        assert meta["total_frames"] == 0
 
     def test_source_maps_is_completed_when_below_threshold(self):
         # 5% unresolved, threshold is 30%
@@ -447,7 +447,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
             "threshold_pct": 0.30,
             "min_sample_frames": 20,
         }
-        self.assertTrue(SourceMapsRecommendation().is_completed(meta))
+        assert SourceMapsRecommendation().is_completed(meta)
 
     def test_source_maps_is_completed_false_when_above_threshold(self):
         meta = {
@@ -457,7 +457,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
             "threshold_pct": 0.30,
             "min_sample_frames": 20,
         }
-        self.assertFalse(SourceMapsRecommendation().is_completed(meta))
+        assert not SourceMapsRecommendation().is_completed(meta)
 
     def test_source_maps_is_completed_when_below_min_sample(self):
         # Even at 100% unresolved, with too few frames we don't fire the recommendation.
@@ -468,7 +468,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
             "threshold_pct": 0.30,
             "min_sample_frames": 20,
         }
-        self.assertTrue(SourceMapsRecommendation().is_completed(meta))
+        assert SourceMapsRecommendation().is_completed(meta)
 
     @patch(
         "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
@@ -491,5 +491,5 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self._list()
 
         long_running.refresh_from_db()
-        self.assertEqual(long_running.status, ErrorTrackingRecommendation.Status.READY)
+        assert long_running.status == ErrorTrackingRecommendation.Status.READY
         mock_long_running.assert_called_once()

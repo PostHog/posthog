@@ -51,8 +51,8 @@ class TestDocumentBlocks(BaseTest):
         # These must be valid members of the VisualizationBlock.query union, otherwise enriching a
         # notebook artifact that references such an insight raises a ValidationError.
         block = VisualizationBlock(query=query)
-        self.assertEqual(block.type, "visualization")
-        self.assertEqual(block.query, query)
+        assert block.type == "visualization"
+        assert block.query == query
 
     @parameterized.expand(
         [

@@ -3371,12 +3371,12 @@ def parser_test_factory(backend: HogQLParserBackend):
             ]
         )
         def test_signed_radix_number_literals(self, _name: str, expr: str, expected: int | float):
-            self.assertEqual(self._expr(expr), ast.Constant(value=expected))
+            assert self._expr(expr) == ast.Constant(value=expected)
 
         def test_select_columns_leading_zero_literals(self):
             # Leading zeros are no-ops in SELECT-column position too.
             select = cast(ast.SelectQuery, self._select("SELECT 9, 09, 011, 017, 018"))
-            self.assertEqual([cast(ast.Constant, c).value for c in select.select], [9, 9, 11, 17, 18])
+            assert [cast(ast.Constant, c).value for c in select.select] == [9, 9, 11, 17, 18]
 
         @parameterized.expand(
             [
@@ -3395,7 +3395,7 @@ def parser_test_factory(backend: HogQLParserBackend):
         )
         def test_binary_literals(self, _name: str, expr: str, expected: int):
             # `0b<binary-digits>` is a real lexer token; ClickHouse parses binary literals natively.
-            self.assertEqual(self._expr(expr), ast.Constant(value=expected))
+            assert self._expr(expr) == ast.Constant(value=expected)
 
         def test_select_binary_literals_in_select(self):
             # Before BINARY_LITERAL was a token, `0b1010` split into `0` + IDENTIFIER `b1010`.
@@ -3406,16 +3406,11 @@ def parser_test_factory(backend: HogQLParserBackend):
                     values.append(c.value)
                 else:
                     values.append(c)  # arithmetic expr stays
-            self.assertEqual(values[0], 10)
-            self.assertEqual(values[2], 0)
+            assert values[0] == 10
+            assert values[2] == 0
             # 0b11 + 1: 3 + 1 = 4, expressed as an ArithmeticOperation.
-            self.assertEqual(
-                values[1],
-                ast.ArithmeticOperation(
-                    op=ast.ArithmeticOperationOp.Add,
-                    left=ast.Constant(value=3),
-                    right=ast.Constant(value=1),
-                ),
+            assert values[1] == ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Add, left=ast.Constant(value=3), right=ast.Constant(value=1)
             )
 
         def test_binary_literal_in_where(self):
@@ -3423,7 +3418,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             select = cast(ast.SelectQuery, self._select("SELECT 1 FROM events WHERE id = 0b1010"))
             assert select.where is not None
             where = cast(ast.CompareOperation, select.where)
-            self.assertEqual(cast(ast.Constant, where.right).value, 10)
+            assert cast(ast.Constant, where.right).value == 10
 
         @parameterized.expand(
             [
@@ -3486,7 +3481,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             # only actionable signal when the character is invisible.
             with self.assertRaises((ExposedHogQLError, SyntaxError)) as caught:
                 self._program(program)
-            self.assertIn(code_point, str(caught.exception))
+            assert code_point in str(caught.exception)
 
         def test_zero_width_character_allowed_inside_string(self):
             # The catch-all only fires outside string literals — a
@@ -3527,8 +3522,8 @@ def parser_test_factory(backend: HogQLParserBackend):
             # ordinary space, NOT fall through to UNEXPECTED_CHARACTER and
             # fail the parse. Checked both between statements and inside
             # an expression.
-            self.assertEqual(self._program(f"let x :={space}1"), self._program("let x := 1"))
-            self.assertEqual(self._expr(f"1{space}+{space}2"), self._expr("1 + 2"))
+            assert self._program(f"let x :={space}1") == self._program("let x := 1")
+            assert self._expr(f"1{space}+{space}2") == self._expr("1 + 2")
 
         def test_byte_order_mark_does_not_break_parse(self):
             # A file saved with a leading UTF-8 byte-order mark still parses, AND the BOM is zero-width to cpp's
@@ -3536,28 +3531,22 @@ def parser_test_factory(backend: HogQLParserBackend):
             # span (via the cross-backend snapshot) so a parser that counts the BOM as 1 char (rust's natural
             # `byte_to_char_index` behaviour, before the leading-BOM adjustment) fails here.
             self._assert_ast("﻿let x := 1", "program")
-            self.assertEqual(self._program("﻿let x := 1"), self._program("let x := 1"))
+            assert self._program("\ufefflet x := 1") == self._program("let x := 1")
 
         def test_clause_keyword_as_column_after_comma(self):
             # After a comma, the column list continues with another
             # column for a clause keyword that can also be a Field —
             # only `FROM` (and two-token `GROUP BY` / `ORDER BY`) makes
             # the comma trailing. `window` here is the second column.
-            self.assertEqual(
-                self._select("select 1, window from events"),
-                ast.SelectQuery(
-                    select=[ast.Constant(value=1), ast.Field(chain=["window"])],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                ),
+            assert self._select("select 1, window from events") == ast.SelectQuery(
+                select=[ast.Constant(value=1), ast.Field(chain=["window"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             )
             # Same in a GROUP BY list — `window` is the second grouping
             # key, not the start of a WINDOW clause.
             grouped = self._select("select count() from events group by tool, window")
             assert isinstance(grouped, ast.SelectQuery)
-            self.assertEqual(
-                grouped.group_by,
-                [ast.Field(chain=["tool"]), ast.Field(chain=["window"])],
-            )
+            assert grouped.group_by == [ast.Field(chain=["tool"]), ast.Field(chain=["window"])]
 
         def test_clause_keywords_reused_as_identifiers_throughout_query(self):
             # Every word in this query is a HogQL clause/operator keyword
@@ -3570,48 +3559,37 @@ def parser_test_factory(backend: HogQLParserBackend):
             # bugs and parser-rule bugs where a backend takes the
             # keyword path instead of the identifier path when both
             # are legal.
-            self.assertEqual(
-                self._select("select select from from where where and and"),
-                ast.SelectQuery(
-                    select=[ast.Field(chain=["select"])],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["from"])),
-                    where=ast.And(
-                        exprs=[
-                            ast.Field(chain=["where"]),
-                            ast.Field(chain=["and"]),
-                        ]
-                    ),
-                ),
+            assert self._select("select select from from where where and and") == ast.SelectQuery(
+                select=[ast.Field(chain=["select"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["from"])),
+                where=ast.And(exprs=[ast.Field(chain=["where"]), ast.Field(chain=["and"])]),
             )
 
         def test_select_columns_quoted_exclude(self):
             # Quoted identifiers inside an exclude list must be unquoted, matching the cpp parser.
-            self.assertEqual(
-                self._select('select * exclude ("first name") from customers'),
-                ast.SelectQuery(
-                    select=[ast.ColumnsExpr(all_columns=True, exclude=["first name"])],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["customers"])),
-                ),
+            assert self._select('select * exclude ("first name") from customers') == ast.SelectQuery(
+                select=[ast.ColumnsExpr(all_columns=True, exclude=["first name"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["customers"])),
             )
 
         def test_select_set_level_limit_offset_divergences(self):
             # Set-level LIMIT/OFFSET on a SelectSetQuery initial query — Python dropped both. C++ was already correct.
             parsed = self._select("((select 1) intersect (select 2)) limit 3, 4")
             assert isinstance(parsed, ast.SelectSetQuery)
-            self.assertEqual(parsed.limit, ast.Constant(value=3))
-            self.assertEqual(parsed.offset, ast.Constant(value=4))
+            assert parsed.limit == ast.Constant(value=3)
+            assert parsed.offset == ast.Constant(value=4)
 
             # A bare outer `LIMIT n` must not clobber an existing inner OFFSET.
             parsed = self._select("(select 1 offset 5) limit 3")
             assert isinstance(parsed, ast.SelectQuery)
-            self.assertEqual(parsed.limit, ast.Constant(value=3))
-            self.assertEqual(parsed.offset, ast.Constant(value=5))
+            assert parsed.limit == ast.Constant(value=3)
+            assert parsed.offset == ast.Constant(value=5)
 
             # A placeholder select body has no node to carry a set-level LIMIT/OFFSET, so both backends drop the clause.
             placeholder = ast.Placeholder(expr=ast.Field(chain=["foo"]))
             for query in ("{foo} offset 1", "{foo} limit 2", "{foo} limit 2 offset 3"):
                 with self.subTest(query=query):
-                    self.assertEqual(self._select(query), placeholder)
+                    assert self._select(query) == placeholder
 
         @parameterized.expand(
             [
@@ -3632,7 +3610,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             q = "SELECT 1 FROM a LEFT OUTER SEMI JOIN b ON a.x = b.x"
             with self.assertRaises(ValueError) as cm:
                 self._select(q)
-            self.assertIn("Invalid join type", str(cm.exception))
+            assert "Invalid join type" in str(cm.exception)
 
         def test_dataclass_post_init_failure_surfaces_original_exception(self):
             # A dataclass `__post_init__` raising mid-build must surface the ORIGINAL exception on every backend. The json backends raise it straight from `deserialize_ast`; rust-py constructs dataclasses during the parse, so `PyEmitter` restores the exception across its panic/`catch_unwind` boundary instead of wrapping it in an envelope (or leaking a `PanicException`).
@@ -3642,7 +3620,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             with patch.object(ast.JoinExpr, "__post_init__", always_reject):
                 with self.assertRaises(ValueError) as caught:
                     parse_select("SELECT 1 FROM a JOIN b ON a.x = b.x", backend=backend)
-            self.assertIn("synthetic post_init failure", str(caught.exception))
+            assert "synthetic post_init failure" in str(caught.exception)
 
         def test_deeply_nested_input_does_not_stack_overflow(self):
             # Deeply-nested input must surface a clean `SyntaxError`, not a host stack overflow (an uncatchable SIGSEGV) in the recursive-descent loop. One shared counter caps all three recursion dimensions — expression nesting, subquery / set nesting, and Hog statement / block nesting — at `MAX_RECURSION_DEPTH = 1000`, mirroring ClickHouse's `max_parser_depth`. cpp / python have their own stack characteristics so the assertion is rust-specific. Which guard fires (and so the exact message) depends on how the input routes through the descent, hence the loose substring check.
@@ -3657,7 +3635,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             for rule, src in cases:
                 with self.assertRaises(SyntaxError, msg=rule) as cm:
                     parse_fns[rule](src, backend=backend)
-                self.assertIn("too deeply nested", str(cm.exception).lower(), msg=rule)
+                assert "too deeply nested" in str(cm.exception).lower(), rule
 
         def test_ctes_inject_into_paren_wrapped_inner_with(self):
             # An outer WITH attached to a paren-wrapped inner that already has its own WITH must surface both CTEs, with the outer's appended after the inner's (matches cpp's `VISIT(SelectStmtWithParens)` ordering).
@@ -3666,40 +3644,33 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self._select("WITH a AS (SELECT 1) (WITH b AS (SELECT 2) SELECT * FROM b)"),
             )
             assert isinstance(node.ctes, dict)
-            self.assertEqual(list(node.ctes.keys()), ["b", "a"])
+            assert list(node.ctes.keys()) == ["b", "a"]
 
         def test_return_hogqlx_tag_value(self):
             # `return <Tag/>` is a returnStmt whose value is a HogQLX tag, not the `<` less-than operator binding `return` as a Field. The rust parser's return-guard read the following `<` as less-than and rejected the tag while cpp and python accept it; bare `<Tag/>` and `let x := <Tag/>` already worked, so only the return-value position needed the fix (`execute_hog` wraps a bare expression as `return <expr>;`, which is how this surfaced).
             prog = cast(ast.Program, self._program("return <Sparkline />"))
             stmt = cast(ast.ReturnStatement, prog.declarations[0])
-            self.assertIsInstance(stmt, ast.ReturnStatement)
-            self.assertEqual(stmt.expr, ast.HogQLXTag(kind="Sparkline", attributes=[]))
+            assert isinstance(stmt, ast.ReturnStatement)
+            assert stmt.expr == ast.HogQLXTag(kind="Sparkline", attributes=[])
             nested = cast(ast.ReturnStatement, cast(ast.Program, self._program("return <a>x</a>")).declarations[0])
-            self.assertEqual(
-                nested.expr,
-                ast.HogQLXTag(
-                    kind="a",
-                    attributes=[ast.HogQLXAttribute(name="children", value=[ast.Constant(value="x")])],
-                ),
+            assert nested.expr == ast.HogQLXTag(
+                kind="a", attributes=[ast.HogQLXAttribute(name="children", value=[ast.Constant(value="x")])]
             )
-            self.assertIsInstance(self._program("fn f() { return <em /> }"), ast.Program)
+            assert isinstance(self._program("fn f() { return <em /> }"), ast.Program)
             # The `<`-tag exception must not over-fire: `return < 5` is still a less-than expression statement, not a returnStmt.
             lt = cast(ast.Program, self._program("return < 5"))
-            self.assertNotIsInstance(lt.declarations[0], ast.ReturnStatement)
+            assert not isinstance(lt.declarations[0], ast.ReturnStatement)
 
         def test_program_exprstmt_routes_assignment_vs_expression(self):
             # `:=` present yields a VariableAssignment for any expression target; otherwise an ExprStatement.
             declarations = self._program("a := 1; o.a := 2; arr[1] := 3; (x) := 9; foo();").declarations
-            self.assertEqual(
-                [type(declaration).__name__ for declaration in declarations],
-                [
-                    "VariableAssignment",
-                    "VariableAssignment",
-                    "VariableAssignment",
-                    "VariableAssignment",
-                    "ExprStatement",
-                ],
-            )
+            assert [type(declaration).__name__ for declaration in declarations] == [
+                "VariableAssignment",
+                "VariableAssignment",
+                "VariableAssignment",
+                "VariableAssignment",
+                "ExprStatement",
+            ]
 
         def test_named_argument_in_call_not_treated_as_assignment(self):
             # A named argument inside a call stays a NamedArgument; only a statement-level one is promoted.
@@ -3707,7 +3678,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             # `assert isinstance` rather than `assertIsInstance` so mypy narrows the type.
             assert isinstance(call, ast.Call)
             assert isinstance(call.args[0], ast.NamedArgument)
-            self.assertEqual(call.args[0].name, "x")
+            assert call.args[0].name == "x"
             declaration = self._program("f(x := 1);").declarations[0]
             assert isinstance(declaration, ast.ExprStatement)
 
@@ -3727,34 +3698,27 @@ def parser_test_factory(backend: HogQLParserBackend):
 
         def test_program_quoted_identifiers(self):
             # Quoted identifiers in name positions must be unquoted, matching the cpp parser.
-            self.assertEqual(
-                self._program('fn "my fn"("a b", "c d") { return 1; }'),
-                Program(
-                    declarations=[
-                        Function(
-                            name="my fn",
-                            params=["a b", "c d"],
-                            body=Block(declarations=[ast.ReturnStatement(expr=Constant(value=1))]),
-                        )
-                    ],
-                ),
+            assert self._program('fn "my fn"("a b", "c d") { return 1; }') == Program(
+                declarations=[
+                    Function(
+                        name="my fn",
+                        params=["a b", "c d"],
+                        body=Block(declarations=[ast.ReturnStatement(expr=Constant(value=1))]),
+                    )
+                ]
             )
-            self.assertEqual(
-                self._program('let "my var" := 1;'),
-                Program(declarations=[VariableDeclaration(name="my var", expr=Constant(value=1))]),
+            assert self._program('let "my var" := 1;') == Program(
+                declarations=[VariableDeclaration(name="my var", expr=Constant(value=1))]
             )
-            self.assertEqual(
-                self._program('for (let "key", "val" in [1]) {}'),
-                Program(
-                    declarations=[
-                        ast.ForInStatement(
-                            keyVar="key",
-                            valueVar="val",
-                            expr=ast.Array(exprs=[Constant(value=1)]),
-                            body=Block(declarations=[]),
-                        )
-                    ],
-                ),
+            assert self._program('for (let "key", "val" in [1]) {}') == Program(
+                declarations=[
+                    ast.ForInStatement(
+                        keyVar="key",
+                        valueVar="val",
+                        expr=ast.Array(exprs=[Constant(value=1)]),
+                        body=Block(declarations=[]),
+                    )
+                ]
             )
 
         def test_program_bare_throw_rejected(self):
@@ -3781,8 +3745,8 @@ def parser_test_factory(backend: HogQLParserBackend):
             }
             for src, expected in cases.items():
                 node = parse_expr(src, backend=backend)
-                self.assertIsInstance(node, ast.Constant, msg=f"{backend}: {src!r}")
-                self.assertEqual(node.value, expected, msg=f"{backend}: {src!r}")
+                assert isinstance(node, ast.Constant), f"{backend}: {src!r}"
+                assert node.value == expected, f"{backend}: {src!r}"
 
         def test_clause_keyword_after_comma_in_select_columns(self):
             # `select a, where b` is one column + WHERE clause; `select a, where` (no body) is two columns.
@@ -3796,8 +3760,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ("select a, prewhere * columns('y')", "prewhere"),
             ):
                 node = parse_select(src, backend=backend)
-                self.assertEqual(len(node.select), 1, msg=f"{backend}: {src!r}")
-                self.assertIsNotNone(getattr(node, attr), msg=f"{backend}: {src!r}")
+                assert len(node.select) == 1, f"{backend}: {src!r}"
+                assert getattr(node, attr) is not None, f"{backend}: {src!r}"
             # bare clause keyword (no body) → stays a column;
             # `window from events` is `window` the Field then a FROM
             # clause, not a malformed WINDOW clause.
@@ -3808,7 +3772,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select 1, window from events",
             ):
                 node = parse_select(src, backend=backend)
-                self.assertEqual(len(node.select), 2, msg=f"{backend}: {src!r}")
+                assert len(node.select) == 2, f"{backend}: {src!r}"
 
         def test_limit_percent_marker_with_compound_body(self):
             # `%` is overloaded (modulo + LIMIT PERCENT); compound LIMIT bodies must bind it as the PERCENT marker.
@@ -3947,9 +3911,9 @@ def parser_test_factory(backend: HogQLParserBackend):
             src = "if(not(empty(override.distinct_id)), override.person_id, event_person_id)"
             internal = parse_expr(src, start=None, backend=backend)
             positioned = parse_expr(src, start=0, backend=backend)
-            self.assertEqual(internal, clear_locations(positioned))
-            self.assertIsNone(internal.start)
-            self.assertIsNone(internal.end)
+            assert internal == clear_locations(positioned)
+            assert internal.start is None
+            assert internal.end is None
 
         @parameterized.expand(
             [
@@ -4009,21 +3973,21 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select q, having ?. r",
             ):
                 node = parse_select(src, backend=backend)
-                self.assertEqual(len(node.select), 2, msg=f"{backend}: {src!r}")
+                assert len(node.select) == 2, f"{backend}: {src!r}"
             # guard: a real expression-starter still opens the clause
             node = parse_select("select q, having y", backend=backend)
-            self.assertEqual(len(node.select), 1, msg=f"{backend}: having y")
+            assert len(node.select) == 1, f"{backend}: having y"
 
         def test_from_after_comma_needs_a_table_reference(self):
             # FROM's body is a `joinExpr`, not a `columnExpr` — `from` after a comma stays a Field unless a table-ref starter follows.
             for src in ("select q, from", "select q, from + 1", "select q, from()"):
                 node = parse_select(src, backend=backend)
-                self.assertEqual(len(node.select), 2, msg=f"{backend}: {src!r}")
-                self.assertIsNone(node.select_from, msg=f"{backend}: {src!r}")
+                assert len(node.select) == 2, f"{backend}: {src!r}"
+                assert node.select_from is None, f"{backend}: {src!r}"
             # guard: a real table reference still opens the FROM clause
             node = parse_select("select q, from t", backend=backend)
-            self.assertEqual(len(node.select), 1, msg=f"{backend}: from t")
-            self.assertIsNotNone(node.select_from, msg=f"{backend}: from t")
+            assert len(node.select) == 1, f"{backend}: from t"
+            assert node.select_from is not None, f"{backend}: from t"
 
         def test_clause_keyword_asterisk_then_postfix_is_a_clause(self):
             # `<clause-kw> * <postfix-op>` is the clause with `*` spread + postfix; `*` mult RHS can't begin with a postfix op.
@@ -4034,10 +3998,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select q, offset * ?. r",
             ):
                 node = parse_select(src, backend=backend)
-                self.assertEqual(len(node.select), 1, msg=f"{backend}: {src!r}")
+                assert len(node.select) == 1, f"{backend}: {src!r}"
             # guard: `where * r` is `where` the column times `r`
             node = parse_select("select q, where * r", backend=backend)
-            self.assertEqual(len(node.select), 2, msg=f"{backend}: where * r")
+            assert len(node.select) == 2, f"{backend}: where * r"
 
         def test_pivot_tuple_or_single_operand_with_postfix(self):
             # PIVOT operand is `Tuple` only when `)` is followed by `FOR`/`IN`; `(n)()` takes the columnExpr branch (paren-expr + postfix call).
@@ -4091,9 +4055,9 @@ def parser_test_factory(backend: HogQLParserBackend):
                     f"SELECT a FROM events GROUP BY tool, {kw} HAVING call_count >= 5",
                     backend=backend,
                 )
-                self.assertIsInstance(node, ast.SelectQuery, msg=f"{backend}: {kw}")
-                self.assertEqual(len(node.group_by or []), 2, msg=f"{backend}: {kw}")
-                self.assertIsNotNone(node.having, msg=f"{backend}: {kw}")
+                assert isinstance(node, ast.SelectQuery), f"{backend}: {kw}"
+                assert len(node.group_by or []) == 2, f"{backend}: {kw}"
+                assert node.having is not None, f"{backend}: {kw}"
 
         def test_integer_literal_above_i64_max(self):
             # Above-i64 ints are kept lossless via the `value_type: "number"` string envelope (orjson rejects >64-bit number tokens).
@@ -4108,9 +4072,9 @@ def parser_test_factory(backend: HogQLParserBackend):
             }
             for src, expected in cases.items():
                 node = parse_expr(src, backend=backend)
-                self.assertIsInstance(node, ast.Constant, msg=f"{backend}: {src!r}")
-                self.assertEqual(node.value, expected, msg=f"{backend}: {src!r}")
-                self.assertIsInstance(node.value, int, msg=f"{backend}: {src!r}")
+                assert isinstance(node, ast.Constant), f"{backend}: {src!r}"
+                assert node.value == expected, f"{backend}: {src!r}"
+                assert isinstance(node.value, int), f"{backend}: {src!r}"
 
         def test_string_escape_nul_bel_vtab(self):
             # cpp drops `\0` (NUL ignored), decodes `\a`→0x07, `\v`→0x0B; `\0` also affects quoted identifiers.
@@ -4150,8 +4114,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                     parse_select(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError) as backend_cm:
                     parse_select(src, backend=backend)
-                self.assertIs(type(backend_cm.exception), type(cpp_cm.exception), msg=f"{backend}: {src!r}")
-                self.assertNotIsInstance(backend_cm.exception, SyntaxError, msg=f"{backend}: {src!r}")
+                assert type(backend_cm.exception) is type(cpp_cm.exception), f"{backend}: {src!r}"
+                assert not isinstance(backend_cm.exception, SyntaxError), f"{backend}: {src!r}"
 
         def test_window_frame_non_int_bound_keeps_constant(self):
             # Unwrap a frame-bound Constant to a bare number only when integer; floats / strings keep the Constant.
@@ -4171,8 +4135,8 @@ def parser_test_factory(backend: HogQLParserBackend):
             # guard: bare true/false/null are still Constants
             for src, val in (("true", True), ("false", False), ("null", None)):
                 node = parse_expr(src, backend=backend)
-                self.assertIsInstance(node, ast.Constant, msg=src)
-                self.assertEqual(node.value, val, msg=src)
+                assert isinstance(node, ast.Constant), src
+                assert node.value == val, src
 
         def test_hex_integer_literal_baseline(self):
             # Pins plain `0x…` parsing against hex-float-lexer regressions; `e`/`E` are hex digits here, not exponent markers.
@@ -4201,9 +4165,9 @@ def parser_test_factory(backend: HogQLParserBackend):
             }
             for src, expected in cases.items():
                 node = parse_expr(src, backend=backend)
-                self.assertIsInstance(node, ast.Constant, msg=f"{backend}: {src!r}")
-                self.assertEqual(node.value, expected, msg=f"{backend}: {src!r}")
-                self.assertIsInstance(node.value, int, msg=f"{backend}: {src!r}")
+                assert isinstance(node, ast.Constant), f"{backend}: {src!r}"
+                assert node.value == expected, f"{backend}: {src!r}"
+                assert isinstance(node.value, int), f"{backend}: {src!r}"
 
         def test_hex_float_literal_c99(self):
             # Hex-float `FLOATING_LITERAL` is strict C99 — `p`/`P` is the only exponent marker; `e`/`E` always lexes as a hex digit.
@@ -4232,9 +4196,9 @@ def parser_test_factory(backend: HogQLParserBackend):
             }
             for src, expected in cases.items():
                 node = parse_expr(src, backend=backend)
-                self.assertIsInstance(node, ast.Constant, msg=f"{backend}: {src!r}")
-                self.assertIsInstance(node.value, float, msg=f"{backend}: {src!r}")
-                self.assertEqual(node.value, expected, msg=f"{backend}: {src!r}")
+                assert isinstance(node, ast.Constant), f"{backend}: {src!r}"
+                assert isinstance(node.value, float), f"{backend}: {src!r}"
+                assert node.value == expected, f"{backend}: {src!r}"
 
         def test_hex_e_is_hex_digit_not_exponent_marker(self):
             # `0x1e+4` is `0x1e` (=30) + `4`, not a hex-float — only `p`/`P` marks the exponent (strict C99, matches ClickHouse).
@@ -4246,10 +4210,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ("0xff-1", "-", 255, 1),
             ):
                 node = parse_expr(src, backend=backend)
-                self.assertIsInstance(node, ast.ArithmeticOperation, msg=f"{backend}: {src!r}")
-                self.assertEqual(node.op, op, msg=f"{backend}: {src!r}")
-                self.assertEqual(node.left.value, lhs, msg=f"{backend}: {src!r}")
-                self.assertEqual(node.right.value, rhs, msg=f"{backend}: {src!r}")
+                assert isinstance(node, ast.ArithmeticOperation), f"{backend}: {src!r}"
+                assert node.op == op, f"{backend}: {src!r}"
+                assert node.left.value == lhs, f"{backend}: {src!r}"
+                assert node.right.value == rhs, f"{backend}: {src!r}"
 
         def test_hex_float_in_expression_context(self):
             # Pins that the lexer recognises a whole hex-float as one token usable inside arithmetic.
@@ -4259,12 +4223,12 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ("0x1p4 * 2", "*", float.fromhex("0x1p4"), 2),
             ):
                 node = parse_expr(src, backend=backend)
-                self.assertIsInstance(node, ast.ArithmeticOperation, msg=f"{backend}: {src!r}")
-                self.assertEqual(node.op, op, msg=f"{backend}: {src!r}")
-                self.assertIsInstance(node.left, ast.Constant, msg=f"{backend}: {src!r}")
-                self.assertIsInstance(node.right, ast.Constant, msg=f"{backend}: {src!r}")
-                self.assertEqual(node.left.value, lhs, msg=f"{backend}: {src!r}")
-                self.assertEqual(node.right.value, rhs, msg=f"{backend}: {src!r}")
+                assert isinstance(node, ast.ArithmeticOperation), f"{backend}: {src!r}"
+                assert node.op == op, f"{backend}: {src!r}"
+                assert isinstance(node.left, ast.Constant), f"{backend}: {src!r}"
+                assert isinstance(node.right, ast.Constant), f"{backend}: {src!r}"
+                assert node.left.value == lhs, f"{backend}: {src!r}"
+                assert node.right.value == rhs, f"{backend}: {src!r}"
 
         def test_hex_float_no_integer_part_rejected(self):
             # `0x.8p3` lacks HEX_DIGIT+ before the dot — invalid per both FLOATING_LITERAL and HEXADECIMAL_LITERAL.
@@ -4311,8 +4275,8 @@ def parser_test_factory(backend: HogQLParserBackend):
             inner = outer.expr
             assert isinstance(inner, ast.BetweenExpr), f"{backend}: inner is {type(inner).__name__}"
             # H1 is the constant `2`, which ends at offset 24 in the source.
-            self.assertEqual(inner.end, 24, msg=f"{backend}: inner.end={inner.end}, expected 24")
-            self.assertEqual(outer.end, 40, msg=f"{backend}: outer.end={outer.end}, expected 40")
+            assert inner.end == 24, f"{backend}: inner.end={inner.end}, expected 24"
+            assert outer.end == 40, f"{backend}: outer.end={outer.end}, expected 40"
 
         def test_bare_asterisk_clause_body_after_comma(self):
             # `select a, where *` opens the WHERE clause with a bare `*` body; later LIMIT / GROUP BY / etc. is a normal subsequent clause.
@@ -4623,9 +4587,9 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT a AS day FROM t",
             ):
                 if "SELECT" in src:
-                    self.assertIsNotNone(parse_select(src, backend=backend), msg=f"{backend}: {src!r}")
+                    assert parse_select(src, backend=backend) is not None, f"{backend}: {src!r}"
                 else:
-                    self.assertIsNotNone(parse_expr(src, backend=backend), msg=f"{backend}: {src!r}")
+                    assert parse_expr(src, backend=backend) is not None, f"{backend}: {src!r}"
 
         def test_bare_asterisk_replace_only_inside_parens(self):
             # `ColumnExprAsterisk` only admits trailing EXCLUDE; `REPLACE` after `*` is valid only inside `(*…)` or `COLUMNS(*…)`.
@@ -4682,7 +4646,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             # Guards: numeric / INF parse and pin the AST. NaN can't be equality-compared, so just assert it parses.
             for src in ("+1", "+1.5", "+inf"):
                 self._assert_ast(src, "expr")
-            self.assertIsNotNone(parse_expr("+nan", backend=backend))
+            assert parse_expr("+nan", backend=backend) is not None
 
         def test_column_cte_requires_identifier_after_as(self):
             # `withExpr: columnExpr AS identifier` — post-AS must be a real identifier, not a number / string / paren group.
@@ -5033,13 +4997,13 @@ def parser_test_factory(backend: HogQLParserBackend):
             )
             for src, expected in cases_subnormal:
                 got = parse_expr(src, backend=backend)
-                self.assertEqual(got.value, expected, msg=f"{backend}: {src!r}")
+                assert got.value == expected, f"{backend}: {src!r}"
             for src in ("1e-325", "-1e-400"):
                 got = parse_expr(src, backend=backend)
-                self.assertEqual(got.value, 0.0, msg=f"{backend}: {src!r}")
+                assert got.value == 0.0, f"{backend}: {src!r}"
             for src, expected in (("1e+400", float("inf")), ("-1e+400", float("-inf"))):
                 got = parse_expr(src, backend=backend)
-                self.assertEqual(got.value, expected, msg=f"{backend}: {src!r}")
+                assert got.value == expected, f"{backend}: {src!r}"
 
         def test_stmt_rhs_pratt_recovers_on_infix_rhs_failure(self):
             # cpp splits `let x := {} * ()` into two stmts when the `*` infix RHS rejects — the stranded operator + operand become the next stmt.
@@ -5121,8 +5085,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                     parse_expr(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError, msg=src) as rust_cm:
                     parse_expr(src, backend=backend)
-                self.assertIn("ColumnTypeExprEnum", str(cpp_cm.exception), msg=src)
-                self.assertIn("ColumnTypeExprEnum", str(rust_cm.exception), msg=src)
+                assert "ColumnTypeExprEnum" in str(cpp_cm.exception), src
+                assert "ColumnTypeExprEnum" in str(rust_cm.exception), src
 
         def test_raw_type_param_text_rejects_null_inf_nan_keywords(self):
             # cpp's `columnTypeExpr` Param alt routes identifier-shaped
@@ -5325,8 +5289,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                     parse_expr(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError, msg=src) as rust_cm:
                     parse_expr(src, backend=backend)
-                self.assertIn(expected_msg, str(cpp_cm.exception), msg=src)
-                self.assertIn(expected_msg, str(rust_cm.exception), msg=src)
+                assert expected_msg in str(cpp_cm.exception), src
+                assert expected_msg in str(rust_cm.exception), src
             # Guard: valid combined-string and expr+unit forms still parse.
             for src in ("INTERVAL '1 day'", "INTERVAL '5 days'", "INTERVAL 1 day", "INTERVAL 1 DAY"):
                 self._assert_ast(src, "expr")
@@ -5770,11 +5734,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "(columns(* replace(a as b)))",
                 "((columns(* replace(a as b))))",
             ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
 
         def test_between_hoist_inner_wrapper_spans(self):
             # When 2+ wrappers stack outside a BETWEEN (`1 between 2 and 3 as l :: Int`),
@@ -5796,11 +5756,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "1 between 2 and 3 as l",
                 "1 between 2 and 3 :: Int",
             ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
 
         def test_arrow_lambda_block_body_span_with_trailing_postfix(self):
             # An arrow lambda with a Hog BLOCK body (`x -> { … }`) ends at `}`, so a
@@ -5819,11 +5775,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "x -> 1",
                 "f(x -> { throw 0 })",
             ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
 
         def test_statement_leading_brace_block_vs_call(self):
             # A statement-leading `{...}` is a Block, except when a postfix that
@@ -5852,11 +5804,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "{ } .5",
                 "{ } .5.5",
             ):
-                self.assertEqual(
-                    parse_program(query, backend="cpp-json"),
-                    parse_program(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_program(query, backend="cpp-json") == parse_program(query, backend=backend), query
 
         def test_columns_qualifier_rejects_invalid_identifier_keywords(self):
             # The qualifier before `.*` inside `COLUMNS(...)` is the grammar's
@@ -5938,11 +5886,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 'columns("iei".*(a.b, c.d))',
                 "columns(a.* exclude(z) + 1)",
             ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
 
         def test_within_keyword_rejected_as_identifier(self):
             # WITHIN is a lexer keyword used only in the `within group (...)` clause;
@@ -6010,11 +5954,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "a?.019",
             )
             for query in accepted:
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
 
         def test_nested_interval_reserves_unit_for_outer(self):
             # `INTERVAL <value> <unit>`: cpp's ALL(*) reserves the trailing unit for
@@ -6034,11 +5974,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "interval (interval '5 day') month",
                 "interval (interval '5 day' month) second",
             ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
             # A nested bad-string interval rejects on both: the inner
             # ColumnExprIntervalString can't split into `<count> <unit>`. This must
             # also reject at program level (rust no longer splits it into two
@@ -6079,11 +6015,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select a, from b union all select c from d",
             )
             for query in accept:
-                self.assertEqual(
-                    parse_select(query, backend="cpp-json"),
-                    parse_select(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_select(query, backend="cpp-json") == parse_select(query, backend=backend), query
             # Two+ top-level `from`s: every `from` before the last is a SELECT
             # column, and a bare `from <ident>` column is the rejected footgun.
             reject = (
@@ -6119,11 +6051,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select x from a, b, c",
             )
             for query in accept:
-                self.assertEqual(
-                    parse_select(query, backend="cpp-json"),
-                    parse_select(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_select(query, backend="cpp-json") == parse_select(query, backend=backend), query
             # Trailing comma after a cross / plain / positional join (no constraint
             # to own it) rejects on both.
             reject = (
@@ -6147,11 +6075,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             # rust used to commit fatally for number/ident/quoted-ident too, which
             # over-rejected the program split.
             for query in ("interval 1", "interval x", 'interval "a"'):
-                self.assertEqual(
-                    parse_program(query, backend="cpp-json"),
-                    parse_program(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_program(query, backend="cpp-json") == parse_program(query, backend=backend), query
                 with self.assertRaises(BaseHogQLError):
                     parse_expr(query, backend=backend)
             # A STRING value still commits (a bad single-token string rejects at both
@@ -6160,11 +6084,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 parse_program("interval 'a'", backend=backend)
             # A trailing unit still makes it a real interval Call on both backends.
             for query in ("interval 1 day", 'interval "a" day', "interval x day"):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
 
         def test_statement_boundary_splits_incomplete_special_infix_and_postfix(self):
             # At a statement boundary, an INCOMPLETE special-infix (LIKE / BETWEEN /
@@ -6182,11 +6102,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "a in",
                 "a is",
             ):
-                self.assertEqual(
-                    parse_program(query, backend="cpp-json"),
-                    parse_program(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_program(query, backend="cpp-json") == parse_program(query, backend=backend), query
             # At EXPRESSION level there is no next statement, so the same incomplete
             # forms stay hard errors on both backends (recovery is statement-only).
             for query in ("week like", "[ ] [ ]", "a between b", '"_" between "_"'):
@@ -6194,11 +6110,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                     parse_expr(query, backend=backend)
             # COMPLETE forms are unaffected — still parse identically on both.
             for query in ("a like b", "a between b and c", "a[b]", "a in (1, 2)", "a is null", "a not like b"):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
 
         def test_not_and_modulo_accept_hogqlx_tag_operand(self):
             # `<` begins a HogQLX tag as well as the less-than operator. In bounded
@@ -6215,18 +6127,10 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "[1 % <a/>]",
                 "(1 % <a/>)",
             ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
             # Genuine less-than / modulo (no tag following) are unchanged.
             for query in ("not < 2", "1 % 2", "1 % x"):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
 
         def test_boolean_literal_numeric_tuple_access_keeps_constant(self):
             # `true.1` / `false.0` are tuple access on the boolean Constant, not a
@@ -6234,11 +6138,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             # route every `true.`/`false.` through ident-lead, making the base a
             # Field. `true.x` (chain), `true(1)` (call) and `null.1` are unaffected.
             for query in ("true.1", "false.0", "true.1.2", "true.x", "true(1)", "true", "null.1"):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
 
         def test_return_keyword_as_identifier_before_infix_postfix(self):
             # `return` is also a keyword-rule identifier. When it is followed by a
@@ -6260,27 +6160,15 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "return != 1",
                 "return ?? x",
             ):
-                self.assertEqual(
-                    parse_program(query, backend="cpp-json"),
-                    parse_program(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_program(query, backend="cpp-json") == parse_program(query, backend=backend), query
             for query in ("return 1", "return + 1", "return [1]", "return", "return like x", "return * 2"):
-                self.assertEqual(
-                    parse_program(query, backend="cpp-json"),
-                    parse_program(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_program(query, backend="cpp-json") == parse_program(query, backend=backend), query
             # `.` is special: a leading-dot float (`return .5` -> value 0.5,
             # `return .5.5` -> tuple-access on 0.5) is a return VALUE, while a
             # `.`-chain-link (`return .x`) makes `return` an identifier (tuple /
             # field). Both must match cpp (regression guard for the #16 dispatch).
             for query in ("return .5", "return .5.5", "return . 5", "return .x"):
-                self.assertEqual(
-                    parse_program(query, backend="cpp-json"),
-                    parse_program(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_program(query, backend="cpp-json") == parse_program(query, backend=backend), query
 
         def test_not_before_statement_keyword_falls_back_to_field(self):
             # At a statement boundary, `not` followed by a statement keyword that is
@@ -6288,11 +6176,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             # Field statement followed by the keyword's statement — not a NOT whose
             # operand fails. rust used to commit NOT to the operator and reject.
             for query in ("not let x", "not throw x"):
-                self.assertEqual(
-                    parse_program(query, backend="cpp-json"),
-                    parse_program(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_program(query, backend="cpp-json") == parse_program(query, backend=backend), query
             # An incomplete `not let` (no value) or a keyword that is neither a
             # valid operand nor a complete statement still rejects on both.
             for query in ("not let", "not while x", "not fn x"):
@@ -6305,18 +6189,10 @@ def parser_test_factory(backend: HogQLParserBackend):
             # lambda statement (two statements). rust used to force the empty-call
             # interpretation and then reject when the block body was not a dict.
             for query in ("{ } () -> 1", "{ let q := 1; } () -> 1;", "{ if (1) {} } () -> 1"):
-                self.assertEqual(
-                    parse_program(query, backend="cpp-json"),
-                    parse_program(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_program(query, backend="cpp-json") == parse_program(query, backend=backend), query
             # Unchanged: empty call (no arrow), non-empty params, dict, plain block.
             for query in ("{ } ()", "{ 1 } ()", "{ } (a) -> 1", "{ } () + 1", "{1: 2}", "{ let x := 1; }"):
-                self.assertEqual(
-                    parse_program(query, backend="cpp-json"),
-                    parse_program(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_program(query, backend="cpp-json") == parse_program(query, backend=backend), query
 
         def test_hogqlx_tag_name_rejects_non_identifier_keywords(self):
             # A HogQLX tag/attr name is a grammar `identifier`, so a keyword head is
@@ -6347,11 +6223,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                         parse_expr(query, backend=backend)
             # Keywords that the grammar's `keyword` rule admits stay valid tag names.
             for kw in ("and", "select", "from", "by", "group", "order", "day", "sample"):
-                self.assertEqual(
-                    parse_expr(f"< {kw} />", backend="cpp-json"),
-                    parse_expr(f"< {kw} />", backend=backend),
-                    msg=kw,
-                )
+                assert parse_expr(f"< {kw} />", backend="cpp-json") == parse_expr(f"< {kw} />", backend=backend), kw
 
         def test_not_falls_back_to_field_when_operand_invalid(self):
             # In EXPRESSION context cpp's single-expression parse reads a leading NOT
@@ -6373,11 +6245,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "not x",
                 "a not in b",
             ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
             # At a STATEMENT boundary cpp takes the shortest leading statement, so
             # `not <op-keyword> <rhs>` is `Not(Field(<kw>))` (statement 1) and `<rhs>`
             # opens the next statement (two declarations), not the greedy single
@@ -6390,11 +6258,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "not * a",
                 "not ignore nulls",
             ):
-                self.assertEqual(
-                    parse_program(query, backend="cpp-json"),
-                    parse_program(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_program(query, backend="cpp-json") == parse_program(query, backend=backend), query
 
         def test_in_cohort_marker_only_before_a_complete_value(self):
             # `IN COHORT? columnExpr`: cpp takes the COHORT marker only when a complete
@@ -6412,11 +6276,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "a not in cohort < b",
                 "a not in cohort * b",
             ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
             # COHORT stays a marker before a complete value (a bare `*`, a negative
             # number, a tag, a parenthesised/array value, or a plain primary), and a
             # value followed by an outer infix (`cohort 1 < b`) still works.
@@ -6431,11 +6291,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "a in cohort 1 < b",
                 "a not in cohort 1",
             ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
 
         def test_select_distinct_reread_as_column_when_no_value_follows(self):
             # `SELECT DISTINCT? columnExprList`: DISTINCT is the modifier only when a
@@ -6454,11 +6310,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT DISTINCT LIMIT 1",
                 "SELECT DISTINCT group by 1",
             ):
-                self.assertEqual(
-                    parse_select(query, backend="cpp-json"),
-                    parse_select(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_select(query, backend="cpp-json") == parse_select(query, backend=backend), query
             # DISTINCT stays the modifier before a real column (incl. a bare keyword
             # column like `group` with no `BY`).
             for query in (
@@ -6468,11 +6320,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT DISTINCT day",
                 "SELECT DISTINCT group",
             ):
-                self.assertEqual(
-                    parse_select(query, backend="cpp-json"),
-                    parse_select(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_select(query, backend="cpp-json") == parse_select(query, backend=backend), query
             # `SELECT DISTINCT FROM x` keeps DISTINCT a modifier and rejects on both
             # via the FROM-implicit-alias footgun (DISTINCT is NOT re-read here).
             with self.assertRaises(BaseHogQLError):
@@ -6494,11 +6342,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "<a b={1} />",
                 "<outer><inner k='v'>t</inner></outer>",
             ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
 
         def test_lambda_keyword_is_a_plain_alias_after_as(self):
             # The grammar's explicit `AS identifier` admits every keyword, so `AS
@@ -6516,17 +6360,9 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "1 as lambda()",
                 "1 as lambda + 2",
             ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
             for query in ("select 1 as lambda", "select 1 as lambda, 2", "select 1 as lambda from t"):
-                self.assertEqual(
-                    parse_select(query, backend="cpp-json"),
-                    parse_select(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_select(query, backend="cpp-json") == parse_select(query, backend=backend), query
             # A real lambda body after `AS` is not a valid alias and rejects on both
             # in plain expression context (the alias absorbs `lambda`, the `:` trails).
             for query in ("1 as lambda: 2", "1 as lambda x: x", "1 as lambda x"):
@@ -6538,25 +6374,21 @@ def parser_test_factory(backend: HogQLParserBackend):
             # over the whole `f''` token, not the zero-width gap between the quotes.
             # rust positioned it at the interior; the comparison keeps positions.
             for query in ("f''", "f'a'", "f'ab'", "f'  '", "[f'']", "f'' || f''"):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
 
         def test_template_unknown_escape_with_multibyte_char(self):
             # An unknown f-string escape `\X` drops the backslash and the escaped char (cpp's `STRING_TEXT` lexer behaviour). When `X` is a multibyte codepoint (`\é`, `\😀`) the rust body splitter must step past the whole codepoint — a fixed 2-byte step landed mid-char and panicked the body slice, an uncatchable `PanicException` on the json path that also escaped `except Exception`. cpp accepts all of these, so matching it (value + positions) is a parity requirement.
-            self.assertEqual(self._expr(r"f'\é'"), ast.Constant(value=""))
-            self.assertEqual(self._expr(r"f'\😀z'"), ast.Constant(value="z"))
-            self.assertEqual(self._expr(r"f'\éxyz'"), ast.Constant(value="xyz"))
+            assert self._expr(r"f'\é'") == ast.Constant(value="")
+            assert self._expr(r"f'\😀z'") == ast.Constant(value="z")
+            assert self._expr(r"f'\éxyz'") == ast.Constant(value="xyz")
             # Full position parity against cpp for the position-carrying backends; python spans f-strings over the whole token, so it only checks structure.
             for src in (r"f'\é'", r"f'\éxyz'", r"f'\😀z'", r"f'ab\écd'", r"f'\é{1}\😀'"):
                 expected = parse_expr(src, backend="cpp-json")
                 actual = parse_expr(src, backend=backend)
                 if backend == "python":
-                    self.assertEqual(clear_locations(actual), clear_locations(expected), msg=src)
+                    assert clear_locations(actual) == clear_locations(expected), src
                 else:
-                    self.assertEqual(actual, expected, msg=src)
+                    assert actual == expected, src
 
         def test_interpolate_expr_carries_positions(self):
             # The INTERPOLATE item node (InterpolateExpr) was built without a position
@@ -6568,11 +6400,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select 1 order by a with fill interpolate (b, c)",
                 "select 1 order by a with fill interpolate (b as c, d)",
             ):
-                self.assertEqual(
-                    parse_select(query, backend="cpp-json"),
-                    parse_select(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_select(query, backend="cpp-json") == parse_select(query, backend=backend), query
 
         def test_between_span_includes_parenthesized_high_closing_paren(self):
             # A simple BETWEEN spans through the high operand's last consumed token,
@@ -6589,11 +6417,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "1 between (2+3) and (4)",
                 "1 between (2) and (3) + 4",
             ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
 
         def test_leading_comma_from_implicit_alias_dangling_clause(self):
             # Under a leading/trailing comma, cpp's greedy `selectColumnExprListBeforeFrom`
@@ -6623,11 +6447,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select 1 from f, array join x",
                 "select 1, from f, g",
             ):
-                self.assertEqual(
-                    parse_select(query, backend="cpp-json"),
-                    parse_select(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_select(query, backend="cpp-json") == parse_select(query, backend=backend), query
 
         def test_date_literal_tolerated_in_discarded_set_decorators(self):
             # A `selectSetStmt`'s trailing `orderByClause?` is always grammar-parsed
@@ -6649,16 +6469,9 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "( {x} offset date 'z' )",
                 "( {x} limit date 'z' with ties )",
             ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
             program = "range := ( { ( 'nlhonme ' ) } order by 'e' , date 'fa' collate 'a' ) "
-            self.assertEqual(
-                parse_program(program, backend="cpp-json"),
-                parse_program(program, backend=backend),
-            )
+            assert parse_program(program, backend="cpp-json") == parse_program(program, backend=backend)
             # Still strict where cpp DOES visit: a real SelectQuery's kept order by /
             # limit / offset, and a bare / placeholder-block date literal. All must
             # reject on both backends (the placeholder LIMIT suppression must not
@@ -6693,11 +6506,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "{x} order by 1 with fill to interval 'g'",
                 "{x} limit interval 'p'",
             ):
-                self.assertEqual(
-                    parse_select(query, backend="cpp-json"),
-                    parse_select(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_select(query, backend="cpp-json") == parse_select(query, backend=backend), query
             # Still strict elsewhere: a KEPT clause visits it, a bare / block form
             # rejects, and a non-string interval value with no unit is a grammar
             # error even when discarded (so the suppression is string-gated).
@@ -6728,11 +6537,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "x + interval '5 day' month",
                 "1 + interval '5 day' month",
             ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
 
         def test_stacked_table_alias_span_ends_at_first_alias(self):
             # `TableExprAlias` is left-recursive (`x a b c`): cpp's nested ctxs end
@@ -6748,11 +6553,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select 1 from x (c1, c2)",
                 "select 1 from x a (c1) b (c2)",
             ):
-                self.assertEqual(
-                    parse_select(query, backend="cpp-json"),
-                    parse_select(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_select(query, backend="cpp-json") == parse_select(query, backend=backend), query
 
         def test_between_split_synthetic_node_positions(self):
             # When the greedy BETWEEN-body parse is split at the rightmost AND, the
@@ -6775,11 +6576,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "m between (n) and o := (p) and q := (r) and (s)",
                 "x between (1) and ((2) or (3)) and (4)",
             ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
 
         def test_between_parenthesized_group_high(self):
             # `a and (b and c)` flattens to `And([a,b,c])` (cpp does too for a standalone
@@ -6797,11 +6594,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "1 between (a and b) and c",
                 "1 between a and (b and c) or d",
             ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
 
         def test_return_empty_parens_is_a_call(self):
             # `return ()` — empty parens are not a valid return value, so cpp re-reads
@@ -6810,17 +6603,9 @@ def parser_test_factory(backend: HogQLParserBackend):
             # `return (expr)` (incl. empty `[]` / `{}` which ARE valid values) keeps
             # the returnStmt.
             for query in ("return ()", "return ( )", "return () + 1", "x := return ()", "return () ()"):
-                self.assertEqual(
-                    parse_program(query, backend="cpp-json"),
-                    parse_program(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_program(query, backend="cpp-json") == parse_program(query, backend=backend), query
             for query in ("return (1)", "return (1, 2)", "return []", "return {}", "return"):
-                self.assertEqual(
-                    parse_program(query, backend="cpp-json"),
-                    parse_program(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_program(query, backend="cpp-json") == parse_program(query, backend=backend), query
 
         def test_bare_star_decorator_splits_at_statement_boundary(self):
             # A bare `*` admits only a valid `EXCLUDE (<identifiers>)` (no REPLACE, no
@@ -6838,11 +6623,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "* exclude (a) replace (1 as b)",
                 "x := * replace (1 as b)",
             ):
-                self.assertEqual(
-                    parse_program(query, backend="cpp-json"),
-                    parse_program(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_program(query, backend="cpp-json") == parse_program(query, backend=backend), query
             # A valid `* EXCLUDE (<idents>)` stays one columns-expr; outside a statement
             # boundary (a SELECT column) an invalid / REPLACE decorator rejects on both,
             # and the paren-wrapped `(* REPLACE …)` form stays valid.
@@ -6850,11 +6631,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "select * exclude (a) from t",
                 "select (* replace (1 as b)) from t",
             ):
-                self.assertEqual(
-                    parse_select(query, backend="cpp-json"),
-                    parse_select(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_select(query, backend="cpp-json") == parse_select(query, backend=backend), query
             for query in ("select * exclude ('j') from t", "select * replace (1 as b) from t"):
                 with self.assertRaises(BaseHogQLError):
                     parse_select(query, backend=backend)
@@ -6874,17 +6651,9 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "l() filter filter ()",
                 "quantile(0.5)(x) filter ()",
             ):
-                self.assertEqual(
-                    parse_program(query, backend="cpp-json"),
-                    parse_program(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_program(query, backend="cpp-json") == parse_program(query, backend=backend), query
             for query in ("count() filter (where 1)", "sum(x) filter (where y > 1) over ()", "count() over ()"):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
             # Outside a statement boundary (a SELECT column) the invalid FILTER rejects.
             with self.assertRaises(BaseHogQLError):
                 parse_expr("count() filter ()", backend=backend)
@@ -6905,11 +6674,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "cast(1 as q('a' = 1, 'b' = ''))",
                 "try_cast(1 as q('a' = ''))",
             ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
             # A real enumValue list (string '=' numberLiteral, incl. floats / inf /
             # signed / trailing comma) stays ColumnTypeExprEnum and rejects on both.
             for value in ("1", "-1", "1.5", "1.5e3", "2447.9157e+17", "inf", "nan", "0x1f", ".5"):
@@ -6936,10 +6701,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "cast(1 as Tuple(UInt8, String))",
                 "cast(1 as Array(Tuple(UInt8, String)))",
             ):
-                self.assertEqual(
-                    parse_expr(query, backend="cpp-json"),
-                    parse_expr(query, backend=backend),
-                    msg=query,
-                )
+                assert parse_expr(query, backend="cpp-json") == parse_expr(query, backend=backend), query
 
     return TestParser

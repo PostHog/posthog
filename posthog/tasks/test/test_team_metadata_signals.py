@@ -75,14 +75,14 @@ class TestRelatedTeamsMetadataFanoutTask(BaseTest):
             update_related_teams_metadata_cache_task(organization_id=self.organization.id)
 
         enqueued_team_ids = {call.args[0] for call in mock_update.delay.call_args_list}
-        self.assertEqual(enqueued_team_ids, {self.team.id, second_team.id})
+        assert enqueued_team_ids == {self.team.id, second_team.id}
 
     def test_project_fanout_enqueues_project_team(self) -> None:
         with patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_update:
             update_related_teams_metadata_cache_task(project_id=self.project.id)
 
         enqueued_team_ids = {call.args[0] for call in mock_update.delay.call_args_list}
-        self.assertEqual(enqueued_team_ids, {self.team.id})
+        assert enqueued_team_ids == {self.team.id}
 
     def test_fanout_is_noop_without_ids(self) -> None:
         with patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_update:
@@ -108,4 +108,4 @@ class TestOrgProjectDeleteCascadesToTeamClear(BaseTest):
         ):
             project.delete()
 
-        self.assertIn(team_id, cleared_team_ids)
+        assert team_id in cleared_team_ids

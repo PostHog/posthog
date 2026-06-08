@@ -25,44 +25,41 @@ class TestLinkifyCitations(SimpleTestCase):
         text = "See `12345678-1234-1234-1234-123456789abc` here."
         citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
         result = _linkify_citations(text, project_id=42, citation_map=citation_map)
-        self.assertIn("[12345678...]", result)
-        self.assertIn(
-            "/project/42/ai-observability/traces/trace-abc?event=12345678-1234-1234-1234-123456789abc",
-            result,
-        )
+        assert "[12345678...]" in result
+        assert "/project/42/ai-observability/traces/trace-abc?event=12345678-1234-1234-1234-123456789abc" in result
 
     def test_links_cited_generation_id_in_double_backticks(self):
         text = "See `` `12345678-1234-1234-1234-123456789abc` `` here."
         citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
-        self.assertIn("[12345678...]", result)
-        self.assertNotIn("``", result)
+        assert "[12345678...]" in result
+        assert "``" not in result
 
     def test_links_cited_generation_id_bare(self):
         text = "See 12345678-1234-1234-1234-123456789abc here."
         citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
-        self.assertIn("[12345678...]", result)
+        assert "[12345678...]" in result
 
     def test_leaves_uncited_ids_alone(self):
         text = "See `12345678-1234-1234-1234-123456789abc` here."
         result = _linkify_citations(text, project_id=1, citation_map={})
-        self.assertEqual(text, result)
+        assert text == result
 
     def test_leaves_non_id_backticks_alone(self):
         text = "Use `some_function()` here."
         citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
-        self.assertEqual(text, result)
+        assert text == result
 
     def test_no_double_replacement_when_id_appears_multiple_times(self):
         gen_id = "639a38ba-6cc6-4e0c-b5ff-ad269f6f9cf6"
         citation_map = {gen_id: "trace-abc"}
         text = f"- `{gen_id}`: satisfied\n1. {gen_id} — reason"
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
-        self.assertNotIn(f"?event=[", result)
-        self.assertNotIn(f"?event=%5B", result)
-        self.assertEqual(result.count("[639a38ba...]"), 2)
+        assert f"?event=[" not in result
+        assert f"?event=%5B" not in result
+        assert result.count("[639a38ba...]") == 2
 
     def test_multiple_citations_no_cross_contamination(self):
         citation_map = {
@@ -71,15 +68,15 @@ class TestLinkifyCitations(SimpleTestCase):
         }
         text = "First: `aaaa1111-1111-1111-1111-111111111111`, second: `bbbb2222-2222-2222-2222-222222222222`."
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
-        self.assertIn("traces/trace-a?event=aaaa1111", result)
-        self.assertIn("traces/trace-b?event=bbbb2222", result)
-        self.assertNotIn("?event=[", result)
+        assert "traces/trace-a?event=aaaa1111" in result
+        assert "traces/trace-b?event=bbbb2222" in result
+        assert "?event=[" not in result
 
     def test_handles_non_uuid_trace_id(self):
         text = "See `gen-123` here."
         citation_map = {"gen-123": "my-custom-trace-id"}
         result = _linkify_citations(text, project_id=1, citation_map=citation_map)
-        self.assertIn("/traces/my-custom-trace-id?event=gen-123", result)
+        assert "/traces/my-custom-trace-id?event=gen-123" in result
 
 
 class TestRenderSectionHtml(SimpleTestCase):
@@ -87,15 +84,15 @@ class TestRenderSectionHtml(SimpleTestCase):
 
     def test_renders_title_as_h2(self):
         html = _render_section_html("Summary", "Some content", project_id=1, citation_map={})
-        self.assertIn("<h2>Summary</h2>", html)
+        assert "<h2>Summary</h2>" in html
 
     def test_renders_agent_chosen_title(self):
         html = _render_section_html("Volume drop at 14:00", "body", project_id=1, citation_map={})
-        self.assertIn("<h2>Volume drop at 14:00</h2>", html)
+        assert "<h2>Volume drop at 14:00</h2>" in html
 
     def test_renders_bold_markdown(self):
         html = _render_section_html("Stats", "**Pass rate**: 80%", project_id=1, citation_map={})
-        self.assertIn("<strong>Pass rate</strong>", html)
+        assert "<strong>Pass rate</strong>" in html
 
     def test_converts_cited_id_to_link(self):
         citation_map = {"12345678-1234-1234-1234-123456789abc": "trace-abc"}
@@ -105,127 +102,127 @@ class TestRenderSectionHtml(SimpleTestCase):
             project_id=42,
             citation_map=citation_map,
         )
-        self.assertIn("/project/42/ai-observability/traces/trace-abc", html)
-        self.assertIn("12345678...", html)
+        assert "/project/42/ai-observability/traces/trace-abc" in html
+        assert "12345678..." in html
 
     def test_renders_lists(self):
         html = _render_section_html("Stats", "- item 1\n- item 2", project_id=1, citation_map={})
-        self.assertIn("<li>item 1</li>", html)
-        self.assertIn("<li>item 2</li>", html)
-        self.assertIn("<ul>", html)
+        assert "<li>item 1</li>" in html
+        assert "<li>item 2</li>" in html
+        assert "<ul>" in html
 
     def test_renders_tables(self):
         md = "| Metric | Value |\n|--------|-------|\n| Pass rate | 80% |"
         html = _render_section_html("Stats", md, project_id=1, citation_map={})
-        self.assertIn("<table", html)
-        self.assertIn("<th", html)
-        self.assertIn("Pass rate", html)
+        assert "<table" in html
+        assert "<th" in html
+        assert "Pass rate" in html
 
     def test_renders_italic(self):
         html = _render_section_html("Stats", "*emphasis*", project_id=1, citation_map={})
-        self.assertIn("<em>emphasis</em>", html)
+        assert "<em>emphasis</em>" in html
 
 
 class TestRenderSectionMrkdwn(SimpleTestCase):
     def test_renders_title_bold(self):
         result = _render_section_mrkdwn("Summary", "Some content", project_id=1, citation_map={})
-        self.assertIn("*Summary*", result)
+        assert "*Summary*" in result
 
     def test_renders_agent_chosen_title(self):
         result = _render_section_mrkdwn("Cost spike in gpt-5.2", "Body", project_id=1, citation_map={})
-        self.assertIn("*Cost spike in gpt-5.2*", result)
+        assert "*Cost spike in gpt-5.2*" in result
 
     def test_converts_bold(self):
         result = _render_section_mrkdwn("Stats", "**Pass rate**: 80%", project_id=1, citation_map={})
-        self.assertIn("*Pass rate*", result)
+        assert "*Pass rate*" in result
 
     def test_converts_lists(self):
         result = _render_section_mrkdwn("Stats", "- item 1\n- item 2", project_id=1, citation_map={})
-        self.assertIn("item 1", result)
-        self.assertIn("item 2", result)
+        assert "item 1" in result
+        assert "item 2" in result
 
 
 class TestStripRedundantLeadingHeading(SimpleTestCase):
     def test_strips_exact_match(self):
         content = "## Executive Summary\n\nPass rate is 94%."
         result = _strip_redundant_leading_heading(content, "Executive Summary")
-        self.assertEqual(result, "Pass rate is 94%.")
+        assert result == "Pass rate is 94%."
 
     def test_strips_case_insensitive(self):
         content = "## executive summary\n\nBody text."
         result = _strip_redundant_leading_heading(content, "Executive Summary")
-        self.assertEqual(result, "Body text.")
+        assert result == "Body text."
 
     def test_strips_with_suffix(self):
         # The agent sometimes emits "Trend analysis (hourly)" as the heading
         content = "## Trend analysis (hourly)\n\n- 13:00 bucket: 96%"
         result = _strip_redundant_leading_heading(content, "Trend Analysis")
-        self.assertEqual(result, "- 13:00 bucket: 96%")
+        assert result == "- 13:00 bucket: 96%"
 
     def test_strips_h1_through_h6(self):
         for prefix in ("#", "##", "###", "####", "#####", "######"):
             content = f"{prefix} Statistics\n\nBody"
             result = _strip_redundant_leading_heading(content, "Statistics")
-            self.assertEqual(result, "Body", f"failed for prefix {prefix!r}")
+            assert result == "Body", f"failed for prefix {prefix!r}"
 
     def test_leaves_content_alone_when_no_heading(self):
         content = "Pass rate is 94%."
         result = _strip_redundant_leading_heading(content, "Executive Summary")
-        self.assertEqual(result, content)
+        assert result == content
 
     def test_leaves_content_alone_when_heading_does_not_match(self):
         content = "## Something Else\n\nBody"
         result = _strip_redundant_leading_heading(content, "Executive Summary")
-        self.assertEqual(result, content)
+        assert result == content
 
     def test_does_not_strip_non_leading_headings(self):
         content = "Intro paragraph.\n\n## Executive Summary\n\nBody"
         result = _strip_redundant_leading_heading(content, "Executive Summary")
-        self.assertEqual(result, content)
+        assert result == content
 
     def test_render_section_html_does_not_duplicate_heading(self):
         content = "## Summary\n\nPass rate is 94%."
         html = _render_section_html("Summary", content, project_id=1, citation_map={})
-        self.assertEqual(html.count("Summary"), 1)
-        self.assertIn("<h2>Summary</h2>", html)
-        self.assertIn("Pass rate is 94%", html)
+        assert html.count("Summary") == 1
+        assert "<h2>Summary</h2>" in html
+        assert "Pass rate is 94%" in html
 
     def test_render_section_mrkdwn_does_not_duplicate_heading(self):
         content = "## Summary\n\nPass rate is 94%."
         result = _render_section_mrkdwn("Summary", content, project_id=1, citation_map={})
-        self.assertEqual(result.count("Summary"), 1)
-        self.assertTrue(result.startswith("*Summary*"))
+        assert result.count("Summary") == 1
+        assert result.startswith("*Summary*")
 
 
 class TestFormatPeriodForDisplay(SimpleTestCase):
     def test_formats_utc_iso_timestamp(self):
         result = _format_period_for_display("2026-04-08T14:01:42.951661+00:00")
-        self.assertEqual(result, "Apr 08, 2026 14:01 UTC")
+        assert result == "Apr 08, 2026 14:01 UTC"
 
     def test_formats_non_utc_iso_timestamp_by_converting_to_utc(self):
         # 10:00 in America/New_York (UTC-4 in April) → 14:00 UTC
         result = _format_period_for_display("2026-04-08T10:00:00-04:00")
-        self.assertEqual(result, "Apr 08, 2026 14:00 UTC")
+        assert result == "Apr 08, 2026 14:00 UTC"
 
     def test_falls_back_to_raw_string_on_parse_error(self):
         result = _format_period_for_display("not a timestamp")
-        self.assertEqual(result, "not a timestamp")
+        assert result == "not a timestamp"
 
     def test_falls_back_on_none(self):
         result = _format_period_for_display(None)  # type: ignore[arg-type]
-        self.assertIsNone(result)
+        assert result is None
 
 
 class TestInlineEmailStyles(SimpleTestCase):
     def test_adds_table_styles(self):
         html = "<table><tr><th>A</th></tr><tr><td>1</td></tr></table>"
         styled = _inline_email_styles(html)
-        self.assertIn("border-collapse", styled)
-        self.assertIn("background-color", styled)
+        assert "border-collapse" in styled
+        assert "background-color" in styled
 
     def test_no_op_without_tables(self):
         html = "<p>Just text</p>"
-        self.assertEqual(html, _inline_email_styles(html))
+        assert html == _inline_email_styles(html)
 
 
 class TestMetricsBlockHtml(SimpleTestCase):
@@ -240,31 +237,31 @@ class TestMetricsBlockHtml(SimpleTestCase):
             period_end="2026-04-08T15:00:00+00:00",
         )
         html = _render_metrics_block_html(metrics)
-        self.assertIn("100", html)  # total_runs
-        self.assertIn("80", html)  # pass_count
-        self.assertIn("18", html)  # fail_count
-        self.assertIn("2", html)  # na_count
-        self.assertIn("81.63%", html)
-        self.assertIn("Apr 08, 2026 14:00 UTC", html)
+        assert "100" in html  # total_runs
+        assert "80" in html  # pass_count
+        assert "18" in html  # fail_count
+        assert "2" in html  # na_count
+        assert "81.63%" in html
+        assert "Apr 08, 2026 14:00 UTC" in html
 
     def test_renders_delta_up(self):
         metrics = EvalReportMetrics(total_runs=10, pass_count=9, pass_rate=90.0, previous_pass_rate=80.0)
         html = _render_metrics_block_html(metrics)
-        self.assertIn("▲", html)
-        self.assertIn("10.00pp", html)
+        assert "▲" in html
+        assert "10.00pp" in html
 
     def test_renders_delta_down(self):
         metrics = EvalReportMetrics(total_runs=10, pass_count=5, pass_rate=50.0, previous_pass_rate=80.0)
         html = _render_metrics_block_html(metrics)
-        self.assertIn("▼", html)
-        self.assertIn("30.00pp", html)
+        assert "▼" in html
+        assert "30.00pp" in html
 
     def test_no_delta_when_previous_is_none(self):
         metrics = EvalReportMetrics(total_runs=10, pass_count=9, pass_rate=90.0, previous_pass_rate=None)
         html = _render_metrics_block_html(metrics)
-        self.assertNotIn("▲", html)
-        self.assertNotIn("▼", html)
-        self.assertNotIn("pp vs previous", html)
+        assert "▲" not in html
+        assert "▼" not in html
+        assert "pp vs previous" not in html
 
 
 class TestDeliverReport(SimpleTestCase):
@@ -313,7 +310,7 @@ class TestDeliverReport(SimpleTestCase):
         deliver_report("report-id", "run-id")
 
         mock_email.assert_called_once()
-        self.assertEqual(run.delivery_status, "delivered")
+        assert run.delivery_status == "delivered"
 
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_email_report")
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_slack_report")
@@ -330,10 +327,10 @@ class TestDeliverReport(SimpleTestCase):
 
         with self.assertRaises(RuntimeError) as cm:
             deliver_report("report-id", "run-id")
-        self.assertIn("send failed", str(cm.exception))
+        assert "send failed" in str(cm.exception)
 
-        self.assertEqual(run.delivery_status, "failed")
-        self.assertEqual(run.delivery_errors, ["send failed"])
+        assert run.delivery_status == "failed"
+        assert run.delivery_errors == ["send failed"]
 
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_email_report")
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_slack_report")
@@ -354,7 +351,7 @@ class TestDeliverReport(SimpleTestCase):
 
         deliver_report("report-id", "run-id")
 
-        self.assertEqual(run.delivery_status, "partial_failure")
+        assert run.delivery_status == "partial_failure"
 
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_email_report")
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_slack_report")
@@ -374,7 +371,7 @@ class TestDeliverReport(SimpleTestCase):
         with self.assertRaises(RuntimeError):
             deliver_report("report-id", "run-id")
 
-        self.assertEqual(run.delivery_status, "failed")
+        assert run.delivery_status == "failed"
 
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_email_report")
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_slack_report")
@@ -392,4 +389,4 @@ class TestDeliverReport(SimpleTestCase):
 
         deliver_report("report-id", "run-id")
 
-        self.assertEqual(run.delivery_status, "partial_failure")
+        assert run.delivery_status == "partial_failure"

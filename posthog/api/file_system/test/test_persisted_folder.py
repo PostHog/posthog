@@ -77,22 +77,22 @@ class TestPersistedFolderSurface(_Base):
         web = self.client.post(self.web_url, {"type": "home", "path": "Web home"}, format="json")
         desktop = self.client.post(self.desktop_url, {"type": "home", "path": "Desktop home"}, format="json")
 
-        self.assertEqual(web.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(desktop.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(PersistedFolder.objects.filter(team=self.team, user=self.user, type="home").count(), 2)
+        assert web.status_code == status.HTTP_201_CREATED
+        assert desktop.status_code == status.HTTP_201_CREATED
+        assert PersistedFolder.objects.filter(team=self.team, user=self.user, type="home").count() == 2
 
         web_paths = {r["path"] for r in self.client.get(self.web_url).data["results"]}
         desktop_paths = {r["path"] for r in self.client.get(self.desktop_url).data["results"]}
-        self.assertEqual(web_paths, {"Web home"})
-        self.assertEqual(desktop_paths, {"Desktop home"})
+        assert web_paths == {"Web home"}
+        assert desktop_paths == {"Desktop home"}
 
     def test_web_create_stamps_web_surface(self) -> None:
         self.client.post(self.web_url, {"type": "home", "path": "Web home"}, format="json")
-        self.assertEqual(PersistedFolder.objects.get(team=self.team, user=self.user, type="home").surface, "web")
+        assert PersistedFolder.objects.get(team=self.team, user=self.user, type="home").surface == "web"
 
     def test_desktop_create_stamps_desktop_surface(self) -> None:
         self.client.post(self.desktop_url, {"type": "home", "path": "Desktop home"}, format="json")
-        self.assertEqual(PersistedFolder.objects.get(team=self.team, user=self.user, type="home").surface, "desktop")
+        assert PersistedFolder.objects.get(team=self.team, user=self.user, type="home").surface == "desktop"
 
     def test_web_upsert_matches_legacy_null_row(self) -> None:
         # A legacy row predates the surface column. A web upsert must update it in place rather
@@ -103,7 +103,7 @@ class TestPersistedFolderSurface(_Base):
 
         rsp = self.client.post(self.web_url, {"type": "home", "path": "Updated"}, format="json")
 
-        self.assertEqual(rsp.status_code, status.HTTP_201_CREATED, rsp.data)
-        self.assertEqual(PersistedFolder.objects.filter(team=self.team, user=self.user, type="home").count(), 1)
+        assert rsp.status_code == status.HTTP_201_CREATED, rsp.data
+        assert PersistedFolder.objects.filter(team=self.team, user=self.user, type="home").count() == 1
         legacy.refresh_from_db()
-        self.assertEqual(legacy.path, "Updated")
+        assert legacy.path == "Updated"

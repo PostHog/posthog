@@ -97,7 +97,7 @@ class TestShardedAlterRouting(unittest.TestCase):
         self._exec_with_cloud([role], cluster)
         cluster.any_host_by_roles.assert_called_once()
         _args, kwargs = cluster.any_host_by_roles.call_args
-        self.assertEqual(kwargs["node_roles"], [role])
+        assert kwargs["node_roles"] == [role]
         cluster.map_one_host_per_shard.assert_not_called()
 
     def test_non_data_bearing_role_rejected(self):
@@ -127,7 +127,7 @@ class TestShardedAlterRouting(unittest.TestCase):
         cluster.any_host_by_roles.assert_not_called()
 
     def test_data_node_roles_membership(self):
-        self.assertIn(NodeRole.DATA, DATA_NODE_ROLES)
+        assert NodeRole.DATA in DATA_NODE_ROLES
         for role in SINGLE_SHARD_DATA_NODE_ROLES:
-            self.assertIn(role, DATA_NODE_ROLES)
-        self.assertNotIn(NodeRole.DATA, SINGLE_SHARD_DATA_NODE_ROLES)
+            assert role in DATA_NODE_ROLES
+        assert NodeRole.DATA not in SINGLE_SHARD_DATA_NODE_ROLES

@@ -127,17 +127,17 @@ class TestAnthropicUtils(BaseTest):
         ai_content = ai_message.content
         assert isinstance(ai_content, list)
         assert isinstance(ai_content[0], dict)
-        self.assertEqual(ai_content[0], {"type": "text", "text": content_text})
+        assert ai_content[0] == {"type": "text", "text": content_text}
 
         if expected_command is not None:
-            self.assertEqual(len(result), 2)
+            assert len(result) == 2
             provenance_message = result[1]
-            self.assertIsInstance(provenance_message, HumanMessage)
+            assert isinstance(provenance_message, HumanMessage)
             provenance_content = provenance_message.content
             assert isinstance(provenance_content, list)
             assert isinstance(provenance_content[0], dict)
             provenance_text = provenance_content[0]["text"]
-            self.assertIn(f"/{expected_command} slash command", provenance_text)
-            self.assertIn("deterministic PostHog code", provenance_text)
+            assert f"/{expected_command} slash command" in provenance_text
+            assert "deterministic PostHog code" in provenance_text
         else:
-            self.assertEqual(len(result), 1)
+            assert len(result) == 1

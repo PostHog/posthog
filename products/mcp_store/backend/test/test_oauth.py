@@ -816,7 +816,7 @@ class TestValidateEndpointsBoundToIssuer(TestCase):
     def test_rejects_mismatched_endpoints(self, _name, metadata, offending_field):
         with self.assertRaises(ValueError) as ctx:
             _validate_endpoints_bound_to_issuer(metadata)
-        self.assertIn(offending_field, str(ctx.exception))
+        assert offending_field in str(ctx.exception)
 
     @parameterized.expand(
         [

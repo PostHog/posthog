@@ -115,10 +115,10 @@ class TestSaveNotebookToDb(BaseTest):
         notebook = self._save_and_get_notebook(viz_short_id, parent_short_id)
 
         ph_queries = _find_ph_query_nodes(notebook.content)
-        self.assertEqual(len(ph_queries), 1)
+        assert len(ph_queries) == 1
         stored_query = ph_queries[0]["attrs"]["query"]
-        self.assertEqual(stored_query["kind"], expected_kind)
-        self.assertEqual(stored_query["source"]["kind"], expected_source_kind)
+        assert stored_query["kind"] == expected_kind
+        assert stored_query["source"]["kind"] == expected_source_kind
 
     def test_save_notebook_resolves_state_only_visualization(self):
         # Reproduces the "[Visualization not found: <id>]" bug: viz exists only in
@@ -136,10 +136,10 @@ class TestSaveNotebookToDb(BaseTest):
         )
 
         ph_queries = _find_ph_query_nodes(notebook.content)
-        self.assertEqual(len(ph_queries), 1, "state-only viz should resolve to a ph-query node")
+        assert len(ph_queries) == 1, "state-only viz should resolve to a ph-query node"
         stored_query = ph_queries[0]["attrs"]["query"]
-        self.assertEqual(stored_query["kind"], "InsightVizNode")
-        self.assertEqual(stored_query["source"]["kind"], "TrendsQuery")
+        assert stored_query["kind"] == "InsightVizNode"
+        assert stored_query["source"]["kind"] == "TrendsQuery"
 
     def test_save_notebook_emits_placeholder_when_artifact_missing(self):
         # Sanity: when the ref can't be resolved from any source, we still get the
@@ -150,4 +150,4 @@ class TestSaveNotebookToDb(BaseTest):
         )
 
         ph_queries = _find_ph_query_nodes(notebook.content)
-        self.assertEqual(len(ph_queries), 0)
+        assert len(ph_queries) == 0

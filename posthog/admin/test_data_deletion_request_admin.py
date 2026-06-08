@@ -166,30 +166,30 @@ class TestDataDeletionRequestAdminRetry(BaseTest):
 
         response = self._call_retry("POST", request)
 
-        self.assertEqual(response.status_code, 302)
+        assert response.status_code == 302
         request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.APPROVED)
-        self.assertEqual(request.approved_by, self.user)
-        self.assertEqual(request.approved_at, original_approved_at)
-        self.assertTrue(request.approved)
-        self.assertEqual(request.attempt_count, 2)
+        assert request.status == RequestStatus.APPROVED
+        assert request.approved_by == self.user
+        assert request.approved_at == original_approved_at
+        assert request.approved
+        assert request.attempt_count == 2
 
     def test_retry_view_get_does_not_change_status(self):
         request = self._failed_request()
         response = self._call_retry("GET", request)
 
-        self.assertEqual(response.status_code, 302)
+        assert response.status_code == 302
         request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.FAILED)
+        assert request.status == RequestStatus.FAILED
 
     def test_retry_view_rejects_non_clickhouse_team_user(self):
         request = self._failed_request()
         self.user.groups.clear()
         response = self._call_retry("POST", request)
 
-        self.assertEqual(response.status_code, 302)
+        assert response.status_code == 302
         request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.FAILED)
+        assert request.status == RequestStatus.FAILED
 
     @parameterized.expand(
         [
@@ -207,9 +207,9 @@ class TestDataDeletionRequestAdminRetry(BaseTest):
 
         response = self._call_retry("POST", request)
 
-        self.assertEqual(response.status_code, 302)
+        assert response.status_code == 302
         request.refresh_from_db()
-        self.assertEqual(request.status, status)
+        assert request.status == status
 
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
@@ -259,11 +259,11 @@ class TestDataDeletionRequestAdminChangeView(BaseTest):
 
     def test_can_retry_only_when_failed_and_clickhouse_team(self):
         failed = self._make_request(RequestStatus.FAILED)
-        self.assertTrue(self._can_retry(failed, in_clickhouse_team=True))
+        assert self._can_retry(failed, in_clickhouse_team=True)
 
     def test_can_retry_false_when_not_in_clickhouse_team(self):
         failed = self._make_request(RequestStatus.FAILED)
-        self.assertFalse(self._can_retry(failed, in_clickhouse_team=False))
+        assert not self._can_retry(failed, in_clickhouse_team=False)
 
     @parameterized.expand(
         [
@@ -277,7 +277,7 @@ class TestDataDeletionRequestAdminChangeView(BaseTest):
     )
     def test_can_retry_false_for_non_failed_status(self, _name, status):
         request = self._make_request(status)
-        self.assertFalse(self._can_retry(request, in_clickhouse_team=True))
+        assert not self._can_retry(request, in_clickhouse_team=True)
 
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
@@ -312,30 +312,30 @@ class TestDataDeletionRequestAdminSubmitView(BaseTest):
     def test_submit_with_properties_only_succeeds(self):
         request = self._property_removal_request(properties=["$ip"])
         response = self._call_submit(request)
-        self.assertEqual(response.status_code, 302)
+        assert response.status_code == 302
         request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.PENDING)
+        assert request.status == RequestStatus.PENDING
 
     def test_submit_with_person_properties_only_succeeds(self):
         request = self._property_removal_request(person_properties=["email"])
         response = self._call_submit(request)
-        self.assertEqual(response.status_code, 302)
+        assert response.status_code == 302
         request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.PENDING)
+        assert request.status == RequestStatus.PENDING
 
     def test_submit_with_both_properties_succeeds(self):
         request = self._property_removal_request(properties=["$ip"], person_properties=["email"])
         response = self._call_submit(request)
-        self.assertEqual(response.status_code, 302)
+        assert response.status_code == 302
         request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.PENDING)
+        assert request.status == RequestStatus.PENDING
 
     def test_submit_with_both_empty_is_rejected(self):
         request = self._property_removal_request(properties=[], person_properties=[])
         response = self._call_submit(request)
-        self.assertEqual(response.status_code, 302)
+        assert response.status_code == 302
         request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.DRAFT)
+        assert request.status == RequestStatus.DRAFT
 
     def test_submit_get_exposes_can_submit_flag(self):
         ok = self._property_removal_request(properties=["$ip"])
@@ -355,9 +355,9 @@ class TestDataDeletionRequestAdminSubmitView(BaseTest):
             resp_ok = self.admin.submit_view(http_req_ok, str(ok.pk))
             resp_empty = self.admin.submit_view(http_req_empty, str(empty.pk))
 
-        self.assertTrue(resp_ok.context_data["can_submit"])
-        self.assertFalse(resp_empty.context_data["can_submit"])
-        self.assertTrue(resp_empty.context_data["missing_properties"])
+        assert resp_ok.context_data["can_submit"]
+        assert not resp_empty.context_data["can_submit"]
+        assert resp_empty.context_data["missing_properties"]
 
 
 @freeze_time("2025-01-15 12:00:00")
@@ -396,7 +396,7 @@ class TestDataDeletionRequestAdminSaveModel(BaseTest):
         )
         self._call_save(obj)
         obj.refresh_from_db()
-        self.assertEqual(obj.properties, [])
+        assert obj.properties == []
 
     def test_event_removal_clears_person_properties_on_save(self):
         obj = DataDeletionRequest.objects.create(
@@ -410,7 +410,7 @@ class TestDataDeletionRequestAdminSaveModel(BaseTest):
         )
         self._call_save(obj)
         obj.refresh_from_db()
-        self.assertEqual(obj.person_properties, [])
+        assert obj.person_properties == []
 
     def test_event_removal_clears_both_on_save(self):
         obj = DataDeletionRequest.objects.create(
@@ -425,8 +425,8 @@ class TestDataDeletionRequestAdminSaveModel(BaseTest):
         )
         self._call_save(obj)
         obj.refresh_from_db()
-        self.assertEqual(obj.properties, [])
-        self.assertEqual(obj.person_properties, [])
+        assert obj.properties == []
+        assert obj.person_properties == []
 
     def test_property_removal_preserves_both_fields_on_save(self):
         obj = DataDeletionRequest.objects.create(
@@ -441,8 +441,8 @@ class TestDataDeletionRequestAdminSaveModel(BaseTest):
         )
         self._call_save(obj)
         obj.refresh_from_db()
-        self.assertEqual(obj.properties, ["$ip"])
-        self.assertEqual(obj.person_properties, ["email"])
+        assert obj.properties == ["$ip"]
+        assert obj.person_properties == ["email"]
 
 
 @freeze_time("2025-01-15 12:00:00")
@@ -459,7 +459,7 @@ class TestDataDeletionRequestModelValidation(BaseTest):
         )
         with self.assertRaises(ValidationError) as cm:
             obj.clean()
-        self.assertIn("person_properties", cm.exception.message_dict)
+        assert "person_properties" in cm.exception.message_dict
 
     def test_person_removal_without_person_properties_is_valid(self):
         from django.core.exceptions import ValidationError
@@ -502,8 +502,8 @@ class TestDataDeletionRequestModelValidation(BaseTest):
             obj.clean()
         except ValidationError as exc:
             msg_dict = exc.message_dict if hasattr(exc, "message_dict") else {}
-            self.assertNotIn("properties", msg_dict)
-            self.assertNotIn("person_properties", msg_dict)
+            assert "properties" not in msg_dict
+            assert "person_properties" not in msg_dict
 
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
@@ -543,7 +543,7 @@ class TestDataDeletionRequestAdminEditLock(BaseTest):
         obj = self._make_request(status)
         readonly = self._readonly_fields(obj)
         for field in EDITABLE_FIELDS:
-            self.assertIn(field, readonly)
+            assert field in readonly
 
     @parameterized.expand(
         [
@@ -555,12 +555,12 @@ class TestDataDeletionRequestAdminEditLock(BaseTest):
         obj = self._make_request(status)
         readonly = self._readonly_fields(obj)
         for field in EDITABLE_FIELDS:
-            self.assertNotIn(field, readonly)
+            assert field not in readonly
 
     def test_add_view_fields_editable(self):
         readonly = self._readonly_fields(None)
         for field in EDITABLE_FIELDS:
-            self.assertNotIn(field, readonly)
+            assert field not in readonly
 
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
@@ -615,25 +615,25 @@ class TestDataDeletionRequestAdminChangeViewStatsAndLock(BaseTest):
     def test_change_view_exposes_stats_urls(self):
         request = self._make_request()
         ctx = self._change_context(request)
-        self.assertIn("fetch_stats_url", ctx)
-        self.assertIn("preview_stats_url", ctx)
+        assert "fetch_stats_url" in ctx
+        assert "preview_stats_url" in ctx
 
     def test_change_view_is_clickhouse_team_flag(self):
         request = self._make_request()
-        self.assertTrue(self._change_context(request, in_clickhouse_team=True)["is_clickhouse_team"])
-        self.assertFalse(self._change_context(request, in_clickhouse_team=False)["is_clickhouse_team"])
+        assert self._change_context(request, in_clickhouse_team=True)["is_clickhouse_team"]
+        assert not self._change_context(request, in_clickhouse_team=False)["is_clickhouse_team"]
 
     def test_change_view_pops_matching_preview_stats(self):
         request = self._make_request()
         preview = {"obj_pk": str(request.pk), "count": 42, "calculated_at": "2025-01-15T12:00:00"}
         ctx = self._change_context(request, session={"data_deletion_preview_stats": preview})
-        self.assertEqual(ctx["preview_stats"], preview)
+        assert ctx["preview_stats"] == preview
 
     def test_change_view_drops_mismatched_preview_stats(self):
         request = self._make_request()
         preview = {"obj_pk": "999999", "count": 42, "calculated_at": "2025-01-15T12:00:00"}
         ctx = self._change_context(request, session={"data_deletion_preview_stats": preview})
-        self.assertIsNone(ctx["preview_stats"])
+        assert ctx["preview_stats"] is None
 
     @parameterized.expand(
         [
@@ -646,7 +646,7 @@ class TestDataDeletionRequestAdminChangeViewStatsAndLock(BaseTest):
     )
     def test_change_view_hides_save_for_locked(self, _name, status):
         ctx = self._change_context(self._make_request(status))
-        self.assertFalse(ctx.get("show_save", True))
+        assert not ctx.get("show_save", True)
 
     @parameterized.expand(
         [
@@ -656,7 +656,7 @@ class TestDataDeletionRequestAdminChangeViewStatsAndLock(BaseTest):
     )
     def test_change_view_shows_save_for_editable(self, _name, status):
         ctx = self._change_context(self._make_request(status))
-        self.assertTrue(ctx.get("show_save", True))
+        assert ctx.get("show_save", True)
 
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
@@ -690,20 +690,20 @@ class TestDataDeletionRequestAdminStatsViewRedirects(BaseTest):
     def test_fetch_stats_redirects_to_change_page(self):
         request = self._person_request()
         response = self._call(self.admin.fetch_stats_view, request)
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("posthog_datadeletionrequest_change", response.url)
+        assert response.status_code == 302
+        assert "posthog_datadeletionrequest_change" in response.url
         request.refresh_from_db()
-        self.assertIsNotNone(request.stats_calculated_at)
+        assert request.stats_calculated_at is not None
 
     def test_preview_stats_redirects_to_change_page(self):
         request = self._person_request()
         response = self._call(self.admin.preview_stats_view, request)
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("posthog_datadeletionrequest_change", response.url)
+        assert response.status_code == 302
+        assert "posthog_datadeletionrequest_change" in response.url
 
     def test_preview_stats_rejects_non_clickhouse_team(self):
         request = self._person_request()
         self.user.groups.clear()
         response = self._call(self.admin.preview_stats_view, request)
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("posthog_datadeletionrequest_change", response.url)
+        assert response.status_code == 302
+        assert "posthog_datadeletionrequest_change" in response.url

@@ -124,7 +124,7 @@ class TestTaskRunEventIngest(TransactionTestCase):
                 receive,
                 send,
             )
-            self.assertTrue(handled)
+            assert handled
             status = sent[0]["status"]
             body = json.loads(sent[1]["body"])
             return status, body
@@ -175,14 +175,14 @@ class TestTaskRunEventIngest(TransactionTestCase):
                 ],
             )
 
-        self.assertEqual(status, 200)
-        self.assertEqual(body["accepted"], 2)
-        self.assertEqual(body["last_accepted_seq"], 2)
+        assert status == 200
+        assert body["accepted"] == 2
+        assert body["last_accepted_seq"] == 2
         heartbeat_workflow.assert_called_once_with(agent_active=True)
 
         events = self._read_stream_events()
-        self.assertEqual(self._read_notification_methods(), ["session/update", "_posthog/task_complete"])
-        self.assertIn({"type": "STREAM_STATUS", "status": "complete"}, events)
+        assert self._read_notification_methods() == ["session/update", "_posthog/task_complete"]
+        assert {"type": "STREAM_STATUS", "status": "complete"} in events
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_current_project_path_ingests_with_token_scoped_task_run(self) -> None:
@@ -194,9 +194,9 @@ class TestTaskRunEventIngest(TransactionTestCase):
             path=self._ingest_url(project_id="@current"),
         )
 
-        self.assertEqual(status, 200)
-        self.assertEqual(body["accepted"], 1)
-        self.assertEqual(self._read_notification_methods(), ["session/update"])
+        assert status == 200
+        assert body["accepted"] == 1
+        assert self._read_notification_methods() == ["session/update"]
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_workflow_heartbeat_does_not_block_event_loop(self) -> None:
@@ -254,10 +254,10 @@ class TestTaskRunEventIngest(TransactionTestCase):
         with patch("products.tasks.backend.stream.event_ingest._heartbeat_workflow", side_effect=blocking_heartbeat):
             status, body = asyncio.run(_call())
 
-        self.assertEqual(status, 200)
-        self.assertEqual(body["accepted"], 1)
-        self.assertTrue(heartbeat_entered.is_set())
-        self.assertFalse(heartbeat_timed_out.is_set())
+        assert status == 200
+        assert body["accepted"] == 1
+        assert heartbeat_entered.is_set()
+        assert not heartbeat_timed_out.is_set()
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_duplicate_sequence_is_skipped_on_reconnect(self) -> None:
@@ -274,11 +274,11 @@ class TestTaskRunEventIngest(TransactionTestCase):
                 ],
             )
 
-        self.assertEqual(status, 200)
-        self.assertEqual(body["accepted"], 1)
-        self.assertEqual(body["duplicate"], 1)
-        self.assertEqual(body["last_accepted_seq"], 2)
-        self.assertEqual(self._read_notification_methods(), ["first", "second"])
+        assert status == 200
+        assert body["accepted"] == 1
+        assert body["duplicate"] == 1
+        assert body["last_accepted_seq"] == 2
+        assert self._read_notification_methods() == ["first", "second"]
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_duplicate_terminal_sequence_does_not_complete_without_completion_line(self) -> None:
@@ -290,11 +290,11 @@ class TestTaskRunEventIngest(TransactionTestCase):
         with patch.object(TaskRun, "heartbeat_workflow"):
             status, body = self._call_ingest(token, [{"seq": 1, "event": terminal_event}])
 
-        self.assertEqual(status, 200)
-        self.assertEqual(body["accepted"], 0)
-        self.assertEqual(body["duplicate"], 1)
-        self.assertEqual(body["last_accepted_seq"], 1)
-        self.assertNotIn({"type": "STREAM_STATUS", "status": "complete"}, self._read_stream_events())
+        assert status == 200
+        assert body["accepted"] == 0
+        assert body["duplicate"] == 1
+        assert body["last_accepted_seq"] == 1
+        assert {"type": "STREAM_STATUS", "status": "complete"} not in self._read_stream_events()
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_duplicate_terminal_sequence_can_complete_with_completion_line(self) -> None:
@@ -309,11 +309,11 @@ class TestTaskRunEventIngest(TransactionTestCase):
                 [{"seq": 1, "event": terminal_event}, {"type": STREAM_COMPLETE_CONTROL_TYPE, "final_seq": 1}],
             )
 
-        self.assertEqual(status, 200)
-        self.assertEqual(body["accepted"], 0)
-        self.assertEqual(body["duplicate"], 1)
-        self.assertEqual(body["last_accepted_seq"], 1)
-        self.assertIn({"type": "STREAM_STATUS", "status": "complete"}, self._read_stream_events())
+        assert status == 200
+        assert body["accepted"] == 0
+        assert body["duplicate"] == 1
+        assert body["last_accepted_seq"] == 1
+        assert {"type": "STREAM_STATUS", "status": "complete"} in self._read_stream_events()
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_completion_control_line_completes_after_streamed_events(self) -> None:
@@ -334,12 +334,12 @@ class TestTaskRunEventIngest(TransactionTestCase):
             ],
         )
 
-        self.assertEqual(status, 200)
-        self.assertEqual(body["accepted"], 2)
-        self.assertEqual(body["last_accepted_seq"], 2)
+        assert status == 200
+        assert body["accepted"] == 2
+        assert body["last_accepted_seq"] == 2
         events = self._read_stream_events()
-        self.assertEqual(self._read_notification_methods(), ["session/update", "_posthog/task_complete"])
-        self.assertIn({"type": "STREAM_STATUS", "status": "complete"}, events)
+        assert self._read_notification_methods() == ["session/update", "_posthog/task_complete"]
+        assert {"type": "STREAM_STATUS", "status": "complete"} in events
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_completion_control_line_rejects_unaccepted_final_sequence(self) -> None:
@@ -356,9 +356,9 @@ class TestTaskRunEventIngest(TransactionTestCase):
             ],
         )
 
-        self.assertEqual(status, 409)
-        self.assertEqual(body["last_accepted_seq"], 1)
-        self.assertNotIn({"type": "STREAM_STATUS", "status": "complete"}, self._read_stream_events())
+        assert status == 409
+        assert body["last_accepted_seq"] == 1
+        assert {"type": "STREAM_STATUS", "status": "complete"} not in self._read_stream_events()
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_completion_control_line_must_be_final_line(self) -> None:
@@ -375,10 +375,10 @@ class TestTaskRunEventIngest(TransactionTestCase):
             ],
         )
 
-        self.assertEqual(status, 400)
-        self.assertEqual(body["error"], "Completion line must be the final event stream line")
-        self.assertNotIn({"type": "STREAM_STATUS", "status": "complete"}, self._read_stream_events())
-        self.assertEqual(self._read_notification_methods(), [])
+        assert status == 400
+        assert body["error"] == "Completion line must be the final event stream line"
+        assert {"type": "STREAM_STATUS", "status": "complete"} not in self._read_stream_events()
+        assert self._read_notification_methods() == []
 
     @parameterized.expand(
         [
@@ -393,8 +393,8 @@ class TestTaskRunEventIngest(TransactionTestCase):
 
         status, body = self._call_ingest(token, [line])
 
-        self.assertEqual(status, 400)
-        self.assertEqual(body["error"], "Completion final sequence must be a non-negative integer")
+        assert status == 400
+        assert body["error"] == "Completion final sequence must be a non-negative integer"
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_sequence_gap_returns_last_accepted_sequence(self) -> None:
@@ -407,9 +407,9 @@ class TestTaskRunEventIngest(TransactionTestCase):
             [{"seq": 3, "event": {"type": "notification", "notification": {"method": "third"}}}],
         )
 
-        self.assertEqual(status, 409)
-        self.assertEqual(body["last_accepted_seq"], 1)
-        self.assertEqual(self._read_notification_methods(), ["first"])
+        assert status == 409
+        assert body["last_accepted_seq"] == 1
+        assert self._read_notification_methods() == ["first"]
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_completed_stream_rejects_late_sequenced_events(self) -> None:
@@ -439,10 +439,10 @@ class TestTaskRunEventIngest(TransactionTestCase):
             [{"seq": 2, "event": {"type": "notification", "notification": {"method": "late"}}}],
         )
 
-        self.assertEqual(status, 409)
-        self.assertEqual(body["last_accepted_seq"], 1)
-        self.assertIn({"type": "STREAM_STATUS", "status": "complete"}, self._read_stream_events())
-        self.assertEqual(self._read_notification_methods(), ["first"])
+        assert status == 409
+        assert body["last_accepted_seq"] == 1
+        assert {"type": "STREAM_STATUS", "status": "complete"} in self._read_stream_events()
+        assert self._read_notification_methods() == ["first"]
 
     def test_live_stream_ttl_matches_sandbox_ttl(self) -> None:
         async def _write_and_get_ttl() -> int:
@@ -453,9 +453,9 @@ class TestTaskRunEventIngest(TransactionTestCase):
 
         stream_ttl = asyncio.run(_write_and_get_ttl())
 
-        self.assertEqual(TASK_RUN_STREAM_TIMEOUT, SANDBOX_TTL_SECONDS)
-        self.assertGreater(stream_ttl, SANDBOX_TTL_SECONDS - 5)
-        self.assertLessEqual(stream_ttl, SANDBOX_TTL_SECONDS)
+        assert TASK_RUN_STREAM_TIMEOUT == SANDBOX_TTL_SECONDS
+        assert stream_ttl > SANDBOX_TTL_SECONDS - 5
+        assert stream_ttl <= SANDBOX_TTL_SECONDS
 
     def test_sequence_key_ttl_outlives_live_stream_ttl(self) -> None:
         async def _write_and_get_ttls() -> tuple[int, int]:
@@ -472,12 +472,12 @@ class TestTaskRunEventIngest(TransactionTestCase):
 
         stream_ttl, sequence_ttl = asyncio.run(_write_and_get_ttls())
 
-        self.assertGreater(stream_ttl, 0)
-        self.assertLessEqual(stream_ttl, 5)
-        self.assertEqual(TASK_RUN_STREAM_SEQUENCE_TIMEOUT, int(SANDBOX_EVENT_INGEST_TOKEN_TTL.total_seconds()))
-        self.assertGreater(sequence_ttl, TASK_RUN_STREAM_SEQUENCE_TIMEOUT - 5)
-        self.assertLessEqual(sequence_ttl, TASK_RUN_STREAM_SEQUENCE_TIMEOUT)
-        self.assertGreater(sequence_ttl, stream_ttl)
+        assert stream_ttl > 0
+        assert stream_ttl <= 5
+        assert TASK_RUN_STREAM_SEQUENCE_TIMEOUT == int(SANDBOX_EVENT_INGEST_TOKEN_TTL.total_seconds())
+        assert sequence_ttl > TASK_RUN_STREAM_SEQUENCE_TIMEOUT - 5
+        assert sequence_ttl <= TASK_RUN_STREAM_SEQUENCE_TIMEOUT
+        assert sequence_ttl > stream_ttl
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_non_terminal_request_close_does_not_complete(self) -> None:
@@ -488,9 +488,9 @@ class TestTaskRunEventIngest(TransactionTestCase):
             [{"seq": 1, "event": {"type": "notification", "notification": {"method": "session/update"}}}],
         )
 
-        self.assertEqual(status, 200)
-        self.assertEqual(body["accepted"], 1)
-        self.assertNotIn({"type": "STREAM_STATUS", "status": "complete"}, self._read_stream_events())
+        assert status == 200
+        assert body["accepted"] == 1
+        assert {"type": "STREAM_STATUS", "status": "complete"} not in self._read_stream_events()
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_empty_request_returns_last_accepted_sequence(self) -> None:
@@ -505,9 +505,9 @@ class TestTaskRunEventIngest(TransactionTestCase):
 
         status, body = self._call_ingest(token, [])
 
-        self.assertEqual(status, 200)
-        self.assertEqual(body["accepted"], 0)
-        self.assertEqual(body["last_accepted_seq"], 2)
+        assert status == 200
+        assert body["accepted"] == 0
+        assert body["last_accepted_seq"] == 2
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_multibyte_utf8_can_span_request_chunks(self) -> None:
@@ -529,11 +529,11 @@ class TestTaskRunEventIngest(TransactionTestCase):
 
         status, body = self._call_ingest_chunks(token, [line[:split_at], line[split_at:]])
 
-        self.assertEqual(status, 200)
-        self.assertEqual(body["accepted"], 1)
+        assert status == 200
+        assert body["accepted"] == 1
         events = self._read_stream_events()
         notifications = [event["notification"] for event in events if "notification" in event]
-        self.assertEqual(notifications[-1]["params"]["message"], "hello ☃")
+        assert notifications[-1]["params"]["message"] == "hello ☃"
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_connection_token_cannot_ingest_events(self) -> None:
@@ -544,8 +544,8 @@ class TestTaskRunEventIngest(TransactionTestCase):
             [{"seq": 1, "event": {"type": "notification", "notification": {"method": "session/update"}}}],
         )
 
-        self.assertEqual(status, 401)
-        self.assertEqual(body["error"], "Invalid event ingest token")
+        assert status == 401
+        assert body["error"] == "Invalid event ingest token"
 
     @parameterized.expand(
         [
@@ -589,10 +589,10 @@ class TestTaskRunEventIngest(TransactionTestCase):
 
         status, body = self._call_ingest_chunks(token, [b"".join(chunks)])
 
-        self.assertEqual(status, 413)
-        self.assertEqual(body["error"], "Event line is too large")
-        self.assertEqual(body["last_accepted_seq"], expected_last_accepted_seq)
-        self.assertEqual(self._read_notification_methods(), expected_notification_methods)
+        assert status == 413
+        assert body["error"] == "Event line is too large"
+        assert body["last_accepted_seq"] == expected_last_accepted_seq
+        assert self._read_notification_methods() == expected_notification_methods
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_rejects_too_many_events_in_single_request(self) -> None:
@@ -604,9 +604,9 @@ class TestTaskRunEventIngest(TransactionTestCase):
 
         status, body = self._call_ingest(token, lines)
 
-        self.assertEqual(status, 413)
-        self.assertEqual(body["error"], "Too many events in request")
-        self.assertEqual(body["last_accepted_seq"], MAX_EVENTS_PER_REQUEST)
+        assert status == 413
+        assert body["error"] == "Too many events in request"
+        assert body["last_accepted_seq"] == MAX_EVENTS_PER_REQUEST
 
     @parameterized.expand(
         [
@@ -657,6 +657,6 @@ class TestTaskRunEventIngest(TransactionTestCase):
         with patch.object(TaskRun, "heartbeat_workflow") as heartbeat_workflow:
             status, body = self._call_ingest(token, lines)
 
-        self.assertEqual(status, 200)
-        self.assertEqual(body["accepted"], expected_accepted)
+        assert status == 200
+        assert body["accepted"] == expected_accepted
         heartbeat_workflow.assert_not_called()

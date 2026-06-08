@@ -207,14 +207,14 @@ class TestFileSystemSyncMixin(TestCase):
         insight = Insight.objects.create(team=self.team, name="My Insight", saved=True, created_by=self.user)
         fs_entry = FileSystem.objects.get(team=self.team, type="insight", ref=insight.short_id)
         FileSystemViewLog.objects.create(team=self.team, user=self.user, type="insight", ref=insight.short_id)
-        self.assertEqual(FileSystemViewLog.objects.count(), 1)
+        assert FileSystemViewLog.objects.count() == 1
 
         # Soft-deleting the insight runs the post_save signal, which removes the FileSystem entry
         insight.deleted = True
         insight.save()
 
         assert not FileSystem.objects.filter(id=fs_entry.id).exists()
-        self.assertEqual(FileSystemViewLog.objects.count(), 0)
+        assert FileSystemViewLog.objects.count() == 0
 
     def test_file_system_view_logs_survive_when_legacy_null_shortcut_row_remains(self):
         """
@@ -240,7 +240,7 @@ class TestFileSystemSyncMixin(TestCase):
         canonical.delete()
 
         assert FileSystem.objects.filter(id=legacy_row.id).exists()
-        self.assertEqual(FileSystemViewLog.objects.count(), 1)
+        assert FileSystemViewLog.objects.count() == 1
 
     def test_file_system_view_logs_survive_shortcut_deletion(self):
         """
@@ -262,4 +262,4 @@ class TestFileSystemSyncMixin(TestCase):
         )
         shortcut.delete()
 
-        self.assertEqual(FileSystemViewLog.objects.count(), 1)
+        assert FileSystemViewLog.objects.count() == 1

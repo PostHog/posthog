@@ -1410,21 +1410,21 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
                 {"is_materialized": True, "data_freshness_seconds": 86400},
                 format="json",
             )
-            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            assert response.status_code == status.HTTP_200_OK, response.json()
 
             version = endpoint.versions.first()
             version.refresh_from_db()
             saved_query = version.saved_query
             assert saved_query is not None
-            self.assertIn("2026-04-20", saved_query.query["query"])
+            assert "2026-04-20" in saved_query.query["query"]
 
         with freeze_time("2026-04-30T12:00:00Z"):
             prepare_executable_query(saved_query)
 
             saved_query.refresh_from_db()
             hogql = saved_query.query["query"]
-            self.assertIn("2026-04-30", hogql)
-            self.assertNotIn("2026-04-20", hogql)
+            assert "2026-04-30" in hogql
+            assert "2026-04-20" not in hogql
 
     def test_prepare_executable_query_raises_when_no_linked_version(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -1467,10 +1467,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertTrue(
-            observed.get("link_committed"),
-            "EndpointVersion must be linked to the saved query before materialization is scheduled",
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert observed.get("link_committed"), (
+            "EndpointVersion must be linked to the saved query before materialization is scheduled"
         )
 
     def test_build_endpoint_hogql_performs_no_db_writes(self):
@@ -1488,7 +1487,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         write_prefixes = ("insert", "update", "delete")
         writes = [q["sql"] for q in ctx.captured_queries if q["sql"].lstrip().lower().startswith(write_prefixes)]
-        self.assertEqual(writes, [], f"build_endpoint_hogql wrote to Postgres: {writes}")
+        assert writes == [], f"build_endpoint_hogql wrote to Postgres: {writes}"
 
 
 @pytest.mark.asyncio

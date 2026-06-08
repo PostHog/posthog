@@ -3271,13 +3271,13 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         by_day = {row["timestamp"].date(): row for row in results}
 
         # every daily period in range is present, including the recent incomplete ones
-        self.assertEqual([row["timestamp"].date() for row in results], [date(2021, 6, day) for day in range(7, 19)])
+        assert [row["timestamp"].date() for row in results] == [date(2021, 6, day) for day in range(7, 19)]
         # both of user_a's entrances converted
-        self.assertEqual(by_day[date(2021, 6, 7)]["reached_to_step_count"], 1)
-        self.assertEqual(by_day[date(2021, 6, 12)]["reached_to_step_count"], 1)
+        assert by_day[date(2021, 6, 7)]["reached_to_step_count"] == 1
+        assert by_day[date(2021, 6, 12)]["reached_to_step_count"] == 1
         # recent entrant shows as a non-converter, which is what drags the recent trend down
-        self.assertEqual(by_day[date(2021, 6, 15)]["reached_from_step_count"], 1)
-        self.assertEqual(by_day[date(2021, 6, 15)]["reached_to_step_count"], 0)
+        assert by_day[date(2021, 6, 15)]["reached_from_step_count"] == 1
+        assert by_day[date(2021, 6, 15)]["reached_to_step_count"] == 0
 
     @freeze_time("2021-06-18 12:00:00")
     def test_hides_incomplete_conversion_window_periods_when_enabled(self):
@@ -3287,12 +3287,12 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         # now=2021-06-18 12:00, window=7d -> cutoff=2021-06-11 12:00. A period is kept only once its
         # whole day has cleared the window (entrance_period_start + 1 day <= cutoff), i.e. entrances
         # on or before 2021-06-10.
-        self.assertEqual([row["timestamp"].date() for row in results], [date(2021, 6, day) for day in range(7, 11)])
+        assert [row["timestamp"].date() for row in results] == [date(2021, 6, day) for day in range(7, 11)]
         # the old entrance that converted is retained, even though its conversion event is recent
-        self.assertEqual(by_day[date(2021, 6, 7)]["reached_to_step_count"], 1)
+        assert by_day[date(2021, 6, 7)]["reached_to_step_count"] == 1
         # the recent entrance (06-12) and the recent non-converter (06-15) are hidden
-        self.assertNotIn(date(2021, 6, 12), by_day)
-        self.assertNotIn(date(2021, 6, 15), by_day)
+        assert date(2021, 6, 12) not in by_day
+        assert date(2021, 6, 15) not in by_day
 
     @parameterized.expand(
         [
@@ -3351,8 +3351,5 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             .results
         )
 
-        self.assertEqual(
-            [r["breakdown_value"] for r in aliased],
-            [r["breakdown_value"] for r in baseline],
-        )
-        self.assertEqual([r["data"] for r in aliased], [r["data"] for r in baseline])
+        assert [r["breakdown_value"] for r in aliased] == [r["breakdown_value"] for r in baseline]
+        assert [r["data"] for r in aliased] == [r["data"] for r in baseline]

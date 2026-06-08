@@ -562,9 +562,9 @@ class TestPrettyPrintInTests(TestCase):
     def test_keyword_newline_insertion(self, _name: str, query: str, present: list[str], absent: list[str]) -> None:
         result = pretty_print_in_tests(query, 1)
         for fragment in present:
-            self.assertIn(fragment, result)
+            assert fragment in result
         for fragment in absent:
-            self.assertNotIn(fragment, result)
+            assert fragment not in result
 
     @parameterized.expand(
         [
@@ -615,14 +615,14 @@ class TestPrettyPrintInTests(TestCase):
     def test_bracket_depth_indentation(self, _name: str, query: str, present: list[str], absent: list[str]) -> None:
         result = pretty_print_in_tests(query, 1)
         for fragment in present:
-            self.assertIn(fragment, result)
+            assert fragment in result
         for fragment in absent:
-            self.assertNotIn(fragment, result)
+            assert fragment not in result
 
     def test_normalizes_team_id(self) -> None:
         result = pretty_print_in_tests("WHERE equals(events.team_id, 99999)", 99999)
-        self.assertIn("team_id, 420)", result)
-        self.assertNotIn("99999", result)
+        assert "team_id, 420)" in result
+        assert "99999" not in result
 
     def test_none_query_returns_empty_string(self) -> None:
-        self.assertEqual(pretty_print_in_tests(None, 1), "")
+        assert pretty_print_in_tests(None, 1) == ""

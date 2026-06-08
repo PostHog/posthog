@@ -292,8 +292,8 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertFalse(DashboardPrivilege.objects.filter(dashboard=victim_dashboard).exists())
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert not DashboardPrivilege.objects.filter(dashboard=victim_dashboard).exists()
 
     def test_cannot_remove_collaborator_from_dashboard_in_another_project(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -316,5 +316,5 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
             f"/api/projects/{self.team.id}/dashboards/{victim_dashboard.id}/collaborators/{collaborator.uuid}"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertTrue(DashboardPrivilege.objects.filter(id=privilege.id).exists())
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert DashboardPrivilege.objects.filter(id=privilege.id).exists()

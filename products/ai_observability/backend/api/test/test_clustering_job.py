@@ -223,7 +223,7 @@ class TestClusteringJobViewSet(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     @parameterized.expand(
         [
@@ -241,8 +241,8 @@ class TestClusteringJobViewSet(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not found or deleted", str(response.json()))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not found or deleted" in str(response.json())
 
     def test_create_rejects_soft_deleted_cohort_filter(self):
         from posthog.models.cohort import Cohort
@@ -257,8 +257,8 @@ class TestClusteringJobViewSet(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not found or deleted", str(response.json()))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not found or deleted" in str(response.json())
 
     def test_partial_update_rejects_missing_cohort_filter(self):
         job = self._create_job(name="Will be broken")
@@ -267,9 +267,9 @@ class TestClusteringJobViewSet(APIBaseTest):
             {"event_filters": [self._cohort_filter(999_999)]},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         job.refresh_from_db()
-        self.assertEqual(job.event_filters, [])
+        assert job.event_filters == []
 
 
 class TestDefaultClusteringJobsOnTeamCreate(APIBaseTest):

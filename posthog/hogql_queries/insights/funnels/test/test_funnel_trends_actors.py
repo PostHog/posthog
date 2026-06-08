@@ -173,11 +173,8 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
             include_recordings=True,
         )
 
-        self.assertEqual(results[0][0], persons["user_one"].uuid)
-        self.assertEqual(
-            [next(iter(results[0][2]))["session_id"]],
-            ["s1a"],
-        )
+        assert results[0][0] == persons["user_one"].uuid
+        assert [next(iter(results[0][2]))["session_id"]] == ["s1a"]
 
     @snapshot_clickhouse_queries
     def test_funnel_trend_persons_filters_by_breakdown(self):

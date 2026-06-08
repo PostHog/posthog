@@ -22,15 +22,15 @@ from posthog.models.scoping.product_mixin import ProductTeamModel
 class TestProductTeamModelWiring(SimpleTestCase):
     def test_objects_is_team_scoped_manager(self) -> None:
         """The default manager is fail-closed by team scope."""
-        self.assertIsInstance(ProductTeamModel._meta.managers_map["objects"], TeamScopedManager)
+        assert isinstance(ProductTeamModel._meta.managers_map["objects"], TeamScopedManager)
 
     def test_all_teams_is_plain_manager(self) -> None:
         """The bypass manager is a plain Django Manager (no scope enforcement)."""
         all_teams_manager = ProductTeamModel._meta.managers_map["all_teams"]
-        self.assertIsInstance(all_teams_manager, models.Manager)
-        self.assertNotIsInstance(all_teams_manager, TeamScopedManager)
+        assert isinstance(all_teams_manager, models.Manager)
+        assert not isinstance(all_teams_manager, TeamScopedManager)
 
     def test_team_id_field_is_bigint(self) -> None:
         """team_id is a plain BigIntegerField (no FK across DBs)."""
         field = ProductTeamModel._meta.get_field("team_id")
-        self.assertIsInstance(field, models.BigIntegerField)
+        assert isinstance(field, models.BigIntegerField)

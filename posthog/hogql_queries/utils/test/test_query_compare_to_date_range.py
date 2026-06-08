@@ -97,7 +97,7 @@ class TestQueryCompareToDateRange(APIBaseTest):
         )
         # The override must change the formatted output — otherwise the test wouldn't
         # catch a regression of the fix.
-        self.assertNotEqual(with_override.date_from_str, without_override.date_from_str)
+        assert with_override.date_from_str != without_override.date_from_str
         # And the override produces the same result as a UTC-team baseline would.
         self.team.timezone = "UTC"
         self.team.save()
@@ -108,8 +108,8 @@ class TestQueryCompareToDateRange(APIBaseTest):
             now=now,
             compare_to="-1d",
         )
-        self.assertEqual(with_override.date_from_str, utc_baseline.date_from_str)
-        self.assertEqual(with_override.date_to_str, utc_baseline.date_to_str)
+        assert with_override.date_from_str == utc_baseline.date_from_str
+        assert with_override.date_to_str == utc_baseline.date_to_str
 
     def test_minus_one_year_human_friendly(self):
         self.team.human_friendly_comparison_periods = True

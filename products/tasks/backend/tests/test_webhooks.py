@@ -90,15 +90,15 @@ class TestGitHubPRWebhook(TestCase):
 
         response = self._make_webhook_request(payload)
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["event"], "pr_merged")
-        self.assertEqual(call_kwargs["properties"]["pr_url"], "https://github.com/posthog/posthog/pull/123")
-        self.assertEqual(call_kwargs["properties"]["task_id"], str(self.task.id))
-        self.assertEqual(call_kwargs["properties"]["run_id"], str(self.task_run.id))
-        self.assertEqual(call_kwargs["properties"]["pr_source"], "task")
+        assert call_kwargs["event"] == "pr_merged"
+        assert call_kwargs["properties"]["pr_url"] == "https://github.com/posthog/posthog/pull/123"
+        assert call_kwargs["properties"]["task_id"] == str(self.task.id)
+        assert call_kwargs["properties"]["run_id"] == str(self.task_run.id)
+        assert call_kwargs["properties"]["pr_source"] == "task"
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
@@ -115,11 +115,11 @@ class TestGitHubPRWebhook(TestCase):
 
         response = self._make_webhook_request(payload)
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["event"], "pr_closed")
+        assert call_kwargs["event"] == "pr_closed"
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
@@ -136,11 +136,11 @@ class TestGitHubPRWebhook(TestCase):
 
         response = self._make_webhook_request(payload)
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["event"], "pr_created")
+        assert call_kwargs["event"] == "pr_created"
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     def test_invalid_signature_rejected(self, mock_get_secret):
@@ -157,7 +157,7 @@ class TestGitHubPRWebhook(TestCase):
             headers={"x-hub-signature-256": "sha256=invalid", "x-github-event": "pull_request"},
         )
 
-        self.assertEqual(response.status_code, 403)
+        assert response.status_code == 403
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     def test_missing_signature_rejected(self, mock_get_secret):
@@ -173,7 +173,7 @@ class TestGitHubPRWebhook(TestCase):
             headers={"x-github-event": "pull_request"},
         )
 
-        self.assertEqual(response.status_code, 403)
+        assert response.status_code == 403
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
@@ -190,7 +190,7 @@ class TestGitHubPRWebhook(TestCase):
 
         response = self._make_webhook_request(payload)
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         mock_capture.assert_not_called()
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
@@ -202,7 +202,7 @@ class TestGitHubPRWebhook(TestCase):
 
         response = self._make_webhook_request(payload, event_type="push")
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     def test_ignored_pr_actions(self, mock_get_secret):
@@ -219,7 +219,7 @@ class TestGitHubPRWebhook(TestCase):
             }
 
             response = self._make_webhook_request(payload)
-            self.assertEqual(response.status_code, 200, f"Failed for action: {action}")
+            assert response.status_code == 200, f"Failed for action: {action}"
 
     def test_webhook_secret_not_configured(self):
         """Test that webhook returns 500 if secret is not configured."""
@@ -233,12 +233,12 @@ class TestGitHubPRWebhook(TestCase):
                 headers={"x-github-event": "pull_request"},
             )
 
-            self.assertEqual(response.status_code, 500)
+            assert response.status_code == 500
 
     def test_method_not_allowed(self):
         """Test that non-POST methods are rejected."""
         response = self.client.get("/webhooks/github/pr/")
-        self.assertEqual(response.status_code, 405)
+        assert response.status_code == 405
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
@@ -266,7 +266,7 @@ class TestGitHubPRWebhook(TestCase):
 
         response = self._make_webhook_request(payload)
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         mock_capture.assert_not_called()
 
 
@@ -368,9 +368,9 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
 
         response = self._post_pr_webhook(action=action, merged=merged)
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         self.report.refresh_from_db()
-        self.assertEqual(self.report.status, expected_status)
+        assert self.report.status == expected_status
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
@@ -380,9 +380,9 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
 
         response = self._post_pr_webhook(action="closed", merged=True)
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         self.report.refresh_from_db()
-        self.assertEqual(self.report.status, SignalReport.Status.READY)
+        assert self.report.status == SignalReport.Status.READY
 
 
 class TestExternalPRWebhook(TestCase):
@@ -449,22 +449,22 @@ class TestExternalPRWebhook(TestCase):
 
         response = self._post(self._external_payload(action, merged))
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
         props = call_kwargs["properties"]
-        self.assertEqual(call_kwargs["event"], expected_event)
-        self.assertEqual(call_kwargs["distinct_id"], str(self.team.uuid))
-        self.assertEqual(call_kwargs["groups"]["project"], str(self.team.uuid))
-        self.assertEqual(props["pr_source"], "external")
-        self.assertEqual(props["team_id"], self.team.id)
-        self.assertEqual(props["repository"], "acme/widgets")
-        self.assertEqual(props["pr_number"], 7)
-        self.assertEqual(props["pr_author"], "octocat")
-        self.assertEqual(props["pr_base_ref"], "main")
-        self.assertIsNone(props["task_id"])
-        self.assertIsNone(props["origin_product"])
-        self.assertIsNone(props["title"])
+        assert call_kwargs["event"] == expected_event
+        assert call_kwargs["distinct_id"] == str(self.team.uuid)
+        assert call_kwargs["groups"]["project"] == str(self.team.uuid)
+        assert props["pr_source"] == "external"
+        assert props["team_id"] == self.team.id
+        assert props["repository"] == "acme/widgets"
+        assert props["pr_number"] == 7
+        assert props["pr_author"] == "octocat"
+        assert props["pr_base_ref"] == "main"
+        assert props["task_id"] is None
+        assert props["origin_product"] is None
+        assert props["title"] is None
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
@@ -472,13 +472,13 @@ class TestExternalPRWebhook(TestCase):
         mock_get_secret.return_value = self.webhook_secret
 
         payload = self._external_payload("closed", merged=True)
-        self.assertEqual(self._post(payload).status_code, 200)
-        self.assertEqual(self._post(payload).status_code, 200)
+        assert self._post(payload).status_code == 200
+        assert self._post(payload).status_code == 200
 
-        self.assertEqual(mock_capture.call_count, 2)
+        assert mock_capture.call_count == 2
         first_uuid = mock_capture.call_args_list[0][1]["uuid"]
         second_uuid = mock_capture.call_args_list[1][1]["uuid"]
-        self.assertEqual(first_uuid, second_uuid)
+        assert first_uuid == second_uuid
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
@@ -490,7 +490,7 @@ class TestExternalPRWebhook(TestCase):
 
         response = self._post(payload)
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         mock_capture.assert_not_called()
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
@@ -503,11 +503,11 @@ class TestExternalPRWebhook(TestCase):
         )
         expected_team = min([self.team, other_team], key=lambda t: t.id)
 
-        self.assertEqual(self._post(self._external_payload("closed", merged=True)).status_code, 200)
-        self.assertEqual(self._post(self._external_payload("closed", merged=True)).status_code, 200)
+        assert self._post(self._external_payload("closed", merged=True)).status_code == 200
+        assert self._post(self._external_payload("closed", merged=True)).status_code == 200
 
         distinct_ids = {call[1]["distinct_id"] for call in mock_capture.call_args_list}
-        self.assertEqual(distinct_ids, {str(expected_team.uuid)})
+        assert distinct_ids == {str(expected_team.uuid)}
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
@@ -518,7 +518,7 @@ class TestExternalPRWebhook(TestCase):
 
         response = self._post(payload)
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         mock_capture.assert_not_called()
 
 
@@ -544,7 +544,7 @@ class TestFindTaskRun(TestCase):
             output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
         )
         result = find_task_run(pr_url="https://github.com/posthog/posthog/pull/123")
-        self.assertEqual(result, task_run)
+        assert result == task_run
 
     def test_finds_by_branch_when_no_pr_url_match(self):
         task_run = TaskRun.objects.create(
@@ -554,7 +554,7 @@ class TestFindTaskRun(TestCase):
             branch="feature/my-branch",
         )
         result = find_task_run(branch="feature/my-branch", repository="posthog/posthog")
-        self.assertEqual(result, task_run)
+        assert result == task_run
 
     def test_pr_url_takes_priority_over_branch(self):
         pr_run = TaskRun.objects.create(
@@ -575,7 +575,7 @@ class TestFindTaskRun(TestCase):
             branch="feature/my-branch",
             repository="posthog/posthog",
         )
-        self.assertEqual(result, pr_run)
+        assert result == pr_run
 
     def test_falls_back_to_branch_when_pr_url_not_found(self):
         branch_run = TaskRun.objects.create(
@@ -589,15 +589,15 @@ class TestFindTaskRun(TestCase):
             branch="feature/my-branch",
             repository="posthog/posthog",
         )
-        self.assertEqual(result, branch_run)
+        assert result == branch_run
 
     def test_returns_none_when_no_match(self):
         result = find_task_run(pr_url="https://github.com/posthog/posthog/pull/999")
-        self.assertIsNone(result)
+        assert result is None
 
     def test_returns_none_with_no_args(self):
         result = find_task_run()
-        self.assertIsNone(result)
+        assert result is None
 
     def test_branch_fallback_requires_repository(self):
         TaskRun.objects.create(
@@ -608,7 +608,7 @@ class TestFindTaskRun(TestCase):
         )
         # Without a repository the branch fallback must not match — bare branch
         # names like "main" collide across every team in the database.
-        self.assertIsNone(find_task_run(branch="main"))
+        assert find_task_run(branch="main") is None
 
     def test_branch_fallback_does_not_match_other_repositories(self):
         # The task's repository is "posthog/posthog"; a webhook from a foreign
@@ -620,7 +620,7 @@ class TestFindTaskRun(TestCase):
             branch="main",
         )
         result = find_task_run(branch="main", repository="ArkeroAI/arkero2")
-        self.assertIsNone(result)
+        assert result is None
 
     def test_branch_fallback_matches_repository_case_insensitively(self):
         task_run = TaskRun.objects.create(
@@ -630,7 +630,7 @@ class TestFindTaskRun(TestCase):
             branch="feature/my-branch",
         )
         result = find_task_run(branch="feature/my-branch", repository="PostHog/PostHog")
-        self.assertEqual(result, task_run)
+        assert result == task_run
 
     def test_branch_fallback_rejects_empty_repository(self):
         TaskRun.objects.create(
@@ -640,7 +640,7 @@ class TestFindTaskRun(TestCase):
             branch="main",
         )
         for value in ("", "   ", "\t"):
-            self.assertIsNone(find_task_run(branch="main", repository=value))
+            assert find_task_run(branch="main", repository=value) is None
 
 
 class TestGitHubWebhookFanout(TestCase):
@@ -730,12 +730,12 @@ class TestGitHubWebhookFanout(TestCase):
 
         response = self._make_request(payload, event_type="issues", url=url)
 
-        self.assertEqual(response.status_code, 202)
+        assert response.status_code == 202
         mock_task.delay.assert_called_once()
         call_kwargs = mock_task.delay.call_args[1]
-        self.assertEqual(call_kwargs["event_type"], "issues")
-        self.assertEqual(call_kwargs["team_id"], self.team.id)
-        self.assertEqual(call_kwargs["repo"], "myorg/myrepo")
+        assert call_kwargs["event_type"] == "issues"
+        assert call_kwargs["team_id"] == self.team.id
+        assert call_kwargs["repo"] == "myorg/myrepo"
 
     @patch("products.conversations.backend.api.github_events.process_github_event")
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
@@ -754,9 +754,9 @@ class TestGitHubWebhookFanout(TestCase):
 
         response = self._make_request(payload, event_type="issue_comment")
 
-        self.assertEqual(response.status_code, 202)
+        assert response.status_code == 202
         mock_task.delay.assert_called_once()
-        self.assertEqual(mock_task.delay.call_args[1]["event_type"], "issue_comment")
+        assert mock_task.delay.call_args[1]["event_type"] == "issue_comment"
 
     @patch("products.conversations.backend.api.github_events.process_github_event")
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
@@ -774,7 +774,7 @@ class TestGitHubWebhookFanout(TestCase):
 
         response = self._make_request(payload, event_type="issues")
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         mock_task.delay.assert_not_called()
 
     @parameterized.expand(
@@ -798,9 +798,9 @@ class TestGitHubWebhookFanout(TestCase):
 
         response = self._make_request(payload, event_type="pull_request", url=url)
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         mock_capture.assert_called_once()
-        self.assertEqual(mock_capture.call_args[1]["event"], "pr_merged")
+        assert mock_capture.call_args[1]["event"] == "pr_merged"
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     def test_unified_url_unknown_event_returns_200(self, mock_secret):
@@ -809,7 +809,7 @@ class TestGitHubWebhookFanout(TestCase):
         payload = {"action": "created", "ref": "refs/heads/main"}
         response = self._make_request(payload, event_type="push", url="/webhooks/github/")
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     def test_unified_url_bad_signature_returns_403(self, mock_secret):
@@ -826,8 +826,8 @@ class TestGitHubWebhookFanout(TestCase):
             },
         )
 
-        self.assertEqual(response.status_code, 403)
+        assert response.status_code == 403
 
     def test_unified_url_get_returns_405(self):
         response = self.client.get("/webhooks/github/")
-        self.assertEqual(response.status_code, 405)
+        assert response.status_code == 405

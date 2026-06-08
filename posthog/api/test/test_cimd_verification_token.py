@@ -16,23 +16,23 @@ class TestCIMDVerificationTokenViewSet(APIBaseTest):
         self.organization_membership.save()
 
         response = self.client.post(self._url(), {"label": "Prod partner"}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         body = response.json()
-        self.assertTrue(body["value"].startswith("phvt_"))
-        self.assertEqual(body["label"], "Prod partner")
-        self.assertTrue(body["mask_value"].startswith("phvt"))
-        self.assertIn("...", body["mask_value"])
+        assert body["value"].startswith("phvt_")
+        assert body["label"] == "Prod partner"
+        assert body["mask_value"].startswith("phvt")
+        assert "..." in body["mask_value"]
 
         token = CIMDVerificationToken.objects.get(id=body["id"])
-        self.assertEqual(token.organization_id, self.organization.id)
-        self.assertEqual(token.created_by_id, self.user.id)
-        self.assertNotEqual(token.secure_value, body["value"])
+        assert token.organization_id == self.organization.id
+        assert token.created_by_id == self.user.id
+        assert token.secure_value != body["value"]
 
     def test_non_admin_cannot_create(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         response = self.client.post(self._url(), {"label": "blocked"}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_list_returns_org_tokens_only_without_plaintext(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -43,11 +43,11 @@ class TestCIMDVerificationTokenViewSet(APIBaseTest):
         create_cimd_verification_token(organization=other_org, label="Theirs", created_by=None)
 
         response = self.client.get(self._url())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["label"], "Ours")
-        self.assertNotIn("value", results[0])
+        assert len(results) == 1
+        assert results[0]["label"] == "Ours"
+        assert "value" not in results[0]
 
     def test_admin_can_revoke(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -57,11 +57,11 @@ class TestCIMDVerificationTokenViewSet(APIBaseTest):
         )
 
         response = self.client.delete(self._url(str(token.id)))
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(CIMDVerificationToken.objects.filter(id=token.id).exists())
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not CIMDVerificationToken.objects.filter(id=token.id).exists()
 
     def test_blank_label_rejected(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         response = self.client.post(self._url(), {"label": "   "}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

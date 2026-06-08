@@ -367,7 +367,7 @@ class TestMaxChatOpenAI(BaseTest):
             llm.generate([[HumanMessage(content="Test query")]])
 
             call_kwargs = mock_generate.call_args.kwargs
-            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["ai_product"], "posthog_ai")
+            assert call_kwargs["metadata"]["posthog_properties"]["ai_product"] == "posthog_ai"
 
     def test_caller_supplied_ai_product_overrides_default(self):
         llm = MaxChatOpenAI(
@@ -382,7 +382,7 @@ class TestMaxChatOpenAI(BaseTest):
             llm.generate([[HumanMessage(content="Test query")]])
 
             call_kwargs = mock_generate.call_args.kwargs
-            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["ai_product"], "alert_investigation_agent")
+            assert call_kwargs["metadata"]["posthog_properties"]["ai_product"] == "alert_investigation_agent"
 
     def test_effective_billable_defaults_to_true_when_no_config(self):
         """Test that is_agent_billable defaults to True when not in config."""

@@ -104,13 +104,13 @@ class TestFileSystemViewLog(TestCase):
         log_file_system_view(user=self.user, obj=self._representation(surface="desktop"), team_id=self.team.id)
 
         log = FileSystemViewLog.objects.get(team=self.team, user=self.user, type="doc", ref="ref-1")
-        self.assertEqual(log.surface, "desktop")
+        assert log.surface == "desktop"
 
     def test_view_log_defaults_to_web_surface(self) -> None:
         log_file_system_view(user=self.user, obj=self._representation(surface="web"), team_id=self.team.id)
 
         log = FileSystemViewLog.objects.get(team=self.team, user=self.user, type="doc", ref="ref-1")
-        self.assertEqual(log.surface, "web")
+        assert log.surface == "web"
 
     def test_view_log_refreshes_surface_on_review_from_another_surface(self) -> None:
         # The same (type, ref) can exist in two surfaces; the single view-log row must follow the
@@ -119,8 +119,8 @@ class TestFileSystemViewLog(TestCase):
         log_file_system_view(user=self.user, obj=self._representation(surface="desktop"), team_id=self.team.id)
 
         logs = FileSystemViewLog.objects.filter(team=self.team, user=self.user, type="doc", ref="ref-1")
-        self.assertEqual(logs.count(), 1)
-        self.assertEqual(logs.first().surface, "desktop")  # type: ignore
+        assert logs.count() == 1
+        assert logs.first().surface == "desktop"  # type: ignore
 
     def test_delete_signal_only_drops_view_logs_for_the_deleted_surface(self) -> None:
         # The (team, user, type, ref) unique constraint allows only one view log per item, so the
@@ -132,5 +132,5 @@ class TestFileSystemViewLog(TestCase):
 
         FileSystem.objects.get(path="Desktop").delete()
 
-        self.assertTrue(FileSystemViewLog.objects.filter(pk=web_log.pk).exists())
-        self.assertTrue(FileSystem.objects.filter(pk=web_file.pk).exists())
+        assert FileSystemViewLog.objects.filter(pk=web_log.pk).exists()
+        assert FileSystem.objects.filter(pk=web_file.pk).exists()

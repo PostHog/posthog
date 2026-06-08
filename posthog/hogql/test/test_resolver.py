@@ -588,10 +588,10 @@ class TestResolver(BaseTest):
         with self.assertRaises(ResolutionError) as context:
             lookup_field_by_name(scope, "properties", self.context)
 
-        self.assertEqual(
-            str(context.exception),
-            f"Ambiguous query. Found multiple sources for field: properties ({expected_sources}). "
-            "Use a qualified field name.",
+        assert (
+            str(context.exception)
+            == f"Ambiguous query. Found multiple sources for field: properties ({expected_sources}). "
+            "Use a qualified field name."
         )
 
     def test_select_set_order_by_prints(self):

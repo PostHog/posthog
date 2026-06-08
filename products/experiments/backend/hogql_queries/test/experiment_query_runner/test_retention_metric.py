@@ -1920,13 +1920,13 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         # Only mature users should be counted (1 control, 1 test); immature excluded.
         assert result.baseline is not None
-        self.assertEqual(result.baseline.number_of_samples, 1)
-        self.assertEqual(result.baseline.sum, 1)
+        assert result.baseline.number_of_samples == 1
+        assert result.baseline.sum == 1
 
         assert result.variant_results is not None
         assert len(result.variant_results) == 1
-        self.assertEqual(result.variant_results[0].number_of_samples, 1)
-        self.assertEqual(result.variant_results[0].sum, 1)
+        assert result.variant_results[0].number_of_samples == 1
+        assert result.variant_results[0].sum == 1
 
     @parameterized.expand(
         [
@@ -2050,8 +2050,8 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         # Only early-starters should appear in results; late-starter excluded.
         assert result.baseline is not None
-        self.assertEqual(result.baseline.number_of_samples, 1)
+        assert result.baseline.number_of_samples == 1
 
         assert result.variant_results is not None
         assert len(result.variant_results) == 1
-        self.assertEqual(result.variant_results[0].number_of_samples, 1)
+        assert result.variant_results[0].number_of_samples == 1

@@ -962,7 +962,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         ).run()
         assert isinstance(baseline, CachedPathsQueryResponse)
-        self.assertGreater(len(baseline.results), 0)
+        assert len(baseline.results) > 0
 
         with_trailing_slashes = PathsQueryRunner(
             query={
@@ -976,7 +976,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
         assert isinstance(with_trailing_slashes, CachedPathsQueryResponse)
 
-        self.assertEqual(with_trailing_slashes.results, baseline.results)
+        assert with_trailing_slashes.results == baseline.results
 
     def test_paths_in_window(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])

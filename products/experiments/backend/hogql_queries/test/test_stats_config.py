@@ -449,10 +449,10 @@ class TestSequentialStatsConfig(APIBaseTest):
         )
         if expect_sequential:
             # Always-valid intervals are wider than the fixed-horizon CI.
-            self.assertGreater(resolved_ci[1] - resolved_ci[0], default_ci[1] - default_ci[0])
+            assert resolved_ci[1] - resolved_ci[0] > default_ci[1] - default_ci[0]
         else:
             # Sequential not applied → identical to the default fixed-horizon CI.
-            self.assertEqual(resolved_ci, default_ci)
+            assert resolved_ci == default_ci
 
     def test_invalid_tuning_parameter_falls_back_to_default(self) -> None:
         # Garbage input should not raise; it should fall back to the hardcoded default.
@@ -461,4 +461,4 @@ class TestSequentialStatsConfig(APIBaseTest):
                 "frequentist": {"sequential_testing_enabled": True, "sequential_tuning_parameter": "not-a-number"}
             }
         )
-        self.assertEqual(len(ci), 2)
+        assert len(ci) == 2

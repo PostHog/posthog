@@ -175,9 +175,9 @@ class TestUserTeamsAccessControl(BaseTest):
 
         self.user.__dict__.pop("teams", None)  # bust cached_property if it was set
         user_teams = self.user.teams.all()
-        self.assertEqual(user_teams.count(), 1)
-        self.assertIn(self.team, user_teams)
-        self.assertNotIn(private_team, user_teams)
+        assert user_teams.count() == 1
+        assert self.team in user_teams
+        assert private_team not in user_teams
 
     def test_organization_admin_sees_all_teams(self):
         """Test that organization admins can see all teams, including private ones."""

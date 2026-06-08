@@ -341,13 +341,13 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             {"identifier": "new@example.com"},
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         data = response.json()
-        self.assertEqual(data["identifier"], "new@example.com")
-        self.assertEqual(data["preferences"][ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT.value)
+        assert data["identifier"] == "new@example.com"
+        assert data["preferences"][ALL_MESSAGE_PREFERENCE_CATEGORY_ID] == PreferenceStatus.OPTED_OUT.value
 
         pref = MessageRecipientPreference.objects.get(team=self.team, identifier="new@example.com")
-        self.assertEqual(pref.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID), PreferenceStatus.OPTED_OUT)
+        assert pref.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
 
     def test_add_opt_out_specific_category(self):
         response = self.client.post(
@@ -355,10 +355,10 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             {"identifier": "user@example.com", "category_key": self.category.key},
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         data = response.json()
-        self.assertEqual(data["identifier"], "user@example.com")
-        self.assertEqual(data["preferences"][str(self.category.id)], PreferenceStatus.OPTED_OUT.value)
+        assert data["identifier"] == "user@example.com"
+        assert data["preferences"][str(self.category.id)] == PreferenceStatus.OPTED_OUT.value
 
     def test_add_opt_out_nonexistent_category(self):
         response = self.client.post(
@@ -366,8 +366,8 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             {"identifier": "user@example.com", "category_key": "does_not_exist"},
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.json()["error"], "Category not found")
+        assert response.status_code == 404
+        assert response.json()["error"] == "Category not found"
 
     def test_add_opt_out_duplicate_identifier_updates_existing(self):
         existing = MessageRecipientPreference.objects.create(
@@ -380,11 +380,11 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             {"identifier": "existing@example.com"},
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         existing.refresh_from_db()
-        self.assertEqual(existing.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID), PreferenceStatus.OPTED_OUT)
+        assert existing.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
         # existing category preference is preserved
-        self.assertEqual(existing.get_preference(str(self.category.id)), PreferenceStatus.OPTED_IN)
+        assert existing.get_preference(str(self.category.id)) == PreferenceStatus.OPTED_IN
 
     @parameterized.expand(
         [
@@ -399,7 +399,7 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             payload,
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
 
     @parameterized.expand(
         [
@@ -415,8 +415,8 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             {"identifier": raw_identifier},
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json()["identifier"], expected_identifier)
+        assert response.status_code == 201
+        assert response.json()["identifier"] == expected_identifier
 
     def test_add_opt_out_team_isolation(self):
         other_team = self.organization.teams.create(name="Other Team")
@@ -425,9 +425,7 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             {"identifier": "isolated@example.com"},
             content_type="application/json",
         )
-        self.assertTrue(
-            MessageRecipientPreference.objects.filter(team=self.team, identifier="isolated@example.com").exists()
-        )
-        self.assertFalse(
-            MessageRecipientPreference.objects.filter(team=other_team, identifier="isolated@example.com").exists()
-        )
+        assert MessageRecipientPreference.objects.filter(team=self.team, identifier="isolated@example.com").exists()
+        assert not MessageRecipientPreference.objects.filter(
+            team=other_team, identifier="isolated@example.com"
+        ).exists()

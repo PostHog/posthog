@@ -50,13 +50,13 @@ class TestPushDispatcher(TransactionTestCase):
         notify_fn(self.task_run)
         mock_delay.assert_called_once()
         user_id, title, body, data, suppressed = mock_delay.call_args.args
-        self.assertEqual(user_id, self.user.id)
-        self.assertEqual(title, "PostHog Code")
-        self.assertIn(expected_body_fragment, body)
-        self.assertEqual(data["taskId"], str(self.task.id))
-        self.assertEqual(data["taskRunId"], str(self.task_run.id))
+        assert user_id == self.user.id
+        assert title == "PostHog Code"
+        assert expected_body_fragment in body
+        assert data["taskId"] == str(self.task.id)
+        assert data["taskRunId"] == str(self.task_run.id)
         # No presence rows in this test's setUp, so nothing to suppress.
-        self.assertEqual(suppressed, [])
+        assert suppressed == []
 
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=False)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
@@ -79,7 +79,7 @@ class TestPushDispatcher(TransactionTestCase):
         notify_task_run_completed(self.task_run)
         notify_task_run_completed(self.task_run)
         notify_task_run_completed(self.task_run)
-        self.assertEqual(mock_delay.call_count, 1)
+        assert mock_delay.call_count == 1
 
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
@@ -87,7 +87,7 @@ class TestPushDispatcher(TransactionTestCase):
         # Different push kinds on the same run shouldn't share a cooldown key.
         notify_task_run_completed(self.task_run)
         notify_task_run_awaiting_input(self.task_run)
-        self.assertEqual(mock_delay.call_count, 2)
+        assert mock_delay.call_count == 2
 
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")

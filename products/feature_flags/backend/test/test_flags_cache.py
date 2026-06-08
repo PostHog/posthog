@@ -1955,11 +1955,11 @@ class TestManagementCommands(BaseTest):
 
         result = verify_team_flags(self.team, verbose=True)
 
-        self.assertEqual(result["status"], expected_status)
+        assert result["status"] == expected_status
         if expected_diff_field is not None:
             field_mismatches = [d for d in result["diffs"] if d["type"] == "FIELD_MISMATCH"]
-            self.assertEqual(len(field_mismatches), 1)
-            self.assertIn(expected_diff_field, field_mismatches[0]["diff_fields"])
+            assert len(field_mismatches) == 1
+            assert expected_diff_field in field_mismatches[0]["diff_fields"]
 
     def test_verify_miss_includes_db_data(self):
         """Test that cache miss result includes db_data for direct cache write."""
@@ -2030,9 +2030,9 @@ class TestManagementCommands(BaseTest):
 
         result = verify_team_flags(self.team)
 
-        self.assertEqual(result["status"], "mismatch")
-        self.assertEqual(result["issue"], "MISSING_ETAG")
-        self.assertIn("db_data", result)
+        assert result["status"] == "mismatch"
+        assert result["issue"] == "MISSING_ETAG"
+        assert "db_data" in result
 
     def test_verify_missing_etag_takes_priority_over_data_drift(self):
         """Pin the verifier's priority: when a team has both a missing etag AND
@@ -2058,8 +2058,8 @@ class TestManagementCommands(BaseTest):
 
         result = verify_team_flags(self.team)
 
-        self.assertEqual(result["status"], "mismatch")
-        self.assertEqual(result["issue"], "MISSING_ETAG")
+        assert result["status"] == "mismatch"
+        assert result["issue"] == "MISSING_ETAG"
 
     def test_verify_uses_batched_etag_no_extra_redis_get(self):
         """In the verifier hot path the etag must come from cache_batch_data, not
@@ -2091,7 +2091,7 @@ class TestManagementCommands(BaseTest):
 
         assert m.call_count == 0, "verifier hot path called get_etag per-team"
         # And the result is sane: etag was present in the batch, status matches.
-        self.assertEqual(result["status"], "match")
+        assert result["status"] == "match"
 
     @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
     def test_verify_fix_failures_reported(self):
@@ -3505,7 +3505,7 @@ class TestStripNullValues(unittest.TestCase):
         ]
     )
     def test_strip_null_values(self, _name, value, expected):
-        self.assertEqual(_strip_null_values(value), expected)
+        assert _strip_null_values(value) == expected
 
 
 def _flag(**overrides: Any) -> dict[str, Any]:
@@ -3622,7 +3622,7 @@ class TestCompareFlagFieldsLooseness(unittest.TestCase):
         ]
     )
     def test_no_diff(self, _name: str, db_flag: dict[str, Any], cached_flag: dict[str, Any]) -> None:
-        self.assertEqual(_compare_flag_fields(db_flag, cached_flag), [])
+        assert _compare_flag_fields(db_flag, cached_flag) == []
 
     @parameterized.expand(
         [
@@ -3676,5 +3676,5 @@ class TestCompareFlagFieldsLooseness(unittest.TestCase):
         cached_flag: dict[str, Any],
     ) -> None:
         diffs = _compare_flag_fields(db_flag, cached_flag)
-        self.assertEqual(len(diffs), 1)
-        self.assertEqual(diffs[0]["field"], expected_field)
+        assert len(diffs) == 1
+        assert diffs[0]["field"] == expected_field

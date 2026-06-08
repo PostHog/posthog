@@ -89,4 +89,4 @@ class TestTraceSpansTreeStartOffset(ClickhouseTestMixin, APIBaseTest):
             service_name="web",
         )
         edge = next(node for node in response.results if node.name == edge_name)
-        self.assertEqual(edge.avg_start_offset_nano, expected_offset_nano)
+        assert edge.avg_start_offset_nano == expected_offset_nano

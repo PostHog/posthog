@@ -19,7 +19,7 @@ class TestResolveStaleIssuesWithDeltas(BaseTest):
     def test_resolves_issues_for_existing_teams(self):
         self._seed_active_issue("test_kind", "h1")
         resolved = resolve_stale_issues_with_deltas("test_kind", {}, healthy_team_ids={self.team.id})
-        self.assertEqual({i.unique_hash for i in resolved}, {"h1"})
+        assert {i.unique_hash for i in resolved} == {"h1"}
 
     def test_skips_deleted_team_id_in_healthy_set(self):
         missing_team_id = self.team.id + 999_999
@@ -29,7 +29,7 @@ class TestResolveStaleIssuesWithDeltas(BaseTest):
             {},
             healthy_team_ids={self.team.id, missing_team_id},
         )
-        self.assertEqual({i.unique_hash for i in resolved}, {"h1"})
+        assert {i.unique_hash for i in resolved} == {"h1"}
 
     def test_upsert_skips_deleted_team_without_aborting_batch(self):
         # Reproduces the production failure: a team_id snapshotted at workflow
@@ -48,8 +48,6 @@ class TestResolveStaleIssuesWithDeltas(BaseTest):
         }
 
         created = upsert_issues_with_deltas("test_kind", issues_by_team)
-        self.assertEqual({i.team_id for i in created}, {self.team.id})
-        self.assertTrue(
-            HealthIssue.objects.filter(team=self.team, kind="test_kind", status=HealthIssue.Status.ACTIVE).exists()
-        )
-        self.assertFalse(HealthIssue.objects.filter(team_id=missing_team_id).exists())
+        assert {i.team_id for i in created} == {self.team.id}
+        assert HealthIssue.objects.filter(team=self.team, kind="test_kind", status=HealthIssue.Status.ACTIVE).exists()
+        assert not HealthIssue.objects.filter(team_id=missing_team_id).exists()

@@ -3802,9 +3802,9 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             .calculate()
             .results
         )
-        self.assertEqual(results[0]["count"], 1)
-        self.assertEqual(results[1]["count"], 1)
-        self.assertEqual(results[2]["count"], 1)
+        assert results[0]["count"] == 1
+        assert results[1]["count"] == 1
+        assert results[2]["count"] == 1
 
     def test_funnel_all_events_with_properties(self):
         _create_person(distinct_ids=["user"], team_id=self.team.pk)
@@ -5866,6 +5866,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             )
         else:
             assert isinstance(bv, list), f"Expected boxed breakdown_value for {breakdown_type}, got {type(bv)}"
+
     @freeze_time("2024-01-02T00:00:00Z")
     def test_funnel_session_breakdown_groups_results_by_session_property(self):
         # Three sessions across three users — two from google.com (one converts, one doesn't),

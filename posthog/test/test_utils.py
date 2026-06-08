@@ -240,7 +240,7 @@ class TestGetJsUrl(TestCase):
                 request = self.factory.get("/", HTTP_HOST=http_host, HTTP_X_FORWARDED_PROTO="https")
             else:
                 request = self.factory.get("/", HTTP_HOST=http_host)
-            self.assertEqual(expected, get_js_url(request))
+            assert expected == get_js_url(request)
 
 
 class TestGeneralUtils(TestCase):

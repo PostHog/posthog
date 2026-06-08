@@ -2676,10 +2676,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             per_date_totals[row["date"]] = per_date_totals.get(row["date"], 0) + row["values"][0]["count"]
 
         for unbroken_row in unbroken:
-            self.assertEqual(
-                per_date_totals.get(unbroken_row["date"], 0),
-                unbroken_row["values"][0]["count"],
-                f"breakdown bucket sum should equal unbroken total on {unbroken_row['date']}",
+            assert per_date_totals.get(unbroken_row["date"], 0) == unbroken_row["values"][0]["count"], (
+                f"breakdown bucket sum should equal unbroken total on {unbroken_row['date']}"
             )
 
         def cohort_count(breakdown_value: str, day_index: int) -> int:
@@ -2690,9 +2688,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 if row.get("breakdown_value") == breakdown_value and row["date"] == target_date
             )
 
-        self.assertEqual(cohort_count("", 0), 1)  # old_user, first event had no flag
-        self.assertEqual(cohort_count("variant_a", 2), 1)  # new_user
-        self.assertEqual(cohort_count("control", 2), 0)  # old_user must not leak here
+        assert cohort_count("", 0) == 1  # old_user, first event had no flag
+        assert cohort_count("variant_a", 2) == 1  # new_user
+        assert cohort_count("control", 2) == 0  # old_user must not leak here
 
         # Pin down person identities per bucket — same data the cohort modal shows.
         actors_query = {
@@ -2704,9 +2702,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             rows = self.run_actors_query(interval=interval, query=actors_query, breakdown=[breakdown_value])
             return sorted(distinct_id for row in rows for distinct_id in row[0]["distinct_ids"])
 
-        self.assertEqual(actor_distinct_ids(0, ""), ["old_user"])
-        self.assertEqual(actor_distinct_ids(2, "variant_a"), ["new_user"])
-        self.assertEqual(actor_distinct_ids(2, "control"), [])
+        assert actor_distinct_ids(0, "") == ["old_user"]
+        assert actor_distinct_ids(2, "variant_a") == ["new_user"]
+        assert actor_distinct_ids(2, "control") == []
 
     def test_retention_first_time_ever_with_cohort_breakdown(self):
         """Test first time ever retention with cohort breakdown"""
@@ -3705,21 +3703,18 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         breakdown_values = {c.get("breakdown_value") for c in result}
-        self.assertEqual(breakdown_values, {"CHROME", "SAFARI", "FIREFOX"})
+        assert breakdown_values == {"CHROME", "SAFARI", "FIREFOX"}
 
         chrome_cohorts = pluck([c for c in result if c.get("breakdown_value") == "CHROME"], "values", "count")
-        self.assertEqual(
-            chrome_cohorts,
-            pad(
-                [
-                    [2, 1, 1, 1, 0, 0],
-                    [1, 0, 1, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                ]
-            ),
+        assert chrome_cohorts == pad(
+            [
+                [2, 1, 1, 1, 0, 0],
+                [1, 0, 1, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+            ]
         )
 
     def test_retention_with_breakdown_event_properties_and_minimum_occurrences(self):
@@ -4898,8 +4893,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         day0_values = result_sum[0]["values"]
-        self.assertEqual(day0_values[0]["count"], 1)
-        self.assertEqual(day0_values[0]["aggregation_value"], 50)
+        assert day0_values[0]["count"] == 1
+        assert day0_values[0]["aggregation_value"] == 50
 
     def test_retention_aggregation_different_events_interval_0_excludes_return_before_start(self):
         # Return events that happen BEFORE the start event in the same interval must NOT be

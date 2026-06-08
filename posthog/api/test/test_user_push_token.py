@@ -14,10 +14,10 @@ class TestUserPushTokenEndpoints(APIBaseTest):
             {"token": "ExponentPushToken[abc]", "platform": "ios"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        self.assertEqual(body["platform"], "ios")
-        self.assertEqual(UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[abc]").count(), 1)
+        assert body["platform"] == "ios"
+        assert UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[abc]").count() == 1
 
     def test_register_is_idempotent_and_updates_platform(self):
         UserPushToken.objects.create(user=self.user, token="ExponentPushToken[abc]", platform="ios")
@@ -27,12 +27,12 @@ class TestUserPushTokenEndpoints(APIBaseTest):
             {"token": "ExponentPushToken[abc]", "platform": "android"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         tokens = UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[abc]")
-        self.assertEqual(tokens.count(), 1)
+        assert tokens.count() == 1
         token_row = tokens.first()
         assert token_row is not None
-        self.assertEqual(token_row.platform, "android")
+        assert token_row.platform == "android"
 
     def test_register_rejects_invalid_platform(self):
         response = self.client.post(
@@ -40,7 +40,7 @@ class TestUserPushTokenEndpoints(APIBaseTest):
             {"token": "ExponentPushToken[abc]", "platform": "blackberry"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_register_requires_token(self):
         response = self.client.post(
@@ -48,7 +48,7 @@ class TestUserPushTokenEndpoints(APIBaseTest):
             {"platform": "ios"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_unregister_deletes_row(self):
         UserPushToken.objects.create(user=self.user, token="ExponentPushToken[abc]", platform="ios")
@@ -58,8 +58,8 @@ class TestUserPushTokenEndpoints(APIBaseTest):
             {"token": "ExponentPushToken[abc]"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[abc]").exists())
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[abc]").exists()
 
     def test_unregister_unknown_token_is_a_noop(self):
         response = self.client.post(
@@ -67,7 +67,7 @@ class TestUserPushTokenEndpoints(APIBaseTest):
             {"token": "ExponentPushToken[never-registered]"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     def test_unregister_does_not_touch_other_users_tokens(self):
         other_user = self._create_user("other@example.com")
@@ -79,9 +79,9 @@ class TestUserPushTokenEndpoints(APIBaseTest):
             {"token": "ExponentPushToken[shared]"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[shared]").exists())
-        self.assertTrue(UserPushToken.objects.filter(user=other_user, token="ExponentPushToken[shared]").exists())
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[shared]").exists()
+        assert UserPushToken.objects.filter(user=other_user, token="ExponentPushToken[shared]").exists()
 
     def test_register_does_not_leak_across_users(self):
         other_user = self._create_user("other@example.com")
@@ -92,9 +92,9 @@ class TestUserPushTokenEndpoints(APIBaseTest):
             {"token": "ExponentPushToken[abc]", "platform": "ios"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         # Both users now own a row for that token (unique together is per-user).
-        self.assertEqual(UserPushToken.objects.filter(token="ExponentPushToken[abc]").count(), 2)
+        assert UserPushToken.objects.filter(token="ExponentPushToken[abc]").count() == 2
 
     def test_unauthenticated_requests_are_rejected(self):
         self.client.logout()
@@ -103,7 +103,7 @@ class TestUserPushTokenEndpoints(APIBaseTest):
             {"token": "ExponentPushToken[abc]", "platform": "ios"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_staff_cannot_register_token_for_another_user(self):
         """Even staff get rejected at /users/{uuid}/push_tokens/ — registration is device-self only.
@@ -121,9 +121,9 @@ class TestUserPushTokenEndpoints(APIBaseTest):
             {"token": "ExponentPushToken[attacker]", "platform": "ios"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertFalse(UserPushToken.objects.filter(user=victim).exists())
-        self.assertFalse(UserPushToken.objects.filter(user=self.user).exists())
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not UserPushToken.objects.filter(user=victim).exists()
+        assert not UserPushToken.objects.filter(user=self.user).exists()
 
     def test_per_user_token_cap_evicts_oldest(self):
         """Registering more than MAX_TOKENS_PER_USER trims oldest rows on insert."""
@@ -143,11 +143,11 @@ class TestUserPushTokenEndpoints(APIBaseTest):
             {"token": "ExponentPushToken[new]", "platform": "ios"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # New token survives, total count stays at the cap.
-        self.assertEqual(UserPushToken.objects.filter(user=self.user).count(), MAX_TOKENS_PER_USER)
-        self.assertTrue(UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[new]").exists())
+        assert UserPushToken.objects.filter(user=self.user).count() == MAX_TOKENS_PER_USER
+        assert UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[new]").exists()
 
 
 class TestPushNotifications(APIBaseTest):
@@ -171,7 +171,7 @@ class TestPushNotifications(APIBaseTest):
 
     def test_send_push_to_user_returns_zero_with_no_tokens(self):
         sent = send_push_to_user(self.user, title="t", body="b")
-        self.assertEqual(sent, 0)
+        assert sent == 0
 
     @patch("posthog.push_notifications.requests.post")
     def test_send_push_to_user_calls_expo(self, mock_post):
@@ -186,13 +186,13 @@ class TestPushNotifications(APIBaseTest):
             data={"taskId": "t1", "taskRunId": "r1"},
         )
 
-        self.assertEqual(accepted, 2)
-        self.assertEqual(mock_post.call_count, 1)
+        assert accepted == 2
+        assert mock_post.call_count == 1
         payload = mock_post.call_args.kwargs["json"]
-        self.assertEqual(len(payload), 2)
-        self.assertEqual(payload[0]["title"], "PostHog Code")
-        self.assertEqual(payload[0]["body"], "task done")
-        self.assertEqual(payload[0]["data"], {"taskId": "t1", "taskRunId": "r1"})
+        assert len(payload) == 2
+        assert payload[0]["title"] == "PostHog Code"
+        assert payload[0]["body"] == "task done"
+        assert payload[0]["data"] == {"taskId": "t1", "taskRunId": "r1"}
 
     @patch("posthog.push_notifications.requests.post")
     def test_send_push_prunes_invalid_tokens(self, mock_post):
@@ -201,9 +201,9 @@ class TestPushNotifications(APIBaseTest):
         mock_post.return_value = self._stub_response(ok=["a"], not_registered=["b"])
 
         accepted = send_push_to_user(self.user, title="t", body="b")
-        self.assertEqual(accepted, 1)
+        assert accepted == 1
         remaining = list(UserPushToken.objects.filter(user=self.user).values_list("token", flat=True))
-        self.assertEqual(remaining, ["ExponentPushToken[a]"])
+        assert remaining == ["ExponentPushToken[a]"]
 
     @patch("posthog.push_notifications.requests.post")
     def test_send_push_prune_is_scoped_to_user(self, mock_post):
@@ -215,8 +215,8 @@ class TestPushNotifications(APIBaseTest):
 
         send_push_to_user(self.user, title="t", body="b")
 
-        self.assertFalse(UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[shared]").exists())
-        self.assertTrue(UserPushToken.objects.filter(user=other_user, token="ExponentPushToken[shared]").exists())
+        assert not UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[shared]").exists()
+        assert UserPushToken.objects.filter(user=other_user, token="ExponentPushToken[shared]").exists()
 
     @patch("posthog.push_notifications.logger.warning")
     @patch("posthog.push_notifications.requests.post")
@@ -236,7 +236,7 @@ class TestPushNotifications(APIBaseTest):
         mock_post.return_value = _ShortResponse()
         send_push_to_user(self.user, title="t", body="b")
         events = [call.args[0] for call in mock_warning.call_args_list]
-        self.assertIn("expo_push.ticket_count_mismatch", events)
+        assert "expo_push.ticket_count_mismatch" in events
 
     @patch("posthog.push_notifications.requests.post")
     def test_send_push_swallows_http_errors(self, mock_post):
@@ -252,6 +252,6 @@ class TestPushNotifications(APIBaseTest):
         mock_post.return_value = _BadResponse()
 
         accepted = send_push_to_user(self.user, title="t", body="b")
-        self.assertEqual(accepted, 0)
+        assert accepted == 0
         # Token preserved — only DeviceNotRegistered prunes.
-        self.assertTrue(UserPushToken.objects.filter(token="ExponentPushToken[a]").exists())
+        assert UserPushToken.objects.filter(token="ExponentPushToken[a]").exists()

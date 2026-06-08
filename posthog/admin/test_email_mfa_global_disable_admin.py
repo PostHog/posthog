@@ -29,7 +29,7 @@ class TestEmailMFAGlobalDisableAdmin(APIBaseTest):
         request = self.factory.get("/admin/api/email-mfa-global-disable/")
         force_authenticate(request, user=self.user)
         response = EmailMFAGlobalDisableViewSet.as_view({"get": "list"})(request)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_staff_can_disable_list_and_clear(self):
         self._make_staff()
@@ -39,22 +39,22 @@ class TestEmailMFAGlobalDisableAdmin(APIBaseTest):
         )
         force_authenticate(request, user=self.user)
         response = EmailMFAGlobalDisableViewSet.as_view({"post": "create"})(request)
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertTrue(is_email_mfa_globally_disabled())
-        self.assertEqual(response.data["state"]["disabled_by"], self.user.email)
-        self.assertEqual(response.data["state"]["reason"], "email outage")
+        assert response.status_code == status.HTTP_201_CREATED
+        assert is_email_mfa_globally_disabled()
+        assert response.data["state"]["disabled_by"] == self.user.email
+        assert response.data["state"]["reason"] == "email outage"
 
         request = self.factory.get("/admin/api/email-mfa-global-disable/")
         force_authenticate(request, user=self.user)
         response = EmailMFAGlobalDisableViewSet.as_view({"get": "list"})(request)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.data["disabled"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["disabled"]
 
         request = self.factory.delete("/admin/api/email-mfa-global-disable/")
         force_authenticate(request, user=self.user)
         response = EmailMFAGlobalDisableViewSet.as_view({"delete": "destroy"})(request)
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(is_email_mfa_globally_disabled())
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not is_email_mfa_globally_disabled()
 
     def test_reason_is_required(self):
         self._make_staff()
@@ -63,8 +63,8 @@ class TestEmailMFAGlobalDisableAdmin(APIBaseTest):
         )
         force_authenticate(request, user=self.user)
         response = EmailMFAGlobalDisableViewSet.as_view({"post": "create"})(request)
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertFalse(is_email_mfa_globally_disabled())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not is_email_mfa_globally_disabled()
 
     def test_ttl_cap_is_enforced(self):
         self._make_staff()
@@ -75,5 +75,5 @@ class TestEmailMFAGlobalDisableAdmin(APIBaseTest):
         )
         force_authenticate(request, user=self.user)
         response = EmailMFAGlobalDisableViewSet.as_view({"post": "create"})(request)
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertFalse(is_email_mfa_globally_disabled())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not is_email_mfa_globally_disabled()

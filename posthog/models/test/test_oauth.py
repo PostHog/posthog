@@ -63,9 +63,9 @@ class TestOAuthModels(TestCase):
 
     def test_oauth_application_scopes_defaults_to_empty_list(self):
         app = self._make_app("Scopes Default", "scopes_default_client")
-        self.assertEqual(app.scopes, [])
+        assert app.scopes == []
         app.refresh_from_db()
-        self.assertEqual(app.scopes, [])
+        assert app.scopes == []
 
     def test_oauth_application_scopes_persists_explicit_list(self):
         app = self._make_app(
@@ -74,7 +74,7 @@ class TestOAuthModels(TestCase):
             scopes=["insight:read", "llm_gateway:read"],
         )
         app.refresh_from_db()
-        self.assertEqual(app.scopes, ["insight:read", "llm_gateway:read"])
+        assert app.scopes == ["insight:read", "llm_gateway:read"]
 
     def test_oauth_access_token_label_defaults_to_empty_string(self):
         app = self._make_app("Token Label Default", "token_label_default_client")
@@ -84,9 +84,9 @@ class TestOAuthModels(TestCase):
             token="default_label_token",
             expires=timezone.now() + timedelta(minutes=5),
         )
-        self.assertEqual(token.label, "")
+        assert token.label == ""
         token.refresh_from_db()
-        self.assertEqual(token.label, "")
+        assert token.label == ""
 
     def test_oauth_access_token_label_persists_explicit_value(self):
         app = self._make_app("Token Label Explicit", "token_label_explicit_client")
@@ -98,7 +98,7 @@ class TestOAuthModels(TestCase):
             label="laptop-2026",
         )
         token.refresh_from_db()
-        self.assertEqual(token.label, "laptop-2026")
+        assert token.label == "laptop-2026"
 
     @freeze_time("2024-01-01 00:00:00")
     def test_create_oauth_application_with_skip_authorization_fails(self):

@@ -118,6 +118,4 @@ class TestTraceSpansKeysetPaginationTimezone(ClickhouseTestMixin, APIBaseTest):
     )
     def test_keyset_pagination_is_timezone_robust(self, _name, paginated, limit, session_timezone, expected):
         after = self._cursor() if paginated else None
-        self.assertEqual(
-            self._distinct_trace_count(after=after, limit=limit, session_timezone=session_timezone), expected
-        )
+        assert self._distinct_trace_count(after=after, limit=limit, session_timezone=session_timezone) == expected

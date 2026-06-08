@@ -352,7 +352,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
                 self.team,
                 modifiers=self.MODIFIERS,
             )
-            self.assertEqual(table_results.results, [(person.uuid, expected_revenue, expected_mrr)])
+            assert table_results.results == [(person.uuid, expected_revenue, expected_mrr)]
 
             persons_results = execute_hogql_query(
                 parse_select(
@@ -362,7 +362,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
                 self.team,
                 modifiers=self.MODIFIERS,
             )
-            self.assertEqual(persons_results.results, [(person.uuid, expected_revenue, expected_mrr)])
+            assert persons_results.results == [(person.uuid, expected_revenue, expected_mrr)]
 
     @parameterized.expand([e.value for e in PersonsOnEventsMode])
     def test_virtual_property_in_trend(self, mode):
