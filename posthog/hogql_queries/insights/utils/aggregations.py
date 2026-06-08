@@ -92,7 +92,7 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         )
 
         min_timestamp_expr = (
-            ast.Call(name="minIf", args=[ast.Field(chain=["timestamp"]), self._filters])
+            ast.Call(name="minIf", args=[ast.Field(chain=["timestamp"]), cast(ast.Expr, self._filters)])
             if self._uses_conditional_aggregation()
             else ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])
         )
@@ -162,7 +162,7 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         return (
             ast.Call(
                 name="argMinIf",
-                args=[column, ast.Field(chain=["timestamp"]), self._filters],
+                args=[column, ast.Field(chain=["timestamp"]), cast(ast.Expr, self._filters)],
             )
             if self._uses_conditional_aggregation()
             else ast.Call(name="argMin", args=[column, ast.Field(chain=["timestamp"])])
