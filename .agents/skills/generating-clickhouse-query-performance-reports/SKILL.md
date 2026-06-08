@@ -141,7 +141,10 @@ mentioned. Diff against history only after the independent pass is done.
    by whichever one-off incident sits inside one window and not the other, so a large drop is rarely a
    structural improvement. Always also compare an **incident-excluded baseline** (e.g. OOMs/day with the
    spike days removed) so the delta is not misread, and say explicitly when a total moved because an
-   incident aged into or out of the window.
+   incident aged into or out of the window. Remember the summed metrics (bytes read, cluster-hours) cover
+   the **slow set only**, not total cluster I/O, so they also move when a heavy background job's runs
+   cross or stop crossing the 30s threshold; attribute a big bytes/hours swing to specific categories
+   (it is usually one or two background pipelines) rather than reporting it as a cluster-wide change.
 
 ## Interpreting the results
 
