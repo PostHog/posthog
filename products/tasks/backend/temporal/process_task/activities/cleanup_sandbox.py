@@ -5,6 +5,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.models import TaskRun
 from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.stream.redis_stream import publish_task_run_stream_complete
 from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
@@ -46,7 +47,14 @@ def cleanup_sandbox(input: CleanupSandboxInput) -> None:
                 logger.warning("cleanup_sandbox_destroy_failed", extra={"sandbox_id": input.sandbox_id}, exc_info=True)
 
         if input.complete_stream_on_cleanup and input.run_id and stream_completion_safe:
-            publish_task_run_stream_complete(input.run_id)
+            created_at = None
+            try:
+                created_at = TaskRun.objects.filter(id=input.run_id).values_list("created_at", flat=True).first()
+            except Exception:
+                logger.warning(
+                    "cleanup_sandbox_created_at_lookup_failed", extra={"run_id": input.run_id}, exc_info=True
+                )
+            publish_task_run_stream_complete(input.run_id, created_at)
             logger.info(
                 "cleanup_sandbox_stream_completion_published",
                 extra={"sandbox_id": input.sandbox_id, "run_id": input.run_id},
