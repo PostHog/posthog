@@ -197,6 +197,24 @@ describe('filterToMetricSource', () => {
 
         expect(result?.math).toBe(ExperimentMetricMathType.TotalCount)
     })
+
+    // Ratio metric numerator/denominator regression: the editor could emit an event filter whose
+    // `id` was '' or null while `name` held the chosen event, persisting `event: ''`/`event: null`
+    // and silently computing results as 0. `event` must fall back to `name`.
+    it.each([
+        ['empty string id (numerator path)', ''],
+        ['null id (denominator path)', null],
+    ])('recovers event from name when id is %s', (_label, id) => {
+        const events = [{ id, name: 'purchase', math: ExperimentMetricMathType.Sum, math_property: 'value' }]
+
+        const result = filterToMetricSource(undefined, events, undefined)
+
+        expect(result).toMatchObject({
+            kind: NodeKind.EventsNode,
+            event: 'purchase',
+            name: 'purchase',
+        })
+    })
 })
 
 describe('filterToMetricConfig', () => {

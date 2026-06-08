@@ -357,7 +357,10 @@ export function filterToMetricSource(
     if (events?.[0]) {
         return {
             kind: NodeKind.EventsNode,
-            event: events[0].id,
+            // The legacy ActionFilter stores the event name in `id`, but taxonomic selection can
+            // emit `id` as null/'' while `name` keeps the event name. Fall back to `name` so the
+            // query runner always gets a concrete event to filter on (empty/null silently breaks results).
+            event: events[0].id || events[0].name,
             name: events[0].name,
             math: events[0].math || ExperimentMetricMathType.TotalCount,
             math_property: events[0].math_property,
