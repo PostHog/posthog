@@ -20,8 +20,8 @@ import {
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
-import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
+import { PersonReadRepository } from '../../worker/ingestion/persons/repositories/person-repository'
+import { ReadOnlyGroupTypeManager } from '../../worker/ingestion/readonly-group-type-manager'
 import { OverflowOutput } from '../common/outputs'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
@@ -103,10 +103,10 @@ export interface ErrorTrackingConsumerDeps {
     /** Only required when the rate limiter is enabled; constructed alongside it. */
     errorTrackingSettingsManager?: ErrorTrackingSettingsManager
     hogTransformer: ErrorTrackingHogTransformer
-    groupTypeManager: GroupTypeManager
+    groupTypeManager: ReadOnlyGroupTypeManager
     cookielessManager: CookielessManager
     redisPool: GenericPool<Redis>
-    personRepository: PersonRepository
+    personRepository: PersonReadRepository
 }
 
 // Batch processing status - useful for tracking failures (batch sizes already tracked by KafkaConsumer)
@@ -324,6 +324,9 @@ export class ErrorTrackingConsumer {
                     const scopeKey = preCymbalGroupKey(input.event)
                     return scopeKey ? `${input.team.id}:exceptions:issue:${scopeKey}` : null
                 },
+                // Per-issue keys are high-cardinality; collapse every issue's outcomes into a
+                // single app_metrics2 row per team rather than one row per issue.
+                getAppSourceId: (input) => `${input.team.id}:exceptions:per_issue`,
                 getTeamId: (input) => input.team.id,
                 reportingMode: this.config.rateLimiterReportingMode,
                 dropReason: 'rate_limited:per_issue',

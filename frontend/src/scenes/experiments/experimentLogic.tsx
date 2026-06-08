@@ -638,6 +638,7 @@ export const experimentLogic = kea<experimentLogicType>([
         createExperiment: (draft?: boolean, folder?: string | null) => ({ draft, folder }),
         setCreateExperimentLoading: (loading: boolean) => ({ loading }),
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
+        setEndExperimentLoading: (loading: boolean) => ({ loading }),
         setEditExperiment: (editing: boolean) => ({ editing }),
         refreshExperimentResults: (forceRefresh?: boolean, triggeredBy?: ExperimentTriggeredBy) => ({
             forceRefresh,
@@ -1216,6 +1217,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 setLaunchExperimentLoading: (_, { loading }) => loading,
             },
         ],
+        endExperimentLoading: [
+            false,
+            {
+                setEndExperimentLoading: (_, { loading }) => loading,
+            },
+        ],
         hogfettiTrigger: [
             null as (() => void) | null,
             {
@@ -1422,7 +1429,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.refreshExperimentResults(false, 'manual')
                 actions.setUnmodifiedExperiment(structuredClone(experimentWithMetricOrdering))
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchExperiment)
-                tryShowMCPHint('experiments.launch')
+                // Prefer the flag key — it's the shorter handle someone would actually type at an agent.
+                const experimentHandle = experiment.feature_flag_key || experiment.name
+                tryShowMCPHint('experiments.launch', {
+                    derivedPrompt: experimentHandle ? `Launch experiment ${experimentHandle}` : undefined,
+                })
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to launch experiment')
             } finally {
@@ -1440,6 +1451,7 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.refreshExperimentResults(true, 'config_change')
         },
         endExperiment: async () => {
+            actions.setEndExperimentLoading(true)
             try {
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/end`,
@@ -1452,6 +1464,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 refreshTreeItem('experiment', String(values.experimentId))
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to end experiment')
+            } finally {
+                actions.setEndExperimentLoading(false)
             }
         },
         endExperimentWithoutShipping: async () => {
@@ -1702,6 +1716,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         finishExperiment: async ({ selectedVariantKey, releaseToEveryone }) => {
+            actions.setEndExperimentLoading(true)
             try {
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/ship_variant`,
@@ -1742,6 +1757,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 } else {
                     lemonToast.error(error.detail || 'Failed to ship variant')
                 }
+            } finally {
+                actions.setEndExperimentLoading(false)
             }
         },
         updateExperimentVariantImages: async ({ variantPreviewMediaIds }) => {

@@ -17,7 +17,7 @@
         "@dnd-kit/sortable": "*",
         "@dnd-kit/utilities": "*",
         "@posthog/icons": "*",
-        "@storybook/react": "*",
+        "@storybook/react": "catalog:",
         "@types/react": "*",
         "@types/react-dom": "*",
         "clsx": "*",

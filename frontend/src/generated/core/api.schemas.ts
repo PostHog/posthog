@@ -593,7 +593,8 @@ export interface ProjectBackwardCompatApi {
     readonly group_types: readonly ProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
     readonly live_events_token: string | null
-    readonly updated_at: string
+    /** @nullable */
+    readonly updated_at: string | null
     readonly uuid: string
     readonly api_token: string
     app_urls?: (string | null)[]
@@ -1386,7 +1387,8 @@ export interface PatchedProjectBackwardCompatApi {
     readonly group_types?: readonly PatchedProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
     readonly live_events_token?: string | null
-    readonly updated_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
     readonly uuid?: string
     readonly api_token?: string
     app_urls?: (string | null)[]
@@ -2143,6 +2145,14 @@ export interface PatchedProjectBackwardCompatApi {
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
 }
 
+export interface PromotedProductIntentApi {
+    /**
+     * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
+     * @nullable
+     */
+    product_key: string | null
+}
+
 export interface SharePasswordApi {
     readonly id: number
     readonly created_at: string
@@ -2163,59 +2173,6 @@ export interface SharingConfigurationApi {
     settings?: unknown
     password_required?: boolean
     readonly share_passwords: readonly SharePasswordApi[]
-}
-
-/**
- * * `image/png` - image/png
- * `application/pdf` - application/pdf
- * `text/csv` - text/csv
- * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
- * `video/webm` - video/webm
- * `video/mp4` - video/mp4
- * `image/gif` - image/gif
- * `application/json` - application/json
- */
-export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
-
-export const ExportFormatEnumApi = {
-    ImagePng: 'image/png',
-    ApplicationPdf: 'application/pdf',
-    TextCsv: 'text/csv',
-    ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    VideoWebm: 'video/webm',
-    VideoMp4: 'video/mp4',
-    ImageGif: 'image/gif',
-    ApplicationJson: 'application/json',
-} as const
-
-/**
- * Standard ExportedAsset serializer that doesn't return content.
- */
-export interface ExportedAssetApi {
-    readonly id: number
-    /** @nullable */
-    dashboard?: number | null
-    /** @nullable */
-    insight?: number | null
-    export_format: ExportFormatEnumApi
-    readonly created_at: string
-    readonly has_content: boolean
-    export_context?: unknown
-    readonly filename: string
-    /** @nullable */
-    readonly expires_after: string | null
-    /** @nullable */
-    readonly exception: string | null
-}
-
-export interface PaginatedExportedAssetListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ExportedAssetApi[]
 }
 
 export interface FileSystemApi {
@@ -2269,6 +2226,253 @@ export interface PatchedFileSystemApi {
     readonly created_at?: string
     /** @nullable */
     readonly last_viewed_at?: string | null
+}
+
+export interface FolderInstructionsApi {
+    /** Unique identifier for this instructions version. */
+    readonly id: string
+    /** Markdown instructions describing the contents of the folder. */
+    readonly content: string
+    /** Monotonically increasing version number, starting at 1. */
+    readonly version: number
+    /** Whether this is the current (latest) version for the folder. */
+    readonly is_latest: boolean
+    /** User who published this version. */
+    readonly created_by: UserBasicApi
+    /** When this version was published. */
+    readonly created_at: string
+    /** When this version row was last modified. */
+    readonly updated_at: string
+}
+
+export interface FolderInstructionsPublishApi {
+    /** Full markdown instructions to publish as a new version for the folder. */
+    content: string
+    /**
+     * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
+     * @minimum 0
+     */
+    base_version?: number
+}
+
+export interface PatchedFolderInstructionsPublishApi {
+    /** Full markdown instructions to publish as a new version for the folder. */
+    content?: string
+    /**
+     * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
+     * @minimum 0
+     */
+    base_version?: number
+}
+
+/**
+ * Version-history entry: metadata only, with the markdown content omitted.
+ */
+export interface FolderInstructionsVersionApi {
+    /** Unique identifier for this instructions version. */
+    readonly id: string
+    /** Monotonically increasing version number, starting at 1. */
+    readonly version: number
+    /** Whether this is the current (latest) version for the folder. */
+    readonly is_latest: boolean
+    /** User who published this version. */
+    readonly created_by: UserBasicApi
+    /** When this version was published. */
+    readonly created_at: string
+}
+
+export interface PaginatedFolderInstructionsVersionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FolderInstructionsVersionApi[]
+}
+
+export interface FileSystemShortcutApi {
+    readonly id: string
+    /** Display path of the shortcut in the sidebar. */
+    path: string
+    /**
+     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+     * @maxLength 100
+     */
+    type?: string
+    /**
+     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /**
+     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+     * @nullable
+     */
+    href?: string | null
+    /**
+     * Display order within the user's shortcut list, ascending.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order?: number
+    readonly created_at: string
+}
+
+export interface PaginatedFileSystemShortcutListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FileSystemShortcutApi[]
+}
+
+export interface PatchedFileSystemShortcutApi {
+    readonly id?: string
+    /** Display path of the shortcut in the sidebar. */
+    path?: string
+    /**
+     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+     * @maxLength 100
+     */
+    type?: string
+    /**
+     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /**
+     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+     * @nullable
+     */
+    href?: string | null
+    /**
+     * Display order within the user's shortcut list, ascending.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order?: number
+    readonly created_at?: string
+}
+
+export interface FileSystemShortcutReorderApi {
+    /** IDs of the current user's shortcuts in the desired display order. */
+    ordered_ids: string[]
+}
+
+/**
+ * * `home` - Home
+ * `pinned` - Pinned
+ * `custom_products` - Custom Products
+ */
+export type PersistedFolderTypeEnumApi = (typeof PersistedFolderTypeEnumApi)[keyof typeof PersistedFolderTypeEnumApi]
+
+export const PersistedFolderTypeEnumApi = {
+    Home: 'home',
+    Pinned: 'pinned',
+    CustomProducts: 'custom_products',
+} as const
+
+export interface PersistedFolderApi {
+    readonly id: string
+    /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+  * `home` - Home
+  * `pinned` - Pinned
+  * `custom_products` - Custom Products */
+    type: PersistedFolderTypeEnumApi
+    /**
+     * Protocol prefix of the folder location, e.g. 'products://'.
+     * @maxLength 64
+     */
+    protocol?: string
+    /** Path within the protocol that the folder resolves to. */
+    path?: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedPersistedFolderListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: PersistedFolderApi[]
+}
+
+export interface PatchedPersistedFolderApi {
+    readonly id?: string
+    /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+  * `home` - Home
+  * `pinned` - Pinned
+  * `custom_products` - Custom Products */
+    type?: PersistedFolderTypeEnumApi
+    /**
+     * Protocol prefix of the folder location, e.g. 'products://'.
+     * @maxLength 64
+     */
+    protocol?: string
+    /** Path within the protocol that the folder resolves to. */
+    path?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+/**
+ * * `image/png` - image/png
+ * `application/pdf` - application/pdf
+ * `text/csv` - text/csv
+ * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+ * `video/webm` - video/webm
+ * `video/mp4` - video/mp4
+ * `image/gif` - image/gif
+ * `application/json` - application/json
+ */
+export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
+
+export const ExportFormatEnumApi = {
+    ImagePng: 'image/png',
+    ApplicationPdf: 'application/pdf',
+    TextCsv: 'text/csv',
+    ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    VideoWebm: 'video/webm',
+    VideoMp4: 'video/mp4',
+    ImageGif: 'image/gif',
+    ApplicationJson: 'application/json',
+} as const
+
+/**
+ * Standard ExportedAsset serializer that doesn't return content.
+ */
+export interface ExportedAssetApi {
+    readonly id: number
+    /** @nullable */
+    dashboard?: number | null
+    /** @nullable */
+    insight?: number | null
+    export_format: ExportFormatEnumApi
+    readonly created_at: string
+    readonly has_content: boolean
+    export_context?: unknown
+    readonly filename: string
+    /** @nullable */
+    readonly expires_after: string | null
+    /** @nullable */
+    readonly exception: string | null
+}
+
+export interface PaginatedExportedAssetListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExportedAssetApi[]
 }
 
 export interface ProjectSecretAPIKeyApi {
@@ -2517,11 +2721,11 @@ export interface SubscriptionApi {
   * `yearly` - Yearly */
     frequency: SubscriptionFrequencyEnumApi
     /**
-     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-     * @minimum -2147483648
+     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+     * @minimum 1
      * @maximum 2147483647
      */
-    interval?: number
+    interval: number
     /**
      * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
@@ -2647,8 +2851,8 @@ export interface PatchedSubscriptionApi {
   * `yearly` - Yearly */
     frequency?: SubscriptionFrequencyEnumApi
     /**
-     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-     * @minimum -2147483648
+     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+     * @minimum 1
      * @maximum 2147483647
      */
     interval?: number
@@ -2801,6 +3005,11 @@ export interface OrganizationApi {
     enforce_2fa?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
+    /**
+     * When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.
+     * @nullable
+     */
+    members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count: number
@@ -3395,6 +3604,58 @@ export type OrganizationsProjectsListParams = {
     search?: string
 }
 
+export type DesktopFileSystemListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type DesktopFileSystemInstructionsVersionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type DesktopFileSystemShortcutListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DesktopPersistedFolderListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -3419,6 +3680,28 @@ export type FileSystemListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type FileSystemShortcutListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type PersistedFolderListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type ProjectSecretApiKeysListParams = {
@@ -3456,7 +3739,7 @@ export type PropertyDefinitionsListParams = {
      */
     excluded_properties?: string
     /**
-     * Whether to return only properties for events in `event_names`
+     * Whether to return only properties for events in `event_names`. Note: this event scoping does not apply to feature flag properties ($feature/*), which are global and not tracked per-event; to retrieve feature flags use is_feature_flag=true instead.
      * @nullable
      */
     filter_by_event_names?: boolean | null
@@ -3465,7 +3748,7 @@ export type PropertyDefinitionsListParams = {
      */
     group_type_index?: number
     /**
-     * Whether to return only (or excluding) feature flag properties
+     * Whether to return only (or excluding) feature flag properties ($feature/*). Flags are global, not per-event, so they can't be scoped by event_names/filter_by_event_names — pass is_feature_flag=true to list them all.
      * @nullable
      */
     is_feature_flag?: boolean | null

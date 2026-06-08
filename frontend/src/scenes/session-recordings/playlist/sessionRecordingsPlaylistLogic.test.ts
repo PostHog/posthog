@@ -6,7 +6,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { ActionFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    ActionFilter,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingUniversalFilters,
+} from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -622,6 +628,48 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
         })
 
+        it.each<[string, Partial<RecordingUniversalFilters>]>([
+            ['date_from', { date_from: '-30d' }],
+            ['filter_test_accounts', { filter_test_accounts: true }],
+            [
+                'duration',
+                {
+                    duration: [
+                        {
+                            type: PropertyFilterType.Recording,
+                            key: 'duration',
+                            operator: PropertyOperator.LessThan,
+                            value: 600,
+                        },
+                    ],
+                },
+            ],
+        ])('resets stale %s to default when a URL filter omits it', async (_field, staleFilters) => {
+            const filterGroup = {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
+                    },
+                ],
+            }
+
+            // stale persisted state from a prior visit
+            await expectLogic(logic, () => {
+                logic.actions.setFilters(staleFilters)
+            }).toDispatchActions(['setFilters'])
+
+            // "View recordings" navigation carrying only filter_group
+            router.actions.push('/replay', { filters: { filter_group: filterGroup } })
+
+            await expectLogic(logic)
+                .toDispatchActions(['setFilters'])
+                .toMatchValues({
+                    filters: { ...getDefaultFilters(), filter_group: filterGroup },
+                })
+        })
+
         describe('deleting recordings', () => {
             it('otherRecordings filters out deleted recording ids', async () => {
                 await expectLogic(logic)
@@ -691,12 +739,15 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({ otherRecordings: [aRecording, bRecording] })
 
-                // mark abc as viewed so it becomes "hidden" when hideViewedRecordings is on
+                // turning on hide-viewed refetches from the server, so mark abc viewed afterwards
+                playerSettingsLogic.actions.setHideViewedRecordings('current-user')
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+                // mark abc as viewed so it becomes "hidden" — selecting then deselecting leaves it viewed
                 logic.actions.setSelectedRecordingId('abc')
                 await expectLogic(logic).toFinishAllListeners()
                 // deselect so selectedRecordingId exclusion doesn't interfere
                 logic.actions.setSelectedRecordingId(null)
-                playerSettingsLogic.actions.setHideViewedRecordings('current-user')
 
                 // abc is now hidden (viewed but not selected)
                 await expectLogic(logic).toMatchValues({
@@ -709,6 +760,30 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 await expectLogic(logic).toMatchValues({
                     hiddenRecordings: [],
                 })
+            })
+
+            it('sends hide_viewed_recordings to the backend when the player setting is set', async () => {
+                playerSettingsLogic.mount()
+                const listSpy = jest.spyOn(api.recordings, 'list')
+
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+                playerSettingsLogic.actions.setHideViewedRecordings('current-user')
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordings', 'loadSessionRecordingsSuccess'])
+
+                expect(listSpy).toHaveBeenLastCalledWith(
+                    expect.objectContaining({ hide_viewed_recordings: 'current-user' })
+                )
+            })
+
+            it('omits hide_viewed_recordings when the player setting is off', async () => {
+                playerSettingsLogic.mount()
+                const listSpy = jest.spyOn(api.recordings, 'list')
+
+                logic.actions.loadSessionRecordings()
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+                expect(listSpy).toHaveBeenLastCalledWith(expect.objectContaining({ hide_viewed_recordings: undefined }))
             })
 
             it('bulk delete only marks successfully deleted recordings', async () => {

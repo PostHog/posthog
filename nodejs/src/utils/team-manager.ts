@@ -2,11 +2,16 @@ import { Properties } from '~/plugin-scaffold'
 
 import { OrganizationAvailableFeature, ProjectId, Team } from '../types'
 import { PostgresRouter, PostgresUse } from './db/postgres'
-import { LazyLoader } from './lazy-loader'
+import { LazyLoader, LoaderRetryOptions } from './lazy-loader'
 import { captureTeamEvent } from './posthog'
 
 type RawTeam = Omit<Team, 'available_features'> & {
     available_product_features: { key: string; name: string }[]
+}
+
+export interface TeamManagerOptions {
+    /** Retry transient team-load failures (e.g. a Postgres pooler blip) instead of letting them propagate. */
+    loaderRetry?: LoaderRetryOptions
 }
 
 /**
@@ -17,11 +22,15 @@ type RawTeam = Omit<Team, 'available_features'> & {
 export class TeamManager {
     private lazyLoader: LazyLoader<Team>
 
-    constructor(private postgres: PostgresRouter) {
+    constructor(
+        private postgres: PostgresRouter,
+        options?: TeamManagerOptions
+    ) {
         this.lazyLoader = new LazyLoader({
             name: 'TeamManager',
             refreshAgeMs: 2 * 60 * 1000, // 2 minute
             refreshJitterMs: 30 * 1000, // 30 seconds
+            loaderRetry: options?.loaderRetry,
             loader: async (teamIdOrTokens: string[]) => {
                 return await this.fetchTeams(teamIdOrTokens)
             },
@@ -169,11 +178,14 @@ export class TeamManager {
  * is fully controlled through this Manager.
  */
 export class TeamManagerComponent {
-    constructor(private postgres: PostgresRouter) {}
+    constructor(
+        private postgres: PostgresRouter,
+        private options?: TeamManagerOptions
+    ) {}
 
     start(): Promise<{ value: TeamManager; stop: () => Promise<void> }> {
         return Promise.resolve({
-            value: new TeamManager(this.postgres),
+            value: new TeamManager(this.postgres, this.options),
             stop: () => Promise.resolve(),
         })
     }

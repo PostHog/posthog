@@ -78,9 +78,7 @@ class TestRevenueCatSourceWebhookResourceMap:
 
 
 class TestRevenueCatSourceGetSchemas:
-    @patch("posthog.temporal.data_imports.sources.revenuecat.source.is_webhook_feature_flag_enabled")
-    def test_includes_both_webhook_and_api_schemas(self, mock_flag):
-        mock_flag.return_value = True
+    def test_includes_both_webhook_and_api_schemas(self):
         source = RevenueCatSource()
 
         schemas = source.get_schemas(_config(), team_id=1)
@@ -91,9 +89,7 @@ class TestRevenueCatSourceGetSchemas:
         for name in REVENUECAT_API_SCHEMA_NAMES:
             assert name in names, f"missing api schema: {name}"
 
-    @patch("posthog.temporal.data_imports.sources.revenuecat.source.is_webhook_feature_flag_enabled")
-    def test_only_events_schema_supports_webhooks(self, mock_flag):
-        mock_flag.return_value = True
+    def test_only_events_schema_supports_webhooks(self):
         source = RevenueCatSource()
 
         schemas = source.get_schemas(_config(), team_id=1)
@@ -101,23 +97,7 @@ class TestRevenueCatSourceGetSchemas:
         webhook_supported = {s.name for s in schemas if s.supports_webhooks}
         assert webhook_supported == set(REVENUECAT_WEBHOOK_SCHEMA_NAMES)
 
-    @patch("posthog.temporal.data_imports.sources.revenuecat.source.is_webhook_feature_flag_enabled")
-    def test_webhook_feature_flag_off_disables_webhook_support(self, mock_flag):
-        # When the warehouse-source-webhooks feature flag is disabled for the team,
-        # the events schema is still listed but can't actually receive webhook
-        # data. Reflect that in supports_webhooks so the frontend wizard hides
-        # the webhook UI.
-        mock_flag.return_value = False
-        source = RevenueCatSource()
-
-        schemas = source.get_schemas(_config(), team_id=1)
-
-        webhook_supported = {s.name for s in schemas if s.supports_webhooks}
-        assert webhook_supported == set()
-
-    @patch("posthog.temporal.data_imports.sources.revenuecat.source.is_webhook_feature_flag_enabled")
-    def test_filters_by_names_argument(self, mock_flag):
-        mock_flag.return_value = True
+    def test_filters_by_names_argument(self):
         source = RevenueCatSource()
 
         schemas = source.get_schemas(_config(), team_id=1, names=["customers", "events"])

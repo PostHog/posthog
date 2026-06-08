@@ -41,7 +41,7 @@ class TestAlertSubscriptionOrgMembership(APIBaseTest):
                 "calculation_interval": "daily",
                 "config": {"type": "TrendsAlertConfig", "series_index": 0},
                 "condition": {"type": "absolute_value"},
-                "threshold": {"configuration": {"type": "absolute", "bounds": {}}},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": 0}}},
             },
         ).json()
 
@@ -106,7 +106,7 @@ class TestGetSubscribedUsersEmails(APIBaseTest):
                 "calculation_interval": "daily",
                 "config": {"type": "TrendsAlertConfig", "series_index": 0},
                 "condition": {"type": "absolute_value"},
-                "threshold": {"configuration": {"type": "absolute", "bounds": {}}},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": 0}}},
             },
         ).json()
 
@@ -176,7 +176,7 @@ class TestAlertEmailNotifications(APIBaseTest):
                 "calculation_interval": "daily",
                 "config": {"type": "TrendsAlertConfig", "series_index": 0},
                 "condition": {"type": "absolute_value"},
-                "threshold": {"configuration": {"type": "absolute", "bounds": {}}},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": 0}}},
             },
         ).json()
 

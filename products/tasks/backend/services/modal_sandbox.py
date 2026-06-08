@@ -62,6 +62,7 @@ from products.tasks.backend.temporal.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
     SandboxNotFoundError,
+    SandboxNotRunningError,
     SandboxProvisionError,
     SandboxTimeoutError,
     SnapshotCreationError,
@@ -77,6 +78,7 @@ SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
+AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 
 # Modal region mapping based on cloud deployment
 MODAL_REGION_BY_DEPLOYMENT: dict[str | None, str] = {
@@ -355,6 +357,9 @@ class ModalSandbox(SandboxBase):
                 "verbose": True,
             }
 
+            if config.vm_runtime:
+                create_kwargs["experimental_options"] = {"vm_runtime": True}
+
             if secrets:
                 create_kwargs["secrets"] = secrets
 
@@ -412,7 +417,7 @@ class ModalSandbox(SandboxBase):
         timeout_seconds: int | None = None,
     ) -> ExecutionResult:
         if not self.is_running():
-            raise SandboxExecutionError(
+            raise SandboxNotRunningError(
                 f"Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
@@ -464,7 +469,7 @@ class ModalSandbox(SandboxBase):
         timeout_seconds: int | None = None,
     ) -> ExecutionStream:
         if not self.is_running():
-            raise SandboxExecutionError(
+            raise SandboxNotRunningError(
                 f"Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
@@ -529,7 +534,7 @@ class ModalSandbox(SandboxBase):
 
     def write_file(self, path: str, payload: bytes) -> ExecutionResult:
         if not self.is_running():
-            raise SandboxExecutionError(
+            raise SandboxNotRunningError(
                 "Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
@@ -675,6 +680,11 @@ class ModalSandbox(SandboxBase):
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
+        if self._agent_server_is_healthy():
+            logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
+            return
+        self._free_agent_server_port()
+
         repo_path: str | None = None
         if repository:
             org, repo = repository.lower().split("/")
@@ -764,13 +774,26 @@ class ModalSandbox(SandboxBase):
 
         logger.info("agentsh daemon started and session created in sandbox %s", self.id)
 
-    def _wait_for_health_check(self, max_attempts: int = 60, poll_interval: float = 0.5) -> bool:
+    def _wait_for_health_check(
+        self, max_attempts: int = AGENT_SERVER_HEALTH_MAX_ATTEMPTS, poll_interval: float = 0.5
+    ) -> bool:
         """Poll health endpoint until server is ready (single remote call)."""
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
 
+    def _agent_server_is_healthy(self) -> bool:
+        return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts=1, poll_interval=0.0)
+
+    def _free_agent_server_port(self) -> None:
+        self.execute(
+            "pkill -TERM -f agent-server 2>/dev/null || true; "
+            "for _ in $(seq 1 10); do pgrep -f agent-server >/dev/null || break; sleep 0.5; done; "
+            "pkill -KILL -f agent-server 2>/dev/null || true",
+            timeout_seconds=15,
+        )
+
     def create_snapshot(self) -> str:
         if not self.is_running():
-            raise SandboxExecutionError(
+            raise SandboxNotRunningError(
                 f"Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),

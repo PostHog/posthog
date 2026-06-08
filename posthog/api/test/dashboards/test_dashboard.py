@@ -1340,8 +1340,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "dashboard created",
             {
                 "created_at": mock.ANY,
-                "dashboard_id": None,
+                "dashboard_id": response["id"],
                 "duplicated": False,
+                "duplicated_from_dashboard_id": None,
                 "from_template": True,
                 "has_description": True,
                 "is_shared": False,
@@ -1486,12 +1487,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {"name": "another", "use_dashboard": existing_dashboard.id}
         )
 
-        after_duplication_insight_id = duplicate_response["tiles"][0]["insight"]["id"]
-        assert after_duplication_insight_id == insight_one_id
-        assert duplicate_response["tiles"][0]["insight"]["name"] == "the insight"
+        insight_tile = next(t for t in duplicate_response["tiles"] if t.get("insight"))
+        text_tile = next(t for t in duplicate_response["tiles"] if t.get("text"))
+        assert insight_tile["insight"]["id"] == insight_one_id
+        assert insight_tile["insight"]["name"] == "the insight"
 
-        after_duplication_tile_id = duplicate_response["tiles"][1]["text"]["id"]
-        assert after_duplication_tile_id == dashboard_with_tiles["tiles"][1]["text"]["id"]
+        original_text_tile = next(t for t in dashboard_with_tiles["tiles"] if t.get("text"))
+        assert text_tile["text"]["id"] == original_text_tile["text"]["id"]
 
     def test_dashboard_duplication_without_tile_duplicate_excludes_soft_deleted_tiles(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
@@ -1534,12 +1536,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             }
         )
 
-        after_duplication_insight_id = duplicate_response["tiles"][0]["insight"]["id"]
-        assert after_duplication_insight_id != insight_one_id
-        assert duplicate_response["tiles"][0]["insight"]["name"] == "the insight (Copy)"
+        insight_tile = next(t for t in duplicate_response["tiles"] if t.get("insight"))
+        text_tile = next(t for t in duplicate_response["tiles"] if t.get("text"))
+        assert insight_tile["insight"]["id"] != insight_one_id
+        assert insight_tile["insight"]["name"] == "the insight (Copy)"
 
-        after_duplication_tile_id = duplicate_response["tiles"][1]["text"]["id"]
-        assert after_duplication_tile_id != dashboard_with_tiles["tiles"][1]["text"]["id"]
+        original_text_tile = next(t for t in dashboard_with_tiles["tiles"] if t.get("text"))
+        assert text_tile["text"]["id"] != original_text_tile["text"]["id"]
 
     @parameterized.expand(
         [
@@ -1589,19 +1592,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert duplicate_response is not None
         assert len(duplicate_response.get("tiles", [])) == 2
 
-        insight_tile = next(tile for tile in duplicate_response["tiles"] if "insight" in tile)
-        text_tile = next(tile for tile in duplicate_response["tiles"] if "text" in tile)
+        # Every serialized tile carries both "insight" and "text" keys (the absent one is None),
+        # so select by which is populated — not by key presence or list order, which isn't guaranteed.
+        insight_tile = next(tile for tile in duplicate_response["tiles"] if tile.get("insight"))
+        text_tile = next(tile for tile in duplicate_response["tiles"] if tile.get("text"))
 
-        # this test only needs to check that insight name is still None,
-        # but it flaps in CI.
-        # my guess was that the order of the response is not guaranteed
-        # but even after lifting insight tile out specifically, it still flaps
-        # it isn't clear from the error if insight_tile or insight_tile["insight"] is None
-        with self.retry_assertion():
-            assert insight_tile is not None
-            assert insight_tile["insight"] is not None
-            assert insight_tile["insight"]["name"] is None
-            assert text_tile is not None
+        assert insight_tile["insight"]["name"] is None
+        assert text_tile["text"] is not None
 
     def test_dashboard_duplication(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
@@ -2135,7 +2132,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         patch_response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_one_id}/move_tile",
-            {"tile": dashboard_one["tiles"][0], "toDashboard": dashboard_two_id},
+            {"tile": dashboard_one["tiles"][0], "to_dashboard": dashboard_two_id},
         )
         assert patch_response.status_code == status.HTTP_200_OK
         assert patch_response.json()["tiles"] == []
@@ -2162,7 +2159,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         patch_response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_a_id}/move_tile",
-            {"tile": {"id": tile_a.id}, "toDashboard": dashboard_b_id},
+            {"tile": {"id": tile_a.id}, "to_dashboard": dashboard_b_id},
         )
         assert patch_response.status_code == status.HTTP_200_OK
         dashboard_b = self.dashboard_api.get_dashboard(dashboard_b_id)
@@ -2182,7 +2179,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/move_tile",
-            {"tile": tile, "toDashboard": other_dashboard.id},
+            {"tile": tile, "to_dashboard": other_dashboard.id},
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
@@ -2214,7 +2211,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         move_response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_one_id}/move_tile",
-            {"tile": tile, "toDashboard": dashboard_two_id},
+            {"tile": tile, "to_dashboard": dashboard_two_id},
         )
         self.assertEqual(move_response.status_code, status.HTTP_403_FORBIDDEN)
 
