@@ -18,7 +18,6 @@ LOCATION_MODULES = [
     "error_tracking",
     "growth",
     "ingestion",
-    "llm_analytics",
     "logs",
     "posthog_ai",
     "revenue_analytics",
