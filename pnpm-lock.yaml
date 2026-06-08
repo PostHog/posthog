@@ -15,6 +15,9 @@ catalogs:
     '@parcel/transformer-typescript-types':
       specifier: 2.16.4
       version: 2.16.4
+    '@playwright/test':
+      specifier: 1.60.0
+      version: 1.60.0
     '@posthog/react':
       specifier: ^1.9.0
       version: 1.9.0
@@ -156,7 +159,7 @@ importers:
         specifier: 'catalog:'
         version: 2.16.4(@parcel/core@2.16.4)(typescript@6.0.3)
       '@playwright/test':
-        specifier: 1.60.0
+        specifier: 'catalog:'
         version: 1.60.0
       '@types/uuid':
         specifier: ^11.0.0
@@ -2144,7 +2147,7 @@ importers:
   playwright:
     dependencies:
       '@playwright/test':
-        specifier: 1.60.0
+        specifier: 'catalog:'
         version: 1.60.0
       '@posthog/frontend':
         specifier: workspace:*
