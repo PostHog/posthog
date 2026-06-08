@@ -22,36 +22,29 @@ import { TraceFlameChart } from './TraceFlameChart'
 import { tracingDataLogic } from './tracingDataLogic'
 import { TracingFilterBar } from './TracingFilterBar'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
-import { tracingSceneLogic, TracingSceneLogicProps } from './tracingSceneLogic'
+import { tracingSceneLogic } from './tracingSceneLogic'
 import { TracingSparkline } from './TracingSparkline'
-import { TracingTabIdProvider, useTracingTabId } from './TracingTabContext'
 import type { Span } from './types'
 
 const TRACING_FEEDBACK_SURVEY_ID = '019e6a26-4943-0000-24a0-dc46310f6b7c'
 const TRACING_DOCS_URL = 'https://posthog.com/docs/tracing'
 
-export const scene: SceneExport<TracingSceneLogicProps> = {
+export const scene: SceneExport = {
     component: TracingScene,
     logic: tracingSceneLogic,
     productKey: ProductKey.TRACING,
 }
 
-export default function TracingScene(props: TracingSceneLogicProps = {}): JSX.Element {
-    const sceneLogic = tracingSceneLogic(props)
-    // Keep filters + data logic alive across tab switches by attaching them to the scene
-    // root. The root itself is kept mounted by `tabAwareScene()` even when the tab is inactive.
-    useAttachedLogic(tracingFiltersLogic({ tabId: props.tabId }), sceneLogic)
-    useAttachedLogic(tracingDataLogic({ tabId: props.tabId }), sceneLogic)
+export default function TracingScene(): JSX.Element {
+    const sceneLogic = tracingSceneLogic()
+    // Keep filters + data logic alive across React unmounts by attaching them to the scene root.
+    useAttachedLogic(tracingFiltersLogic(), sceneLogic)
+    useAttachedLogic(tracingDataLogic(), sceneLogic)
 
-    return (
-        <TracingTabIdProvider value={props.tabId}>
-            <TracingSceneContents />
-        </TracingTabIdProvider>
-    )
+    return <TracingSceneContents />
 }
 
 function TracingSceneContents(): JSX.Element {
-    const tabId = useTracingTabId()
     const {
         rootSpans,
         spansLoading,
@@ -73,7 +66,7 @@ function TracingSceneContents(): JSX.Element {
         hasMoreToLoad,
         visibleRowDateRange,
         expandedSpanIds,
-    } = useValues(tracingSceneLogic({ tabId }))
+    } = useValues(tracingSceneLogic())
     const {
         openTraceModal,
         closeTraceModal,
@@ -84,7 +77,7 @@ function TracingSceneContents(): JSX.Element {
         fetchNextPage,
         setVisibleRowRange,
         toggleExpandSpan,
-    } = useActions(tracingSceneLogic({ tabId }))
+    } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
     const compareMode = filters.compareMode
 

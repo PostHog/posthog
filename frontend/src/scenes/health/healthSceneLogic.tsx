@@ -3,10 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api, { ApiError } from 'lib/api'
 import { healthSummaryLogic } from 'lib/components/HelpMenu/healthSummaryLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -27,9 +24,8 @@ export interface HealthIssuesResponse {
 
 export const healthSceneLogic = kea<healthSceneLogicType>([
     path(['scenes', 'health', 'healthSceneLogic']),
-    tabAwareScene(),
     connect({
-        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeamIdStrict']],
+        values: [teamLogic, ['currentTeamIdStrict']],
     }),
     actions({
         setShowDismissed: (show: boolean) => ({ show }),
@@ -74,9 +70,6 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
             null as HealthIssuesResponse | null,
             {
                 loadHealthIssues: async (): Promise<HealthIssuesResponse | null> => {
-                    if (!values.unifiedHealthPageEnabled) {
-                        return null
-                    }
                     const params: Record<string, string> = { status: 'active' }
                     if (!values.showDismissed) {
                         params.dismissed = 'false'
@@ -91,10 +84,6 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
         ],
     })),
     selectors({
-        unifiedHealthPageEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.UNIFIED_HEALTH_PAGE],
-        ],
         issues: [
             (s) => [s.healthIssues],
             (healthIssues: HealthIssuesResponse | null): HealthIssue[] => healthIssues?.results ?? [],
@@ -240,13 +229,11 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
         },
     })),
     afterMount(({ actions, values }) => {
-        if (values.unifiedHealthPageEnabled) {
-            actions.loadHealthIssues()
+        actions.loadHealthIssues()
 
-            const { nextRefreshAvailableAt } = values
-            if (nextRefreshAvailableAt === null || nextRefreshAvailableAt <= Date.now()) {
-                actions.refreshHealthData(false)
-            }
+        const { nextRefreshAvailableAt } = values
+        if (nextRefreshAvailableAt === null || nextRefreshAvailableAt <= Date.now()) {
+            actions.refreshHealthData(false)
         }
 
         if (values.nextRefreshAvailableAt !== null) {

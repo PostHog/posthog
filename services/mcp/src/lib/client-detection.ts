@@ -59,6 +59,9 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
     'aider',
     'copilot',
     'gemini-cli',
+    // Devin self-reports `clientInfo.name` as `Devin`; it's a coding agent and
+    // benefits from the same single-exec mode.
+    'devin',
     // LibreChat is a general MCP client, but benefits from the same CLI-shaped
     // single-exec mode as coding agents.
     'librechat',

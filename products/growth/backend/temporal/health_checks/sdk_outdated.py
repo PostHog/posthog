@@ -21,7 +21,7 @@ from products.growth.backend.constants import (
 )
 from products.growth.backend.sdk_health import SdkAssessment, _is_safe_for_interpolation, compute_sdk_health
 
-# Issue severity follows the SDK Doctor assessment severity: a single outdated SDK is a warning,
+# Issue severity follows the SDK Health assessment severity: a single outdated SDK is a warning,
 # but when the bulk of a team's SDKs are outdated the assessment escalates to "danger".
 _SEVERITY_BY_ASSESSMENT: dict[str, HealthIssue.Severity] = {
     "danger": HealthIssue.Severity.CRITICAL,
@@ -75,7 +75,7 @@ def _load_github_sdk_data() -> dict[str, dict]:
 
 
 def _cache_team_sdk_data(team_sdk_data: dict[int, dict[str, list[SdkVersionEntry]]]) -> None:
-    """Cache team SDK version data in Redis for the SDK Doctor API."""
+    """Cache team SDK version data in Redis for the SDK Health API."""
     if not team_sdk_data:
         return
 
@@ -100,7 +100,7 @@ class SdkOutdatedCheck(HealthCheck):
         sdk_name = issue.payload.get("sdk_name", "an SDK")
         # `reason` is the assessment's single source of truth (compute_sdk_health → _build_reason).
         # It already names the current in-use version and the specific older versions driving the
-        # alert, and routes every version through SDK Doctor's allowlist before interpolation — so
+        # alert, and routes every version through SDK Health's allowlist before interpolation — so
         # it's both complete and safe to forward to alert destinations (Slack, email, webhooks).
         summary = issue.payload.get("reason")
         if not summary:
@@ -116,7 +116,7 @@ class SdkOutdatedCheck(HealthCheck):
         return AlertContent(
             title=f"{sdk_name} SDK is outdated",
             summary=summary,
-            link="/health/sdk-doctor",
+            link="/health/sdk-health",
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
