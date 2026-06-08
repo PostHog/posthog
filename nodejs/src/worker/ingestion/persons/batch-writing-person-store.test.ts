@@ -94,8 +94,18 @@ describe('BatchWritingPersonStore', () => {
     afterEach(async () => {
         // Clear the metric-emission interval started in the constructor;
         // unref() prevents it from blocking process exit, but we still want
-        // a clean slate between tests.
-        await personStore?.shutdown()
+        // a clean slate between tests. Tests may leave dirty entries behind,
+        // so flush first — shutdown() throws on dirty cache by design.
+        try {
+            await personStore?.flush()
+        } catch {
+            // ignore — some tests intentionally fail flush
+        }
+        try {
+            await personStore?.shutdown()
+        } catch {
+            // ignore — some tests intentionally leave the cache dirty
+        }
         jest.clearAllMocks()
     })
 
@@ -2923,7 +2933,7 @@ describe('BatchWritingPersonStore', () => {
     })
 
     describe('shutdown()', () => {
-        it('does not flush when no dirty entries exist', async () => {
+        it('succeeds without calling flush when no dirty entries exist', async () => {
             const flushSpy = jest.spyOn(personStore, 'flush')
 
             await personStore.shutdown()
@@ -2932,7 +2942,37 @@ describe('BatchWritingPersonStore', () => {
             expect(mockIngestionWarningsOutputs.produce).not.toHaveBeenCalled()
         })
 
-        it('flushes dirty entries and produces Kafka messages', async () => {
+        it('throws when dirty entries exist — caller must flush first', async () => {
+            const cache = (personStore as any).personUpdateCache as Map<string, any>
+            cache.set(`${teamId}:${person.id}`, {
+                ...fromInternalPerson(person, 'test'),
+                needs_write: true,
+                properties_to_set: { x: '1' },
+            })
+
+            await expect(personStore.shutdown()).rejects.toThrow(/dirty cache entries/)
+
+            cache.delete(`${teamId}:${person.id}`)
+        })
+
+        it('emits accumulated metrics before throwing on dirty cache', async () => {
+            const cache = (personStore as any).personUpdateCache as Map<string, any>
+            cache.set(`${teamId}:${person.id}`, {
+                ...fromInternalPerson(person, 'test'),
+                needs_write: true,
+                properties_to_set: { x: '1' },
+            })
+
+            const emitSpy = jest.spyOn(personStore as any, 'emitAccumulatedMetrics')
+
+            await expect(personStore.shutdown()).rejects.toThrow()
+
+            expect(emitSpy).toHaveBeenCalledTimes(1)
+
+            cache.delete(`${teamId}:${person.id}`)
+        })
+
+        it('flushAndProduceMessages drains dirty entries and produces Kafka messages', async () => {
             const cache = (personStore as any).personUpdateCache as Map<string, any>
             cache.set(`${teamId}:${person.id}`, {
                 id: person.id,
@@ -2954,7 +2994,7 @@ describe('BatchWritingPersonStore', () => {
                 .spyOn(personStore, 'flush')
                 .mockResolvedValue([{ messages: [message], teamId, distinctId: 'test', uuid: person.uuid }])
 
-            await personStore.shutdown()
+            await personStore.flushAndProduceMessages()
 
             expect(flushSpy).toHaveBeenCalledTimes(1)
             expect(mockIngestionWarningsOutputs.produce).toHaveBeenCalledTimes(1)
@@ -2965,39 +3005,6 @@ describe('BatchWritingPersonStore', () => {
             })
 
             // Remove injected entry so afterEach shutdown does not re-trigger a flush
-            cache.delete(`${teamId}:${person.id}`)
-        })
-
-        it('does not throw when flush rejects', async () => {
-            const cache = (personStore as any).personUpdateCache as Map<string, any>
-            cache.set(`${teamId}:${person.id}`, {
-                ...fromInternalPerson(person, 'test'),
-                needs_write: true,
-                properties_to_set: { x: '1' },
-            })
-
-            jest.spyOn(personStore, 'flush').mockRejectedValue(new Error('flush failed'))
-
-            await expect(personStore.shutdown()).resolves.not.toThrow()
-
-            cache.delete(`${teamId}:${person.id}`)
-        })
-
-        it('emits accumulated metrics even when flush rejects', async () => {
-            const cache = (personStore as any).personUpdateCache as Map<string, any>
-            cache.set(`${teamId}:${person.id}`, {
-                ...fromInternalPerson(person, 'test'),
-                needs_write: true,
-                properties_to_set: { x: '1' },
-            })
-
-            jest.spyOn(personStore, 'flush').mockRejectedValue(new Error('flush failed'))
-            const emitSpy = jest.spyOn(personStore as any, 'emitAccumulatedMetrics')
-
-            await personStore.shutdown()
-
-            expect(emitSpy).toHaveBeenCalledTimes(1)
-
             cache.delete(`${teamId}:${person.id}`)
         })
     })

@@ -475,8 +475,16 @@ export class IngestionApiServer implements NodeServer {
             postgres: this.postgres,
             pubsub: this.pubsub,
             additionalCleanup: async () => {
-                await this.personsStore?.shutdown()
-                await this.groupStore?.shutdown()
+                // No Kafka offsets in this server — drain buffered writes before
+                // shutdown so shutdown() can assert a clean cache.
+                if (this.personsStore) {
+                    await this.personsStore.flushAndProduceMessages()
+                    await this.personsStore.shutdown()
+                }
+                if (this.groupStore) {
+                    await this.groupStore.flush()
+                    await this.groupStore.shutdown()
+                }
                 this.cookielessManager?.shutdown()
                 await this.ingestionProducerRegistry?.disconnectAll()
             },

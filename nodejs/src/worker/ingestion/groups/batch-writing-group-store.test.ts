@@ -114,8 +114,18 @@ describe('BatchWritingGroupStore', () => {
     afterEach(async () => {
         // Clear the metric-emission interval started in the constructor;
         // unref() prevents it from blocking process exit, but we still want
-        // a clean slate between tests.
-        await groupStore?.shutdown()
+        // a clean slate between tests. Tests may leave dirty entries behind,
+        // so flush first — shutdown() throws on dirty cache by design.
+        try {
+            await groupStore?.flush()
+        } catch {
+            // ignore — some tests intentionally fail flush
+        }
+        try {
+            await groupStore?.shutdown()
+        } catch {
+            // ignore — some tests intentionally leave the cache dirty
+        }
         jest.clearAllMocks()
     })
 
@@ -454,7 +464,7 @@ describe('BatchWritingGroupStore', () => {
     })
 
     describe('shutdown()', () => {
-        it('does not flush when no dirty entries exist', async () => {
+        it('succeeds without calling flush when no dirty entries exist', async () => {
             const flushSpy = jest.spyOn(groupStore, 'flush')
 
             await groupStore.shutdown()
@@ -462,34 +472,28 @@ describe('BatchWritingGroupStore', () => {
             expect(flushSpy).not.toHaveBeenCalled()
         })
 
-        it('flushes dirty entries when they exist', async () => {
+        it('throws when dirty entries exist — caller must flush first', async () => {
             // upsertGroup on an existing group with new properties marks the cache entry dirty
             await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
 
-            const flushSpy = jest.spyOn(groupStore, 'flush')
-
-            await groupStore.shutdown()
-
-            expect(flushSpy).toHaveBeenCalledTimes(1)
+            await expect(groupStore.shutdown()).rejects.toThrow(/dirty cache entries/)
         })
 
-        it('does not throw when flush rejects', async () => {
+        it('emits accumulated metrics before throwing on dirty cache', async () => {
             await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
 
-            jest.spyOn(groupStore, 'flush').mockRejectedValue(new Error('flush failed'))
-
-            await expect(groupStore.shutdown()).resolves.not.toThrow()
-        })
-
-        it('emits accumulated metrics even when flush rejects', async () => {
-            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
-
-            jest.spyOn(groupStore, 'flush').mockRejectedValue(new Error('flush failed'))
             const emitSpy = jest.spyOn(groupStore as any, 'emitAccumulatedMetrics')
 
-            await groupStore.shutdown()
+            await expect(groupStore.shutdown()).rejects.toThrow()
 
             expect(emitSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('explicit flush before shutdown succeeds', async () => {
+            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
+
+            await groupStore.flush()
+            await expect(groupStore.shutdown()).resolves.not.toThrow()
         })
     })
 })

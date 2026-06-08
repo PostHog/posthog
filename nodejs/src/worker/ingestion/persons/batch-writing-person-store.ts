@@ -1108,20 +1108,41 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     }
 
     /**
-     * Flush any remaining dirty cache entries to the DB and produce their
-     * Kafka messages, stop the metric-emission timer, and emit accumulated
-     * metrics. Idempotent.
+     * Flush all dirty entries and produce the resulting Kafka messages inline.
      *
-     * Dirty entries at shutdown indicate a drain-ordering bug upstream
-     * (the pipeline drain should have run flushBatchStoresStep for every
-     * in-flight batch before reaching shutdown). We flush them anyway so
-     * data is not lost, and log loudly so the bug is visible.
+     * Convenience wrapper for callers that don't run inside the pipeline's
+     * side-effect scheduler (e.g. server shutdown paths) and just need to drain
+     * buffered writes synchronously. Throws on the first produce failure.
+     */
+    async flushAndProduceMessages(): Promise<void> {
+        const flushResults = await this.flush()
+        await Promise.all(
+            flushResults.flatMap((record) =>
+                record.messages.map((message) =>
+                    this.ingestionWarningsOutputs.produce(message.output, {
+                        key: null,
+                        value: message.value,
+                        teamId: record.teamId,
+                    })
+                )
+            )
+        )
+    }
+
+    /**
+     * Stop the metric-emission timer and emit accumulated metrics. Idempotent.
+     *
+     * Callers MUST call `flush()` before `shutdown()`. Reaching shutdown with a
+     * dirty cache indicates a drain-ordering bug — writing here without a
+     * subsequent offset commit would create duplicate writes when the partition
+     * is reprocessed, and silently dropping the data masks the bug. We throw
+     * instead and let the caller decide whether to flush, drop, or fail loudly.
      *
      * Does NOT clear the data caches (personUpdateCache et al.). Those
      * persist for the worker's lifetime; eviction is intentionally
      * decoupled from this lifecycle hook.
      */
-    async shutdown(): Promise<void> {
+    shutdown(): Promise<void> {
         if (this.metricEmissionTimer) {
             clearInterval(this.metricEmissionTimer)
             this.metricEmissionTimer = undefined
@@ -1129,28 +1150,14 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         const dirtyCount = Array.from(this.personUpdateCache.values()).filter((u) => u?.needs_write).length
         if (dirtyCount > 0) {
-            logger.warn('⚠️', 'BatchWritingPersonsStore.shutdown() flushing remaining dirty entries', {
-                dirtyCount,
-            })
-            try {
-                const flushResults = await this.flush()
-                await Promise.all(
-                    flushResults.flatMap((record) =>
-                        record.messages.map((message) =>
-                            this.ingestionWarningsOutputs.produce(message.output, {
-                                key: null,
-                                value: message.value,
-                                teamId: record.teamId,
-                            })
-                        )
-                    )
-                )
-            } catch (error) {
-                logger.error('🚨', 'BatchWritingPersonsStore.shutdown() failed to flush dirty entries', { error })
-            }
+            this.emitAccumulatedMetrics()
+            throw new Error(
+                `BatchWritingPersonsStore.shutdown() called with ${dirtyCount} dirty cache entries — call flush() first`
+            )
         }
 
         this.emitAccumulatedMetrics()
+        return Promise.resolve()
     }
 
     // Private implementation methods

@@ -659,18 +659,18 @@ export class BatchWritingGroupStore implements GroupStore {
     }
 
     /**
-     * Stop the metric-emission timer, flush any remaining dirty entries,
-     * and emit accumulated metrics. Idempotent.
+     * Stop the metric-emission timer and emit accumulated metrics. Idempotent.
      *
-     * Under normal operation the pipeline drain flushes all dirty entries
-     * before shutdown reaches the stores. If dirty entries remain here,
-     * that indicates a drain-ordering bug upstream; we log the anomaly and
-     * flush defensively so no writes are silently dropped.
+     * Callers MUST call `flush()` before `shutdown()`. Reaching shutdown with a
+     * dirty cache indicates a drain-ordering bug — writing here without a
+     * subsequent offset commit would create duplicate writes when the partition
+     * is reprocessed, and silently dropping the data masks the bug. We throw
+     * instead and let the caller decide whether to flush, drop, or fail loudly.
      *
      * Does NOT clear the group cache. Cache eviction is intentionally
      * decoupled from this lifecycle hook.
      */
-    async shutdown(): Promise<void> {
+    shutdown(): Promise<void> {
         if (this.metricEmissionTimer) {
             clearInterval(this.metricEmissionTimer)
             this.metricEmissionTimer = undefined
@@ -683,16 +683,13 @@ export class BatchWritingGroupStore implements GroupStore {
             }
         }
         if (dirtyCount > 0) {
-            logger.warn('⚠️', 'BatchWritingGroupStore.shutdown() flushing remaining dirty entries', {
-                dirtyCount,
-            })
-            try {
-                await this.flush()
-            } catch (error) {
-                logger.error('🚨', 'BatchWritingGroupStore.shutdown() failed to flush dirty entries', { error })
-            }
+            this.emitAccumulatedMetrics()
+            throw new Error(
+                `BatchWritingGroupStore.shutdown() called with ${dirtyCount} dirty cache entries — call flush() first`
+            )
         }
 
         this.emitAccumulatedMetrics()
+        return Promise.resolve()
     }
 }
