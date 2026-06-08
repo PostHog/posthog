@@ -728,7 +728,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return instance
 
 
-def _subscription_is_ai_prompt(subscription_id, team_id) -> bool:
+def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool:
     """An AI subscription is one backed by a non-empty prompt (team-scoped)."""
     return (
         Subscription.objects.filter(pk=subscription_id, team_id=team_id)
@@ -1109,12 +1109,11 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
         return context
 
     def _should_hide_ai_report(self) -> bool:
-        # The delivered report of an AI prompt subscription is query-derived, so reading it requires
-        # query access — mirroring the create/test-delivery gate. Non-AI deliveries carry no prompt
-        # and are unaffected; a member with query access sees the full snapshot.
+        # An AI prompt subscription's delivered report is query-derived, so reading it requires query
+        # access — mirroring the create/test-delivery gate. Non-AI deliveries are unaffected.
         subscription_id = self.kwargs.get("parent_lookup_subscription_id")
         if not subscription_id:
-            return False
+            return True  # nested route always supplies this; fail closed (scrub) if it ever doesn't
         if not _subscription_is_ai_prompt(subscription_id, self.team_id):
             return False
         return not self.user_access_control.check_access_level_for_resource("query", "viewer")
