@@ -1,6 +1,8 @@
 """HogQL queries for engineering_analytics.
 
-The only module allowed to name warehouse tables (`github_pull_requests`,
-`github_workflow_runs`); logic and facade work with canonical types only.
-This boundary is the future code-host-provider seam.
+Each module embeds the curated query builders (``backend/logic/views``) as
+subqueries via ``_curated`` and runs them with ``execute_hogql_query`` — the
+product reads its data privately, never registering a global HogQL view. The raw
+``github_*`` warehouse tables are named only inside those curated builders;
+everything returned here is shaped into canonical contract types.
 """

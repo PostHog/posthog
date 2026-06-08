@@ -10,8 +10,10 @@ pre-emit, marking `emitted=True` post-success) was dropped in PR 2 review along 
 the `findings` field itself; this module no longer persists any scout-side state and
 provides no dedupe, so callers must not retry an emit that may have already succeeded.
 
-Attribution (`scout_run_id`, `finding_id`, `skill_name`, `skill_version`) is read
-off the run row so the agent never has to plumb it through. The `SignalsScoutSignalExtra`
+Attribution (`scout_run_id`, `task_run_id`, `finding_id`, `skill_name`, `skill_version`)
+is read off the run row so the agent never has to plumb it through. `task_run_id` is the
+join key into the `signals_scouts_runs` LLM-analytics view (the `scout_run_id` bridge row
+is not on that view). The `SignalsScoutSignalExtra`
 shape (defined in `posthog.schema`) is what the existing `_SIGNAL_VARIANT_LOOKUP`
 in `products/signals/backend/api.py` validates against.
 """
@@ -26,7 +28,7 @@ from typing import Any
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalScoutRun, SignalSourceConfig
+from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,8 @@ class EmitResult:
 
     Possible `skipped_reason` values:
       - None: emit fired
+      - "scout_config_missing": the run's dispatch-time config FK is null/gone — fail closed
+      - "scout_emit_disabled": the scout's config has emit=False (dry-run)
       - "ai_processing_not_approved": team's organization has not approved AI processing
       - "source_disabled": SignalSourceConfig disables the signals_scout source for this team
     """
@@ -96,6 +100,7 @@ async def emit_finding(
     finding_id = finding_id or _new_finding_id()
     extra = _build_extra(
         run_id=str(run.id),
+        task_run_id=str(run.task_run_id),
         finding_id=finding_id,
         skill_name=run.skill_name,
         skill_version=run.skill_version,
@@ -120,7 +125,7 @@ async def emit_finding(
     )
     logger.info("signals_scout.emit: attempt", extra=attempt_extra)
 
-    preflight = await database_sync_to_async(_preflight_emit_gates, thread_sensitive=False)(team)
+    preflight = await database_sync_to_async(_preflight_emit_gates, thread_sensitive=False)(team, run)
     if preflight is not None:
         logger.warning(
             "signals_scout.emit: skipped %s",
@@ -176,6 +181,7 @@ def emit_finding_sync(
     finding_id = finding_id or _new_finding_id()
     extra = _build_extra(
         run_id=str(run.id),
+        task_run_id=str(run.task_run_id),
         finding_id=finding_id,
         skill_name=run.skill_name,
         skill_version=run.skill_version,
@@ -200,7 +206,7 @@ def emit_finding_sync(
     )
     logger.info("signals_scout.emit: attempt", extra=attempt_extra)
 
-    preflight = _preflight_emit_gates(team)
+    preflight = _preflight_emit_gates(team, run)
     if preflight is not None:
         logger.warning(
             "signals_scout.emit: skipped %s",
@@ -264,6 +270,7 @@ def _validate_inputs(
 def _build_extra(
     *,
     run_id: str,
+    task_run_id: str,
     finding_id: str,
     skill_name: str,
     skill_version: int,
@@ -280,6 +287,7 @@ def _build_extra(
     fields that don't accept it."""
     extra: dict[str, Any] = {
         "scout_run_id": run_id,
+        "task_run_id": task_run_id,
         "finding_id": finding_id,
         "skill_name": skill_name,
         "skill_version": float(skill_version),
@@ -330,15 +338,33 @@ def _log_extra(
     }
 
 
-def _preflight_emit_gates(team: Team) -> str | None:
-    """Return the matching skipped_reason if a downstream gate would silently drop
-    the emit; otherwise return None.
+def _preflight_emit_gates(team: Team, run: SignalScoutRun) -> str | None:
+    """Return the matching skipped_reason if a gate would drop the emit; else None.
 
     `emit_signal()` returns silently when the team's organization has not approved
     AI processing or when `SignalSourceConfig.is_source_enabled(...)` is False.
     Surfacing the gate result here lets the view return a useful skipped_reason
-    instead of "emitted" for an emit the pipeline silently dropped.
+    instead of "emitted" for an emit the pipeline silently dropped. The per-scout
+    `emit` toggle is checked first: a dry-run scout runs and logs but emits nothing.
+
+    Anchored on the run's own config FK, re-read live from the DB (not the in-memory `run`,
+    which may be stale, and not re-resolved by `skill_name`). `scout_config` is `SET_NULL`,
+    so if the config the run was dispatched with is deleted mid-run the FK goes NULL and we
+    fail closed — even if a same-`(team, skill_name)` config was recreated in the meantime. A
+    stale run must emit only against the config it was dispatched with. This keeps the gate
+    fail-closed independent of the `emit` default (now `True`); re-reading the row by pk still
+    honors a mid-run `emit` flip on that same config.
     """
+    config_id = (
+        SignalScoutRun.all_teams.filter(pk=run.pk, team_id=team.id).values_list("scout_config_id", flat=True).first()
+    )
+    if config_id is None:
+        return "scout_config_missing"
+    config = SignalScoutConfig.all_teams.filter(pk=config_id).first()
+    if config is None:
+        return "scout_config_missing"
+    if not config.emit:
+        return "scout_emit_disabled"
     organization = team.organization
     if not organization.is_ai_data_processing_approved:
         return "ai_processing_not_approved"

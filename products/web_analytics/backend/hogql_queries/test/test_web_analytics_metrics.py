@@ -146,19 +146,6 @@ class TestWebAnalyticsMetrics(TestCase):
                 },
                 "stats_table_channel_type",
             ),
-            (
-                "trends",
-                "WebTrendsQuery",
-                None,
-                None,
-                {
-                    "query_kind": "WebTrendsQuery",
-                    "query_strategy": "none",
-                    "breakdown": "none",
-                    "has_conversion_goal": "false",
-                },
-                None,
-            ),
         ],
     )
     @patch(
@@ -333,7 +320,6 @@ class TestWebAnalyticsMetrics(TestCase):
             ("goals", "WebGoalsQuery", None, None),
             ("external_clicks", "WebExternalClicksTableQuery", None, None),
             ("vitals_paths", "WebVitalsPathBreakdownQuery", None, None),
-            ("trends", "WebTrendsQuery", None, None),
         ],
     )
     @patch(
@@ -382,7 +368,7 @@ class TestWebAnalyticsMetrics(TestCase):
         runner.query = MagicMock(useWebAnalyticsPrecompute=True)
 
         with patch(
-            "products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute.posthoganalytics.feature_enabled",
+            "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common.posthoganalytics.feature_enabled",
             return_value=False,
         ):
             assert can_use_lazy_precompute(runner, log_prefix=family) is False
@@ -407,7 +393,7 @@ class TestWebAnalyticsMetrics(TestCase):
         runner.query = MagicMock(useWebAnalyticsPrecompute=False)
 
         with patch(
-            "products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute.posthoganalytics.feature_enabled",
+            "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common.posthoganalytics.feature_enabled",
             return_value=True,
         ):
             assert can_use_lazy_precompute(runner, log_prefix=family) is False

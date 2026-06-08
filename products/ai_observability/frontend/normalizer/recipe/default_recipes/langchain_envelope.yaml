@@ -1,0 +1,11 @@
+# LangChain `lc_serializable` envelope ({lc, type: constructor, kwargs}). The real
+# message is in `kwargs`; delegate it so the bare langchain rule picks it up.
+
+id: langchain_envelope
+
+rules:
+    - on:
+          lc: 1
+          type: constructor
+          kwargs: { is: object }
+      delegate: $.kwargs

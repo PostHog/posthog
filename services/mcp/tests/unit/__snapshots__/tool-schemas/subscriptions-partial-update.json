@@ -61,10 +61,6 @@
             },
             "type": "array"
         },
-        "deleted": {
-            "description": "Set to true to soft-delete. Subscriptions cannot be hard-deleted.",
-            "type": "boolean"
-        },
         "enabled": {
             "description": "Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.",
             "type": "boolean"
@@ -101,12 +97,12 @@
             "description": "ID of a connected Slack integration. Required when target_type is slack."
         },
         "interval": {
-            "description": "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.",
+            "description": "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.",
             "maximum": 2147483647,
-            "minimum": -2147483648,
+            "minimum": 1,
             "type": "number"
         },
-        "invite_message": {
+        "prompt": {
             "anyOf": [
                 {
                     "type": "string"
@@ -115,7 +111,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Optional message included in the invitation email when adding new recipients."
+            "description": "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
         },
         "start_date": {
             "description": "When to start delivering (ISO 8601 datetime).",
@@ -123,20 +119,13 @@
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
         },
-        "summary_enabled": {
-            "type": "boolean"
-        },
-        "summary_prompt_guide": {
-            "maxLength": 500,
-            "type": "string"
-        },
         "target_type": {
-            "description": "Delivery channel: email, slack, or webhook.\n\n* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook",
-            "enum": ["email", "slack", "webhook"],
+            "description": "Delivery channel: email or slack.\n\n* `email` - Email\n* `slack` - Slack",
+            "enum": ["email", "slack"],
             "type": "string"
         },
         "target_value": {
-            "description": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.",
+            "description": "Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack.",
             "type": "string"
         },
         "title": {

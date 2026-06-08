@@ -1,11 +1,14 @@
 import logging
+from typing import Any
 
 from django.contrib.postgres.fields import ArrayField
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
 from django_deprecate_fields import deprecate_field
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import UUIDModel
@@ -92,6 +95,7 @@ class SignalTeamConfig(UUIDModel):
     )
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P0)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
+    autostart_base_branches = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -183,7 +187,7 @@ class SignalReport(UUIDModel):
     cluster_centroid_updated_at = deprecate_field(models.DateTimeField(blank=True, null=True))
     # Deprecated - unused
     conversation = deprecate_field(
-        models.ForeignKey("ee.Conversation", null=True, blank=True, on_delete=models.SET_NULL)
+        models.ForeignKey("posthog_ai.Conversation", null=True, blank=True, on_delete=models.SET_NULL)
     )
     relevant_user_count = deprecate_field(models.IntegerField(blank=True, null=True))
 
@@ -386,8 +390,15 @@ class SignalReportTask(UUIDModel):
 #   - SignalScratchpad:  working notes the scout reads in future runs.
 
 
-class SignalScoutConfig(TeamScopedRootMixin, UUIDModel):
-    """Per-team binding for the headless Signals scout. One row per team."""
+class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
+    """One row per (team, scout skill): schedule + emit posture for a `signals-scout-*` skill.
+
+    Changes are activity-logged (they drive spend). Team-level participation in the
+    dogfood program is gated by the `signals-scout` flag at the coordinator, not here.
+    """
+
+    # ModelActivityMixin only logs deletes when this is set.
+    activity_logging_on_delete = True
 
     # `objects` (TeamScopedManager) inherited from TeamScopedRootMixin stays fail-closed for
     # explicit user code. `all_teams` is the unscoped sibling for Django framework internals
@@ -397,23 +408,45 @@ class SignalScoutConfig(TeamScopedRootMixin, UUIDModel):
     # doesn't bake it in (most callers don't need it).
     all_teams = models.Manager()  # noqa: DJ012
 
-    team = models.OneToOneField(
+    team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
-        related_name="signal_scout_config",
+        related_name="signal_scout_configs",
     )
-    enabled = models.BooleanField(default=False)
-    # null = run all `signals-scout-*` skills the team has access to. A list narrows
-    # the set; the harness still intersects with what's available in PHS.
-    enabled_skill_names = ArrayField(
-        base_field=models.CharField(max_length=200),
-        null=True,
-        blank=True,
-        default=None,
+    # The `signals-scout-*` LLMSkill this row references (controlling only its scheduling /
+    # enablement, not the skill itself). The coordinator auto-creates a
+    # row when it discovers a scout skill on a participating team, so a user authoring
+    # `signals-scout-foo` gets a row (on the default schedule) on the next tick.
+    skill_name = models.CharField(max_length=200)
+    enabled = models.BooleanField(default=True, db_default=True)
+    # Dry-run vs emit. Defaults emit-on so a freshly authored scout is live from its first
+    # tick. Flip to False for dry-run — the scout runs and logs but `emit_finding` writes
+    # nothing — to validate it on a team before its findings reach the inbox.
+    emit = models.BooleanField(default=True, db_default=True)
+    # Minutes between runs. The coordinator dispatches this scout when
+    # `last_run_at is None or now - last_run_at >= run_interval_minutes`. Deterministic —
+    # no sampling. Floor of 10 keeps one scout from monopolising the worker pool; default
+    # 60 = hourly. Ceiling 43200 = 30 days. `PositiveIntegerField` (int4) not
+    # `PositiveSmallIntegerField` (smallint, max 32767) so the documented 30-day ceiling fits.
+    run_interval_minutes = models.PositiveIntegerField(
+        default=60,
+        db_default=60,
+        validators=[MinValueValidator(10), MaxValueValidator(43200)],
     )
+    # Stamped by the coordinator after each dispatch; drives the due-check. Written every
+    # run, so it is excluded from activity logging (see field_exclusions below).
+    last_run_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    # Who last flipped `enabled` on. Tracked because enablement drives spend.
+    enabled_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
         null=True,
@@ -425,6 +458,18 @@ class SignalScoutConfig(TeamScopedRootMixin, UUIDModel):
         verbose_name = "Signal scout config"
         verbose_name_plural = "Signal scout configs"
         default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "skill_name"], name="unique_scout_config_per_team_skill"),
+        ]
+
+    def _get_before_update(self, **kwargs: Any) -> "SignalScoutConfig | None":
+        # ModelActivityMixin's prior-state lookup goes through `objects` (the fail-closed
+        # TeamScopedManager). Edits from Django admin / the coordinator / a shell run with no
+        # team scope set, so route the lookup through the unscoped `all_teams` manager to avoid
+        # a TeamScopeError when logging the change.
+        if not self.pk:
+            return None
+        return type(self).all_teams.filter(pk=self.pk).first()
 
 
 class SignalScoutRun(TeamScopedRootMixin, UUIDModel):

@@ -14,7 +14,7 @@ from products.web_analytics.dags import (
     web_preaggregated_team_selection,
 )
 
-from . import resources
+from . import loggers, resources
 
 # Build schedules list conditionally based on TEST mode
 schedules = [
@@ -57,5 +57,6 @@ defs = dagster.Definitions(
         cache_favicons.cache_authorized_domain_favicons_job,
     ],
     schedules=schedules,
+    loggers=loggers,
     resources=resources,
 )

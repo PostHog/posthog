@@ -9,7 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    AddDashboardWidgetsBatchRequestApi,
+    AddDashboardWidgetsBatchRequestOpenApiApi,
     AddDashboardWidgetsBatchResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
@@ -21,7 +21,6 @@ import type {
     DashboardTemplateApi,
     DashboardTemplatesListParams,
     DashboardTileApi,
-    DashboardsAnalyzeRefreshResultCreateParams,
     DashboardsBulkUpdateTagsCreateParams,
     DashboardsCopyTileCreateParams,
     DashboardsCreateFromTemplateJsonCreateParams,
@@ -31,13 +30,13 @@ import type {
     DashboardsDeleteTileParams,
     DashboardsDestroyParams,
     DashboardsListParams,
+    DashboardsMoveTileCreateParams,
     DashboardsMoveTilePartialUpdateParams,
     DashboardsPartialUpdateParams,
     DashboardsReorderTilesCreateParams,
     DashboardsRetrieveParams,
     DashboardsRunInsightsRetrieveParams,
     DashboardsRunWidgetsRetrieveParams,
-    DashboardsSnapshotCreateParams,
     DashboardsStreamTilesRetrieveParams,
     DashboardsUpdateParams,
     DashboardsUpdateTextTileCreateParams,
@@ -46,6 +45,7 @@ import type {
     DataColorThemeApi,
     DataColorThemesListParams,
     DeleteTileRequestApi,
+    MoveTileRequestApi,
     PaginatedDashboardBasicListApi,
     PaginatedDashboardTemplateListApi,
     PaginatedDataColorThemeListApi,
@@ -453,45 +453,6 @@ export const dashboardsDestroy = async (
     })
 }
 
-export const getDashboardsAnalyzeRefreshResultCreateUrl = (
-    projectId: string,
-    id: number,
-    params?: DashboardsAnalyzeRefreshResultCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/dashboards/${id}/analyze_refresh_result/?${stringifiedParams}`
-        : `/api/projects/${projectId}/dashboards/${id}/analyze_refresh_result/`
-}
-
-/**
- * Generate AI analysis comparing before/after dashboard refresh.
-Expects cache_key in request body pointing to the stored 'before' state.
- */
-export const dashboardsAnalyzeRefreshResultCreate = async (
-    projectId: string,
-    id: number,
-    dashboardApi?: NonReadonly<DashboardApi>,
-    params?: DashboardsAnalyzeRefreshResultCreateParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDashboardsAnalyzeRefreshResultCreateUrl(projectId, id, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardApi),
-    })
-}
-
 export const getDashboardsCopyTileCreateUrl = (
     projectId: string,
     id: number,
@@ -606,6 +567,41 @@ export const dashboardsDeleteTile = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(deleteTileRequestApi),
+    })
+}
+
+export const getDashboardsMoveTileCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsMoveTileCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/move_tile/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/move_tile/`
+}
+
+export const dashboardsMoveTileCreate = async (
+    projectId: string,
+    id: number,
+    moveTileRequestApi: MoveTileRequestApi,
+    params?: DashboardsMoveTileCreateParams,
+    options?: RequestInit
+): Promise<DashboardApi> => {
+    return apiMutator<DashboardApi>(getDashboardsMoveTileCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(moveTileRequestApi),
     })
 }
 
@@ -746,45 +742,6 @@ export const dashboardsRunWidgetsRetrieve = async (
     })
 }
 
-export const getDashboardsSnapshotCreateUrl = (
-    projectId: string,
-    id: number,
-    params?: DashboardsSnapshotCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/dashboards/${id}/snapshot/?${stringifiedParams}`
-        : `/api/projects/${projectId}/dashboards/${id}/snapshot/`
-}
-
-/**
- * Snapshot the current dashboard state (from cache) for AI analysis.
-Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
- */
-export const dashboardsSnapshotCreate = async (
-    projectId: string,
-    id: number,
-    dashboardApi?: NonReadonly<DashboardApi>,
-    params?: DashboardsSnapshotCreateParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDashboardsSnapshotCreateUrl(projectId, id, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardApi),
-    })
-}
-
 export const getDashboardsStreamTilesRetrieveUrl = (
     projectId: string,
     id: number,
@@ -884,7 +841,7 @@ export const getDashboardsWidgetsBatchCreateUrl = (
 export const dashboardsWidgetsBatchCreate = async (
     projectId: string,
     id: number,
-    addDashboardWidgetsBatchRequestApi: AddDashboardWidgetsBatchRequestApi,
+    addDashboardWidgetsBatchRequestOpenApiApi: AddDashboardWidgetsBatchRequestOpenApiApi,
     params?: DashboardsWidgetsBatchCreateParams,
     options?: RequestInit
 ): Promise<AddDashboardWidgetsBatchResponseApi> => {
@@ -892,7 +849,7 @@ export const dashboardsWidgetsBatchCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(addDashboardWidgetsBatchRequestApi),
+        body: JSON.stringify(addDashboardWidgetsBatchRequestOpenApiApi),
     })
 }
 

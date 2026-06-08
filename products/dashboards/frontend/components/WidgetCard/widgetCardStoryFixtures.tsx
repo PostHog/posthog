@@ -1,13 +1,28 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
+import type { Decorator } from '@storybook/react'
 import React from 'react'
 
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay, type LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { exceptionIngestionLogic } from 'products/error_tracking/frontend/components/SetupPrompt/exceptionIngestionLogic'
 
 import { WidgetCardContent } from './WidgetCardBody'
 
 export const TILE_WIDTH = 560
 export const TILE_HEIGHT = 480
+
+/** Freeze Storybook/VR "now" — keeps relative dates stable. Matches fixture timestamps in widgetOverviewStoryFixtures. */
+export const WIDGET_STORYBOOK_MOCK_DATE = '2026-05-26T10:00:00'
+
+/** Spread into story `parameters` so `withMockDate` pins TZLabel / relative copy in VR snapshots. */
+export const widgetStorybookParameters = {
+    mockDate: WIDGET_STORYBOOK_MOCK_DATE,
+} as const
 
 export function WidgetTileFrame({ children }: { children: React.ReactNode }): JSX.Element {
     return (
@@ -71,3 +86,36 @@ export const sampleListBody = (
 )
 
 export const dashboardTileTopHeading = <CardTopHeadingRow typeLabel="Analytics" showTypeLabel dateText="Last 7 days" />
+
+export function seedErrorTrackingProjectState(configured: boolean): void {
+    teamLogic.mount()
+    filterTestAccountsDefaultsLogic.mount()
+    teamLogic.actions.loadCurrentTeamSuccess({
+        ...MOCK_DEFAULT_TEAM,
+        autocapture_exceptions_opt_in: configured,
+    })
+
+    exceptionIngestionLogic.mount()
+    exceptionIngestionLogic.actions.loadExceptionIngestionStateSuccess(configured)
+}
+
+/** Configured = issues can be queried (post setup). Unconfigured = ingestion prompt / settings hidden. */
+export function withErrorTrackingProjectState(configured: boolean): Decorator {
+    return (Story: React.ComponentType): JSX.Element => {
+        seedErrorTrackingProjectState(configured)
+        return <Story />
+    }
+}
+
+/** Configured = session replay enabled for the project. Unconfigured = availability setup prompt. */
+export function withSessionReplayProjectState(enabled: boolean): Decorator {
+    return (Story: React.ComponentType): JSX.Element => {
+        teamLogic.mount()
+        filterTestAccountsDefaultsLogic.mount()
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            session_recording_opt_in: enabled,
+        })
+        return <Story />
+    }
+}

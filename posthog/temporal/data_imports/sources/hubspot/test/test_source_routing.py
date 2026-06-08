@@ -217,3 +217,21 @@ class TestSettingsShape:
         field = config.incremental_fields[0]
         assert field["field"] == config.cursor_filter_property_field
         assert field["type"] == IncrementalFieldType.DateTime
+
+
+@pytest.mark.parametrize(
+    "error_msg",
+    [
+        # HubspotSourceOldConfig path
+        "Hubspot refresh token not found for job 019cdc50-67a5-0000-c023-0d6a4e057e9b",
+        # HubspotSourceConfig OAuth path
+        "Hubspot refresh or access token not found for job 019cdc50-67a5-0000-c023-0d6a4e057e9b",
+    ],
+)
+def test_missing_token_error_is_non_retryable(error_msg: str) -> None:
+    """Each ValueError raised when a token is missing must match a non-retryable pattern,
+    otherwise the job retries a permanent misconfiguration forever."""
+    patterns = HubspotSource().get_non_retryable_errors()
+    assert any(pattern in error_msg for pattern in patterns), (
+        f"HubSpot error {error_msg!r} did not match any non-retryable pattern"
+    )
