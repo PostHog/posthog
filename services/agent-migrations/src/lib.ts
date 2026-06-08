@@ -21,6 +21,31 @@ const { Pool } = pg
 const HERE = dirname(fileURLToPath(import.meta.url))
 const MIGRATIONS_DIR = resolve(HERE, '../migrations')
 
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', ''])
+
+function isLocalHost(connectionString: string): boolean {
+    try {
+        return LOCAL_HOSTS.has(new URL(connectionString).hostname)
+    } catch {
+        return false
+    }
+}
+
+/**
+ * Aurora's pg_hba requires SSL (`hostssl all all 0.0.0.0/0 md5`) and the
+ * chart helper builds DSNs without `?sslmode=require`, so we opt in
+ * client-side — same pattern as `createAgentPool` in `@posthog/agent-shared`.
+ * `rejectUnauthorized: false` matches the in-cluster pgbouncer behavior
+ * (Aurora uses the AWS RDS CA which Node doesn't trust out of the box).
+ */
+function dbClientOpts(connectionString: string): pg.ClientConfig {
+    return {
+        connectionString,
+        // nosemgrep: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
+        ssl: isLocalHost(connectionString) ? false : { rejectUnauthorized: false },
+    }
+}
+
 export interface MigrateOpts {
     /** Postgres connection string. Falls back to AGENT_DB_URL env. */
     databaseUrl?: string
@@ -36,7 +61,7 @@ export async function migrate(opts: MigrateOpts = {}): Promise<void> {
         throw new Error('agent-migrations: databaseUrl or AGENT_DB_URL is required')
     }
     await runner({
-        databaseUrl,
+        databaseUrl: dbClientOpts(databaseUrl),
         dir: MIGRATIONS_DIR,
         direction: opts.direction ?? 'up',
         count: opts.count ?? Infinity,
@@ -64,7 +89,7 @@ export async function reset(opts: MigrateOpts = {}): Promise<void> {
     if (!databaseUrl) {
         throw new Error('agent-migrations.reset: databaseUrl or AGENT_DB_URL is required')
     }
-    const pool = new Pool({ connectionString: databaseUrl, max: 1 })
+    const pool = new Pool({ ...dbClientOpts(databaseUrl), max: 1 })
     try {
         await pool.query('DROP SCHEMA IF EXISTS public CASCADE')
         await pool.query('CREATE SCHEMA public')
