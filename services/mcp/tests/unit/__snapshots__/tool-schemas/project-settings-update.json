@@ -894,6 +894,15 @@
                 }
             ],
             "description": "First day of the week for date range filters. 0 = Sunday, 1 = Monday.\n\n* `0` - Sunday\n* `1` - Monday"
+        },
+        "workflows_config": {
+            "properties": {
+                "capture_workflows_engagement_events": {
+                    "description": "When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
         }
     },
     "required": ["id"],
