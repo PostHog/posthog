@@ -8,9 +8,13 @@
  *
  * The `MCPClientProfile` class owns all per-client behavior decisions:
  *
- * - `isCodingAgent()` matches coding agents that should default to single-exec
- *   mode and drop `structuredContent` when a `formatted_results` override is
- *   set. Cursor is deliberately excluded — it reads text for the model and
+ * - `isCliModeEnabled()` matches clients that should default to single-exec
+ *   ("CLI") mode and drop `structuredContent` when a `formatted_results`
+ *   override is set. Every Anthropic client qualifies — Anthropic pools MCP
+ *   transports across all its products and reports the live one in
+ *   `x-anthropic-client` (`vendorClient`), so the header's presence is enough.
+ *   Other coding agents are matched by self-reported client name. Cursor is
+ *   deliberately excluded from the name match — it reads text for the model and
  *   renders `structuredContent` in UI, so it does not need single-exec mode or
  *   the formatted-results workaround.
  *
@@ -139,8 +143,16 @@ export class MCPClientProfile {
         this.vendorClient = input.vendorClient
     }
 
-    isCodingAgent(): boolean {
-        return matchesAnyFragment(this.vendorClient ?? this.clientName, CODING_AGENT_CLIENT_NAME_FRAGMENTS)
+    isCliModeEnabled(): boolean {
+        // Anthropic pools MCP transports across all its products (Claude Code,
+        // Claude.ai, Cowork, …) and reports the live product in `x-anthropic-client`
+        // (`vendorClient`). Every Anthropic client runs in CLI (single-exec) mode,
+        // so the header's presence alone is enough. Other coding agents are matched
+        // by their self-reported client name.
+        if (this.vendorClient) {
+            return true
+        }
+        return matchesAnyFragment(this.clientName, CODING_AGENT_CLIENT_NAME_FRAGMENTS)
     }
 
     isPostHogCodeConsumer(): boolean {
@@ -169,8 +181,8 @@ export class MCPClientProfile {
     }
 }
 
-export function isCodingAgentClient(clientName: string | undefined): boolean {
-    return new MCPClientProfile({ clientName }).isCodingAgent()
+export function isCliModeEnabledClient(clientName: string | undefined): boolean {
+    return new MCPClientProfile({ clientName }).isCliModeEnabled()
 }
 
 export function isPostHogCodeConsumer(mcpConsumer: string | undefined): boolean {

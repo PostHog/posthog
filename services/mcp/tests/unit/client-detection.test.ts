@@ -6,12 +6,12 @@ import {
     MCPClientProfile,
     POSTHOG_CODE_CONSUMER,
     VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS,
-    isCodingAgentClient,
+    isCliModeEnabledClient,
     isPostHogCodeConsumer,
     isVibeCodingClient,
 } from '@/lib/client-detection'
 
-describe('isCodingAgentClient', () => {
+describe('isCliModeEnabledClient', () => {
     describe('detects known coding-agent clients', () => {
         it.each([
             // Exact names from the fragment list.
@@ -29,7 +29,7 @@ describe('isCodingAgentClient', () => {
             ['librechat'],
             ['notion'],
         ])('returns true for %s', (clientName) => {
-            expect(isCodingAgentClient(clientName)).toBe(true)
+            expect(isCliModeEnabledClient(clientName)).toBe(true)
         })
 
         it.each([
@@ -52,7 +52,7 @@ describe('isCodingAgentClient', () => {
             ['Notion'],
             ['Devin'],
         ])('returns true for variant %s (case-insensitive substring match)', (clientName) => {
-            expect(isCodingAgentClient(clientName)).toBe(true)
+            expect(isCliModeEnabledClient(clientName)).toBe(true)
         })
     })
 
@@ -66,7 +66,7 @@ describe('isCodingAgentClient', () => {
             ['PostHog'],
             [''],
         ])('returns false for %s', (clientName) => {
-            expect(isCodingAgentClient(clientName)).toBe(false)
+            expect(isCliModeEnabledClient(clientName)).toBe(false)
         })
     })
 
@@ -74,23 +74,23 @@ describe('isCodingAgentClient', () => {
         // Cursor sends content[].text to the model and displays structuredContent in UI,
         // so the workaround isn't needed. Guard against someone adding it back.
         it('returns false for cursor (intentionally excluded)', () => {
-            expect(isCodingAgentClient('cursor')).toBe(false)
-            expect(isCodingAgentClient('Cursor')).toBe(false)
-            expect(isCodingAgentClient('cursor-editor')).toBe(false)
+            expect(isCliModeEnabledClient('cursor')).toBe(false)
+            expect(isCliModeEnabledClient('Cursor')).toBe(false)
+            expect(isCliModeEnabledClient('cursor-editor')).toBe(false)
         })
     })
 
     describe('edge cases', () => {
         it('returns false for undefined', () => {
-            expect(isCodingAgentClient(undefined)).toBe(false)
+            expect(isCliModeEnabledClient(undefined)).toBe(false)
         })
 
         it('returns false for empty string', () => {
-            expect(isCodingAgentClient('')).toBe(false)
+            expect(isCliModeEnabledClient('')).toBe(false)
         })
 
         it('treats whitespace-only as non-match', () => {
-            expect(isCodingAgentClient('   ')).toBe(false)
+            expect(isCliModeEnabledClient('   ')).toBe(false)
         })
     })
 
@@ -159,7 +159,7 @@ describe('isVibeCodingClient', () => {
 })
 
 describe('MCPClientProfile', () => {
-    describe('isCodingAgent()', () => {
+    describe('isCliModeEnabled()', () => {
         it.each([
             ['claude-code'],
             ['Claude Code'],
@@ -180,43 +180,40 @@ describe('MCPClientProfile', () => {
             ['libre-chat'],
             ['notion-mcp-client'],
         ])('returns true for %s', (clientName) => {
-            expect(new MCPClientProfile({ clientName }).isCodingAgent()).toBe(true)
+            expect(new MCPClientProfile({ clientName }).isCliModeEnabled()).toBe(true)
         })
 
         it.each([['Claude Desktop'], ['claude-desktop'], ['cursor'], ['mcp-inspector'], [''], ['   ']])(
             'returns false for %s',
             (clientName) => {
-                expect(new MCPClientProfile({ clientName }).isCodingAgent()).toBe(false)
+                expect(new MCPClientProfile({ clientName }).isCliModeEnabled()).toBe(false)
             }
         )
 
         it('returns false when clientName is undefined', () => {
-            expect(new MCPClientProfile({}).isCodingAgent()).toBe(false)
+            expect(new MCPClientProfile({}).isCliModeEnabled()).toBe(false)
         })
 
-        describe('vendorClient precedence', () => {
-            it('prefers vendorClient over clientName for detection', () => {
-                // Claude pools MCP transports: the initialize body says
-                // `Anthropic/ClaudeAI` (the pool owner) but the live inner
-                // client is `ClaudeCode` (a coding agent). The header wins.
-                expect(
-                    new MCPClientProfile({
-                        clientName: 'Anthropic/ClaudeAI',
-                        vendorClient: 'ClaudeCode',
-                    }).isCodingAgent()
-                ).toBe(true)
-            })
+        describe('Anthropic vendor client', () => {
+            it.each([['ClaudeCode'], ['ClaudeAI'], ['Cowork'], ['Anthropic/ClaudeAI']])(
+                'enables CLI mode for any Anthropic client %s regardless of clientName',
+                (vendorClient) => {
+                    // Anthropic pools MCP transports across all its products and
+                    // reports the live one in `x-anthropic-client`. Every Anthropic
+                    // client runs in CLI mode, even when the initialize body's
+                    // clientName looks non-coding (e.g. the pool owner).
+                    expect(
+                        new MCPClientProfile({ clientName: 'Claude Desktop', vendorClient }).isCliModeEnabled()
+                    ).toBe(true)
+                }
+            )
 
             it('falls back to clientName when vendorClient is missing', () => {
-                expect(new MCPClientProfile({ clientName: 'claude-code' }).isCodingAgent()).toBe(true)
+                expect(new MCPClientProfile({ clientName: 'claude-code' }).isCliModeEnabled()).toBe(true)
             })
 
-            it('treats coding-agent clientName as non-coding when vendorClient says otherwise', () => {
-                // Inverse case: if a pool of coding-agent clients somehow
-                // carries a non-coding request, the live header rules.
-                expect(
-                    new MCPClientProfile({ clientName: 'claude-code', vendorClient: 'ClaudeAI' }).isCodingAgent()
-                ).toBe(false)
+            it('uses clientName for non-Anthropic clients (no vendorClient)', () => {
+                expect(new MCPClientProfile({ clientName: 'Claude Desktop' }).isCliModeEnabled()).toBe(false)
             })
         })
     })
