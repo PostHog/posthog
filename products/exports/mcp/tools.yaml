@@ -1,0 +1,23 @@
+category: Exports
+feature: exports
+url_prefix: /exports
+tools:
+    chart-image-publish:
+        operation: chart_images_create
+        enabled: true
+        scopes:
+            - export:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Publish chart image
+        description: >
+            Publish a PNG image you have already rendered (for example a chart you generated
+            with Python in your sandbox) and get back a durable, publicly fetchable URL.
+            Include the returned image_url on its own line in your Slack reply so Slack renders
+            the chart inline. Pass the PNG as base64 in image_base64; optionally set title for a
+            readable filename and insight_short_id to link the image to an existing insight.
+        param_overrides:
+            image_base64:
+                description: Base64-encoded PNG bytes of the image you rendered.
