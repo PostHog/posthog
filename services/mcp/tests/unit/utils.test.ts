@@ -1,9 +1,25 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatPrompt, sanitizeHeaderValue } from '@/lib/utils'
-import { omitResponseFields, pickResponseFields } from '@/tools/tool-utils'
+import { formatPrompt, redactToken, sanitizeHeaderValue } from '@/lib/utils'
+import { omitResponseFields, pickResponseFields, withPostHogUrl } from '@/tools/tool-utils'
+import type { Context } from '@/tools/types'
 
 describe('utils', () => {
+    describe('redactToken', () => {
+        it('keeps only the last 4 chars and masks the rest', () => {
+            expect(redactToken('phx_abcdefgh1234')).toBe('****1234')
+        })
+
+        it('fully masks tokens of 4 chars or fewer', () => {
+            expect(redactToken('1234')).toBe('****')
+            expect(redactToken('ab')).toBe('****')
+        })
+
+        it('fully masks an empty token', () => {
+            expect(redactToken('')).toBe('****')
+        })
+    })
+
     describe('formatPrompt', () => {
         it('substitutes placeholders with values', () => {
             expect(formatPrompt('Hello {name}, welcome to {place}', { name: 'world', place: 'earth' })).toBe(
@@ -204,6 +220,33 @@ describe('utils', () => {
             const obj = { id: 1, name: 'test', extra: { nested: true } }
             omitResponseFields(obj, ['extra'])
             expect(obj).toEqual({ id: 1, name: 'test', extra: { nested: true } })
+        })
+    })
+
+    describe('withPostHogUrl', () => {
+        const context = {
+            stateManager: { getProjectId: async () => 42 },
+            api: { getProjectBaseUrl: (id: number) => `https://app/project/${id}` },
+        } as unknown as Context
+
+        it('adds _posthogUrl as a sibling field on an object result', async () => {
+            const result = await withPostHogUrl(context, { id: 7, name: 'x' }, '/inbox/7')
+            expect(result).toEqual({ id: 7, name: 'x', _posthogUrl: 'https://app/project/42/inbox/7' })
+        })
+
+        // Regression: spreading an array into an object (`{ ...arr }`) corrupts a raw-array
+        // list response into `{ 0: …, 1: …, _posthogUrl: … }`. Arrays must be wrapped in
+        // `{ results, _posthogUrl }` so they stay iterable for the agent.
+        it('wraps a raw array result in { results, _posthogUrl }', async () => {
+            const arr = [{ id: 1 }, { id: 2 }]
+            const result = await withPostHogUrl(context, arr, '/inbox')
+            expect(result).toEqual({ results: [{ id: 1 }, { id: 2 }], _posthogUrl: 'https://app/project/42/inbox' })
+        })
+
+        it('does not corrupt the array into numeric-keyed object fields', async () => {
+            const result = await withPostHogUrl(context, [{ id: 1 }], '/inbox')
+            expect(result).not.toHaveProperty('0')
+            expect(Array.isArray((result as { results: unknown[] }).results)).toBe(true)
         })
     })
 })

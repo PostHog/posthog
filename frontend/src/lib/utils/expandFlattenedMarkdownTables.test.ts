@@ -13,6 +13,18 @@ describe('expandFlattenedMarkdownTables', () => {
         )
     })
 
+    it('expands a flattened table whose rows are glued together with no whitespace', () => {
+        const input = '| Month | Boost | Scale ||-------|-------|-------|| Jul 2025 | 54 | 20 || Aug 2025 | 59 | 26 |'
+        expect(expandFlattenedMarkdownTables(input)).toBe(
+            [
+                '| Month | Boost | Scale |',
+                '|-------|-------|-------|',
+                '| Jul 2025 | 54 | 20 |',
+                '| Aug 2025 | 59 | 26 |',
+            ].join('\n')
+        )
+    })
+
     it('handles alignment markers in the delimiter row', () => {
         const input = '| a | b | c | | :--- | :---: | ---: | | 1 | 2 | 3 |'
         expect(expandFlattenedMarkdownTables(input)).toBe(

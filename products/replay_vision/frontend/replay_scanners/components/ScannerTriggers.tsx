@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { Field } from 'kea-forms'
 
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -20,8 +20,8 @@ const RECORDING_FILTER_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.Events,
 ]
 
-export function ScannerTriggers({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element {
-    const { scanner } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Element {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
 
     if (!scanner) {
         return <div className="text-muted">Loading…</div>
@@ -97,7 +97,8 @@ export function ScannerTriggers({ scannerId, tabId }: { scannerId: string; tabId
                 }}
             </Field>
 
-            <ScannerQuotaForecast scannerId={scannerId} tabId={tabId} />
+            <LemonDivider className="my-0" />
+            <ScannerQuotaForecast scannerId={scannerId} />
         </div>
     )
 }

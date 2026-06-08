@@ -101,6 +101,21 @@
         border-collapse: separate;
     }
 
+    /* Full-width: fill the container exactly (no horizontal scroll). The auto
+       layout spreads any slack across columns unless one opts in via `expand`. */
+    .quill-table[data-full-width] {
+        width: 100%;
+    }
+
+    /* The expand column claims the leftover width; siblings collapse toward their
+       content. `min-width: 0` lets the consumer truncate long content inside it
+       (add `truncate` on the cell's child). */
+    .quill-table__head[data-expand],
+    .quill-table__cell[data-expand] {
+        width: 100%;
+        min-width: 0;
+    }
+
     /* =========================================================================
        Head / body / footer rows
        ========================================================================= */
@@ -150,6 +165,42 @@
     .quill-table__caption {
         padding-top: 0.5rem;
         color: var(--muted-foreground);
+    }
+
+    /* =========================================================================
+       Intra-cell alignment — `align` (horizontal) / `valign` (vertical) on
+       TableHead / TableCell. Default (no attr) is left / middle. `text-align`
+       also positions an inline-flex header Button, so right-aligned interactive
+       headers push their label to the cell's end.
+       ========================================================================= */
+    .quill-table__head[data-align='left'],
+    .quill-table__cell[data-align='left'] {
+        text-align: left;
+    }
+
+    .quill-table__head[data-align='center'],
+    .quill-table__cell[data-align='center'] {
+        text-align: center;
+    }
+
+    .quill-table__head[data-align='right'],
+    .quill-table__cell[data-align='right'] {
+        text-align: right;
+    }
+
+    .quill-table__head[data-valign='top'],
+    .quill-table__cell[data-valign='top'] {
+        vertical-align: top;
+    }
+
+    .quill-table__head[data-valign='middle'],
+    .quill-table__cell[data-valign='middle'] {
+        vertical-align: middle;
+    }
+
+    .quill-table__head[data-valign='bottom'],
+    .quill-table__cell[data-valign='bottom'] {
+        vertical-align: bottom;
     }
 
     /* Interactive header: the whole label is a button. It inherits the head's
