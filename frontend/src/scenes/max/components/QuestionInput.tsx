@@ -24,6 +24,7 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { MAX_SLASH_COMMANDS } from '../slash-commands'
+import { AIAccessRequestPopoverWrapper } from './AIAccessRequestPopover'
 import { HandsFreeButton } from './HandsFreeButton'
 import { HandsFreeSurface } from './HandsFreeSurface'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
@@ -258,17 +259,71 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     if (cancelLoading) {
         disabledReason = 'Cancelling...'
     }
-    // For non-admins, disable button when consent not given (admins see popup instead)
+    // Admins approve consent inline (AIConsentPopoverWrapper); members below admin can't, so a
+    // send attempt surfaces a "request access" popover instead. Either way the button stays
+    // enabled so the attempt opens the relevant popover rather than dead-ending on a greyed-out
+    // control with only a tooltip.
     const isAdmin = !dataProcessingApprovalDisabledReason
-    if (!dataProcessingAccepted && !isAdmin && !disabledReason) {
-        disabledReason = dataProcessingApprovalDisabledReason
-    }
 
     useEffect(() => {
         if (!streamingActive && textAreaRef?.current) {
             textAreaRef.current.focus()
         }
     }, [streamingActive]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    const sendButton = (
+        <LemonButton
+            data-attr={showStopButton ? 'max-stop-generation' : 'max-send-message'}
+            type={(isThreadVisible && !hasQuestion) || showStopButton ? 'secondary' : 'primary'}
+            onClick={() => {
+                if (threadLoading) {
+                    if (isQueueingSubmission) {
+                        if (submissionDisabledReason) {
+                            textAreaRef?.current?.focus()
+                            return
+                        }
+                        askMax(question)
+                        return
+                    }
+                    stopGeneration()
+                    return
+                }
+                if (submissionDisabledReason) {
+                    textAreaRef?.current?.focus()
+                    return
+                }
+                askMax(question)
+            }}
+            tooltip={
+                disabledReason ? (
+                    disabledReason
+                ) : showStopButton ? (
+                    <>
+                        Let's bail <KeyboardShortcut enter />
+                    </>
+                ) : isQueueingSubmission ? (
+                    <>
+                        Queue message <KeyboardShortcut enter />
+                    </>
+                ) : (
+                    <>
+                        Let's go! <KeyboardShortcut enter />
+                    </>
+                )
+            }
+            loading={threadLoading && !dataProcessingAccepted}
+            disabledReason={disabledReason}
+            className={disabledReason ? 'opacity-[0.5]' : ''}
+            size="small"
+            icon={
+                showStopButton ? (
+                    <IconStopFilled />
+                ) : (
+                    MAX_SLASH_COMMANDS.find((cmd) => cmd.name === question.split(' ', 1)[0])?.icon || <IconArrowRight />
+                )
+            }
+        />
+    )
 
     return (
         <div
@@ -463,75 +518,39 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
                         )}
                     >
-                        <HandsFreeButton panelId={maxPanelId} />
-                        {!handsFreeActive && (
-                            <AIConsentPopoverWrapper
-                                placement="bottom-end"
-                                showArrow
-                                ignoreDismissal
-                                onApprove={() => submit(pendingPrompt || inputValue)}
-                                onDismiss={() => completeThreadGeneration()}
-                                middleware={[
-                                    offset((state) => ({
-                                        mainAxis: state.placement.includes('top') ? 30 : 1,
-                                    })),
-                                ]}
-                                hidden={!isAdmin || (!threadLoading && !pendingPrompt)}
-                            >
-                                <LemonButton
-                                    data-attr={showStopButton ? 'max-stop-generation' : 'max-send-message'}
-                                    type={(isThreadVisible && !hasQuestion) || showStopButton ? 'secondary' : 'primary'}
-                                    onClick={() => {
-                                        if (threadLoading) {
-                                            if (isQueueingSubmission) {
-                                                if (submissionDisabledReason) {
-                                                    textAreaRef?.current?.focus()
-                                                    return
-                                                }
-                                                submit(inputValue)
-                                                return
-                                            }
-                                            stopGeneration()
-                                            return
-                                        }
-                                        if (submissionDisabledReason) {
-                                            textAreaRef?.current?.focus()
-                                            return
-                                        }
-                                        submit(inputValue)
-                                    }}
-                                    tooltip={
-                                        disabledReason ? (
-                                            disabledReason
-                                        ) : showStopButton ? (
-                                            <>
-                                                Let's bail <KeyboardShortcut enter />
-                                            </>
-                                        ) : isQueueingSubmission ? (
-                                            <>
-                                                Queue message <KeyboardShortcut enter />
-                                            </>
-                                        ) : (
-                                            <>
-                                                Let's go! <KeyboardShortcut enter />
-                                            </>
-                                        )
-                                    }
-                                    loading={threadLoading && !dataProcessingAccepted}
-                                    disabledReason={disabledReason}
-                                    className={disabledReason ? 'opacity-[0.5]' : ''}
-                                    size="small"
-                                    icon={
-                                        showStopButton ? (
-                                            <IconStopFilled />
-                                        ) : (
-                                            MAX_SLASH_COMMANDS.find((cmd) => cmd.name === inputValue.split(' ', 1)[0])
-                                                ?.icon || <IconArrowRight />
-                                        )
-                                    }
-                                />
-                            </AIConsentPopoverWrapper>
-                        )}
+                        <HandsFreeButton panelId={maxTabId} />
+                        {!handsFreeActive &&
+                            (isAdmin ? (
+                                <AIConsentPopoverWrapper
+                                    placement="bottom-end"
+                                    showArrow
+                                    ignoreDismissal
+                                    onApprove={() => askMax(pendingPrompt || question)}
+                                    onDismiss={() => completeThreadGeneration()}
+                                    middleware={[
+                                        offset((state) => ({
+                                            mainAxis: state.placement.includes('top') ? 30 : 1,
+                                        })),
+                                    ]}
+                                    hidden={!threadLoading && !pendingPrompt}
+                                >
+                                    {sendButton}
+                                </AIConsentPopoverWrapper>
+                            ) : (
+                                <AIAccessRequestPopoverWrapper
+                                    placement="bottom-end"
+                                    showArrow
+                                    onDismiss={() => completeThreadGeneration()}
+                                    middleware={[
+                                        offset((state) => ({
+                                            mainAxis: state.placement.includes('top') ? 30 : 1,
+                                        })),
+                                    ]}
+                                    hidden={dataProcessingAccepted || (!threadLoading && !pendingPrompt)}
+                                >
+                                    {sendButton}
+                                </AIAccessRequestPopoverWrapper>
+                            ))}
                     </div>
                 </div>
                 {/* Info banner for conversations created during impersonation (marked as internal) */}

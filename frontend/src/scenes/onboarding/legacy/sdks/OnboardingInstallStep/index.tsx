@@ -10,6 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTagOverrides } from '~/types'
 
+import { OnboardingAIConsent } from '../../OnboardingAIConsent'
 import { onboardingLogic, OnboardingStepComponentType } from '../../onboardingLogic'
 import { OnboardingStep } from '../../OnboardingStep'
 import { INSTALL_DEDUP_KEYS } from '../../types'
@@ -59,7 +60,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const [mobileHandoffDismissed, setMobileHandoffDismissed] = useState(false)
     const linkOpenedCapturedRef = useRef(false)
     const { currentTeam } = useValues(teamLogic)
-    const { currentStepProductKey, currentFlowStep } = useValues(onboardingLogic)
+    const { currentStepProductKey, currentFlowStep, isFirstFlowStep } = useValues(onboardingLogic)
     const productName = currentStepProductKey
         ? availableOnboardingProducts[currentStepProductKey as keyof typeof availableOnboardingProducts]?.name
         : undefined
@@ -130,6 +131,15 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         showTopSkipButton: isLogsProduct ? showTopSkipButton : false,
     }
 
+    // Surface the org-wide PostHog AI consent on the first step only, threaded through
+    // the existing `header` slot so it renders consistently across every install variant.
+    const headerWithAIConsent = (
+        <>
+            {isFirstFlowStep && <OnboardingAIConsent />}
+            {header}
+        </>
+    )
+
     const variantProps: VariantProps = {
         sdkGridProps,
         sdkInstructionMap,
@@ -138,7 +148,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         listeningForName,
         teamPropertyToVerify,
         selectedSDK,
-        header,
+        header: headerWithAIConsent,
     }
 
     const instructionsModal = selectedSDK && (
@@ -160,7 +170,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
                 listeningForName={listeningForName}
                 teamPropertyToVerify={teamPropertyToVerify}
                 installationComplete={installationComplete}
-                header={header}
+                header={headerWithAIConsent}
                 onContinueHere={() => setMobileHandoffDismissed(true)}
             />
         )
@@ -189,7 +199,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
                 )
             }
         >
-            {header}
+            {headerWithAIConsent}
             {!hideInstallationCheck && !installationComplete && <AdblockWarning adblockResult={adblockResult} />}
             <div className="mt-6">
                 <SDKGrid {...sdkGridProps} />
