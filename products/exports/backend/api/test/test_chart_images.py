@@ -4,6 +4,7 @@ import base64
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from PIL import Image
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -43,12 +44,14 @@ class TestChartImagesAPI(APIBaseTest):
         response = self._publish(image_base64=self._png_base64(), insight_short_id="nope99")
         assert response.status_code == 400
 
-    def test_publish_rejects_non_png(self):
-        response = self._publish(image_base64=base64.b64encode(b"this is definitely not a png file").decode())
-        assert response.status_code == 400
-
-    def test_publish_rejects_invalid_base64(self):
-        response = self._publish(image_base64="!!!not-base64!!!")
+    @parameterized.expand(
+        [
+            ("non_png", base64.b64encode(b"this is definitely not a png file").decode()),
+            ("invalid_base64", "!!!not-base64!!!"),
+        ]
+    )
+    def test_publish_rejects_invalid_image_base64(self, _name, image_base64):
+        response = self._publish(image_base64=image_base64)
         assert response.status_code == 400
 
     def test_publish_rejects_oversized_image(self):

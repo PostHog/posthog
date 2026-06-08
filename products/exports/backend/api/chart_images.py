@@ -51,7 +51,9 @@ class ChartImageSerializer(serializers.Serializer):
         except (binascii.Error, ValueError):
             raise serializers.ValidationError({"image_base64": "Must be valid base64."})
         if len(png) > MAX_IMAGE_BYTES:
-            raise serializers.ValidationError({"image_base64": f"Image exceeds the {MAX_IMAGE_BYTES} byte limit."})
+            raise serializers.ValidationError(
+                {"image_base64": f"Image exceeds the {MAX_IMAGE_BYTES // (1024 * 1024)} MiB limit."}
+            )
         if png[:8] != PNG_MAGIC:
             raise serializers.ValidationError({"image_base64": "Decoded bytes are not a PNG image."})
         data["image_bytes"] = png
