@@ -197,23 +197,33 @@ class TestGetRows:
 
         assert mock_session.call_args.kwargs["redact_values"] == ("secret-token",)
 
+    @parameterized.expand(
+        [
+            ("payment_methods_uses_smaller_limit", "payment_methods", 50),
+            ("customers_use_default_limit", "customers", 250),
+        ]
+    )
     @patch("posthog.temporal.data_imports.sources.recharge.recharge.make_tracked_session")
-    def test_payment_methods_cursor_pages_use_smaller_limit(self, mock_session: MagicMock) -> None:
-        # Both the first page and cursor pages must carry the reduced limit,
-        # otherwise the second page would time out at the 250 max again.
+    def test_cursor_pages_use_per_endpoint_limit(
+        self, _name: str, endpoint: str, expected_limit: int, mock_session: MagicMock
+    ) -> None:
+        # Both the first page and cursor pages must carry the per-endpoint limit;
+        # for `payment_methods` that's 50 (to avoid the 60s read timeout), for
+        # other endpoints it's the 250 max — otherwise the second page would time
+        # out at the wrong size again.
         mock_session.return_value.get.side_effect = [
-            _mock_response(json_body={"payment_methods": [{"id": 1}], "next_cursor": "cursor-2"}),
-            _mock_response(json_body={"payment_methods": [{"id": 2}], "next_cursor": None}),
+            _mock_response(json_body={endpoint: [{"id": 1}], "next_cursor": "cursor-2"}),
+            _mock_response(json_body={endpoint: [{"id": 2}], "next_cursor": None}),
         ]
         manager = MagicMock()
         manager.can_resume.return_value = False
 
-        list(get_rows(api_key="t", endpoint="payment_methods", logger=MagicMock(), resumable_source_manager=manager))
+        list(get_rows(api_key="t", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=manager))
 
         first_url, second_url = (call.args[0] for call in mock_session.return_value.get.call_args_list)
-        assert "limit=50" in first_url
+        assert f"limit={expected_limit}" in first_url
         assert "cursor=cursor-2" in second_url
-        assert "limit=50" in second_url
+        assert f"limit={expected_limit}" in second_url
 
     @patch("posthog.temporal.data_imports.sources.recharge.recharge.make_tracked_session")
     def test_resumes_from_saved_cursor_when_endpoint_matches(self, mock_session: MagicMock) -> None:
