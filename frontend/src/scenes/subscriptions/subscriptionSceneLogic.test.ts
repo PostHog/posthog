@@ -48,6 +48,28 @@ const MOCK_SUBSCRIPTION: SubscriptionApi = {
     deleted: false,
 }
 
+const MOCK_AI_SUBSCRIPTION: SubscriptionApi = {
+    id: 2,
+    resource_type: ResourceTypeEnumApi.AiPrompt,
+    insight: null,
+    dashboard: null,
+    insight_short_id: null,
+    resource_name: null,
+    prompt: 'Summarize weekly signups and flag any anomalies',
+    title: 'Weekly AI digest',
+    dashboard_export_insights: [],
+    target_type: TargetTypeEnumApi.Email,
+    target_value: 'a@b.com',
+    frequency: SubscriptionFrequencyEnumApi.Weekly,
+    interval: 1,
+    start_date: '2022-01-01T00:00:00Z',
+    created_at: '2023-04-27T10:04:37.977401Z',
+    created_by: MOCK_USER,
+    summary: 'sent every week',
+    next_delivery_date: '2026-04-07T17:00:00Z',
+    deleted: false,
+}
+
 describe('subscriptionSceneLogic', () => {
     let deliveriesRequestUrls: string[]
 
@@ -160,6 +182,41 @@ describe('subscriptionSceneLogic', () => {
             })
         }).toFinishAllListeners()
 
+        expect(deliveriesRequestUrls).toHaveLength(1)
+        logic.unmount()
+        featureFlagLogic.unmount()
+    })
+
+    it('loads an AI prompt subscription and its deliveries when the flag is on', async () => {
+        useMocks({
+            get: {
+                // Function form, not the `[200, body]` shorthand: useMocks serializes a bare array as
+                // the whole response body, so only a function-returned tuple delivers the object itself.
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/`]: () => [200, MOCK_AI_SUBSCRIPTION],
+                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/2/deliveries/`]: () => {
+                    deliveriesRequestUrls.push('deliveries')
+                    return [200, { results: [], next: null, previous: null }]
+                },
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.mount()
+        // HACKATHONS_SUBSCRIPTIONS gates the delivery history this test asserts; SUBSCRIPTION_AI_PROMPT
+        // is what makes AI prompt subscriptions exist in the first place, so both are on in a realistic run.
+        featureFlagLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS, FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT],
+            {
+                [FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS]: true,
+                [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
+            }
+        )
+
+        const logic = subscriptionSceneLogic({ id: '2' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.subscription?.resource_type).toEqual(ResourceTypeEnumApi.AiPrompt)
+        expect(logic.values.subscription?.prompt).toBeTruthy()
         expect(deliveriesRequestUrls).toHaveLength(1)
         logic.unmount()
         featureFlagLogic.unmount()

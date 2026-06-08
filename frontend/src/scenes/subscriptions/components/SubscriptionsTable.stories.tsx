@@ -131,6 +131,28 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         enabled: false,
         integration_id: 1,
     },
+    {
+        id: 6,
+        resource_type: ResourceTypeEnumApi.AiPrompt,
+        insight: null,
+        dashboard: null,
+        insight_short_id: null,
+        resource_name: null,
+        prompt: 'Summarize weekly signups and flag any anomalies worth a closer look',
+        title: 'AI weekly digest',
+        dashboard_export_insights: [],
+        target_type: TargetTypeEnumApi.Email,
+        target_value: 'growth@posthog.com',
+        frequency: SubscriptionFrequencyEnumApi.Weekly,
+        interval: 1,
+        start_date: '2022-01-01T00:00:00Z',
+        created_at: '2023-04-27T10:04:37.977401Z',
+        created_by: MOCK_USER,
+        summary: 'sent every week',
+        next_delivery_date: '2026-04-09T08:00:00Z',
+        deleted: false,
+        enabled: true,
+    },
 ]
 
 const PAGINATION_PAGE_SIZE = 20
