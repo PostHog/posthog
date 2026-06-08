@@ -1,6 +1,17 @@
 {
     "extends": ["//"],
     "tasks": {
+        "backend:test": {
+            "inputs": [
+                "**/*.py",
+                "!**/__pycache__/**",
+                "!frontend/**",
+                "../../pyproject.toml",
+                "../../uv.lock",
+                "../../common/**/*.py",
+                "package.json"
+            ]
+        },
         "backend:contract-check": {
             "inputs": ["backend/facade/**", "backend/presentation/**"],
             "outputs": [],
