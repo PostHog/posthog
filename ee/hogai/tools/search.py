@@ -1,4 +1,5 @@
 import re
+import asyncio
 from typing import Literal
 
 from django.conf import settings
@@ -9,8 +10,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
+from posthog.api.embedding_worker import async_generate_embedding
 from posthog.sync import database_sync_to_async
 
+from products.business_knowledge.backend.constants import BK_EMBEDDING_MODEL, BK_QUERY_EMBEDDING_TIMEOUT
 from products.business_knowledge.backend.logic import has_ready_sources, search_knowledge
 
 from ee.hogai.context.entity_search.context import EntityKind
@@ -185,8 +188,21 @@ class SearchTool(MaxTool):
         return response, None
 
     async def _search_business_knowledge(self, query: str) -> str:
-        results = await database_sync_to_async(search_knowledge)(self._team.id, query)
-        logger.info("bk_search_results", team_id=self._team.id, result_count=len(results))
+        query_embedding = await self._get_query_embedding(query)
+        use_semantic = query_embedding is not None
+
+        results = await database_sync_to_async(search_knowledge)(
+            self._team.id,
+            query,
+            use_semantic=use_semantic,
+            query_embedding=query_embedding,
+        )
+        logger.info(
+            "bk_search_results",
+            team_id=self._team.id,
+            result_count=len(results),
+            use_semantic=use_semantic,
+        )
         if not results:
             return BK_SEARCH_NO_RESULTS_TEMPLATE
 
@@ -200,6 +216,22 @@ class SearchTool(MaxTool):
         formatted = "\n\n---\n\n".join(chunks)
         header = BK_SEARCH_RESULTS_HEADER.format(count=len(results))
         return f"{header}\n\n{formatted}\n{BK_SEARCH_RESULTS_FOOTER}"
+
+    async def _get_query_embedding(self, query: str) -> list[float] | None:
+        """Embed the query with a tight timeout; returns None on failure (FTS fallback)."""
+        try:
+            response = await asyncio.wait_for(
+                async_generate_embedding(self._team, query, model=BK_EMBEDDING_MODEL),
+                timeout=BK_QUERY_EMBEDDING_TIMEOUT,
+            )
+            return response.embedding
+        except Exception:
+            logger.warning(
+                "bk_query_embedding_failed",
+                team_id=self._team.id,
+                exc_info=True,
+            )
+            return None
 
     @property
     def _fts_entities(self) -> list[str]:

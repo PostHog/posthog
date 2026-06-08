@@ -112,3 +112,29 @@ PENDING_EMBEDDING_SCAN_CAP = 50
 # re-checking docs whose vectors are simply still in flight through Kafka.
 RECONCILE_EMBEDDING_SCAN_CAP = 50
 RECONCILE_EMBEDDING_GRACE = datetime.timedelta(hours=2)
+
+# --- Hybrid retrieval tunables (PR2 read path) ---
+# cosineDistance threshold: vectors above this are discarded BEFORE re-joining
+# Postgres. text-embedding-3-small typically returns 0.2–0.5 for related content
+# and 0.7+ for unrelated. Start strict; loosen with data.
+BK_SEMANTIC_DISTANCE_CUTOFF = 0.65
+# Over-fetch factor: the safety re-join can discard top-k hits that point at
+# now-UNSAFE/tombstoned/deleted chunks, so we pull k * OVERFETCH from CH and
+# trim after re-join. 3x is generous; a lower factor would be fine once the
+# pipeline stabilises.
+BK_SEMANTIC_OVERFETCH = 3
+# RRF fusion constant. Standard value from the original RRF paper (Cormack et
+# al. 2009). Higher k flattens rank differences; lower k emphasises top ranks.
+BK_RRF_K = 60
+# Minimum fused RRF score a SEMANTIC-ONLY candidate must reach to be included.
+# FTS anchors are exempt (a tsquery hit is a real lexical match against
+# SAFE/READY content, never garbage) — applying the floor to them would silently
+# drop legitimate FTS results past rank ~6 in the hybrid path while keeping them
+# in the keyword-only path. The floor exists to stop a borderline semantic-only
+# hit (one that just scraped under the distance cutoff) from surfacing on an
+# off-topic query. 1/(60+5) ≈ 0.0154, so a semantic-only candidate must land in
+# roughly the top-5 of the semantic list to survive.
+BK_RRF_SCORE_FLOOR = 0.015
+# Timeout (seconds) for the async embedding call on the query path. If the
+# embedding service is slow, FTS alone fires (graceful degradation).
+BK_QUERY_EMBEDDING_TIMEOUT = 5.0
