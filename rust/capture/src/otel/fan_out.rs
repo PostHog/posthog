@@ -76,6 +76,13 @@ fn attributes_to_map(attrs: &[KeyValue]) -> serde_json::Map<String, Value> {
 /// pass through since they don't match these prefixes.
 const NOISY_RESOURCE_PREFIXES: &[&str] = &["host.", "process.", "os.", "telemetry."];
 
+/// `$lib` stamped on every event synthesized from the OTel ingestion path. These
+/// events are built server-side and never pass through an SDK's `capture()`, so
+/// without this they arrive with no `$lib` and look anonymous to every downstream
+/// consumer (transformations, breakdowns, debugging). Browser SDKs report `web`/`js`
+/// and server SDKs `posthog-<lang>`; OTel-synthesized AI events report this.
+const OTEL_LIB_NAME: &str = "posthog-ai-otel";
+
 fn filter_resource_attributes(attrs: &[KeyValue]) -> serde_json::Map<String, Value> {
     attrs
         .iter()
@@ -174,6 +181,22 @@ pub fn expand_into_events(
                     "$ai_ingestion_source".to_string(),
                     Value::String("otel".to_string()),
                 );
+
+                // Stamp $lib so OTel-synthesized events self-identify like SDK-captured
+                // ones do. $lib_version comes from the OTel instrumentation scope version
+                // when present (e.g. the @posthog/ai exporter's version).
+                properties.insert(
+                    "$lib".to_string(),
+                    Value::String(OTEL_LIB_NAME.to_string()),
+                );
+                if let Some(scope) = ss.scope.as_ref() {
+                    if !scope.version.is_empty() {
+                        properties.insert(
+                            "$lib_version".to_string(),
+                            Value::String(scope.version.clone()),
+                        );
+                    }
+                }
 
                 if !span.name.is_empty() {
                     properties.insert(
@@ -336,11 +359,54 @@ mod tests {
         assert_eq!(props["$ai_trace_id"], "0102030405060708090a0b0c0d0e0f10");
         assert_eq!(props["$ai_span_id"], "0102030405060708");
         assert_eq!(props["$ai_ingestion_source"], "otel");
+        assert_eq!(props["$lib"], "posthog-ai-otel");
+        // No instrumentation scope on this request, so no $lib_version.
+        assert!(!props.contains_key("$lib_version"));
         assert_eq!(props["service.name"], "test-svc");
         assert_eq!(props["$otel_span_name"], "chat gpt-4");
         assert_eq!(props["$otel_start_time_unix_nano"], "1704067200000000000");
         assert_eq!(props["$otel_end_time_unix_nano"], "1704067201500000000");
         assert!(event.timestamp.is_some());
+    }
+
+    #[test]
+    fn test_lib_version_from_instrumentation_scope() {
+        use opentelemetry_proto::tonic::common::v1::InstrumentationScope;
+
+        let request = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(Resource {
+                    attributes: vec![],
+                    dropped_attributes_count: 0,
+                }),
+                scope_spans: vec![ScopeSpans {
+                    scope: Some(InstrumentationScope {
+                        name: "@posthog/ai".to_string(),
+                        version: "6.7.1".to_string(),
+                        ..Default::default()
+                    }),
+                    spans: vec![make_span(
+                        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+                        vec![1, 2, 3, 4, 5, 6, 7, 8],
+                        vec![],
+                        1_704_067_200_000_000_000,
+                        1_704_067_201_500_000_000,
+                        "chat gpt-4",
+                        vec![make_kv(
+                            "gen_ai.operation.name",
+                            any_value::Value::StringValue("chat".to_string()),
+                        )],
+                    )],
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+
+        let events = expand_into_events(&request, "user-1");
+        let props = events[0].properties.as_object().unwrap();
+        assert_eq!(props["$lib"], "posthog-ai-otel");
+        assert_eq!(props["$lib_version"], "6.7.1");
     }
 
     #[test]
