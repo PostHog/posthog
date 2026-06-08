@@ -1,7 +1,11 @@
+from collections.abc import MutableMapping
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
 import dagster
+from structlog.testing import capture_logs
 
 from posthog.schema import WebStatsBreakdown
 
@@ -183,6 +187,82 @@ class TestWarmBaselineForTeam(APIBaseTest):
         # For each query in the matrix the order must be tag then get_runner.
         pairs = list(zip(call_order[0::2], call_order[1::2]))
         assert pairs and all(p == ("tag", "get_runner") for p in pairs)
+
+
+@patch("products.web_analytics.dags.eager_web_analytics_precompute.is_cloud", return_value=True)
+class TestEagerBaselineLogging(APIBaseTest):
+    """The op mirrors lifecycle events to structlog so the run is queryable in
+    Loki / PostHog — `context.log` alone only reaches the Dagster UI."""
+
+    def _events(self, cap_logs: list[MutableMapping[str, Any]], name: str) -> list[MutableMapping[str, Any]]:
+        return [log for log in cap_logs if log.get("event") == name]
+
+    @patch("products.web_analytics.dags.eager_web_analytics_precompute.tag_queries")
+    @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
+    def test_emits_structured_lifecycle_events_on_success(self, get_runner, _tag, _is_cloud):
+        get_runner.return_value = Mock(run=Mock(return_value=None))
+
+        with (
+            patch(
+                "products.web_analytics.dags.eager_web_analytics_precompute.EAGER_BASELINE_TEAM_IDS",
+                (self.team.pk,),
+            ),
+            capture_logs() as cap_logs,
+        ):
+            warm_eager_baseline_op(dagster.build_op_context())
+
+        start = self._events(cap_logs, "eager_baseline_warming_start")
+        assert len(start) == 1
+        assert start[0]["teams"] == 1
+        assert start[0]["gate_reason"] == "ok"
+
+        # Per-tile lifecycle: one start + one done line per tile, so the full
+        # matrix is followable in the Dagster UI / Loki.
+        tile_start = self._events(cap_logs, "eager_baseline_warming_tile_start")
+        assert len(tile_start) == _QUERIES_PER_TEAM
+        assert {t["tile"] for t in tile_start} == set(range(1, _QUERIES_PER_TEAM + 1))
+
+        tile_done = self._events(cap_logs, "eager_baseline_warming_tile_done")
+        assert len(tile_done) == _QUERIES_PER_TEAM
+        assert all(t["status"] == "warmed" and "duration_ms" in t for t in tile_done)
+
+        team_logs = self._events(cap_logs, "eager_baseline_warming_team")
+        assert len(team_logs) == 1
+        assert team_logs[0]["team_id"] == self.team.pk
+        assert team_logs[0]["warmed"] == _QUERIES_PER_TEAM
+        assert team_logs[0]["failed"] == 0
+        assert "duration_ms" in team_logs[0]
+
+        complete = self._events(cap_logs, "eager_baseline_warming_complete")
+        assert len(complete) == 1
+        assert complete[0]["warmed"] == _QUERIES_PER_TEAM
+        assert complete[0]["failed"] == 0
+        assert complete[0]["gate_reason"] == "ok"
+        assert "duration_ms" in complete[0]
+
+    @patch("products.web_analytics.dags.eager_web_analytics_precompute.tag_queries")
+    @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
+    def test_emits_query_failed_event_with_error_type(self, get_runner, _tag, _is_cloud):
+        get_runner.return_value = Mock(run=Mock(side_effect=RuntimeError("boom")))
+
+        with (
+            patch(
+                "products.web_analytics.dags.eager_web_analytics_precompute.EAGER_BASELINE_TEAM_IDS",
+                (self.team.pk,),
+            ),
+            capture_logs() as cap_logs,
+        ):
+            warm_eager_baseline_op(dagster.build_op_context())
+
+        failed = self._events(cap_logs, "eager_baseline_warming_query_failed")
+        assert len(failed) == _QUERIES_PER_TEAM
+        assert all(f["error_type"] == "RuntimeError" for f in failed)
+        assert all(f["team_id"] == self.team.pk for f in failed)
+        assert all(f["status"] == "failed" and "duration_ms" in f for f in failed)
+
+        # Every tile still emits a start even when its query fails.
+        assert len(self._events(cap_logs, "eager_baseline_warming_tile_start")) == _QUERIES_PER_TEAM
+        assert self._events(cap_logs, "eager_baseline_warming_tile_done") == []
 
 
 class TestJobConfiguration:

@@ -1,12 +1,15 @@
+import uuid
 import dataclasses
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
+from django.db.models import F, OuterRef, Q, QuerySet, Subquery, Value
+from django.db.models.functions import Coalesce
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -26,6 +29,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties
+from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, MIN_NAME_TRIGRAM_SIMILARITY, normalize_search_term
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -33,7 +37,11 @@ from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
-from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change, validate_alert_config
+from posthog.tasks.alerts.utils import (
+    THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
+    next_check_at_after_schedule_restriction_change,
+    validate_alert_config,
+)
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
@@ -82,7 +90,8 @@ class ScheduleRestrictionField(serializers.JSONField):
 
 class ThresholdSerializer(serializers.ModelSerializer):
     configuration = ThresholdConfigurationField(
-        help_text="Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage).",
+        help_text="Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). "
+        "For threshold-based alerts (no detector_config), at least one of lower or upper must be set.",
     )
     name = serializers.CharField(
         required=False,
@@ -539,9 +548,30 @@ class AlertSerializer(serializers.ModelSerializer):
             self.instance.calculation_interval if self.instance else AlertCalculationInterval.DAILY,
         )
 
+        if "detector_config" in attrs:
+            detector_config = attrs["detector_config"]
+        elif self.instance is not None:
+            detector_config = self.instance.detector_config
+        else:
+            detector_config = None
+
+        require_threshold_bounds = detector_config is None and (
+            self.instance is None or "threshold" in attrs or "detector_config" in attrs
+        )
+
         try:
-            validate_alert_config(query, condition, config, threshold_config, calculation_interval)
+            validate_alert_config(
+                query,
+                condition,
+                config,
+                threshold_config,
+                calculation_interval,
+                detector_config=detector_config,
+                require_threshold_bounds=require_threshold_bounds,
+            )
         except ValueError as e:
+            if str(e) == THRESHOLD_BOUNDS_REQUIRED_MESSAGE:
+                raise ValidationError({"threshold": {"configuration": [THRESHOLD_BOUNDS_REQUIRED_MESSAGE]}})
             raise ValidationError(str(e))
 
         organization = self.context["get_organization"]()
@@ -693,6 +723,34 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Optional. Fuzzy match against alert `name` using Postgres trigram word similarity "
+                    "(handles typos, transpositions, and prefix-as-you-type). Results are ordered by relevance, "
+                    "then creation time. Capped at 200 characters; longer queries return a 400 error."
+                ),
+            ),
+            OpenApiParameter(
+                "created_by",
+                OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Restrict results to alerts created by the user with this UUID.",
+            ),
+            OpenApiParameter(
+                "insight_id",
+                OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Restrict results to alerts on this insight ID.",
+            ),
+        ],
+    ),
+)
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
     queryset = (
@@ -707,10 +765,50 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if "insight" in filters:
             queryset = queryset.filter(insight_id=filters["insight"])
 
+        insight_id = filters.get("insight_id")
+        if insight_id is not None:
+            queryset = queryset.filter(insight_id=insight_id)
+
+        created_by = filters.get("created_by")
+        if created_by:
+            try:
+                uuid.UUID(created_by)
+            except ValueError:
+                raise ValidationError({"created_by": ["Not a valid UUID."]}) from None
+            queryset = queryset.filter(created_by__uuid=created_by)
+
+        search = filters.get("search")
+        if search:
+            if len(search) > MAX_SEARCH_LENGTH:
+                raise serializers.ValidationError(
+                    {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
+                )
+            queryset = self._apply_search(queryset, search)
+
         latest_check = AlertCheck.objects.filter(alert_configuration=OuterRef("pk")).order_by("-created_at")
         queryset = queryset.annotate(last_value=Subquery(latest_check.values("calculated_value")[:1]))
 
         return queryset
+
+    @staticmethod
+    def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
+        search = normalize_search_term(search)
+        if not search:
+            return queryset
+
+        zero = Value(0.0)
+        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
+        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
+
+        return (
+            queryset.annotate(
+                _name_word=name_word_score,
+                _name_full=name_full_score,
+            )
+            .filter(Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY) | Q(_name_full__gt=MIN_NAME_TRIGRAM_SIMILARITY))
+            .annotate(_search_score=F("_name_word") + F("_name_full"))
+            .order_by("-_search_score", "-created_at")
+        )
 
     CHECKS_DEFAULT_LIMIT = 5
     CHECKS_MAX_LIMIT = 500
@@ -786,10 +884,6 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
-
-        insight_id = request.GET.get("insight_id")
-        if insight_id is not None:
-            queryset = queryset.filter(insight=insight_id)
 
         # Paginate first, then prefetch checks only for the page
         page = self.paginate_queryset(queryset)

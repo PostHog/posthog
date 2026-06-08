@@ -53,11 +53,6 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
-from posthog.helpers.encrypted_flag_payloads import (
-    REDACTED_PAYLOAD_VALUE,
-    encrypt_flag_payloads,
-    get_decrypted_flag_payloads_protected,
-)
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
@@ -76,11 +71,17 @@ from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, C
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
+from posthog.storage.hypercache import HyperCacheDependencyUnavailable
 from posthog.utils import is_valid_regex
 from posthog.views import format_bytes
 
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.encrypted_flag_payloads import (
+    REDACTED_PAYLOAD_VALUE,
+    encrypt_flag_payloads,
+    get_decrypted_flag_payloads_protected,
+)
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker
 from products.feature_flags.backend.local_evaluation import (
@@ -299,6 +300,11 @@ LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER = Counter(
     "posthog_local_evaluation_personal_api_key_source_total",
     "Local evaluation requests authenticated via personal API key, by source",
     labelnames=["source"],  # "header", "body", "query_string"
+)
+
+LOCAL_EVALUATION_DEPENDENCY_UNAVAILABLE_COUNTER = Counter(
+    "posthog_local_evaluation_dependency_unavailable_total",
+    "Local evaluation requests returning 503 because a flag dependency was unavailable on a cold cache",
 )
 
 _AUTH_METHOD_BY_CLASS: dict[type, str] = {
@@ -3445,6 +3451,7 @@ class FeatureFlagViewSet(
             200: OpenApiResponse(response=LocalEvaluationResponseSerializer()),
             402: OpenApiResponse(description="Payment required"),
             500: OpenApiResponse(description="Internal server error"),
+            503: OpenApiResponse(description="Feature flag dependencies temporarily unavailable"),
         },
     )
     @action(
@@ -3548,6 +3555,27 @@ class FeatureFlagViewSet(
                 response["Cache-Control"] = "private, must-revalidate"
             return response
 
+        except HyperCacheDependencyUnavailable:
+            # Cold cache during an upstream (persons DB) outage. Fail loud with a
+            # retryable 503 rather than a generic 500: SDKs treat 5xx as "retry / keep
+            # last-known config". The dependency layer already captured this (throttled),
+            # so re-capturing per request would flood Sentry during an outage.
+            LOCAL_EVALUATION_DEPENDENCY_UNAVAILABLE_COUNTER.inc()
+            duration = time.time() - start_time
+            logger.warning(
+                "Feature flag dependencies unavailable during local evaluation",
+                extra={"duration": duration, "team_id": self.team.pk},
+            )
+            response = Response(
+                {
+                    "type": "service_unavailable",
+                    "code": "flags_dependency_unavailable",
+                    "detail": "Feature flag dependencies are temporarily unavailable; retry shortly",
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+            response["Retry-After"] = "30"
+            return response
         except Exception as e:
             duration = time.time() - start_time
             logger.error(

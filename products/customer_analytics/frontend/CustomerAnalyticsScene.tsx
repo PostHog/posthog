@@ -48,15 +48,15 @@ export const scene: SceneExport = {
     productKey: ProductKey.CUSTOMER_ANALYTICS,
 }
 
-export function CustomerAnalyticsScene(props: { tabId?: string }): JSX.Element {
+export function CustomerAnalyticsScene(): JSX.Element {
     return (
         <FeaturePreviewSceneGate config={customerAnalyticsFeaturePreviewGate}>
-            <CustomerAnalyticsSceneContent {...props} />
+            <CustomerAnalyticsSceneContent />
         </FeaturePreviewSceneGate>
     )
 }
 
-function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Element {
+function CustomerAnalyticsSceneContent(): JSX.Element {
     const { addProductIntent } = useActions(teamLogic)
     const { reportCustomerAnalyticsDashboardConfigurationButtonClicked, reportCustomerAnalyticsViewed } =
         useActions(eventUsageLogic)
@@ -72,10 +72,6 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
         AccessControlResourceType.CustomerAnalytics,
         AccessControlLevel.Editor
     )
-
-    if (!tabId) {
-        throw new Error('CustomerAnalyticsScene was rendered with no tabId')
-    }
 
     useOnMountEffect(() => {
         reportCustomerAnalyticsViewed()

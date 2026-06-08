@@ -9,8 +9,8 @@ import { parseJSON } from '~/utils/json-parse'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
 import { UUIDT } from '~/utils/utils'
-import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
-import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
+import { PersonReadRepository } from '~/worker/ingestion/persons/repositories/person-repository'
+import { ReadOnlyGroupTypeManager } from '~/worker/ingestion/readonly-group-type-manager'
 
 import { TophogOutput } from '../common/outputs'
 import { COOKIELESS_SENTINEL_VALUE, CookielessManager } from '../cookieless/cookieless-manager'
@@ -48,10 +48,10 @@ jest.mock('~/utils/logger', () => ({
 describe('ErrorTrackingPipeline', () => {
     let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
     let mockTeamManager: jest.Mocked<TeamManager>
-    let mockPersonRepository: jest.Mocked<PersonRepository>
+    let mockPersonRepository: jest.Mocked<PersonReadRepository>
     let mockHogTransformer: jest.Mocked<ErrorTrackingHogTransformer>
     let mockCymbalClient: jest.Mocked<CymbalClient>
-    let mockGroupTypeManager: jest.Mocked<GroupTypeManager>
+    let mockGroupTypeManager: jest.Mocked<ReadOnlyGroupTypeManager>
     let mockEventIngestionRestrictionManager: jest.Mocked<EventIngestionRestrictionManager>
     let mockCookielessManager: jest.Mocked<CookielessManager>
     let promiseScheduler: PromiseScheduler
@@ -247,7 +247,7 @@ describe('ErrorTrackingPipeline', () => {
             personPropertiesSize: jest.fn(),
             updateCohortsAndFeatureFlagsForMerge: jest.fn(),
             inTransaction: jest.fn(),
-        } as unknown as jest.Mocked<PersonRepository>
+        } as unknown as jest.Mocked<PersonReadRepository>
 
         // HogTransformer mock that passes through events unchanged by default
         mockHogTransformer = {
@@ -268,7 +268,7 @@ describe('ErrorTrackingPipeline', () => {
             fetchGroupTypes: jest.fn().mockResolvedValue({}),
             fetchGroupTypeIndex: jest.fn(),
             insertGroupType: jest.fn(),
-        } as unknown as jest.Mocked<GroupTypeManager>
+        } as unknown as jest.Mocked<ReadOnlyGroupTypeManager>
 
         mockEventIngestionRestrictionManager = {
             getAppliedRestrictions: jest.fn().mockReturnValue(new Set()),

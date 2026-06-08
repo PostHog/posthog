@@ -70,7 +70,7 @@ rules:
               - '/frontend/src/scenes/approvals/pendingApprovalsLogic.ts'
               - '/frontend/src/scenes/audit-logs/ExportsListHelpers.tsx'
               - '/frontend/src/scenes/audit-logs/advancedActivityLogsLogic.tsx'
-              - '/frontend/src/scenes/authentication/cliLiveLogic.ts'
+              - '/frontend/src/scenes/authentication/cli/cliLiveLogic.ts'
               - '/frontend/src/scenes/dashboard/dashboardLogic.tsx'
               - '/frontend/src/scenes/dashboard/dashboardUtils.ts'
               - '/frontend/src/scenes/dashboard/dashboards/dashboardsLogic.ts'
