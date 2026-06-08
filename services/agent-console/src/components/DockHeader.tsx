@@ -198,32 +198,13 @@ export function DockHeader({
                 </span>
             ) : null}
 
-            {/* Focus toggle — only meaningful in concierge mode (in playground
-                the dock is talking *to* the agent, not navigating the console). */}
+            {/* Focus toggle — high-frequency state control, kept prominent
+                (icon-only) so the on/off state is at-a-glance. Concierge
+                mode only; in playground the dock is talking *to* the
+                agent, not navigating the console. */}
             {!isPlayground && onFollowingChange ? (
                 <FocusToggle enabled={followingEnabled ?? true} onChange={onFollowingChange} />
             ) : null}
-
-            {sessionId && onOpenSession ? (
-                <button
-                    type="button"
-                    onClick={() => onOpenSession(sessionId)}
-                    className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-1.5 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    aria-label="Open this session in the session view"
-                    title="Open this session in the session view"
-                >
-                    <ExternalLinkIcon className="h-3 w-3" />
-                    Session
-                </button>
-            ) : null}
-
-            {onChangeDockMode ? <DockModeToggle mode={dockMode ?? 'rail'} onChange={onChangeDockMode} /> : null}
-
-            {onRenderMarkdownChange ? (
-                <SettingsMenu renderMarkdown={renderMarkdown ?? true} onRenderMarkdownChange={onRenderMarkdownChange} />
-            ) : null}
-
-            {onHideDock ? <HideDockButton onHide={onHideDock} shortcutHint={hideShortcutHint} /> : null}
 
             {!isPlayground && sessionHistory && sessionHistory.length > 0 && (onResumeSession || onOpenSession) ? (
                 <SessionHistoryMenu
@@ -248,6 +229,22 @@ export function DockHeader({
                 </button>
             ) : null}
 
+            {/* Bundled "more" menu — display, layout, open-in-session-view.
+                Anything that's set-once or rarely toggled lives here so the
+                visible header stays scannable. */}
+            {onRenderMarkdownChange || onChangeDockMode || (sessionId && onOpenSession) ? (
+                <SettingsMenu
+                    renderMarkdown={renderMarkdown ?? true}
+                    onRenderMarkdownChange={onRenderMarkdownChange}
+                    dockMode={dockMode}
+                    onChangeDockMode={onChangeDockMode}
+                    sessionId={sessionId}
+                    onOpenSession={onOpenSession}
+                />
+            ) : null}
+
+            {onHideDock ? <HideDockButton onHide={onHideDock} shortcutHint={hideShortcutHint} /> : null}
+
             {isPlayground ? (
                 <button
                     type="button"
@@ -270,18 +267,30 @@ function shortRevisionId(id: string): string {
 function SettingsMenu({
     renderMarkdown,
     onRenderMarkdownChange,
+    dockMode,
+    onChangeDockMode,
+    sessionId,
+    onOpenSession,
 }: {
     renderMarkdown: boolean
-    onRenderMarkdownChange: (next: boolean) => void
+    onRenderMarkdownChange?: (next: boolean) => void
+    dockMode?: DockMode
+    onChangeDockMode?: (next: DockMode) => void
+    sessionId?: string
+    onOpenSession?: (sessionId: string) => void
 }): React.ReactElement {
+    const hasDisplay = !!onRenderMarkdownChange
+    const hasLayout = !!onChangeDockMode
+    const hasOpen = !!(sessionId && onOpenSession)
+    const currentMode: DockMode = dockMode ?? 'rail'
     return (
         <DropdownMenu>
             <DropdownMenuTrigger
                 render={
                     <button
                         type="button"
-                        aria-label="Chat display settings"
-                        title="Display settings"
+                        aria-label="Dock settings"
+                        title="Dock settings"
                         className="inline-flex h-6 cursor-pointer items-center justify-center rounded-md border border-border bg-background px-1.5 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                     >
                         <SettingsIcon className="h-3 w-3" />
@@ -289,15 +298,46 @@ function SettingsMenu({
                 }
             />
             <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuGroup>
-                    <DropdownMenuLabel>Display</DropdownMenuLabel>
-                    <DropdownMenuCheckboxItem
-                        checked={renderMarkdown}
-                        onCheckedChange={(next) => onRenderMarkdownChange(Boolean(next))}
-                    >
-                        Render markdown
-                    </DropdownMenuCheckboxItem>
-                </DropdownMenuGroup>
+                {hasOpen ? (
+                    <DropdownMenuGroup>
+                        <DropdownMenuItem onSelect={() => onOpenSession!(sessionId!)}>
+                            <ExternalLinkIcon className="h-3 w-3" />
+                            Open in session view
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                ) : null}
+                {hasOpen && (hasLayout || hasDisplay) ? <DropdownMenuSeparator /> : null}
+                {hasLayout ? (
+                    <DropdownMenuGroup>
+                        <DropdownMenuLabel>Layout</DropdownMenuLabel>
+                        <DropdownMenuCheckboxItem
+                            checked={currentMode === 'rail'}
+                            onCheckedChange={() => onChangeDockMode!('rail')}
+                        >
+                            <PanelRightIcon className="h-3 w-3" />
+                            Dock to side
+                        </DropdownMenuCheckboxItem>
+                        <DropdownMenuCheckboxItem
+                            checked={currentMode === 'floating'}
+                            onCheckedChange={() => onChangeDockMode!('floating')}
+                        >
+                            <PictureInPictureIcon className="h-3 w-3" />
+                            Float panel
+                        </DropdownMenuCheckboxItem>
+                    </DropdownMenuGroup>
+                ) : null}
+                {hasLayout && hasDisplay ? <DropdownMenuSeparator /> : null}
+                {hasDisplay ? (
+                    <DropdownMenuGroup>
+                        <DropdownMenuLabel>Display</DropdownMenuLabel>
+                        <DropdownMenuCheckboxItem
+                            checked={renderMarkdown}
+                            onCheckedChange={(next) => onRenderMarkdownChange!(Boolean(next))}
+                        >
+                            Render markdown
+                        </DropdownMenuCheckboxItem>
+                    </DropdownMenuGroup>
+                ) : null}
             </DropdownMenuContent>
         </DropdownMenu>
     )
@@ -314,30 +354,6 @@ function HideDockButton({ onHide, shortcutHint }: { onHide: () => void; shortcut
             className="inline-flex h-6 cursor-pointer items-center justify-center rounded-md border border-border bg-background px-1.5 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
             <ChevronsRightIcon className="h-3 w-3" />
-        </button>
-    )
-}
-
-function DockModeToggle({
-    mode,
-    onChange,
-}: {
-    mode: DockMode
-    onChange: (next: DockMode) => void
-}): React.ReactElement {
-    const isFloating = mode === 'floating'
-    const Icon = isFloating ? PanelRightIcon : PictureInPictureIcon
-    const next: DockMode = isFloating ? 'rail' : 'floating'
-    const label = isFloating ? 'Dock to side' : 'Float dock'
-    return (
-        <button
-            type="button"
-            onClick={() => onChange(next)}
-            aria-label={label}
-            title={label}
-            className="inline-flex h-6 cursor-pointer items-center justify-center rounded-md border border-border bg-background px-1.5 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-            <Icon className="h-3 w-3" />
         </button>
     )
 }
@@ -476,7 +492,7 @@ function FocusToggle({
             type="button"
             onClick={() => onChange(!enabled)}
             aria-pressed={enabled}
-            aria-label={enabled ? 'Pause focus mode' : 'Resume focus mode'}
+            aria-label={enabled ? 'Focus mode on (click to pause)' : 'Focus mode paused (click to resume)'}
             title={
                 enabled
                     ? 'Focus mode on — the dock will navigate to whatever it’s working on. Click to pause.'
@@ -486,11 +502,10 @@ function FocusToggle({
                 (enabled
                     ? 'border-info/40 bg-info/10 text-info-foreground'
                     : 'border-border bg-background text-muted-foreground hover:text-foreground') +
-                ' inline-flex h-6 cursor-pointer items-center gap-1 rounded-md border px-1.5 text-[0.6875rem] font-medium transition-colors'
+                ' inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border transition-colors'
             }
         >
             <Icon className="h-3 w-3" />
-            <span>Focus</span>
         </button>
     )
 }
