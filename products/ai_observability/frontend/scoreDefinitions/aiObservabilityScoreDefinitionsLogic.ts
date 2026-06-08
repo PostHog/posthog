@@ -1,14 +1,13 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 
 import { ApiConfig } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
-import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual, pluralize } from '~/lib/utils'
 import { urls } from '~/scenes/urls'
 
@@ -270,7 +269,7 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         setFilters: () => {
             const nextValues = { ...getUrlFilters(values.filters), human_reviews_tab: 'scorers' }
             const urlValues = {
@@ -284,7 +283,7 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
         },
     })),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.aiObservabilityReviews()]: (_, searchParams, __, { method }) => {
             const newFilters = cleanFilters(searchParams)
 

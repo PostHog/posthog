@@ -215,8 +215,11 @@ const alertsList = (): ToolBase<typeof AlertsListSchema, WithPostHogUrl<Schemas.
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/`,
             query: {
+                created_by: params.created_by,
+                insight_id: params.insight_id,
                 limit: params.limit,
                 offset: params.offset,
+                search: params.search,
             },
         })
         return await withPostHogUrl(context, result, '/insights?tab=alerts')

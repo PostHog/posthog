@@ -190,9 +190,9 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 actions.openSidePanel(SidePanelTab.Max)
             }
             if (conversationId) {
-                let logic = maxLogic.findMounted({ tabId: 'sidepanel' })
+                let logic = maxLogic.findMounted({ sidePanel: true })
                 if (!logic) {
-                    logic = maxLogic({ tabId: 'sidepanel' })
+                    logic = maxLogic({ sidePanel: true })
                     logic.mount() // we're never unmounting this
                 }
                 logic.actions.openConversation(conversationId)

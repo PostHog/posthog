@@ -42,6 +42,7 @@ dependencies = [
  "clap",
  "determinator",
  "guppy",
+ "rstest",
  "serde",
  "serde_json",
  "tempfile",
@@ -4977,6 +4978,7 @@ dependencies = [
  "serde",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
 ]
@@ -10689,7 +10691,6 @@ dependencies = [
  "axum 0.7.9",
  "base64 0.22.1",
  "bytes",
- "flate2",
  "h2 0.4.13",
  "http 1.4.0",
  "http-body 1.0.1",

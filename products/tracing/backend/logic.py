@@ -479,7 +479,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 is_root_span,
                 {where} as matched_filter,
                 min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id) as trace_start,
-                attributes
+                {attributes}
             FROM posthog.trace_spans
             WHERE {filters} AND {root_filter} AND trace_id IN ({trace_id_query}) LIMIT {limit}
         """,
@@ -490,6 +490,10 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
                 "filters": ast.Placeholder(expr=ast.Field(chain=["filters"])),
                 "root_filter": parse_expr("is_root_span = 1") if root_only else ast.Constant(value=True),
+                # The attribute map dominates payload size (db.statement holds multi-KB SQL). When
+                # excluded we still SELECT a column so the positional result mapping stays stable —
+                # an empty map instead of the real one.
+                "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
             },
         )
         assert isinstance(query, ast.SelectQuery)
