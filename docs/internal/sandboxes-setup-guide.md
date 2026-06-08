@@ -112,6 +112,19 @@ MODAL_TOKEN_ID=<token_id>
 MODAL_TOKEN_SECRET=<token_secret>
 ```
 
+### Optional: dedicated Redis instance
+
+Tasks can optionally use a dedicated Redis instance for streams and caches.
+By default, tasks share the main `REDIS_URL`. To enable isolation:
+
+```bash
+TASKS_REDIS_URL=redis://localhost:6380
+```
+
+When set, task-run streams and caches route to this instance instead of the
+shared Redis. This is mainly useful in production for resource isolation, but
+you can configure it locally to test the dedicated-Redis code paths.
+
 ### Tunnel gateway, API, and MCP
 
 If you run in a docker sandbox you don't need to do this. If you are testing with Modal sandboxes, since they run in the cloud and can't reach `localhost` directly,
