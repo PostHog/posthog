@@ -4,8 +4,6 @@ from ipaddress import IPv6Address, ip_address
 from typing import TYPE_CHECKING, Any, Protocol, Union
 from urllib.parse import urlparse
 
-from django.db.models import Q
-
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -46,8 +44,11 @@ def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "D
             table_names = [f"{chain[1]}_{chain[0]}_{chain[2]}", f"{chain[1]}{chain[0]}_{chain[2]}"]
 
     table: DataWarehouseSavedQuery | DataWarehouseTable | None = (
-        DataWarehouseTable.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
+        # `queryable()` ignores soft-deleted tables and orphans of a soft-deleted source.
+        DataWarehouseTable.objects.queryable()
         .filter(team=team, name__in=table_names)
+        # Deterministic resolution when more than one live table matches: newest wins.
+        .order_by("-created_at")
         .first()
     )
     if table is None:
