@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 
 import IconPostgres from 'public/services/postgres.png'
 
@@ -11,7 +12,7 @@ import { PostgreSQLSetupModalLogicProps, postgreSQLSetupModalLogic } from './pos
 
 export const PostgreSQLSetupModal = (props: PostgreSQLSetupModalLogicProps): JSX.Element => {
     const { postgreSQLIntegration, isPostgreSQLIntegrationSubmitting } = useValues(postgreSQLSetupModalLogic(props))
-    const { submitPostgreSQLIntegration } = useActions(postgreSQLSetupModalLogic(props))
+    const { submitPostgreSQLIntegration, setPostgreSQLIntegrationValue } = useActions(postgreSQLSetupModalLogic(props))
 
     return (
         <LemonModal
@@ -53,9 +54,40 @@ export const PostgreSQLSetupModal = (props: PostgreSQLSetupModalLogicProps): JSX
                     </LemonField>
 
                     {postgreSQLIntegration.ssl_mode !== 'no' && (
-                        <LemonField name="ssl_root_cert" label="Root certificate">
-                            <LemonTextArea placeholder="-----BEGIN CERTIFICATE-----&#10;..." />
-                        </LemonField>
+                        <>
+                            <LemonField name="use_system_ca">
+                                {({ value, onChange }) => (
+                                    <LemonCheckbox
+                                        bordered
+                                        checked={!!value}
+                                        onChange={onChange}
+                                        label="Use the system certificate authorities"
+                                    />
+                                )}
+                            </LemonField>
+
+                            {!postgreSQLIntegration.use_system_ca && (
+                                <LemonField name="ssl_root_cert" label="Root certificate">
+                                    {() => (
+                                        <LemonFileInput
+                                            accept=".crt,.pem,.cer,.ca-bundle"
+                                            multiple={false}
+                                            onChange={(files) => {
+                                                if (files[0]) {
+                                                    void files[0]
+                                                        .text()
+                                                        .then((text) =>
+                                                            setPostgreSQLIntegrationValue('ssl_root_cert', text)
+                                                        )
+                                                } else {
+                                                    setPostgreSQLIntegrationValue('ssl_root_cert', null)
+                                                }
+                                            }}
+                                        />
+                                    )}
+                                </LemonField>
+                            )}
+                        </>
                     )}
 
                     <div className="flex justify-end">

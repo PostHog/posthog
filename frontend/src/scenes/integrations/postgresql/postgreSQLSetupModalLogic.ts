@@ -28,22 +28,24 @@ export const postgreSQLSetupModalLogic = kea<postgreSQLSetupModalLogicType>([
                 port: 5432,
                 user: null as string | null,
                 password: null as string | null,
-                ssl_root_cert: null as string | null,
                 ssl_mode: 'no',
+                use_system_ca: true,
+                ssl_root_cert: null as string | null,
             },
-            errors: ({ host, port, user, password, ssl_mode, ssl_root_cert }) => ({
+            errors: ({ host, port, user, password, ssl_mode, use_system_ca, ssl_root_cert }) => ({
                 host: host?.trim() ? undefined : 'Host is required',
                 port: port ? undefined : 'Port is required',
                 user: user?.trim() ? undefined : 'User is required',
                 password: password?.trim() ? undefined : 'Password is required',
                 ssl_root_cert:
-                    ssl_mode === 'no' || ssl_root_cert?.trim()
+                    ssl_mode === 'no' || use_system_ca || ssl_root_cert?.trim()
                         ? undefined
-                        : 'Root certificate is required when verifying server certificates',
+                        : 'Upload a root certificate, or use the system certificate authorities',
             }),
             submit: async () => {
                 try {
-                    const { host, port, user, password, ssl_mode, ssl_root_cert } = values.postgreSQLIntegration
+                    const { host, port, user, password, ssl_mode, use_system_ca, ssl_root_cert } =
+                        values.postgreSQLIntegration
                     const integration = await api.integrations.create({
                         kind: 'postgresql',
                         config: {
@@ -53,7 +55,7 @@ export const postgreSQLSetupModalLogic = kea<postgreSQLSetupModalLogicType>([
                             password: password,
                             ...(ssl_mode !== 'no' && {
                                 ssl_mode: ssl_mode,
-                                ssl_root_cert: ssl_root_cert,
+                                ssl_root_cert: use_system_ca ? 'system' : ssl_root_cert,
                             }),
                         },
                     })
