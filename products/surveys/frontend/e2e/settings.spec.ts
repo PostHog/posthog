@@ -1,7 +1,5 @@
-import { expect, test } from '@playwright-utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '@playwright-utils/workspace-test-base'
 import { Page } from '@playwright/test'
-
-import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 test.describe('Survey Settings', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
