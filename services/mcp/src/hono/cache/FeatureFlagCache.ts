@@ -7,10 +7,12 @@ import { redisOperationsTotal } from '../metrics'
 import type { RedisLike } from './RedisCache'
 
 // Tool-gating flags only decide which MCP tools are visible and change at the
-// cadence of rollout edits, while MCP sessions fire many requests over a few
-// minutes — so a short window absorbs the in-session burst while keeping flag
-// changes propagating quickly.
-export const FLAG_CACHE_TTL_SECONDS = 5 * 60
+// cadence of rollout edits. Consecutive same-user MCP calls are bursty — across
+// 30 days of production traffic the inter-call gap is p50 3s / p75 11s / p90 75s
+// — so a 2-minute window sits just above p90 and absorbs >90% of repeat calls
+// (the active burst plus short thinking pauses) while keeping the staleness
+// window tight; larger TTLs add only ~1pp of hit rate per doubling.
+export const FLAG_CACHE_TTL_SECONDS = 2 * 60
 
 const FLAG_CACHE_PREFIX = 'mcp:flags'
 
