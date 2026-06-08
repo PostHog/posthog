@@ -75,6 +75,7 @@ class PlaywrightWorkspaceSetupData(BaseModel):
     use_current_time: bool | None = None
     skip_onboarding: bool | None = None
     no_demo_data: bool | None = None
+    staff: bool | None = None
     insight_variables: list[PlaywrightSetupVariable] | None = None
     insights: list[PlaywrightSetupInsight] | None = None
     dashboards: list[PlaywrightSetupDashboard] | None = None
@@ -217,7 +218,10 @@ def create_organization_with_team(
 
     # Skip the post-login /account/credential-review interstitial that fires for users with unreviewed PersonalAPIKey
     user.credentials_reviewed_at = timezone.now()
-    user.save(update_fields=["credentials_reviewed_at"])
+    # Staff access gates instance-admin areas (e.g. the help menu's admin/system-status link)
+    if data.staff:
+        user.is_staff = True
+    user.save(update_fields=["credentials_reviewed_at", "is_staff"])
 
     # Skip all onboarding tasks if requested (prevents Quick Start popover in tests)
     if data.skip_onboarding:

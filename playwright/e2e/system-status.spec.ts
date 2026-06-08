@@ -4,7 +4,7 @@ test.describe('System Status', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true, staff: true })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {

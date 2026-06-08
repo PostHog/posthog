@@ -58,7 +58,7 @@ test.describe('CRUD Survey', () => {
     let name: string
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
-    // Keep demo data: one test targets the `is_demo` person property in the taxonomic filter.
+    // Keep demo data: one test targets the `email` person property in the taxonomic filter.
     test.beforeAll(async ({ playwrightSetup }) => {
         workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true })
     })
@@ -117,8 +117,8 @@ test.describe('CRUD Survey', () => {
 
         await page.getByRole('button', { name: 'Add property targeting' }).click()
         await page.getByRole('button', { name: 'Add condition', exact: true }).click()
-        await page.locator('[data-attr=taxonomic-filter-searchfield]').fill('is_demo')
-        await page.locator('.taxonomic-list-row').getByText('is_demo').first().click()
+        await page.locator('[data-attr=taxonomic-filter-searchfield]').fill('email')
+        await page.locator('.taxonomic-list-row').getByText('email').first().click()
 
         await page.locator('span').filter({ hasText: 'Enter value...' }).click()
         await page.getByPlaceholder('Enter value...').fill('t')
