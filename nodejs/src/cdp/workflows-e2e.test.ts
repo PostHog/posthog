@@ -1038,12 +1038,14 @@ describe('Workflows E2E (email queue)', () => {
     let eventsConsumer: CdpEventsConsumer
     let hogflowWorker: CdpCyclotronWorkerHogFlow
     let emailWorker: CdpCyclotronWorkerEmail
+    let matcher: CdpHogflowSubscriptionMatcherConsumer | undefined
 
     let hub: Hub
     let kafkaProducer: KafkaProducerWrapper
     let mockProducerObserver: KafkaProducerObserver
     let team: Team
     let cyclotronPool: Pool
+    let deps: ReturnType<typeof createCdpConsumerDeps>
 
     beforeAll(() => {
         cyclotronPool = new Pool({ connectionString: CYCLOTRON_NODE_DB_URL })
@@ -1112,7 +1114,8 @@ describe('Workflows E2E (email queue)', () => {
             ],
         })
 
-        const deps = createCdpConsumerDeps(hub, kafkaProducer)
+        matcher = undefined
+        deps = createCdpConsumerDeps(hub, kafkaProducer)
         const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
         // Each consumer gets a dedicated CyclotronJobQueuePostgresV2 — sharing one
         // across two consumers collides on `this.worker` and the shared pg pool.
@@ -1143,6 +1146,7 @@ describe('Workflows E2E (email queue)', () => {
             eventsConsumer?.stop() ?? Promise.resolve(),
             hogflowWorker?.stop() ?? Promise.resolve(),
             emailWorker?.stop() ?? Promise.resolve(),
+            matcher?.stop().catch(() => {}) ?? Promise.resolve(),
         ])
         await kafkaProducer.disconnect()
         await closeHub(hub)
@@ -1154,7 +1158,9 @@ describe('Workflows E2E (email queue)', () => {
         return result.rows
     }
 
-    function createGlobals(): HogFunctionInvocationGlobals {
+    function createGlobals(
+        overrides: Partial<HogFunctionInvocationGlobals['event']> = {}
+    ): HogFunctionInvocationGlobals {
         return createHogExecutionGlobals({
             project: { id: team.id } as any,
             event: {
@@ -1165,9 +1171,16 @@ describe('Workflows E2E (email queue)', () => {
                     $lib_version: '1.0.0',
                 },
                 timestamp: '2024-09-03T09:00:00Z',
+                ...overrides,
             } as any,
         })
     }
+
+    // Mirrors what HogFlowSerializer compiles for {events: [{id: <name>}]}: a single
+    // equality check on the `event` global. The matcher fails closed without bytecode.
+    const eventNameFilter = (eventName: string) => ({
+        filters: { events: [{ id: eventName }], bytecode: ['_H', 1, 32, eventName, 32, 'event', 1, 1, 11] as any[] },
+    })
 
     it('routes the email through the dedicated queue and continues the workflow', async () => {
         const hogFlow = new FixtureHogFlowBuilder()
@@ -1355,5 +1368,101 @@ describe('Workflows E2E (email queue)', () => {
             )
             expect(terminal.length).toBeGreaterThanOrEqual(1)
         }, 10000)
+    })
+
+    it('wakes a wait_until_condition parked on the email queue after an email step', async () => {
+        // Reproduces the prod bug: an email step routes the invocation to the email queue, so the
+        // following wait_until_condition parks on the email queue (not hogflow). The matcher must
+        // still find and wake it there — otherwise a matching event never wakes the job and the
+        // post-wait email is never sent.
+        const emailAction = (label: string) => ({
+            type: 'function_email' as const,
+            config: {
+                template_id: 'template-workflows-e2e-email',
+                inputs: {
+                    email: {
+                        value: {
+                            to: { email: 'recipient@example.com', name: 'Recipient' },
+                            from: { integrationId: 1, email: 'sender@posthog.com' },
+                            subject: label,
+                            text: label,
+                            html: `<p>${label}</p>`,
+                        },
+                    },
+                },
+            },
+        })
+
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: emailAction('First email'),
+                    wait_condition: {
+                        type: 'wait_until_condition',
+                        config: {
+                            // Property condition never matches, so only the event can wake the job.
+                            condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                            events: [eventNameFilter('wakeup_event')],
+                            // Long enough that the job stays parked for the whole test — the only way
+                            // the second email sends is the matcher waking it, never a timeout.
+                            max_wait_duration: '5m',
+                        },
+                    },
+                    email_2: emailAction('Second email'),
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'wait_condition', type: 'continue' },
+                    { from: 'wait_condition', to: 'email_2', type: 'branch', index: 0 },
+                    { from: 'wait_condition', to: 'exit', type: 'continue' },
+                    { from: 'email_2', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const emailsSent = () =>
+            mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.metric_name === 'email_sent')
+                .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+        // Trigger: email_1 routes to the email queue, the email worker sends it and continues the
+        // flow to the wait step, which parks.
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+
+        // The first email is sent and the job parks waiting for the event.
+        await waitForExpect(async () => {
+            expect(emailsSent()).toBe(1)
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+        }, 15000)
+
+        // The wait parks on the email queue (carried over from email_1). The matcher has to find
+        // it there regardless of queue — that's exactly the scenario that was broken.
+        const parked = (await queryCyclotronJobs()).find(
+            (j: any) => j.status === 'available' && new Date(j.scheduled) > new Date()
+        )
+        expect(parked.queue_name).toBe('email')
+        expect(emailsSent()).toBe(1)
+
+        // The subscribed event fires for this person — the matcher wakes the parked job even though
+        // it sits on the email queue, the email worker resumes it down the matched branch, and the
+        // second email is sent. This is the end-to-end "the job wakes and the next step runs" check.
+        matcher = new CdpHogflowSubscriptionMatcherConsumer({ ...hub }, deps)
+        await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+
+        await waitForExpect(() => {
+            expect(emailsSent()).toBe(2)
+        }, 15000)
     })
 })
