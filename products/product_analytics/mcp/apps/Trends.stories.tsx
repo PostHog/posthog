@@ -1,6 +1,5 @@
-import type { ReactElement } from 'react'
-
 import type { Meta, StoryObj } from '@storybook/react'
+import type { ReactElement } from 'react'
 
 import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
