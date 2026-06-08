@@ -6,7 +6,7 @@ import type { maxWebAnalyticsNudgeSessionLogicType } from './maxWebAnalyticsNudg
 
 const STORAGE_KEY = 'posthog-ai-web-analytics-nudge-session'
 
-interface NudgeSessionState {
+export interface NudgeSessionState {
     shownForMessageId: string | null
     dismissed: boolean
     eligibleReported: boolean

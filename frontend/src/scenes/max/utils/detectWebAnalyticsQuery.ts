@@ -1,14 +1,4 @@
-import {
-    AnyPropertyFilter,
-    BreakdownFilter,
-    EventsNode,
-    GroupNode,
-    PropertyGroupFilter,
-    PropertyGroupFilterValue,
-    QuerySchema,
-    RetentionEntity,
-    TrendsQuery,
-} from '~/queries/schema/schema-general'
+import { BreakdownFilter, EventsNode, GroupNode, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
 import {
     isActionsNode,
     isDataVisualizationNode,
@@ -28,6 +18,7 @@ import {
     isWebVitalsPathBreakdownQuery,
     isWebVitalsQuery,
 } from '~/queries/utils'
+import { AnyPropertyFilter, PropertyGroupFilter, PropertyGroupFilterValue, RetentionEntity } from '~/types'
 
 import { ThreadMessage } from '../maxThreadLogic'
 import {
