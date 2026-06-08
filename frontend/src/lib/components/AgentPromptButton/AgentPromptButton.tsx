@@ -16,11 +16,8 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { cn } from 'lib/utils/css-classes'
 
-import claudeLogo from './logos/claude.svg'
-import cursorLogo from './logos/cursor.svg'
-import openaiLogo from './logos/openai.svg'
+import { AgentLogo, claudeLogo, cursorLogo, openaiLogo } from './agentLogos'
 
 export interface AgentPromptAction {
     /** Stable key used for localStorage persistence */
@@ -117,20 +114,6 @@ const CLIPBOARD_KEY = 'clipboard'
 
 function invokeAgent(agent: AgentDef, prompt: string): void {
     window.open(agent.buildDeepLink(prompt), '_blank')
-}
-
-function AgentLogo({ agent }: { agent: AgentDef }): JSX.Element {
-    if (typeof agent.logo !== 'string') {
-        return agent.logo
-    }
-    return (
-        <img
-            src={agent.logo}
-            alt=""
-            aria-hidden
-            className={cn('size-4 shrink-0 object-contain', agent.logoClassName)}
-        />
-    )
 }
 
 export function AgentPromptButton({
@@ -244,7 +227,7 @@ export function AgentPromptButton({
                     {AGENTS.map((agent) => (
                         <DropdownMenuRadioItem key={agent.key} value={agent.key} asChild>
                             <ButtonPrimitive menuItem className="gap-1.5">
-                                <AgentLogo agent={agent} />
+                                <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
                                 <span className="truncate flex-1">{agent.name}</span>
                                 <DropdownMenuItemIndicator intent="radio" />
                             </ButtonPrimitive>
