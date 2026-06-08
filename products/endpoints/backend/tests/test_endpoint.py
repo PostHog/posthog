@@ -929,6 +929,30 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertIsInstance(query_status["results"], list)
         self.assertEqual(len(query_status["results"]), 0, query_status)
 
+    def test_get_last_execution_times_with_personal_api_key(self):
+        """Personal API key access must be allowed — the MCP server calls this action via a personal API key."""
+        create_endpoint_with_version(
+            name="test_query_1",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        # Drop session auth so the request is authenticated purely by the personal API key,
+        # matching how the MCP server reaches this endpoint.
+        self.client.logout()
+
+        data = {"names": ["test_query_1"]}
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/last_execution_times/",
+            data,
+            format="json",
+            headers={"authorization": f"Bearer {self.api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
     @parameterized.expand(
         [
             ("valid_900s", 900, status.HTTP_201_CREATED, None),

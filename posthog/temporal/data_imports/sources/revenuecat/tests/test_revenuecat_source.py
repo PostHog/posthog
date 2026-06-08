@@ -187,6 +187,23 @@ class TestRevenueCatSourceDeleteWebhook:
         mock_delete.assert_called_once_with("k", "p", "https://example.com/h")
 
 
+class TestRevenueCatSourceSyncWebhookEvents:
+    """RevenueCat has no provider-side event subscription to reconcile — it inherits the
+    `WebhookSource` defaults, which are a no-op."""
+
+    def test_get_desired_webhook_events_is_none(self):
+        source = RevenueCatSource()
+        assert source.get_desired_webhook_events(_config("k", "p"), ["events"]) is None
+
+    def test_sync_webhook_events_is_noop_success(self):
+        source = RevenueCatSource()
+        result = source.sync_webhook_events(
+            _config("k", "p"), "https://example.com/h", team_id=1, eligible_schema_names=["events"]
+        )
+        assert result.success is True
+        assert result.error is None
+
+
 class TestRevenueCatSourceExternalWebhookInfo:
     @patch("posthog.temporal.data_imports.sources.revenuecat.source.api_client.get_external_webhook_info")
     def test_delegates_to_api_client(self, mock_info):

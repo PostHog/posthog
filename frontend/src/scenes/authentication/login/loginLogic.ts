@@ -194,7 +194,7 @@ export const loginLogic = kea<loginLogicType>([
             },
         ],
     })),
-    forms(({ actions, values }) => ({
+    forms(({ actions }) => ({
         login: {
             defaults: { email: '', password: '' } as LoginForm,
             errors: ({ email, password }) => ({
@@ -230,11 +230,7 @@ export const loginLogic = kea<loginLogicType>([
                         )
                         throw e
                     }
-                    let errorDetail = detail
-                    if (code === 'invalid_credentials' && values.preflight?.cloud) {
-                        errorDetail = detail + ' Make sure you have selected the right data region.'
-                    }
-                    actions.setGeneralError(code, errorDetail)
+                    actions.setGeneralError(code, detail)
                     throw e
                 }
             },
