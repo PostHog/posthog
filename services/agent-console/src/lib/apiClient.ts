@@ -252,15 +252,30 @@ function languageForPath(path: string): BundleFileLanguage {
  * drift signal we want — fix the mapper rather than casting through it.
  */
 
+export interface ListSessionsResult {
+    sessions: ChatSession[]
+    /** Total matching sessions on the server, before pagination. */
+    count: number
+}
+
 export async function listSessionsForAgent(
     teamId: number,
     slug: string,
-    agent: { id: string; name: string; slug: string }
-): Promise<ChatSession[]> {
-    const { results } = await getJson<AgentApplicationSessionsListResponseApi>(
-        posthogUrl(teamId, `/agent_applications/${encodeURIComponent(slug)}/sessions/`)
+    agent: { id: string; name: string; slug: string },
+    params: { limit?: number; offset?: number } = {}
+): Promise<ListSessionsResult> {
+    const qsParams = new URLSearchParams()
+    if (params.limit !== undefined) {
+        qsParams.set('limit', String(params.limit))
+    }
+    if (params.offset !== undefined) {
+        qsParams.set('offset', String(params.offset))
+    }
+    const qs = qsParams.toString()
+    const { results, count } = await getJson<AgentApplicationSessionsListResponseApi>(
+        posthogUrl(teamId, `/agent_applications/${encodeURIComponent(slug)}/sessions/${qs ? `?${qs}` : ''}`)
     )
-    return results.map((s) => summaryToChatSession(s, agent))
+    return { sessions: results.map((s) => summaryToChatSession(s, agent)), count }
 }
 
 function summaryToChatSession(

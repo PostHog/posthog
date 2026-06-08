@@ -173,7 +173,8 @@ function useTabCounts(teamId: number | null, agent: { id: string; slug: string; 
             if (teamId == null) {
                 return Promise.resolve(null)
             }
-            return listSessionsForAgent(teamId, agent.slug, agent).catch(() => null)
+            // Only need the total count for the tab badge — fetch a single row.
+            return listSessionsForAgent(teamId, agent.slug, agent, { limit: 1 }).catch(() => null)
         },
         [teamId, agent.slug, agent.id, agent.name],
         { pollMs: TAB_COUNT_POLL_MS }
@@ -200,7 +201,7 @@ function useTabCounts(teamId: number | null, agent: { id: string; slug: string; 
     )
     return useMemo(
         () => ({
-            sessions: sessions.data ? sessions.data.length : undefined,
+            sessions: sessions.data ? sessions.data.count : undefined,
             memory: memory.data ? memory.data.count : undefined,
             approvals: approvals.data ? approvals.data.length : undefined,
         }),

@@ -1,9 +1,8 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 
-import type { ChatSession } from '@posthog/agent-chat'
 import type { LogEntry } from '@posthog/agent-chat/fixtures'
 
 import { useAgent } from '@/components/agent-context'
@@ -13,6 +12,8 @@ import { SessionsList } from '@/components/SessionsList'
 import { getSession, listLogsForSession, listSessionsForAgent } from '@/lib/apiClient'
 import { useResource } from '@/lib/useResource'
 import { SessionDetail } from '@/screens/SessionDetail'
+
+const PAGE_SIZE = 20
 
 export function SessionsSegment(): React.ReactElement {
     const agent = useAgent()
@@ -38,12 +39,20 @@ export function SessionsSegment(): React.ReactElement {
     // background tab, catches up on focus).
     const POLL_MS = 10_000
 
+    // Pagination: start with PAGE_SIZE rows, grow the window on "Load more".
+    // We re-fetch the whole window instead of merging pages so the same
+    // poll machinery keeps streaming rows fresh.
+    const [limit, setLimit] = useState(PAGE_SIZE)
+
     const sessions = useResource(
         () =>
-            listSessionsForAgent(teamId, agent.slug, { id: agent.id, name: agent.name, slug: agent.slug }).catch(
-                () => [] as ChatSession[]
-            ),
-        [teamId, agent.slug, agent.id],
+            listSessionsForAgent(
+                teamId,
+                agent.slug,
+                { id: agent.id, name: agent.name, slug: agent.slug },
+                { limit }
+            ).catch(() => ({ sessions: [], count: 0 })),
+        [teamId, agent.slug, agent.id, limit],
         { pollMs: POLL_MS }
     )
 
@@ -83,14 +92,26 @@ export function SessionsSegment(): React.ReactElement {
         [agent.slug, router, searchParams]
     )
 
-    const list = sessions.data ?? []
+    const list = sessions.data?.sessions ?? []
+    const totalCount = sessions.data?.count ?? list.length
+    const hasMore = list.length < totalCount
+    const loadMore = useCallback(() => setLimit((l) => l + PAGE_SIZE), [])
 
     // No selection → list takes the whole tab (centered + capped) so the
-    // common "browse" path keeps the familiar full-width feel.
+    // common "browse" path keeps the familiar full-width feel. SessionsList
+    // owns its own scroll so the filter chips stay pinned at the top.
     if (!selectedSessionId) {
         return (
-            <div className="mx-auto h-full w-full max-w-5xl overflow-y-auto px-6 pb-6 pt-4">
-                <SessionsList sessions={list} selectedSessionId={null} onOpenSession={(id) => select(id)} />
+            <div className="mx-auto flex h-full w-full max-w-5xl flex-col px-6 pb-6 pt-4">
+                <SessionsList
+                    sessions={list}
+                    selectedSessionId={null}
+                    onOpenSession={(id) => select(id)}
+                    totalCount={totalCount}
+                    hasMore={hasMore}
+                    onLoadMore={loadMore}
+                    loadingMore={sessions.loading && list.length > 0 && list.length < limit}
+                />
             </div>
         )
     }
@@ -98,11 +119,15 @@ export function SessionsSegment(): React.ReactElement {
     return (
         <div className="grid h-full grid-cols-[minmax(280px,360px)_minmax(0,1fr)] divide-x divide-border">
             <aside className="flex min-h-0 flex-col overflow-hidden">
-                <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+                <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
                     <SessionsList
                         sessions={list}
                         selectedSessionId={selectedSessionId}
                         onOpenSession={(id) => select(id)}
+                        totalCount={totalCount}
+                        hasMore={hasMore}
+                        onLoadMore={loadMore}
+                        loadingMore={sessions.loading && list.length > 0 && list.length < limit}
                     />
                 </div>
             </aside>

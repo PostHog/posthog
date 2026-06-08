@@ -106,14 +106,21 @@ export const handlers = [
     /* Sessions proxied through the application — no standalone
      * /agent_sessions route in Django.
      */
-    http.get(`${PROJECT_PREFIX}/agent_applications/:slug/sessions/`, ({ params }) => {
+    http.get(`${PROJECT_PREFIX}/agent_applications/:slug/sessions/`, ({ params, request }) => {
         const slug = params.slug as string
         if (!getAgentBySlugStore(slug)) {
             return HttpResponse.json({ error: 'not_found' }, { status: 404 })
         }
+        const url = new URL(request.url)
+        const limitParam = url.searchParams.get('limit')
+        const offsetParam = url.searchParams.get('offset')
+        const limit = limitParam ? Math.max(0, parseInt(limitParam, 10)) : undefined
+        const offset = offsetParam ? Math.max(0, parseInt(offsetParam, 10)) : 0
         // Mirror the real Django shape so the apiClient mapper runs the
         // same path under storybook as in prod.
-        const results = listSessionsForAgentStore(slug).map((s) => ({
+        const all = listSessionsForAgentStore(slug)
+        const window = limit !== undefined ? all.slice(offset, offset + limit) : all.slice(offset)
+        const results = window.map((s) => ({
             id: s.id,
             application_id: s.application.id,
             revision_id: '',
@@ -133,7 +140,7 @@ export const handlers = [
             created_at: s.started_at ?? new Date().toISOString(),
             updated_at: s.ended_at ?? s.started_at ?? new Date().toISOString(),
         }))
-        return HttpResponse.json({ results, count: results.length })
+        return HttpResponse.json({ results, count: all.length })
     }),
 
     http.get(`${PROJECT_PREFIX}/agent_applications/:slug/sessions/:sessionId/`, ({ params }) => {

@@ -25,12 +25,28 @@ export interface SessionsListProps {
     /** When set, the matching row gets an active background — drives the master-detail view. */
     selectedSessionId?: string | null
     onOpenSession?: (sessionId: string) => void
+    /** Total matching sessions on the server (incl. unloaded pages). Drives the "X of Y" counter. */
+    totalCount?: number
+    /** When true, render a "Load more" button at the bottom of the scrollable list. */
+    hasMore?: boolean
+    /** Click handler for "Load more". */
+    onLoadMore?: () => void
+    /** Disable the load-more button + show a spinner-style label while a page is in flight. */
+    loadingMore?: boolean
 }
 
 const LIVE_STATES = new Set(['idle', 'streaming', 'awaiting_user_input', 'awaiting_client_tool', 'disconnected'])
 const FAILED_STATES = new Set(['failed', 'error', 'cancelled'])
 
-export function SessionsList({ sessions, selectedSessionId, onOpenSession }: SessionsListProps): React.ReactElement {
+export function SessionsList({
+    sessions,
+    selectedSessionId,
+    onOpenSession,
+    totalCount,
+    hasMore,
+    onLoadMore,
+    loadingMore,
+}: SessionsListProps): React.ReactElement {
     const [filter, setFilter] = useState<Filter>('all')
 
     const filtered = useMemo(() => {
@@ -47,7 +63,7 @@ export function SessionsList({ sessions, selectedSessionId, onOpenSession }: Ses
         }
     }, [sessions, filter])
 
-    if (sessions.length === 0) {
+    if (sessions.length === 0 && !hasMore) {
         return (
             <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
                 No sessions yet.
@@ -55,37 +71,56 @@ export function SessionsList({ sessions, selectedSessionId, onOpenSession }: Ses
         )
     }
 
+    // Counter shows loaded-vs-total when the caller paginates; falls back
+    // to the in-memory "X of Y" the old layout had.
+    const loadedLabel =
+        totalCount !== undefined && totalCount > sessions.length
+            ? `${filtered.length} of ${totalCount}`
+            : `${filtered.length} of ${sessions.length}`
+
     return (
-        <div className="space-y-3">
-            <div className="flex items-center justify-between">
+        <div className="flex h-full min-h-0 flex-col">
+            <div className="flex shrink-0 items-center justify-between pb-3">
                 <FilterChips
                     options={FILTERS}
                     value={filter}
                     onChange={setFilter}
                     labels={{ all: 'All', live: 'Live', completed: 'Completed', failed: 'Failed' }}
                 />
-                <span className="text-[0.6875rem] text-muted-foreground">
-                    {filtered.length} of {sessions.length}
-                </span>
+                <span className="text-[0.6875rem] text-muted-foreground">{loadedLabel}</span>
             </div>
 
-            {filtered.length === 0 ? (
-                <div className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-                    No sessions match this filter.
-                </div>
-            ) : (
-                <ul className="divide-y divide-border rounded-md border border-border bg-card">
-                    {filtered.map((s) => (
-                        <li key={s.id}>
-                            <SessionRow
-                                session={s}
-                                selected={selectedSessionId === s.id}
-                                onClick={() => onOpenSession?.(s.id)}
-                            />
-                        </li>
-                    ))}
-                </ul>
-            )}
+            <div className="min-h-0 flex-1 overflow-y-auto">
+                {filtered.length === 0 ? (
+                    <div className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+                        No sessions match this filter.
+                    </div>
+                ) : (
+                    <ul className="divide-y divide-border rounded-md border border-border bg-card">
+                        {filtered.map((s) => (
+                            <li key={s.id}>
+                                <SessionRow
+                                    session={s}
+                                    selected={selectedSessionId === s.id}
+                                    onClick={() => onOpenSession?.(s.id)}
+                                />
+                            </li>
+                        ))}
+                    </ul>
+                )}
+                {hasMore ? (
+                    <div className="flex justify-center pb-1 pt-3">
+                        <button
+                            type="button"
+                            onClick={onLoadMore}
+                            disabled={loadingMore || !onLoadMore}
+                            className="inline-flex h-8 items-center rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            {loadingMore ? 'Loading…' : 'Load more sessions'}
+                        </button>
+                    </div>
+                ) : null}
+            </div>
         </div>
     )
 }

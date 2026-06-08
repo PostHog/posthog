@@ -3,8 +3,6 @@
 import { useRouter } from 'next/navigation'
 import { useMemo } from 'react'
 
-import type { ChatSession } from '@posthog/agent-chat'
-
 import { useAgent, useRevisions } from '@/components/agent-context'
 import { AgentOverview } from '@/components/AgentOverview'
 import { useSetDockPage } from '@/components/dock-context'
@@ -29,15 +27,18 @@ export function OverviewSegment(): React.ReactElement {
     })
     const sessions = useResource(
         () =>
-            listSessionsForAgent(teamId, agent.slug, { id: agent.id, name: agent.name, slug: agent.slug }).catch(
-                () => [] as ChatSession[]
-            ),
+            listSessionsForAgent(
+                teamId,
+                agent.slug,
+                { id: agent.id, name: agent.name, slug: agent.slug },
+                { limit: 5 }
+            ).catch(() => ({ sessions: [], count: 0 })),
         [teamId, agent.slug, agent.id],
         { pollMs: POLL_MS }
     )
 
     const liveRevision = revisions.find((r) => r.id === agent.live_revision) ?? null
-    const recentSessions = useMemo(() => (sessions.data ?? []).slice(0, 5), [sessions.data])
+    const recentSessions = useMemo(() => (sessions.data?.sessions ?? []).slice(0, 5), [sessions.data])
 
     const effectiveStats = stats.data ?? {
         liveCount: 0,
