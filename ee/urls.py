@@ -55,8 +55,6 @@ def extend_api_router() -> None:
     )
     register_legacy_dual_route_team_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
 
-    # dashboard collaborators registration moved to products/dashboards/backend/routes.py.
-
     _, env_subscriptions_router = register_legacy_dual_route_team_nested_viewset(
         r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]
     )

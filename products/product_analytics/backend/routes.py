@@ -14,7 +14,7 @@ def register_routes(routers: RouterRegistry) -> None:
     if EE_AVAILABLE:
         from ee.clickhouse.views.insights import EnterpriseInsightsViewSet
 
-        insights_viewset: type = EnterpriseInsightsViewSet
+        insights_viewset = EnterpriseInsightsViewSet
     else:
         insights_viewset = InsightViewSet
 
