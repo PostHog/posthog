@@ -321,6 +321,7 @@ class Team(UUIDTClassicModel):
     has_completed_onboarding_for = models.JSONField(null=True, blank=True)
     onboarding_tasks = models.JSONField(null=True, blank=True)
     ingested_event = models.BooleanField(default=False)
+    ingested_production_event = models.BooleanField(default=False, db_default=False)
 
     person_processing_opt_out = field_access_control(models.BooleanField(null=True, default=False), "project", "admin")
     secret_api_token = models.CharField(
@@ -438,6 +439,15 @@ class Team(UUIDTClassicModel):
 
     # Logs
     logs_settings = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
+
+    # LLM gateway — per-team admission projection read by the llm-gateway Go
+    # service via a purpose-built HyperCache blob (cache/team_tokens/<token>/
+    # team_metadata/llm_gateway_policy.json). The gateway admits a team only
+    # when llm_gateway_enabled_at is set and llm_gateway_revoked_at is null;
+    # revoke wins over enable. Null enabled_at = not enrolled (default-deny);
+    # null revoked_at = not revoked. Set by internal tooling/admin only.
+    llm_gateway_enabled_at = models.DateTimeField(null=True, blank=True)
+    llm_gateway_revoked_at = models.DateTimeField(null=True, blank=True)
 
     # Heatmaps
     heatmaps_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
@@ -722,6 +732,12 @@ class Team(UUIDTClassicModel):
         return get_or_create_team_extension(
             self, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
         )
+
+    @cached_property
+    def workflows_config(self):
+        from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+
+        return get_or_create_team_extension(self, TeamWorkflowsConfig)
 
     @property
     def default_modifiers(self) -> dict:

@@ -72,30 +72,87 @@ describe('buildTrendsBarAggregatedSeries', () => {
         ...overrides,
     })
 
-    it('returns labels aligned with results, in the same order', () => {
+    it('returns display labels aligned with results, in the same order; band labels stay unique', () => {
         const results = [
             mkResult({ id: 'a', label: 'A', aggregated_value: 1 }),
             mkResult({ id: 'b', label: 'B', aggregated_value: 2 }),
             mkResult({ id: 'c', label: 'C', aggregated_value: 3 }),
         ]
-        const { labels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
-        expect(labels).toEqual(['A', 'B', 'C'])
+        const { labels, displayLabels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+        expect(displayLabels).toEqual(['A', 'B', 'C'])
+        expect(new Set(labels).size).toBe(labels.length)
     })
 
-    it('places each aggregated_value at the index matching its own band — zero everywhere else', () => {
+    it('splits same-label results into separate bands when they come from different series (no breakdown)', () => {
+        // Four trends series of the same event surface label="$pageview" each but have
+        // distinct action.order — they should not collapse onto one band.
+        const results = [0, 1, 2, 3].map((order) =>
+            mkResult({ id: `r${order}`, label: '$pageview', action: { order } })
+        )
+        const { labels, displayLabels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+        expect(displayLabels).toEqual(['$pageview', '$pageview', '$pageview', '$pageview'])
+        expect(new Set(labels).size).toBe(4)
+    })
+
+    // Formula+breakdown shape: each formula carries a top-level `order`; breakdown rows of the
+    // same formula share both the formula label and the order. They must NOT collapse by default.
+    const formulaBreakdownSpec: [string, number][] = [
+        ['Binary Size', 0],
+        ['Binary Size', 0],
+        ['Binary Size', 0],
+        ['Embedded Assets', 1],
+        ['Embedded Assets', 1],
+        ['Runtime & Code', 2],
+        ['Runtime & Code', 2],
+    ]
+
+    it.each([
+        { name: 'separate by default — one band per breakdown value', stackBreakdowns: undefined, expectedBands: 7 },
+        { name: 'one band per formula when stackBreakdowns is set', stackBreakdowns: true, expectedBands: 3 },
+    ])('formula breakdown rows: $name', ({ stackBreakdowns, expectedBands }) => {
+        const results = formulaBreakdownSpec.map(([label, order], i) => mkResult({ id: `r${i}`, label, order }))
+        const { labels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED, stackBreakdowns })
+        expect(new Set(labels).size).toBe(expectedBands)
+    })
+
+    it('keeps each result label as its band display label in separate mode', () => {
+        const results = formulaBreakdownSpec.map(([label, order], i) => mkResult({ id: `r${i}`, label, order }))
+        const { displayLabels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+        expect(displayLabels).toEqual(formulaBreakdownSpec.map(([label]) => label))
+    })
+
+    it('keeps current and previous on separate bands in stacked mode even at the same order', () => {
+        const results = [
+            mkResult({ id: 'a', label: 'F', order: 0, compare_label: 'current', breakdown_value: 'Chrome' }),
+            mkResult({ id: 'b', label: 'F', order: 0, compare_label: 'current', breakdown_value: 'Safari' }),
+            mkResult({ id: 'c', label: 'F', order: 0, compare_label: 'previous', breakdown_value: 'Chrome' }),
+        ]
+        const { labels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED, stackBreakdowns: true })
+        expect(new Set(labels).size).toBe(2)
+    })
+
+    it('uses getDisplayLabel for the category label when provided', () => {
+        const results = [mkResult({ id: 'a', label: 'Formula (A + B)', breakdown_value: 'Chrome' })]
+        const { displayLabels } = buildTrendsBarAggregatedSeries(results, {
+            getColor: () => RED,
+            getDisplayLabel: (r) => String(r.breakdown_value),
+        })
+        expect(displayLabels).toEqual(['Chrome'])
+    })
+
+    it('collapses to a single series whose data holds each band value in order', () => {
         const results = [
             mkResult({ id: 'a', label: 'A', aggregated_value: 10 }),
             mkResult({ id: 'b', label: 'B', aggregated_value: 20 }),
             mkResult({ id: 'c', label: 'C', aggregated_value: 30 }),
         ]
         const { series } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
-        expect(series[0].data).toEqual([10, 0, 0])
-        expect(series[1].data).toEqual([0, 20, 0])
-        expect(series[2].data).toEqual([0, 0, 30])
+        expect(series).toHaveLength(1)
+        expect(series[0].data).toEqual([10, 20, 30])
     })
 
     it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, undefined])(
-        'replaces non-finite aggregated_value (%p) with 0 at the result index',
+        'replaces non-finite aggregated_value (%p) with 0',
         (badValue) => {
             const { series } = buildTrendsBarAggregatedSeries([mkResult({ aggregated_value: badValue })], {
                 getColor: () => RED,
@@ -104,16 +161,50 @@ describe('buildTrendsBarAggregatedSeries', () => {
         }
     )
 
-    it('passes per-result colors through from getColor', () => {
+    it('exposes per-result colors and labels as per-bar entries on the single series', () => {
         const colors = ['#aaa', '#bbb', '#ccc']
-        const results = colors.map((_, i) => mkResult({ id: `r${i}` }))
+        const results = colors.map((_, i) => mkResult({ id: `r${i}`, label: `L${i}` }))
         const { series } = buildTrendsBarAggregatedSeries(results, { getColor: (_r, i) => colors[i] })
-        expect(series.map((s) => s.color)).toEqual(colors)
+        expect(series).toHaveLength(1)
+        expect(series[0].bars?.map((b) => b.color)).toEqual(colors)
+        expect(series[0].bars?.map((b) => b.label)).toEqual(['L0', 'L1', 'L2'])
+        // Series-level color falls back to the first bar so a tooltip/legend has something sane.
+        expect(series[0].color).toBe(colors[0])
+    })
+
+    it('dims the previous-compare bar color, matching the time-series builder', () => {
+        const results = [
+            mkResult({ id: 'a', label: 'A', compare_label: 'current' }),
+            mkResult({ id: 'b', label: 'B', compare_label: 'previous' }),
+        ]
+        const { series } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+        expect(series[0].bars?.map((b) => b.color)).toEqual([RED, hexToRGBA(RED, 0.5)])
+    })
+
+    it('builds per-bar meta by index when buildMeta is provided', () => {
+        const results = [mkResult({ id: 'a' }), mkResult({ id: 'b' })]
+        const { series } = buildTrendsBarAggregatedSeries<TrendsBarResultLike, { idx: number }>(results, {
+            getColor: () => RED,
+            buildMeta: (_r, i) => ({ idx: i }),
+        })
+        expect(series[0].bars?.map((b) => b.meta)).toEqual([{ idx: 0 }, { idx: 1 }])
+    })
+
+    it('keeps the sparse multi-series stack when stackBreakdowns is set', () => {
+        const results = [
+            mkResult({ id: 'a', label: 'F', order: 0, breakdown_value: 'Chrome', aggregated_value: 10 }),
+            mkResult({ id: 'b', label: 'F', order: 0, breakdown_value: 'Safari', aggregated_value: 20 }),
+        ]
+        const { series } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED, stackBreakdowns: true })
+        // Stacked breakdowns share a band and genuinely stack, so they stay as one series per row.
+        expect(series).toHaveLength(2)
+        expect(series[0].data).toEqual([10, 0])
+        expect(series[1].data).toEqual([0, 20])
     })
 
     it.each([
         {
-            name: 'suffixes labels with compare_label so compare-against-previous rows get distinct bands',
+            name: 'suffixes display labels with compare_label so compare-against-previous rows render distinctly',
             results: [
                 { id: 'a', label: 'Microsoft Edge', compare_label: 'current', aggregated_value: 100 },
                 { id: 'b', label: 'Microsoft Edge', compare_label: 'previous', aggregated_value: 80 },
@@ -122,7 +213,7 @@ describe('buildTrendsBarAggregatedSeries', () => {
             expected: ['Microsoft Edge - current', 'Microsoft Edge - previous', 'Safari - current'],
         },
         {
-            name: 'leaves labels unchanged when compare_label is absent',
+            name: 'leaves display labels unchanged when compare_label is absent',
             results: [
                 { id: 'a', label: 'Chrome', aggregated_value: 1 },
                 { id: 'b', label: 'Safari', aggregated_value: 2 },
@@ -130,9 +221,11 @@ describe('buildTrendsBarAggregatedSeries', () => {
             expected: ['Chrome', 'Safari'],
         },
     ])('$name', ({ results, expected }) => {
-        const { labels } = buildTrendsBarAggregatedSeries(results.map(mkResult), { getColor: () => RED })
-        expect(labels).toEqual(expected)
-        // No duplicates — every band gets a unique d3 domain key.
+        const { labels, displayLabels } = buildTrendsBarAggregatedSeries(results.map(mkResult), {
+            getColor: () => RED,
+        })
+        expect(displayLabels).toEqual(expected)
+        // Distinct display labels → distinct band keys after the series-id suffix.
         expect(new Set(labels).size).toBe(labels.length)
     })
 
@@ -142,28 +235,28 @@ describe('buildTrendsBarAggregatedSeries', () => {
             mkResult({ id: 'b', label: 'B', aggregated_value: 2 }),
             mkResult({ id: 'c', label: 'C', aggregated_value: 3 }),
         ]
-        const { series, labels } = buildTrendsBarAggregatedSeries(results, {
+        const { series, displayLabels } = buildTrendsBarAggregatedSeries(results, {
             getColor: () => RED,
             getHidden: (_r, i) => i === 1,
         })
-        expect(labels).toEqual(['A', 'C'])
-        expect(series).toHaveLength(2)
-        expect(series[0].data).toEqual([1, 0])
-        expect(series[1].data).toEqual([0, 3])
+        expect(displayLabels).toEqual(['A', 'C'])
+        expect(series).toHaveLength(1)
+        expect(series[0].data).toEqual([1, 3])
     })
 })
 
 describe('buildTrendsBarTimeSeriesConfig', () => {
     it.each([
-        { isPercentStackView: false, isGrouped: false, expected: 'stacked' },
-        { isPercentStackView: false, isGrouped: true, expected: 'grouped' },
-        { isPercentStackView: true, isGrouped: false, expected: 'percent' },
-        { isPercentStackView: true, isGrouped: true, expected: 'percent' },
+        { isPercentStackView: false, isGrouped: false, expected: 'stacked', expectedDiverging: true },
+        { isPercentStackView: false, isGrouped: true, expected: 'grouped', expectedDiverging: false },
+        { isPercentStackView: true, isGrouped: false, expected: 'percent', expectedDiverging: false },
+        { isPercentStackView: true, isGrouped: true, expected: 'percent', expectedDiverging: false },
     ])(
-        'maps isPercentStackView=$isPercentStackView / isGrouped=$isGrouped to barLayout=$expected',
-        ({ isPercentStackView, isGrouped, expected }) => {
+        'maps isPercentStackView=$isPercentStackView / isGrouped=$isGrouped to barLayout=$expected / divergingStack=$expectedDiverging',
+        ({ isPercentStackView, isGrouped, expected, expectedDiverging }) => {
             const cfg = buildTrendsBarTimeSeriesConfig({ isPercentStackView, isGrouped })
             expect(cfg.barLayout).toBe(expected)
+            expect(cfg.divergingStack).toBe(expectedDiverging)
         }
     )
 
@@ -171,12 +264,17 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
         {
             name: 'builds the xAxis from interval/timezone/allDays',
             input: { interval: 'day' as const, timezone: 'UTC', allDays: ['2024-06-10', '2024-06-11'] },
-            expected: { timezone: 'UTC', interval: 'day', allDays: ['2024-06-10', '2024-06-11'] },
+            expected: {
+                label: undefined,
+                timezone: 'UTC',
+                interval: 'day',
+                allDays: ['2024-06-10', '2024-06-11'],
+            },
         },
         {
             name: 'defaults interval to "day" and allDays to empty when omitted',
             input: {},
-            expected: { timezone: undefined, interval: 'day', allDays: [] },
+            expected: { label: undefined, timezone: undefined, interval: 'day', allDays: [] },
         },
     ])('$name', ({ input, expected }) => {
         const cfg = buildTrendsBarTimeSeriesConfig({ isPercentStackView: false, isGrouped: false, ...input })
@@ -220,6 +318,17 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
             goalLines,
         })
         expect(cfg.goalLines).toEqual([expect.objectContaining({ value: 50, label: 'Target' })])
+    })
+
+    it('passes custom axis labels into the chart config', () => {
+        const cfg = buildTrendsBarTimeSeriesConfig({
+            isPercentStackView: false,
+            isGrouped: false,
+            xAxisLabel: 'Signup date',
+            yAxisLabel: 'Total events',
+        })
+        expect(cfg.xAxis?.label).toBe('Signup date')
+        expect(cfg.yAxis?.label).toBe('Total events')
     })
 
     it('passes valueLabels and tooltip through unchanged', () => {

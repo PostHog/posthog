@@ -8,12 +8,11 @@
  *
  * The `MCPClientProfile` class owns all per-client behavior decisions:
  *
- * - `isCodingAgent()` matches coding agents that surface `structuredContent`
- *   to the model in preference to `content[].text`. Used to drop
- *   `structuredContent` when a `formatted_results` override is set, otherwise
- *   Claude Code (and friends) show raw JSON instead of the formatted table.
- *   Cursor is deliberately excluded — it reads text for the model and renders
- *   `structuredContent` in UI, so it does not need the workaround.
+ * - `isCodingAgent()` matches coding agents that should default to single-exec
+ *   mode and drop `structuredContent` when a `formatted_results` override is
+ *   set. Cursor is deliberately excluded — it reads text for the model and
+ *   renders `structuredContent` in UI, so it does not need single-exec mode or
+ *   the formatted-results workaround.
  *
  * - `isPostHogCodeConsumer()` matches the `x-posthog-mcp-consumer` header
  *   sent by the PostHog Code Tasks wrapper.
@@ -60,6 +59,16 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
     'aider',
     'copilot',
     'gemini-cli',
+    // Devin self-reports `clientInfo.name` as `Devin`; it's a coding agent and
+    // benefits from the same single-exec mode.
+    'devin',
+    // LibreChat is a general MCP client, but benefits from the same CLI-shaped
+    // single-exec mode as coding agents.
+    'librechat',
+    // Notion AI ships its own `notion-mcp-client` (not a coding agent per se,
+    // but an LLM-driven consumer that benefits from the same single-exec mode
+    // and formatted-text rendering as coding agents).
+    'notion',
 ] as const
 
 // Value sent in `x-posthog-mcp-consumer` by PostHog Code (the Tasks sandbox
@@ -68,14 +77,16 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
 // emission in single-exec mode. Slack-launched runs send `"slack"` instead.
 export const POSTHOG_CODE_CONSUMER = 'posthog-code'
 
-// OAuth application names (from token introspection) for vibe-coding platforms
-// that should default to single-exec mode. These match against the OAuth
+// OAuth application names (from token introspection) for upstream tools that
+// should default to single-exec mode. These match against the OAuth
 // `client_name` (the registered OAuth app name in PostHog), not the MCP
-// `clientInfo.name` self-report — those platforms typically connect through a
+// `clientInfo.name` self-report — many of these platforms connect through a
 // generic MCP client wrapper, so the OAuth name is what reliably identifies
 // the upstream tool. Substring match is case-insensitive and separator-agnostic
 // so "Lovable", "Lovable.dev", "Replit", and "Replit Agent" all resolve.
-export const VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS = ['lovable', 'replit'] as const
+// Notion is included here because a sizeable share of sessions only carry the
+// OAuth name without the `notion-mcp-client` self-report.
+export const VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS = ['lovable', 'replit', 'notion'] as const
 
 export type ClientCapabilities = {
     // MCP `initialize` response includes an `instructions` field that most
@@ -105,6 +116,10 @@ type MCPClientProfileInput = {
     clientVersion?: string | undefined
     consumer?: string | undefined
     oauthClientName?: string | undefined
+    // Per-request `x-anthropic-client` value (e.g. `ClaudeCode`, `ClaudeAI`).
+    // Anthropic pools MCP transports across products, so the live inner client
+    // can disagree with the session-pinned `clientName` from `initialize`.
+    vendorClient?: string | undefined
 }
 
 export class MCPClientProfile {
@@ -112,6 +127,7 @@ export class MCPClientProfile {
     readonly clientVersion: string | undefined
     readonly consumer: string | undefined
     readonly oauthClientName: string | undefined
+    readonly vendorClient: string | undefined
 
     private _capabilities: ClientCapabilities | undefined
 
@@ -120,10 +136,11 @@ export class MCPClientProfile {
         this.clientVersion = input.clientVersion
         this.consumer = input.consumer
         this.oauthClientName = input.oauthClientName
+        this.vendorClient = input.vendorClient
     }
 
     isCodingAgent(): boolean {
-        return matchesAnyFragment(this.clientName, CODING_AGENT_CLIENT_NAME_FRAGMENTS)
+        return matchesAnyFragment(this.vendorClient ?? this.clientName, CODING_AGENT_CLIENT_NAME_FRAGMENTS)
     }
 
     isPostHogCodeConsumer(): boolean {

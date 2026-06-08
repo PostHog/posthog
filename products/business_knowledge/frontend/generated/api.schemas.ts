@@ -51,6 +51,23 @@ export const LastRefreshStatusEnumApi = {
 } as const
 
 /**
+ * * `manual` - Manual only
+ * `1h` - Every hour
+ * `6h` - Every 6 hours
+ * `24h` - Every day
+ * `7d` - Every week
+ */
+export type RefreshIntervalEnumApi = (typeof RefreshIntervalEnumApi)[keyof typeof RefreshIntervalEnumApi]
+
+export const RefreshIntervalEnumApi = {
+    Manual: 'manual',
+    '1h': '1h',
+    '6h': '6h',
+    '24h': '24h',
+    '7d': '7d',
+} as const
+
+/**
  * * `single` - Single page
  * `sitemap` - Sitemap
  * `same_origin` - Same origin crawl
@@ -84,6 +101,14 @@ export interface KnowledgeSourceApi {
     readonly last_refresh_at: string | null
     readonly last_refresh_status: LastRefreshStatusEnumApi
     readonly last_refresh_error: string
+    readonly refresh_interval: RefreshIntervalEnumApi
+    /**
+     * When the background coordinator will next auto-refresh this source. Null for manual sources or sources never refreshed.
+     * @nullable
+     */
+    readonly next_refresh_at: string | null
+    /** True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search. */
+    readonly has_unsafe_documents: boolean
     readonly crawl_mode: CrawlModeEnumApi
     readonly crawl_config: unknown
     readonly original_filename: string

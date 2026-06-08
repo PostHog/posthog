@@ -15,6 +15,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS
 
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
+from products.web_analytics.backend.hogql_queries.web_vitals_paths_lazy_precompute import (
+    can_use_lazy_precompute,
+    execute_lazy_precomputed_read,
+)
 
 
 class WebVitalsPathBreakdownQueryRunner(WebAnalyticsQueryRunner[WebVitalsPathBreakdownQueryResponse]):
@@ -80,6 +84,15 @@ HAVING value >= 0
         return parse_expr(f"{percentile_function}(toFloat({metric_value_field}))")
 
     def _calculate(self):
+        # Lazy precompute path: short-circuits the raw events scan when the team
+        # opted in via the per-query toggle and the shared gate accepts the
+        # request. Any failure (gate rejection, INSERT/READ error) returns None
+        # and falls through to the raw path below.
+        if can_use_lazy_precompute(self):
+            lazy_response = execute_lazy_precomputed_read(self)
+            if lazy_response is not None:
+                return lazy_response
+
         query = self.to_query()
         response = execute_hogql_query(
             query_type="web_vitals_path_breakdown_query",

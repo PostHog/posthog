@@ -138,8 +138,30 @@ pub struct FlagPropertyGroup {
     /// "field absent" (legacy flags, should fall back to flag-level) from "field
     /// present but null" (explicit person aggregation). When the inner Option holds
     /// a value, the condition uses that group type for hashing and property evaluation.
-    #[serde(default, deserialize_with = "deserialize_double_option")]
+    ///
+    /// `skip_serializing_if = "Option::is_none"` preserves the absent/null distinction
+    /// on round-trip: outer `None` (absent) serializes as no key; `Some(None)` (explicit
+    /// null) serializes as `null`; `Some(Some(idx))` serializes as the integer. Without
+    /// this, both `None` and `Some(None)` would serialize identically as `null`, silently
+    /// converting absent → null and changing matcher behavior on cache-warmed flags.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub aggregation_group_type_index: Option<Option<i32>>,
+    /// Captures unknown JSONB keys so they survive the cache round-trip unchanged.
+    /// Without this, frontend leaks (`description`, `sort_key`), runtime annotations
+    /// (`cohort_name`, `group_key_names`), and field typos would be silently dropped
+    /// on round-trip and the Python `verify_flags_cache` verifier would report
+    /// spurious `FIELD_MISMATCH` against the Django JSONB passthrough. Only
+    /// unknown-key passthrough is guaranteed here — absent-vs-null normalization for
+    /// known optional fields (e.g. `variant`, `rollout_percentage`) is handled by the
+    /// Python verifier's `_strip_null_values` helper, since those fields lack
+    /// `skip_serializing_if` and will re-emit as `null` on a serialize round-trip.
+    /// See plans/verify-flags-cache-loose-comparison.md.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -168,34 +190,41 @@ pub struct FlagFilters {
     /// - 2 → "instance"
     /// - 3 → "customer"
     /// - 4 → "team"
-    #[serde(default)]
+    ///
+    /// `skip_serializing_if = "Option::is_none"` so absent JSONB stays absent on
+    /// cache-write round-trip. Unlike `FlagPropertyGroup.aggregation_group_type_index`
+    /// (which is `Option<Option<i32>>`), the filters-level field does not preserve
+    /// the absent/null distinction on deserialize — but Rust still shouldn't fabricate
+    /// a `null` key when the source had no key, since the Python verifier compares
+    /// against Django's JSONB passthrough and a fabricated null shows up as drift.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aggregation_group_type_index: Option<i32>,
     #[serde(default)]
     pub payloads: Option<serde_json::Value>,
-    /// Super groups are a special group of feature flag conditions that act as a gate that must be
-    /// satisfied before any other conditions are evaluated. Currently, we only ever evaluate the first
-    /// super group. This is used for early access features which is a key and a boolean like so:
-    /// {
-    ///   "key": "$feature_enrollment/feature-flags-flag-dependency",
-    ///   "type": "person",
-    ///   "value": [
-    ///     "true"
-    ///   ],
-    ///   "operator": "exact"
-    /// }
-    /// If they match, the flag is enabled and no other conditions are evaluated. If they don't match,
-    /// fallback to regular conditions.
-    #[serde(default)]
-    pub super_groups: Option<Vec<FlagPropertyGroup>>,
-    /// New format for early access feature enrollment. When `true`, the flag is evaluated
-    /// against the person property `$feature_enrollment/{flag_key}`. Takes precedence over
-    /// `super_groups` when both are present.
+    /// Early access feature enrollment. When `true`, the flag is evaluated against the
+    /// person property `$feature_enrollment/{flag_key}`.
     #[serde(default)]
     pub feature_enrollment: Option<bool>,
     /// Holdout format: `{"id": 42, "exclusion_percentage": 10}`.
     /// Defines a set of users intentionally excluded from a test or experiment.
     #[serde(default)]
     pub holdout: Option<Holdout>,
+    /// Flag-level toggle: when true, condition evaluation stops at the first
+    /// matching group rather than continuing to evaluate subsequent groups.
+    #[serde(default)]
+    pub early_exit: Option<bool>,
+    /// Captures unknown JSONB keys so they survive the cache round-trip unchanged.
+    /// Without this, legacy filter keys (`holdout_groups`), top-level stray keys,
+    /// and field typos (`multivariant` for `multivariate`, `payload` for
+    /// `payloads`) would be silently dropped on round-trip and the Python
+    /// `verify_flags_cache` verifier would report spurious `FIELD_MISMATCH`
+    /// against the Django JSONB passthrough. Only unknown-key passthrough is
+    /// guaranteed here — absent-vs-null normalization for known optional fields
+    /// (e.g. `multivariate`, `payloads`, `super_groups`) is handled by the
+    /// Python verifier's `_strip_null_values` helper.
+    /// See plans/verify-flags-cache-loose-comparison.md.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 pub type FeatureFlagId = i32;
@@ -309,7 +338,7 @@ impl PreparedFlagDefinitions {
     /// Estimates the heap memory footprint of this struct in bytes.
     /// Used by moka's weight-based eviction to enforce cache capacity limits.
     pub fn estimated_size_bytes(&self) -> usize {
-        use crate::utils::json_size::estimate_json_size;
+        use crate::utils::json_size::{estimate_json_map_size, estimate_json_size};
 
         let base = std::mem::size_of::<Self>();
 
@@ -329,13 +358,14 @@ impl PreparedFlagDefinitions {
                 // Each PropertyFilter with a compiled regex costs ~2KB for the
                 // DFA/NFA automata inside fancy_regex::Regex. The `value` JSON
                 // payload can dominate for cohort/group filters, so walk it.
-                // Include `super_groups` alongside `groups` — `prepare_regexes_in_place`
-                // compiles regexes in both, so the weigher must account for both.
+                // The `extra` flatten maps capture unknown JSONB keys; without
+                // weighing them, oversized unknown filter fields would bypass the
+                // cache's byte-budget eviction (see `FlagFilters.extra` doc).
                 let group_size = |groups: &[FlagPropertyGroup]| -> usize {
                     groups
                         .iter()
                         .map(|g| {
-                            g.properties.as_ref().map_or(0, |props| {
+                            let props_size = g.properties.as_ref().map_or(0, |props| {
                                 props
                                     .iter()
                                     .map(|p| {
@@ -345,16 +375,21 @@ impl PreparedFlagDefinitions {
                                             p.value.as_ref().map_or(0, estimate_json_size);
                                         let regex_overhead =
                                             if p.compiled_regex.is_some() { 2048 } else { 0 };
-                                        prop_base + prop_key + prop_value + regex_overhead
+                                        let prop_extra = estimate_json_map_size(&p.extra);
+                                        prop_base
+                                            + prop_key
+                                            + prop_value
+                                            + regex_overhead
+                                            + prop_extra
                                     })
-                                    .sum()
-                            })
+                                    .sum::<usize>()
+                            });
+                            props_size + estimate_json_map_size(&g.extra)
                         })
                         .sum()
                 };
-                let filters_size: usize = group_size(&f.filters.groups)
-                    + f.filters.super_groups.as_deref().map_or(0, group_size);
-
+                let filters_size: usize =
+                    group_size(&f.filters.groups) + estimate_json_map_size(&f.filters.extra);
                 let payloads_size = f.filters.payloads.as_ref().map_or(0, estimate_json_size);
 
                 struct_size
@@ -556,5 +591,187 @@ mod mock_impls {
                 ..Default::default()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod unknown_key_passthrough_tests {
+    //! Verify that unknown JSONB keys round-trip through deserialize/serialize
+    //! unchanged via the `extra` field on `FlagFilters`, `FlagPropertyGroup`,
+    //! and `PropertyFilter`.
+    //!
+    //! Without this passthrough, the Python `verify_flags_cache` verifier reports
+    //! spurious `FIELD_MISMATCH` against the Django JSONB passthrough because Rust
+    //! drops keys its structs don't enumerate (frontend leaks like `description`
+    //! and `sort_key`, runtime annotations like `cohort_name`, legacy keys like
+    //! `holdout_groups`, and field typos). See
+    //! plans/verify-flags-cache-loose-comparison.md.
+    use super::*;
+
+    fn round_trip(json: serde_json::Value) -> serde_json::Value {
+        let group: FlagPropertyGroup = serde_json::from_value(json)
+            .expect("FlagPropertyGroup should deserialize cleanly with flatten extra");
+        serde_json::to_value(&group).expect("FlagPropertyGroup should serialize cleanly")
+    }
+
+    #[test]
+    fn flag_property_group_preserves_unknown_keys() {
+        let input = serde_json::json!({
+            "properties": [],
+            "rollout_percentage": 100,
+            "variant": null,
+            "description": "rollout to enterprise",
+            "sort_key": "abc-123"
+        });
+
+        let output = round_trip(input);
+
+        assert_eq!(output["description"], "rollout to enterprise");
+        assert_eq!(output["sort_key"], "abc-123");
+    }
+
+    #[test]
+    fn flag_filters_preserves_holdout_groups_legacy_key() {
+        let input = serde_json::json!({
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "holdout_groups": [
+                {"properties": [], "rollout_percentage": 5, "variant": "holdout-42"}
+            ]
+        });
+
+        let filters: FlagFilters = serde_json::from_value(input)
+            .expect("FlagFilters should deserialize cleanly with flatten extra");
+        let output = serde_json::to_value(&filters).expect("FlagFilters should serialize cleanly");
+
+        let holdout_groups = output
+            .get("holdout_groups")
+            .expect("holdout_groups must survive the round-trip");
+        assert!(holdout_groups.is_array());
+        assert_eq!(holdout_groups[0]["variant"], "holdout-42");
+    }
+
+    #[test]
+    fn property_filter_preserves_cohort_name_annotation() {
+        let input = serde_json::json!({
+            "key": "id",
+            "value": 5,
+            "type": "cohort",
+            "operator": "in",
+            "cohort_name": "QA users"
+        });
+
+        let property: PropertyFilter = serde_json::from_value(input)
+            .expect("PropertyFilter should deserialize cleanly with flatten extra");
+        let output =
+            serde_json::to_value(&property).expect("PropertyFilter should serialize cleanly");
+
+        assert_eq!(output["cohort_name"], "QA users");
+    }
+
+    #[test]
+    fn aggregation_group_type_index_null_survives_flatten() {
+        // Serde processes declared fields before `#[serde(flatten)]`, so the
+        // explicit-null marker on the inner Option<Option<i32>> must round-trip
+        // cleanly even with the new `extra` field in place. The matcher relies
+        // on this distinction ("field present but null" = explicit person
+        // aggregation; "field absent" = fall back to flag-level).
+        let input = serde_json::json!({
+            "properties": [],
+            "rollout_percentage": 100,
+            "aggregation_group_type_index": null
+        });
+
+        let group: FlagPropertyGroup = serde_json::from_value(input.clone())
+            .expect("FlagPropertyGroup should deserialize cleanly");
+
+        assert_eq!(
+            group.aggregation_group_type_index,
+            Some(None),
+            "explicit null must deserialize as Some(None), not None"
+        );
+        // The flatten extra must not capture aggregation_group_type_index.
+        assert!(!group.extra.contains_key("aggregation_group_type_index"));
+
+        let output =
+            serde_json::to_value(&group).expect("FlagPropertyGroup should serialize cleanly");
+
+        assert!(
+            output["aggregation_group_type_index"].is_null(),
+            "explicit null must survive the round-trip, not be dropped or moved into extra"
+        );
+    }
+
+    #[test]
+    fn aggregation_group_type_index_absent_survives_flatten() {
+        // The absent state must round-trip as absent, not be promoted to null.
+        // `skip_serializing_if = "Option::is_none"` on the outer Option preserves
+        // this distinction; without it, the matcher would treat legacy
+        // (field-absent) flags as if they had explicit person aggregation.
+        let input = serde_json::json!({
+            "properties": [],
+            "rollout_percentage": 100
+        });
+
+        let group: FlagPropertyGroup =
+            serde_json::from_value(input).expect("FlagPropertyGroup should deserialize cleanly");
+
+        assert_eq!(
+            group.aggregation_group_type_index, None,
+            "absent field must deserialize as None, not Some(None)"
+        );
+
+        let output =
+            serde_json::to_value(&group).expect("FlagPropertyGroup should serialize cleanly");
+
+        let map = output
+            .as_object()
+            .expect("serialized FlagPropertyGroup should be a JSON object");
+        assert!(
+            !map.contains_key("aggregation_group_type_index"),
+            "absent field must survive the round-trip as absent, not be promoted to null"
+        );
+    }
+
+    #[test]
+    fn flag_filters_aggregation_group_type_index_absent_stays_absent() {
+        // The filters-level field is plain `Option<i32>` (not the group-level
+        // `Option<Option<i32>>`), so we cannot recover an explicit-null marker on
+        // deserialize. But we can still avoid fabricating one on serialize:
+        // `skip_serializing_if = "Option::is_none"` keeps the cache-write shape
+        // aligned with the Django JSONB passthrough when the source has no key.
+        // Without this, the Python verifier reports spurious FIELD_MISMATCH for
+        // every team whose flag has the field absent in Postgres.
+        let input = serde_json::json!({"groups": []});
+
+        let filters: FlagFilters =
+            serde_json::from_value(input).expect("FlagFilters should deserialize cleanly");
+
+        assert_eq!(
+            filters.aggregation_group_type_index, None,
+            "absent field must deserialize as None"
+        );
+
+        let output = serde_json::to_value(&filters).expect("FlagFilters should serialize cleanly");
+
+        let map = output
+            .as_object()
+            .expect("serialized FlagFilters should be a JSON object");
+        assert!(
+            !map.contains_key("aggregation_group_type_index"),
+            "absent field must survive the round-trip as absent, not be promoted to null"
+        );
+    }
+
+    #[test]
+    fn flag_filters_aggregation_group_type_index_value_round_trips() {
+        // Sanity check: real integer values still serialize, only `None` is skipped.
+        let input = serde_json::json!({"groups": [], "aggregation_group_type_index": 2});
+
+        let filters: FlagFilters =
+            serde_json::from_value(input).expect("FlagFilters should deserialize cleanly");
+        assert_eq!(filters.aggregation_group_type_index, Some(2));
+
+        let output = serde_json::to_value(&filters).expect("FlagFilters should serialize cleanly");
+        assert_eq!(output["aggregation_group_type_index"], 2);
     }
 }

@@ -8,7 +8,7 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+ * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
  * @nullable
  */
 export type AccountApiProperties = {
@@ -37,6 +37,10 @@ export type AccountApiProperties = {
     sfdc_id?: string | null
     /** @nullable */
     zendesk_id?: string | null
+    /** @nullable */
+    slack_channel_id?: string | null
+    /** @nullable */
+    usage_dashboard_link?: string | null
 } | null
 
 /**
@@ -56,7 +60,7 @@ export interface AccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     properties?: AccountApiProperties
@@ -167,7 +171,7 @@ export interface PaginatedAccountNotebookListApi {
 }
 
 /**
- * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+ * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
  * @nullable
  */
 export type PatchedAccountApiProperties = {
@@ -196,6 +200,10 @@ export type PatchedAccountApiProperties = {
     sfdc_id?: string | null
     /** @nullable */
     zendesk_id?: string | null
+    /** @nullable */
+    slack_channel_id?: string | null
+    /** @nullable */
+    usage_dashboard_link?: string | null
 } | null
 
 /**
@@ -215,7 +223,7 @@ export interface PatchedAccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     properties?: PatchedAccountApiProperties
@@ -251,6 +259,20 @@ export interface PaginatedCustomerJourneyListApi {
     /** @nullable */
     previous?: string | null
     results: CustomerJourneyApi[]
+}
+
+export interface PatchedCustomerJourneyApi {
+    readonly id?: string
+    insight?: number
+    /** @maxLength 400 */
+    name?: string
+    /** @nullable */
+    description?: string | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly updated_at?: string | null
 }
 
 /**
@@ -290,6 +312,16 @@ export interface PaginatedCustomerProfileConfigListApi {
     /** @nullable */
     previous?: string | null
     results: CustomerProfileConfigApi[]
+}
+
+export interface PatchedCustomerProfileConfigApi {
+    readonly id?: string
+    scope?: CustomerProfileConfigScopeEnumApi
+    content?: unknown
+    sidebar?: unknown
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
 }
 
 /**

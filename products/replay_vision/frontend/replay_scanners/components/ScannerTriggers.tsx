@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { Field } from 'kea-forms'
 
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -20,8 +20,8 @@ const RECORDING_FILTER_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.Events,
 ]
 
-export function ScannerTriggers({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element {
-    const { scanner } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Element {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
 
     if (!scanner) {
         return <div className="text-muted">Loading…</div>
@@ -29,11 +29,6 @@ export function ScannerTriggers({ scannerId, tabId }: { scannerId: string; tabId
 
     return (
         <div className="space-y-6 max-w-3xl">
-            <div className="text-sm text-muted">
-                This scanner runs against completed session recordings that match the filters below. Sampling controls
-                what fraction of matching sessions are observed.
-            </div>
-
             <Field name="sampling_rate" label="Sampling">
                 {({ value, onChange }) => {
                     const ratio = typeof value === 'number' ? value : 0
@@ -64,8 +59,7 @@ export function ScannerTriggers({ scannerId, tabId }: { scannerId: string; tabId
                                 </div>
                             </div>
                             <div className="text-xs text-muted">
-                                Each observation counts against your monthly Vision quota. A scanner that matches 1,000
-                                sessions per day at 10% sampling produces ~100 observations per day.
+                                Each observation counts against your monthly Vision quota.
                             </div>
                         </div>
                     )
@@ -86,8 +80,8 @@ export function ScannerTriggers({ scannerId, tabId }: { scannerId: string; tabId
                     return (
                         <div className="space-y-2">
                             <div className="text-sm text-muted">
-                                Filter by person, session, cohort, or event properties to target specific recordings.
-                                Leave empty to apply this scanner to all completed recordings.
+                                Filter by person, session, cohort, or event properties. Leave empty to scan all
+                                completed recordings.
                             </div>
                             <PropertyFilters
                                 propertyFilters={properties}
@@ -103,7 +97,8 @@ export function ScannerTriggers({ scannerId, tabId }: { scannerId: string; tabId
                 }}
             </Field>
 
-            <ScannerQuotaForecast scannerId={scannerId} tabId={tabId} />
+            <LemonDivider className="my-0" />
+            <ScannerQuotaForecast scannerId={scannerId} />
         </div>
     )
 }

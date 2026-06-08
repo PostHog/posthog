@@ -5,7 +5,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.exceptions_capture import capture_exception
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.client import async_connect
 
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
@@ -21,7 +21,7 @@ class PreemptDAGRunInputs:
     dag_id: str
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _get_running_jobs_for_dag(team_id: int, dag_id: str) -> list[DataModelingJob]:
     """Find RUNNING DataModelingJob records belonging to a previous run of this DAG.
 
@@ -37,7 +37,7 @@ def _get_running_jobs_for_dag(team_id: int, dag_id: str) -> list[DataModelingJob
     )
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _mark_jobs_as_preempted(job_ids: list[str]) -> int:
     return DataModelingJob.objects.filter(id__in=job_ids, status=DataModelingJobStatus.RUNNING).update(
         status=DataModelingJobStatus.FAILED,

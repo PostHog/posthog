@@ -542,7 +542,8 @@ export class BatchWritingGroupStore implements GroupStore {
         const latestGroup = await this.groupRepository.fetchGroup(
             update.team_id,
             update.group_type_index,
-            update.group_key
+            update.group_key,
+            { callerTag: 'ingestion/group-update-conflict' }
         )
         if (latestGroup) {
             const propertiesUpdate = calculateUpdate(latestGroup.group_properties || {}, update.group_properties)

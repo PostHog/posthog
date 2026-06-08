@@ -26,9 +26,12 @@ usage() {
     cat <<'EOF'
 Usage:
   bin/ci-wait-for-docker launch [--down|--down-all-profiles] [--background] [services...]
-  bin/ci-wait-for-docker wait [services...]
+  bin/ci-wait-for-docker wait [--only] [services...]
 
 `wait` is the default command when omitted.
+With no args, `wait` blocks on the core stack (db redis7 kafka clickhouse).
+Extra services are appended to the core list. Pass `--only` to wait ONLY for
+the listed services (skipping core) — for jobs that launched a subset.
 EOF
 }
 
@@ -259,8 +262,31 @@ run_launch() {
 }
 
 run_wait() {
-    local core_services=(db redis7 kafka clickhouse)
-    local wait_services=("${core_services[@]}" "$@")
+    # Default: wait for core (db redis7 kafka clickhouse) plus any extras passed
+    # as args — matches `bin/wait-for-docker`'s semantics so the two helpers stay
+    # consistent. Pass `--only` as the first arg to wait ONLY for the listed
+    # services (skipping core) — for CI jobs that intentionally launch a subset
+    # of the stack and shouldn't block on services they never started.
+    local default_services=(db redis7 kafka clickhouse)
+    local only_listed=0
+    local forward_args=()
+    if [ "${1:-}" = "--only" ]; then
+        only_listed=1
+        shift
+        if [ "$#" -eq 0 ]; then
+            echo "ci-wait-for-docker wait: --only requires at least one service argument" >&2
+            return 2
+        fi
+        forward_args=(--only "$@")
+    else
+        forward_args=("$@")
+    fi
+    local wait_services
+    if [ "$only_listed" -eq 1 ]; then
+        wait_services=("$@")
+    else
+        wait_services=("${default_services[@]}" "$@")
+    fi
     local initial_timeout="${WAIT_FOR_DOCKER_TIMEOUT:-300}"
     local current_timeout="$initial_timeout"
     local attempt=0
@@ -279,7 +305,7 @@ run_wait() {
             echo "Proceeding with readiness checks even though the background docker compose launch is still running."
         fi
 
-        if WAIT_FOR_DOCKER_TIMEOUT="$current_timeout" "${SCRIPT_DIR}/wait-for-docker" "$@"; then
+        if WAIT_FOR_DOCKER_TIMEOUT="$current_timeout" "${SCRIPT_DIR}/wait-for-docker" "${forward_args[@]}"; then
             return 0
         fi
 

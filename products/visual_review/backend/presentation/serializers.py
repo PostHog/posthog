@@ -13,7 +13,6 @@ from ..facade.contracts import (
     ApproveRunRequestInput,
     ApproveSnapshotInput,
     Artifact,
-    AutoApproveResult,
     BaselineEntry,
     BaselineOverview,
     BaselineQuarantineSummary,
@@ -23,6 +22,8 @@ from ..facade.contracts import (
     CreateRunInput,
     CreateRunResult,
     DiffCluster,
+    FinalizeResult,
+    FinalizeRunRequestInput,
     QuarantinedIdentifierEntry,
     QuarantineInput,
     QuarantineSourceRun,
@@ -110,14 +111,14 @@ class CreateRunResultSerializer(DataclassSerializer):
         dataclass = CreateRunResult
 
 
-class AutoApproveResultSerializer(DataclassSerializer):
-    class Meta:
-        dataclass = AutoApproveResult
-
-
 class RecomputeResultSerializer(DataclassSerializer):
     class Meta:
         dataclass = RecomputeResult
+
+
+class FinalizeResultSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = FinalizeResult
 
 
 # --- Input Serializers ---
@@ -149,13 +150,56 @@ class UpdateRepoInputSerializer(DataclassSerializer):
 
 
 class ApproveSnapshotInputSerializer(DataclassSerializer):
+    identifier = serializers.CharField(
+        help_text="The snapshot identifier to approve (e.g. Storybook story id plus theme).",
+    )
+    new_hash = serializers.CharField(
+        help_text="The content hash of the new baseline image to record for this identifier.",
+    )
+
     class Meta:
         dataclass = ApproveSnapshotInput
 
 
 class ApproveRunInputSerializer(DataclassSerializer):
+    snapshots = ApproveSnapshotInputSerializer(
+        many=True,
+        required=True,
+        allow_empty=False,
+        help_text=(
+            "Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the "
+            'review in the database (the per-snapshot "Accept change" action) — it does not change the '
+            "baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint."
+        ),
+    )
+
     class Meta:
         dataclass = ApproveRunRequestInput
+
+
+class FinalizeRunInputSerializer(DataclassSerializer):
+    approve_all = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are "
+            "left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any "
+            "changed/new snapshot is still unreviewed."
+        ),
+    )
+    commit_to_github = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether the server commits the approved baseline to the PR branch and greens the gate (the normal "
+            "path — leave true). Set false only for tooling that commits the baseline itself: the server skips "
+            "the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT "
+            "greened and `metadata.baseline_commit_sha` is absent."
+        ),
+    )
+
+    class Meta:
+        dataclass = FinalizeRunRequestInput
 
 
 class SnapshotHistoryEntrySerializer(DataclassSerializer):
@@ -171,7 +215,12 @@ class ToleratedHashEntrySerializer(DataclassSerializer):
 
 
 class MarkToleratedInputSerializer(serializers.Serializer):
-    snapshot_id = serializers.UUIDField()
+    snapshot_id = serializers.UUIDField(
+        help_text=(
+            "UUID of the changed snapshot to mark as a known tolerated alternate. "
+            "Future runs that produce the same alternate hash for this identifier will not be flagged as changes."
+        ),
+    )
 
 
 class QuarantineSourceRunSerializer(DataclassSerializer):

@@ -109,7 +109,7 @@ function IntentSubmenu({ template, onBack }: { template: TemplateKey; onBack: ()
 
 export function OverlayForNewFeatureFlagMenu(): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { setActiveGroup } = useActions(maxLogic({ tabId: 'sidepanel' }))
+    const { setActiveGroup } = useActions(maxLogic({ sidePanel: true }))
     const { openSidePanel } = useActions(sidePanelLogic)
 
     const intentsEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_CREATION_INTENTS]

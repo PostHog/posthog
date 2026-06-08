@@ -15,7 +15,7 @@ from ee.billing.dags.productled_outbound_targets import (
     qualify_signals,
 )
 
-from . import resources
+from . import loggers, resources
 
 defs = dagster.Definitions(
     assets=[
@@ -28,5 +28,6 @@ defs = dagster.Definitions(
     ],
     jobs=[job_switchers_job, plo_job, archetype_job],
     schedules=[job_switchers_daily_schedule, plo_daily_schedule, archetype_weekly_schedule],
+    loggers=loggers,
     resources=resources,
 )

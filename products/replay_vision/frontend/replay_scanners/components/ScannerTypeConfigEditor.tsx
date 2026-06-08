@@ -14,8 +14,8 @@ const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length']; lab
     { value: 'long', label: 'Long (3-5 paragraphs)' },
 ]
 
-export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element {
-    const { scanner } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): JSX.Element {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
 
     if (!scanner) {
         return <div className="text-muted">Loading…</div>
@@ -39,12 +39,28 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
 
     if (scanner.scanner_type === 'monitor') {
         return (
-            <Field name="scanner_config.prompt" label="Prompt">
-                <LemonTextArea
-                    placeholder="Did the user encounter a payment failure? Answer yes or no with a one-sentence reason."
-                    minRows={6}
-                />
-            </Field>
+            <div className="space-y-4">
+                <Field name="scanner_config.prompt" label="Prompt">
+                    <LemonTextArea
+                        placeholder="Did the user encounter a payment failure? Answer yes or no with a one-sentence reason."
+                        minRows={6}
+                    />
+                </Field>
+                <Field name="scanner_config.allow_inconclusive">
+                    {({ value, onChange }) => (
+                        <div className="flex items-center gap-2">
+                            <LemonSwitch checked={!!value} onChange={onChange} />
+                            <div>
+                                <div className="text-sm font-medium">Allow inconclusive verdicts</div>
+                                <div className="text-xs text-muted">
+                                    Lets the model answer inconclusive when the recording doesn't contain enough
+                                    evidence to decide. Otherwise it must commit to yes or no.
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </Field>
+            </div>
         )
     }
 
@@ -73,7 +89,20 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                             <div>
                                 <div className="text-sm font-medium">Allow multiple tags per session</div>
                                 <div className="text-xs text-muted">
-                                    When off, the model picks exactly one tag. When on, it can pick zero or more.
+                                    Otherwise the model picks exactly one tag from your vocabulary.
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </Field>
+                <Field name="scanner_config.allow_freeform_tags">
+                    {({ value, onChange }) => (
+                        <div className="flex items-center gap-2">
+                            <LemonSwitch checked={!!value} onChange={onChange} />
+                            <div>
+                                <div className="text-sm font-medium">Allow freeform tags</div>
+                                <div className="text-xs text-muted">
+                                    Lets the model emit tags outside your tag vocabulary.
                                 </div>
                             </div>
                         </div>
@@ -102,15 +131,15 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                                     <div className="flex items-center gap-3 max-w-md">
                                         <LemonInput
                                             type="number"
-                                            value={scale.min}
-                                            onChange={(v) => onChange({ ...scale, min: Number(v) || 0 })}
+                                            value={Number.isFinite(scale.min) ? scale.min : undefined}
+                                            onChange={(v) => onChange({ ...scale, min: v ?? Number.NaN })}
                                             prefix={<span className="text-muted text-xs">min</span>}
                                         />
                                         <span className="text-muted">to</span>
                                         <LemonInput
                                             type="number"
-                                            value={scale.max}
-                                            onChange={(v) => onChange({ ...scale, max: Number(v) || 0 })}
+                                            value={Number.isFinite(scale.max) ? scale.max : undefined}
+                                            onChange={(v) => onChange({ ...scale, max: v ?? Number.NaN })}
                                             prefix={<span className="text-muted text-xs">max</span>}
                                         />
                                     </div>
@@ -129,17 +158,6 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                     }}
                 </Field>
             </div>
-        )
-    }
-
-    if (scanner.scanner_type === 'indexer') {
-        return (
-            <Field name="scanner_config.prompt" label="Prompt">
-                <LemonTextArea
-                    placeholder="Focus on the user's actions and goals. Ignore loading screens and animation noise."
-                    minRows={6}
-                />
-            </Field>
         )
     }
 

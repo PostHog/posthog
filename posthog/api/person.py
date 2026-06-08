@@ -35,7 +35,6 @@ from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
 from posthog.api.capture import capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer
-from posthog.api.insight import capture_legacy_api_call
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, format_paginated_url, get_target_entity
@@ -75,9 +74,10 @@ from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
-from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.utils import format_query_params_absolute_url, is_anonymous_id, refresh_requested_by_client
+
+from products.product_analytics.backend.api.insight import capture_legacy_api_call
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -360,16 +360,7 @@ class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
 def get_funnel_actor_class(filter: Filter) -> Callable:
     funnel_actor_class: type[ActorBaseQuery]
 
-    if filter.correlation_person_entity and EE_AVAILABLE:
-        if EE_AVAILABLE:
-            from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
-
-            funnel_actor_class = FunnelCorrelationActors
-        else:
-            raise ValueError(
-                "Funnel Correlations is not available without an enterprise license and enterprise supported deployment"
-            )
-    elif filter.funnel_viz_type == FunnelVizType.TRENDS:
+    if filter.funnel_viz_type == FunnelVizType.TRENDS:
         funnel_actor_class = ClickhouseFunnelTrendsActors
     else:
         if filter.funnel_order_type == "unordered":
@@ -392,7 +383,7 @@ _PERSON_ID_PARAMETER = OpenApiParameter(
 _id_schema = extend_schema(parameters=[_PERSON_ID_PARAMETER])
 
 
-@extend_schema(tags=[ProductKey.PERSONS])
+@extend_schema(extensions={"x-product": ProductKey.PERSONS})
 @extend_schema_view(
     retrieve=_id_schema,
     update=_id_schema,

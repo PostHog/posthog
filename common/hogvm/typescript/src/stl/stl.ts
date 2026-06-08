@@ -1099,6 +1099,13 @@ export const STL: Record<string, STLFunction> = {
         minArgs: 0,
         maxArgs: 0,
     },
+    randomFloat: {
+        fn: () => Math.random(),
+        description: 'Returns a uniformly random float in [0, 1). Not cryptographically secure.',
+        example: 'randomFloat()',
+        minArgs: 0,
+        maxArgs: 0,
+    },
     sha256Hex: {
         fn: ([str], _, options) => sha256(str, 'hex', options),
         description: 'Computes SHA-256 hash of a string',

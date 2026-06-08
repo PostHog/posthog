@@ -288,7 +288,9 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     queryset = Tag.objects.none()
 
     def list(self, request, *args, **kwargs) -> response.Response:
-        return response.Response(Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct())
+        return response.Response(
+            Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct().order_by("name")
+        )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -351,6 +353,7 @@ RELATED_OBJECT_ACTIVITY_LOGGERS: dict[str, RelatedObjectActivityLogger] = {
         ),
     ),
     "account": RelatedObjectActivityLogger(scope="Account"),
+    "endpoint": RelatedObjectActivityLogger(scope="Endpoint"),
 }
 
 
