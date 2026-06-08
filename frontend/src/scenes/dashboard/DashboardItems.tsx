@@ -1,17 +1,20 @@
 import './DashboardItems.scss'
 
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
 
+import { DashboardWidgetItem } from '@posthog/products-dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem'
+import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboards/frontend/widgets/constants'
+
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
+import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS, isWidgetTileVisibleOnPlacement } from 'scenes/dashboard/dashboardUtils'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
@@ -48,6 +51,9 @@ export function DashboardItems(): JSX.Element {
         temporaryBreakdownColors,
         dataColorThemeId,
         canEditDashboard,
+        dashboardWidgetsEnabled,
+        widgetResultsByTileId,
+        widgetRefreshStatus,
     } = useValues(dashboardLogic)
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
@@ -58,11 +64,13 @@ export function DashboardItems(): JSX.Element {
         removeTile,
         duplicateTile,
         refreshDashboardItem,
+        refreshDashboardWidgets,
         moveToDashboard,
         copyToDashboard,
         setTileOverride,
         setDashboardMode,
     } = useActions(dashboardLogic)
+    const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
@@ -131,7 +139,7 @@ export function DashboardItems(): JSX.Element {
             observer.disconnect()
         }
     }, [mounted, containerRef])
-    const isMobileView = width && width <= BREAKPOINTS['sm']
+    const isMobileView = !!width && width <= BREAKPOINTS['sm']
     const isEditablePlacement = [
         DashboardPlacement.Dashboard,
         DashboardPlacement.ProjectHomepage,
@@ -159,7 +167,7 @@ export function DashboardItems(): JSX.Element {
     const dragConfig = useMemo(
         () => ({
             enabled: dashboardMode === DashboardMode.Edit && !isMobileView,
-            handle: '.CardMeta,.TextCard__body,.ButtonTileCard__body',
+            handle: '.CardMeta,.TextCard__body,.ButtonTileCard__body,.WidgetCard__header,.drag-handle',
             cancel: 'a,table,button,input,.Popover',
             bounded: true,
         }),
@@ -359,7 +367,7 @@ export function DashboardItems(): JSX.Element {
                         onDragStop={handleDragStop}
                     >
                         {tiles?.map((tile) => {
-                            const { insight, text, button_tile } = tile
+                            const { insight, text, button_tile, widget } = tile
                             const smLayout = layouts['sm']?.find((l) => {
                                 return l.i == tile.id.toString()
                             })
@@ -463,6 +471,42 @@ export function DashboardItems(): JSX.Element {
                                         onMoveToDashboard={commonTileProps.moveToDashboard}
                                         onDuplicate={() => duplicateTile(tile)}
                                         onRemove={commonTileProps.removeFromDashboard}
+                                        showResizeHandles={commonTileProps.showResizeHandles}
+                                        showEditingControls={commonTileProps.showEditingControls}
+                                        canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
+                                        onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
+                                        onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
+                                    />
+                                )
+                            }
+
+                            if (widget && dashboardWidgetsEnabled && isWidgetTileVisibleOnPlacement(placement)) {
+                                const runResult = widgetResultsByTileId[tile.id]
+                                const refreshState = widgetRefreshStatus[tile.id]
+
+                                return (
+                                    <DashboardWidgetItem
+                                        key={tile.id}
+                                        tile={tile}
+                                        placement={placement}
+                                        dashboardId={dashboard?.id}
+                                        result={runResult?.result}
+                                        error={getDashboardWidgetFetchDisplayError(
+                                            runResult?.error ?? refreshState?.error
+                                        )}
+                                        loading={!!refreshState?.loading}
+                                        lastFetchedAt={refreshState?.fetchedAt}
+                                        onRefresh={() =>
+                                            refreshDashboardWidgets({ tileIds: [tile.id], forceRefresh: true })
+                                        }
+                                        onUpdateWidgetTile={async (patch) => {
+                                            await updateWidgetTile({ tile, ...patch })
+                                        }}
+                                        toggleShowDescription={() => toggleTileDescription(tile.id)}
+                                        onDuplicate={() => duplicateTile(tile)}
+                                        onRemove={commonTileProps.removeFromDashboard}
+                                        onMoveToDashboard={commonTileProps.moveToDashboard}
+                                        onCopyToDashboard={commonTileProps.copyToDashboard}
                                         showResizeHandles={commonTileProps.showResizeHandles}
                                         showEditingControls={commonTileProps.showEditingControls}
                                         canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}

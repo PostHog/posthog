@@ -1,3 +1,4 @@
+import type { ReactJsonViewProps } from '@microlink/react-json-view'
 import { combineUrl, router } from 'kea-router'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -43,16 +44,27 @@ import {
 } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { llmAnalyticsColumnRenderers } from 'products/llm_analytics/frontend/llmAnalyticsColumnRenderers'
+import { aiObservabilityColumnRenderers } from 'products/ai_observability/frontend/aiObservabilityColumnRenderers'
 
 import { extractExpressionComment, removeExpressionComment } from './utils'
 
-const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'last_seen_at', 'session_start', 'session_end']
+export const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'last_seen_at', 'session_start', 'session_end']
+
+// Wraps the JSON viewer in a horizontally scrollable container so wide or deeply
+// nested objects stay readable inside fixed-width table cells, where the surrounding
+// table clips overflow and offers no horizontal scroll of its own (e.g. dashboard tiles).
+function JSONCell(props: ReactJsonViewProps): JSX.Element {
+    return (
+        <div className="overflow-x-auto max-w-full">
+            <JSONViewer {...props} />
+        </div>
+    )
+}
 
 // Registry for product-specific column renderers
 // Products can add their custom column renderers here to have them automatically applied across all DataTable instances
 const productColumnRenderers: Record<string, QueryContextColumn> = {
-    ...llmAnalyticsColumnRenderers,
+    ...aiObservabilityColumnRenderers,
     ...sessionColumnRenderers,
 }
 
@@ -149,7 +161,7 @@ export function renderColumn(
             try {
                 if (value.startsWith('{') && value.endsWith('}')) {
                     return (
-                        <JSONViewer
+                        <JSONCell
                             src={JSON.parse(value)}
                             name={key}
                             collapsed={Object.keys(JSON.stringify(value)).length > 10 ? 0 : 1}
@@ -158,7 +170,7 @@ export function renderColumn(
                 }
                 if (value.startsWith('[') && value.endsWith(']')) {
                     return (
-                        <JSONViewer
+                        <JSONCell
                             src={JSON.parse(value)}
                             name={key}
                             collapsed={JSON.stringify(value).length > 10 ? 0 : 1}
@@ -169,14 +181,20 @@ export function renderColumn(
                 // do nothing
             }
             if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3,6})?(?:Z|[+-]\d{2}:\d{2})?$/)) {
-                return <TZLabel time={value} showSeconds />
+                return (
+                    <TZLabel
+                        time={value}
+                        showSeconds
+                        timestampStyle={query.showAbsoluteTime ? 'absolute' : 'relative'}
+                    />
+                )
             }
         }
         if (typeof value === 'object') {
             if (Array.isArray(value)) {
-                return <JSONViewer src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
+                return <JSONCell src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
             }
-            return <JSONViewer src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+            return <JSONCell src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
         }
         return <Property value={value} />
     } else if (key === 'event' && isEventsQuery(query.source)) {
@@ -203,15 +221,18 @@ export function renderColumn(
         )
     } else if ((isActorsQuery(query.source) || isActorsQuery(query)) && key === 'last_seen_at') {
         const isWithinLastHour = dayjs().diff(dayjs(value), 'hour', true) < 1
+        // Hide the "last hour" pill when the absolute-time mode is on — TZLabel's children
+        // override the formatted text, so the pill would otherwise mask the absolute timestamp.
+        const showLastHourPill = isWithinLastHour && !query.showAbsoluteTime
         return (
-            <TZLabel time={value} showSeconds>
-                {isWithinLastHour ? (
+            <TZLabel time={value} showSeconds timestampStyle={query.showAbsoluteTime ? 'absolute' : 'relative'}>
+                {showLastHourPill ? (
                     <span className="whitespace-nowrap align-middle border-dotted border-b">last hour</span>
                 ) : undefined}
             </TZLabel>
         )
     } else if (DATETIME_KEYS.includes(key)) {
-        return <TZLabel time={value} showSeconds />
+        return <TZLabel time={value} showSeconds timestampStyle={query.showAbsoluteTime ? 'absolute' : 'relative'} />
     } else if (!Array.isArray(record) && key.startsWith('properties.')) {
         // TODO: remove after removing the old events table
         const propertyKey = trimQuotes(key.substring('properties.'.length))
@@ -338,7 +359,9 @@ export function renderColumn(
         const noPopover = isActorsQuery(query.source)
         const displayProps: PersonDisplayProps = {
             withIcon: true,
-            person: { id: value.id, distinct_id: value.distinct_id },
+            // `properties: {}` marks this row as an identified profile so PersonDisplay still renders the link;
+            // the server-side `person_display_name` column omits `properties` even though these rows are profiled.
+            person: { id: value.id, distinct_id: value.distinct_id, properties: {} },
             displayName: value.display_name,
             noPopover,
         }
@@ -439,13 +462,13 @@ export function renderColumn(
         return formatCurrency(Number(value), baseCurrency)
     }
     if (typeof value === 'object') {
-        return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+        return <JSONCell src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
     } else if (
         typeof value === 'string' &&
         ((value.startsWith('{') && value.endsWith('}')) || (value.startsWith('[') && value.endsWith(']')))
     ) {
         try {
-            return <JSONViewer src={JSON.parse(value)} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+            return <JSONCell src={JSON.parse(value)} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
         } catch {
             // do nothing
         }

@@ -71,12 +71,16 @@ export const PayGateMiniGrandfathered: Story = {
     args: { feature: AvailableFeature.SUBSCRIPTIONS, isGrandfathered: true },
 }
 
+export const PayGateMiniHighFrequencyAlerts: Story = {
+    args: { feature: AvailableFeature.HIGH_FREQUENCY_ALERTS },
+}
+
 export const PayGateMiniAddon: Story = {
     args: { feature: AvailableFeature.GROUP_ANALYTICS },
 }
 
 export const PayGateMiniLimitFeatureOther: Story = {
-    args: { feature: AvailableFeature.ADVANCED_PERMISSIONS, currentUsage: 3 },
+    args: { feature: AvailableFeature.ACCESS_CONTROL, currentUsage: 3 },
     render: ({ cloud, ...props }) => {
         useStorybookMocks({
             get: {
@@ -88,8 +92,8 @@ export const PayGateMiniLimitFeatureOther: Story = {
                             ...meCurrent.organization,
                             available_product_features: [
                                 {
-                                    key: 'advanced_permissions',
-                                    name: 'Advanced Permissions',
+                                    key: 'access_control',
+                                    name: 'Access control',
                                 },
                             ],
                         },

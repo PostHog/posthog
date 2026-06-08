@@ -1,5 +1,6 @@
 import json
 from collections import defaultdict
+from typing import Any
 
 import structlog
 
@@ -7,17 +8,25 @@ from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.redis import get_client
 from posthog.temporal.health_checks.detectors import HealthExecutionPolicy
-from posthog.temporal.health_checks.framework import HealthCheck
+from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
 from products.growth.backend.constants import (
-    SDK_CACHE_EXPIRY,
+    SDK_TYPES,
+    TEAM_SDK_CACHE_EXPIRY,
     SdkVersionEntry,
     github_sdk_versions_key,
     team_sdk_versions_key,
 )
-from products.growth.dags.github_sdk_versions import SDK_TYPES
+from products.growth.backend.sdk_health import SdkAssessment, _is_safe_for_interpolation, compute_sdk_health
+
+# Issue severity follows the SDK Health assessment severity: a single outdated SDK is a warning,
+# but when the bulk of a team's SDKs are outdated the assessment escalates to "danger".
+_SEVERITY_BY_ASSESSMENT: dict[str, HealthIssue.Severity] = {
+    "danger": HealthIssue.Severity.CRITICAL,
+    "warning": HealthIssue.Severity.WARNING,
+}
 
 logger = structlog.get_logger(__name__)
 
@@ -66,7 +75,7 @@ def _load_github_sdk_data() -> dict[str, dict]:
 
 
 def _cache_team_sdk_data(team_sdk_data: dict[int, dict[str, list[SdkVersionEntry]]]) -> None:
-    """Cache team SDK version data in Redis for the SDK Doctor API."""
+    """Cache team SDK version data in Redis for the SDK Health API."""
     if not team_sdk_data:
         return
 
@@ -74,7 +83,7 @@ def _cache_team_sdk_data(team_sdk_data: dict[int, dict[str, list[SdkVersionEntry
     pipe = redis_client.pipeline()
     for team_id, sdk_data in team_sdk_data.items():
         cache_key = team_sdk_versions_key(team_id)
-        pipe.setex(cache_key, SDK_CACHE_EXPIRY, json.dumps(sdk_data))
+        pipe.setex(cache_key, TEAM_SDK_CACHE_EXPIRY, json.dumps(sdk_data))
     pipe.execute()
 
 
@@ -85,6 +94,30 @@ class SdkOutdatedCheck(HealthCheck):
     policy = HealthExecutionPolicy(batch_size=10, max_concurrent=3)
     schedule = "0 8 * * *"
     active_since_days = 30
+
+    @classmethod
+    def render_alert(cls, issue: HealthIssue) -> AlertContent:
+        sdk_name = issue.payload.get("sdk_name", "an SDK")
+        # `reason` is the assessment's single source of truth (compute_sdk_health → _build_reason).
+        # It already names the current in-use version and the specific older versions driving the
+        # alert, and routes every version through SDK Health's allowlist before interpolation — so
+        # it's both complete and safe to forward to alert destinations (Slack, email, webhooks).
+        summary = issue.payload.get("reason")
+        if not summary:
+            # Fallback for issues persisted before `reason` was added to the payload. `current_version`
+            # originates from the $lib_version event property — attacker controllable via project token —
+            # so gate it through the same allowlist before interpolating.
+            #
+            # Can be removed after 2026-06-08.
+            latest = issue.payload.get("latest_version") or "the latest version"
+            raw_current = issue.payload.get("current_version")
+            current = raw_current if raw_current and _is_safe_for_interpolation(raw_current) else None
+            summary = f"{sdk_name} is on {current}, latest is {latest}" if current else f"{sdk_name} is behind {latest}"
+        return AlertContent(
+            title=f"{sdk_name} SDK is outdated",
+            summary=summary,
+            link="/health/sdk-health",
+        )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         github_data = _load_github_sdk_data()
@@ -115,35 +148,75 @@ class SdkOutdatedCheck(HealthCheck):
 
         issues: defaultdict[int, list[HealthCheckResult]] = defaultdict(list)
         for team_id, sdk_data in team_sdk_data.items():
-            for lib_name, entries in sdk_data.items():
-                if lib_name not in github_data or not entries:
-                    continue
-                sdk_github_data = github_data[lib_name]
-                latest_version = sdk_github_data["latestVersion"]
-                release_dates = sdk_github_data.get("releaseDates", {})
-
-                current_version = entries[0].get("lib_version")
-
-                if current_version and current_version != latest_version:
-                    issues[team_id].append(
-                        HealthCheckResult(
-                            severity=HealthIssue.Severity.WARNING,
-                            payload={
-                                "sdk_name": lib_name,
-                                "latest_version": latest_version,
-                                "usage": [
-                                    {
-                                        "lib_version": entry["lib_version"],
-                                        "count": entry.get("count", 0),
-                                        "max_timestamp": entry["max_timestamp"],
-                                        "release_date": release_dates.get(entry["lib_version"]),
-                                        "is_latest": entry["lib_version"] == latest_version,
-                                    }
-                                    for entry in entries
-                                ],
-                            },
-                            hash_keys=["sdk_name"],
-                        )
-                    )
+            combined = _build_combined_data(sdk_data, github_data)
+            if not combined:
+                continue
+            report = compute_sdk_health(combined, project_id=team_id)
+            for assessment in report.sdks:
+                if assessment.needs_updating:
+                    issues[team_id].append(_build_health_result(assessment))
 
         return issues
+
+
+def _build_combined_data(
+    sdk_data: dict[str, list[SdkVersionEntry]],
+    github_data: dict[str, dict],
+) -> dict[str, dict[str, Any]]:
+    """Shape per-team SDK usage into the structure compute_sdk_health expects."""
+    combined: dict[str, dict[str, Any]] = {}
+    for lib_name, entries in sdk_data.items():
+        if lib_name not in github_data or not entries:
+            continue
+        sdk_github_data = github_data[lib_name]
+        latest_version = sdk_github_data["latestVersion"]
+        release_dates = sdk_github_data.get("releaseDates", {})
+        combined[lib_name] = {
+            "latest_version": latest_version,
+            "usage": [
+                {
+                    "lib_version": entry["lib_version"],
+                    "count": entry.get("count", 0),
+                    "max_timestamp": entry["max_timestamp"],
+                    "release_date": release_dates.get(entry["lib_version"]),
+                    "is_latest": entry["lib_version"] == latest_version,
+                }
+                for entry in entries
+            ],
+        }
+    return combined
+
+
+def _build_health_result(assessment: SdkAssessment) -> HealthCheckResult:
+    """Build a HealthCheckResult from a computed SDK assessment.
+
+    The payload carries everything both the alert (render_alert) and the unified Health scene's
+    per-version table (SdkOutdatedRenderer) need, so neither has to recompute or re-query.
+    """
+    severity = _SEVERITY_BY_ASSESSMENT.get(assessment.severity, HealthIssue.Severity.WARNING)
+    primary = assessment.releases[0] if assessment.releases else None
+    return HealthCheckResult(
+        severity=severity,
+        payload={
+            "sdk_name": assessment.lib,
+            "latest_version": assessment.latest_version,
+            "current_version": primary.version if primary else None,
+            "reason": assessment.reason,
+            "banners": assessment.banners,
+            "is_outdated": assessment.is_outdated,
+            "is_old": assessment.is_old,
+            "usage": [
+                {
+                    "lib_version": release.version,
+                    "count": release.count,
+                    "max_timestamp": release.max_timestamp,
+                    "release_date": release.release_date,
+                    "is_latest": release.version == assessment.latest_version,
+                    "is_outdated": release.is_outdated,
+                    "status_reason": release.status_reason,
+                }
+                for release in assessment.releases
+            ],
+        },
+        hash_keys=["sdk_name"],
+    )

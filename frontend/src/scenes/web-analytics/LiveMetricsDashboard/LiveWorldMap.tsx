@@ -23,6 +23,7 @@ interface CountryPathProps {
     onMouseEnter: (countryCode: string, e: React.MouseEvent) => void
     onMouseMove: (e: React.MouseEvent) => void
     onMouseLeave: () => void
+    onClick?: (countryCode: string) => void
 }
 
 const CountryPath = React.memo(
@@ -35,13 +36,14 @@ const CountryPath = React.memo(
         onMouseEnter,
         onMouseMove,
         onMouseLeave,
+        onClick,
     }: CountryPathProps): JSX.Element => {
         return React.cloneElement(countryElement, {
             key: countryCode,
             style: {
                 color: fill,
                 '--world-map-hover': mapColor,
-                cursor: fill ? 'pointer' : undefined,
+                cursor: fill && onClick ? 'pointer' : undefined,
                 filter:
                     heat > 0
                         ? `brightness(${1 + heat * HEAT_BRIGHTNESS_FACTOR}) saturate(${1 + heat}) hue-rotate(${heat * HEAT_HUE_ROTATION_DEG}deg)`
@@ -51,6 +53,7 @@ const CountryPath = React.memo(
             onMouseEnter: (e: React.MouseEvent) => onMouseEnter(countryCode, e),
             onMouseMove,
             onMouseLeave,
+            onClick: onClick && fill ? () => onClick(countryCode) : undefined,
         })
     }
 )
@@ -59,9 +62,10 @@ CountryPath.displayName = 'CountryPath'
 interface LiveWorldMapProps {
     data: CountryBreakdownItem[]
     totalEvents: number
+    onCountryClick?: (countryCode: string) => void
 }
 
-export const LiveWorldMap = ({ data, totalEvents }: LiveWorldMapProps): JSX.Element => {
+export const LiveWorldMap = ({ data, totalEvents, onCountryClick }: LiveWorldMapProps): JSX.Element => {
     const { countryCodeToCount, maxCount, tooltipData, countryHeat, mapColor, tooltipPosition } =
         useValues(liveWorldMapLogic)
     const { showTooltip, hideTooltip, updateTooltipCoordinates, updateCountryData } = useActions(liveWorldMapLogic)
@@ -112,6 +116,7 @@ export const LiveWorldMap = ({ data, totalEvents }: LiveWorldMapProps): JSX.Elem
                             onMouseEnter={handleMouseEnter}
                             onMouseMove={handleMouseMove}
                             onMouseLeave={hideTooltip}
+                            onClick={onCountryClick}
                         />
                     )
                 })}

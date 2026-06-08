@@ -40,7 +40,7 @@ _RSA_KEY = _generate_rsa_key()
     OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
     OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
 )
-class StripeProvisioningTestBase(APIBaseTest):
+class ProvisioningTestBase(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.client = APIClient()
@@ -58,6 +58,10 @@ class StripeProvisioningTestBase(APIBaseTest):
                 "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 "redirect_uris": "https://localhost",
                 "algorithm": "RS256",
+                "provisioning_can_issue_deep_links": True,
+                # The test app stands in for the grandfathered legacy Stripe app, which is
+                # the one app that still mints a provisioned PAT.
+                "provisioning_issues_personal_api_key": True,
             },
         )
 
@@ -137,7 +141,6 @@ class StripeProvisioningTestBase(APIBaseTest):
             "/api/agentic/oauth/token",
             data=body,
             content_type="application/x-www-form-urlencoded",
-            HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"},
         )
         return res.json()["access_token"]

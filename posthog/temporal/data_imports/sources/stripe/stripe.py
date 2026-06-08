@@ -1,12 +1,14 @@
 import os
+import re
 import dataclasses
 from collections.abc import Callable
-from typing import Any, Optional, Union, get_args, get_type_hints
+from typing import Any, Literal, Optional, Union, cast, get_args, get_type_hints
 
 import orjson
+import stripe as stripe_lib
 import pyarrow as pa
 from asgiref.sync import async_to_sync
-from stripe import ListObject, StripeClient
+from stripe import ListObject, RequestsClient, StripeClient
 from stripe._base_address import BaseAddresses
 from stripe._webhook_endpoint_service import WebhookEndpointService
 from structlog.types import FilteringBoundLogger
@@ -19,13 +21,16 @@ from posthog.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
     WebhookDeletionResult,
+    WebhookSyncResult,
 )
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
+    COUPON_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
@@ -41,12 +46,47 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
-from posthog.temporal.data_imports.sources.stripe.settings import APPEND_ONLY_INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.sources.stripe.settings import APPEND_ONLY_INCREMENTAL_FIELDS, WEBHOOK_ONLY_ENDPOINTS
 
-from products.data_warehouse.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
+from products.warehouse_sources.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
 
 LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
+
+
+def _tracked_stripe_http_client() -> RequestsClient:
+    """Wrap a tracked `requests.Session` in Stripe's `RequestsClient` so every
+    Stripe SDK call participates in our HTTP logging, metrics, and sample capture."""
+    return RequestsClient(session=make_tracked_session())
+
+
+def _clean_stripe_error_message(msg: str) -> str:
+    """Collapse the long redacted middle of a restricted API key ('rk_live_********...****gbeftZ')
+    so the error message stays short enough to render in a frontend toast. The prefix and
+    suffix Stripe leaves visible are enough to identify the key in support escalations."""
+    # Stripe redacts ~80 chars with `*`. Anything 5+ in a row is the redaction, never legitimate.
+    return re.sub(r"\*{5,}", "***", msg)
+
+
+def _call_stripe(method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Invoke a Stripe SDK list method and rewrite any StripeError it raises with a cleaned
+    message — primarily collapsing the long asterisk run from redacted restricted keys.
+
+    Re-raises the same exception instance (so framework-level non-retryable error matching on
+    `"PermissionError"` etc. continues to work) but with a shorter, frontend-friendly message
+    that still preserves the actionable detail Stripe surfaces (which scope is missing).
+
+    The message is mutated in place rather than reconstructed: StripeError subclasses have
+    differing constructor signatures (e.g. InvalidRequestError requires a positional `param`),
+    so `type(e)(message=...)` would itself raise a TypeError and mask the original error.
+    """
+    try:
+        return method(*args, **kwargs)
+    except stripe_lib.StripeError as e:
+        cleaned = _clean_stripe_error_message(e._message or "")
+        e._message = cleaned
+        e.args = (cleaned,)
+        raise
 
 
 def _stripe_base_addresses() -> BaseAddresses:
@@ -68,12 +108,74 @@ class StripeNestedResource:
     nested_parent_param: str
     parent_id: str
     parent: StripeResource
+    parent_name: str = ""
     params: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass
 class StripeResumeConfig:
     starting_after: str
+
+
+def _build_resources(
+    client: StripeClient, logger: Optional[FilteringBoundLogger] = None
+) -> dict[str, Union[StripeResource, StripeNestedResource]]:
+    """Single source of truth for the resources we sync from Stripe and how they relate.
+
+    Used by both get_rows (for the actual sync) and validate_credentials (for permission
+    checks). Nested resources carry their parent on `.parent`, so callers can derive the
+    nested→parent linkage without restating it elsewhere.
+
+    `logger` is only consumed by InvoiceListWithAllLines; pass None when the caller doesn't
+    need the wrapped invoice expansion (e.g. validation, which just probes the list endpoint).
+    """
+    return {
+        ACCOUNT_RESOURCE_NAME: StripeResource(method=client.accounts.list),
+        BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(method=client.balance_transactions.list),
+        CHARGE_RESOURCE_NAME: StripeResource(method=client.charges.list),
+        CUSTOMER_RESOURCE_NAME: StripeResource(method=client.customers.list),
+        DISPUTE_RESOURCE_NAME: StripeResource(method=client.disputes.list),
+        INVOICE_ITEM_RESOURCE_NAME: StripeResource(method=client.invoice_items.list),
+        INVOICE_RESOURCE_NAME: StripeResource(
+            method=(
+                (lambda params: InvoiceListWithAllLines(client, params, logger))  # type: ignore
+                if logger is not None
+                else client.invoices.list
+            )
+        ),
+        PAYOUT_RESOURCE_NAME: StripeResource(method=client.payouts.list),
+        PRICE_RESOURCE_NAME: StripeResource(method=client.prices.list, params={"expand[]": "data.tiers"}),
+        PRODUCT_RESOURCE_NAME: StripeResource(method=client.products.list),
+        REFUND_RESOURCE_NAME: StripeResource(method=client.refunds.list),
+        SUBSCRIPTION_RESOURCE_NAME: StripeResource(
+            method=client.subscriptions.list,
+            params={
+                "status": "all",
+                # Expand discount objects so coupon details (amount_off, percent_off, duration) are inline.
+                # Without expansion Stripe returns only discount IDs, which prevents revenue projection.
+                # Key must be "expand" (not "expand[]") for a list value: the SDK encodes it as
+                # expand[0]=…&expand[1]=…, whereas "expand[]" + a list yields expand[][0]=… (doubled
+                # brackets), which Stripe rejects with "Invalid string: {...}".
+                "expand": ["data.discounts", "data.items.data.discounts"],
+            },
+        ),
+        CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
+        COUPON_RESOURCE_NAME: StripeResource(method=client.coupons.list),
+        CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
+            method=client.customers.balance_transactions.list,
+            nested_parent_param="customer",
+            parent_id="id",
+            parent=StripeResource(method=client.customers.list),
+            parent_name=CUSTOMER_RESOURCE_NAME,
+        ),
+        CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: StripeNestedResource(
+            method=client.customers.payment_methods.list,
+            nested_parent_param="customer",
+            parent_id="id",
+            parent=StripeResource(method=client.customers.list),
+            parent_name=CUSTOMER_RESOURCE_NAME,
+        ),
+    }
 
 
 def get_rows(
@@ -92,39 +194,21 @@ def get_rows(
         stripe_version="2024-09-30.acacia",
         max_network_retries=2,
         base_addresses=_stripe_base_addresses(),
+        http_client=_tracked_stripe_http_client(),
     )
     default_params = {"limit": DEFAULT_LIMIT}
-    resources: dict[str, Union[StripeResource, StripeNestedResource]] = {
-        ACCOUNT_RESOURCE_NAME: StripeResource(method=client.accounts.list),
-        BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(method=client.balance_transactions.list),
-        CHARGE_RESOURCE_NAME: StripeResource(method=client.charges.list),
-        CUSTOMER_RESOURCE_NAME: StripeResource(method=client.customers.list),
-        DISPUTE_RESOURCE_NAME: StripeResource(method=client.disputes.list),
-        INVOICE_ITEM_RESOURCE_NAME: StripeResource(method=client.invoice_items.list),
-        INVOICE_RESOURCE_NAME: StripeResource(
-            method=lambda params: InvoiceListWithAllLines(client, params, logger)  # type: ignore
-        ),
-        PAYOUT_RESOURCE_NAME: StripeResource(method=client.payouts.list),
-        PRICE_RESOURCE_NAME: StripeResource(method=client.prices.list, params={"expand[]": "data.tiers"}),
-        PRODUCT_RESOURCE_NAME: StripeResource(method=client.products.list),
-        REFUND_RESOURCE_NAME: StripeResource(method=client.refunds.list),
-        SUBSCRIPTION_RESOURCE_NAME: StripeResource(method=client.subscriptions.list, params={"status": "all"}),
-        CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
-        CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
-            method=client.customers.balance_transactions.list,
-            nested_parent_param="customer",
-            parent_id="id",
-            parent=StripeResource(method=client.customers.list),
-        ),
-        CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: StripeNestedResource(
-            method=client.customers.payment_methods.list,
-            nested_parent_param="customer",
-            parent_id="id",
-            parent=StripeResource(method=client.customers.list),
-        ),
-    }
+    resources = _build_resources(client, logger=logger)
 
     batcher = Batcher(logger=logger)
+
+    if endpoint in WEBHOOK_ONLY_ENDPOINTS:
+        # Webhook-only resources (e.g. Discount) have no Stripe list endpoint — Discount
+        # can only be retrieved in the context of a customer/subscription/invoice. These
+        # tables are populated exclusively by their corresponding webhook events. Yield
+        # nothing so the initial "sync" completes immediately, allowing the webhook source
+        # manager to take over (it requires schema.initial_sync_complete=True before activating).
+        logger.debug(f"Stripe: {endpoint} endpoint is webhook-only, skipping API list")
+        return
 
     resource = resources.get(endpoint, None)
     if not resource:
@@ -150,11 +234,13 @@ def get_rows(
             logger.debug(f"Stripe: resuming from object id: {resume_config.starting_after}")
 
         if isinstance(resource, StripeNestedResource):
-            stripe_parent_objects = resource.parent.method(
-                params={**default_params, **resource.parent.params, **resume_params}
+            stripe_parent_objects = _call_stripe(
+                resource.parent.method,
+                params={**default_params, **resource.parent.params, **resume_params},
             )
             for obj in stripe_parent_objects.auto_paging_iter():
-                stripe_nested_objects = resource.method(
+                stripe_nested_objects = _call_stripe(
+                    resource.method,
                     **{resource.nested_parent_param: obj[resource.parent_id]},
                     params={**default_params, **resource.params},
                 )
@@ -173,7 +259,9 @@ def get_rows(
                         last_cur = py_table.column(resource.nested_parent_param)[-1].as_py()
                         resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
         else:
-            stripe_objects = resource.method(params={**default_params, **resource.params, **resume_params})
+            stripe_objects = _call_stripe(
+                resource.method, params={**default_params, **resource.params, **resume_params}
+            )
             for obj in stripe_objects.auto_paging_iter():
                 batcher.batch(obj)
 
@@ -203,12 +291,13 @@ def get_rows(
             f"Stripe: iterating earliest objects from resource: created[lt] = {db_incremental_field_earliest_value}"
         )
 
-        stripe_objects = resource.method(
+        stripe_objects = _call_stripe(
+            resource.method,
             params={
                 **default_params,
                 **resource.params,
                 f"created[lt]": db_incremental_field_earliest_value,
-            }
+            },
         )
         yield from stripe_objects.auto_paging_iter()
 
@@ -216,12 +305,13 @@ def get_rows(
     if db_incremental_field_last_value is not None:
         logger.debug(f"Stripe: iterating latest objects from resource: created[gt] = {db_incremental_field_last_value}")
 
-        stripe_objects = resource.method(
+        stripe_objects = _call_stripe(
+            resource.method,
             params={
                 **default_params,
                 **resource.params,
                 f"created[gt]": db_incremental_field_last_value,
-            }
+            },
         )
         for obj in stripe_objects.auto_paging_iter():
             if obj[incremental_field_name] <= db_incremental_field_last_value:
@@ -306,7 +396,7 @@ def stripe_source(
 
 
 class StripePermissionError(Exception):
-    """Exception raised when Stripe API key lacks permissions for specific resources."""
+    """Raised when Stripe API key is valid but lacks read permission for one or more resources (403)."""
 
     def __init__(self, missing_permissions: dict[str, str]):
         self.missing_permissions = missing_permissions
@@ -314,65 +404,164 @@ class StripePermissionError(Exception):
         super().__init__(message)
 
 
-def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool:
+class StripeAuthenticationError(Exception):
+    """Raised when Stripe API key itself is invalid (401) — distinct from per-resource permission denial."""
+
+    def __init__(self, stripe_message: str):
+        self.stripe_message = stripe_message
+        super().__init__(stripe_message)
+
+
+class StripeValidationError(Exception):
+    """Raised when one or more resources failed with a non-403 exception (network, schema, rate
+    limit, etc.) during credential validation. Distinct from StripePermissionError so callers can
+    decide whether to surface the verbose underlying message — permission errors are
+    self-explanatory from the resource name, but unknown errors need the raw detail."""
+
+    def __init__(self, errors: dict[str, str], missing_permissions: Optional[dict[str, str]] = None):
+        self.errors = errors
+        # If we also collected legitimate 403s before hitting the unknown error, keep them on the
+        # exception so callers can report both classes of failure in a single message.
+        self.missing_permissions = missing_permissions or {}
+        message = f"Stripe validation failed for: {', '.join(errors.keys())}"
+        super().__init__(message)
+
+
+def _resolve_to_flat(
+    name: str, all_resources: dict[str, Union[StripeResource, StripeNestedResource]]
+) -> tuple[str, StripeResource]:
+    """Nested resources display as `<nested> (<parent>)` and probe the parent endpoint."""
+    entry = all_resources[name]
+    if isinstance(entry, StripeNestedResource):
+        # Parent_name registration enforced by test_validate_credentials_nested_resources_have_registered_parents.
+        parent_entry = cast(StripeResource, all_resources[entry.parent_name])
+        return f"{name} ({entry.parent_name})", parent_entry
+    return name, entry
+
+
+def _probe_endpoint(resource: StripeResource) -> tuple[str | None, str | None]:
+    """Cheap limit=1 probe. Returns ``(permission_msg, error_msg)``. 401 raises ``StripeAuthenticationError``.
+
+    Exactly one tuple slot is set on failure; both ``None`` means success.
     """
-    Validates Stripe API credentials and checks permissions for all required resources.
-    This function will:
-    - Return True if the API key is valid and has all required permissions
-    - Raise StripePermissionError if the API key is valid but lacks permissions for specific resources
-    - Raise Exception if the API key is invalid or there's any other error
+    try:
+        resource.method(params={"limit": 1})
+        return None, None
+    except stripe_lib.AuthenticationError as e:
+        raise StripeAuthenticationError(_clean_stripe_error_message(str(e))) from e
+    except stripe_lib.PermissionError as e:
+        raw = getattr(e, "user_message", None) or str(e)
+        return _clean_stripe_error_message(raw), None
+    except Exception as e:
+        return None, _clean_stripe_error_message(str(e))
+
+
+# customers.list is in default RAK scopes + OAuth-reachable — cheap auth probe.
+_BASIC_AUTH_PROBE_ENDPOINT = CUSTOMER_RESOURCE_NAME
+
+
+def validate_credentials(
+    api_key: str,
+    endpoints: Optional[list[str]] = None,
+    auth_method: Literal["api_key", "oauth"] = "api_key",
+) -> bool:
+    """Validate Stripe credentials.
+
+    - ``endpoints=None``: single auth probe. 401 → ``StripeAuthenticationError``, 403 → pass.
+    - ``endpoints=[...]``: probe each (nested → parent). Raises Permission/Validation errors.
     """
-    client = StripeClient(api_key, base_addresses=_stripe_base_addresses())
+    client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
+    all_resources = _build_resources(client, logger=None)
 
-    # Test access to all resources we're pulling
-    resources_to_check = [
-        {"name": ACCOUNT_RESOURCE_NAME, "method": client.accounts.list, "params": {"limit": 1}},
-        {"name": BALANCE_TRANSACTION_RESOURCE_NAME, "method": client.balance_transactions.list, "params": {"limit": 1}},
-        {"name": CHARGE_RESOURCE_NAME, "method": client.charges.list, "params": {"limit": 1}},
-        {"name": CUSTOMER_RESOURCE_NAME, "method": client.customers.list, "params": {"limit": 1}},
-        {"name": DISPUTE_RESOURCE_NAME, "method": client.disputes.list, "params": {"limit": 1}},
-        {"name": INVOICE_ITEM_RESOURCE_NAME, "method": client.invoice_items.list, "params": {"limit": 1}},
-        {"name": INVOICE_RESOURCE_NAME, "method": client.invoices.list, "params": {"limit": 1}},
-        {"name": PAYOUT_RESOURCE_NAME, "method": client.payouts.list, "params": {"limit": 1}},
-        {"name": PRICE_RESOURCE_NAME, "method": client.prices.list, "params": {"limit": 1}},
-        {"name": PRODUCT_RESOURCE_NAME, "method": client.products.list, "params": {"limit": 1}},
-        {"name": SUBSCRIPTION_RESOURCE_NAME, "method": client.subscriptions.list, "params": {"limit": 1}},
-        {"name": REFUND_RESOURCE_NAME, "method": client.refunds.list, "params": {"limit": 1}},
-        {"name": CREDIT_NOTE_RESOURCE_NAME, "method": client.credit_notes.list, "params": {"limit": 1}},
-    ]
+    if endpoints is None:
+        probe_name, probe_resource = _resolve_to_flat(_BASIC_AUTH_PROBE_ENDPOINT, all_resources)
+        # 403 = auth valid, scope missing — not a failure for the basic check.
+        _, error_msg = _probe_endpoint(probe_resource)
+        if error_msg is not None:
+            raise StripeValidationError({probe_name: error_msg})
+        return True
 
-    missing_permissions = {}
+    missing_permissions: dict[str, str] = {}
+    errors: dict[str, str] = {}
+    resources_to_check: list[tuple[str, StripeResource]] = []
 
-    if table_name:
-        resources_to_check = [r for r in resources_to_check if r.get("name") == table_name]
+    for name in endpoints:
+        # OAuth tokens can't call accounts.list (needs Connect platform access). Silent-skip here
+        # because this is a pass/fail validation; check_endpoint_permissions renders an explicit
+        # "not available for OAuth" reason instead since it feeds the UI.
+        if auth_method == "oauth" and name == ACCOUNT_RESOURCE_NAME:
+            continue
+        # Webhook-only resources (e.g. Discount) have no list API to probe.
+        if name in WEBHOOK_ONLY_ENDPOINTS:
+            continue
+        if name not in all_resources:
+            raise StripePermissionError({name: f"{name} does not exist"})
+        resources_to_check.append(_resolve_to_flat(name, all_resources))
 
-    if table_name and len(resources_to_check) == 0:
-        raise StripePermissionError({table_name: f"{table_name} does not exist"})
+    for display_name, resource in resources_to_check:
+        permission_msg, error_msg = _probe_endpoint(resource)
+        if permission_msg is not None:
+            missing_permissions[display_name] = permission_msg
+        elif error_msg is not None:
+            errors[display_name] = error_msg
 
-    for resource in resources_to_check:
-        try:
-            # This will raise an exception if we don't have access
-            resource["method"](params=resource["params"])  # type: ignore
-        except Exception as e:
-            # Store the resource name and error message
-            missing_permissions[resource["name"]] = str(e)
-
+    # Non-403 errors win but carry 403s along so the caller can report both.
+    if errors:
+        raise StripeValidationError(errors, missing_permissions=missing_permissions)
     if missing_permissions:
-        raise StripePermissionError(missing_permissions)  # type: ignore
+        raise StripePermissionError(missing_permissions)
 
     return True
 
 
-def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:
-    logger = LOGGER.bind()
+def check_endpoint_permissions(
+    api_key: str,
+    endpoints: list[str],
+    auth_method: Literal["api_key", "oauth"] = "api_key",
+) -> dict[str, str | None]:
+    """Probe each endpoint's read scope. Returns ``{name: None}`` if reachable, ``{name: reason}`` otherwise.
 
+    Never raises for missing permissions (schema UI needs the full picture). 401 still raises.
+    """
+    client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
+    all_resources = _build_resources(client, logger=None)
+
+    results: dict[str, str | None] = {}
+    for name in endpoints:
+        if auth_method == "oauth" and name == ACCOUNT_RESOURCE_NAME:
+            results[name] = "Account is not available for OAuth-connected Stripe sources"
+            continue
+        # Webhook-only resources (e.g. Discount) have no list API — treat as reachable.
+        if name in WEBHOOK_ONLY_ENDPOINTS:
+            results[name] = None
+            continue
+        if name not in all_resources:
+            results[name] = f"{name} is not a known Stripe resource"
+            continue
+
+        _, probe_resource = _resolve_to_flat(name, all_resources)
+        permission_msg, error_msg = _probe_endpoint(probe_resource)
+        results[name] = permission_msg or error_msg
+
+    return results
+
+
+def _all_known_webhook_events() -> list[str]:
+    """Every Stripe event whose prefix appears in RESOURCE_TO_STRIPE_WEBHOOK_EVENT.
+    Re-deriving on each reconcile is what auto-heals webhooks created before the map grew."""
     hints = get_type_hints(WebhookEndpointService.CreateParams, include_extras=True)
     enabled_events_type = hints["enabled_events"]
     list_inner = get_args(enabled_events_type)[0]
     possible_event_values: tuple[str] = get_args(list_inner)
 
     prefixes_set = set(RESOURCE_TO_STRIPE_WEBHOOK_EVENT.values())
-    filtered_events = [e for e in possible_event_values if any(e.startswith(f"{p}.") for p in prefixes_set)]
+    return [e for e in possible_event_values if any(e.startswith(f"{p}.") for p in prefixes_set)]
+
+
+def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:
+    logger = LOGGER.bind()
+
+    filtered_events = _all_known_webhook_events()
 
     if not filtered_events:
         return WebhookCreationResult(
@@ -387,6 +576,7 @@ def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
             stripe_version="2024-09-30.acacia",
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
+            http_client=_tracked_stripe_http_client(),
         )
 
         endpoint = client.webhook_endpoints.create(
@@ -428,6 +618,7 @@ def delete_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
             stripe_version="2024-09-30.acacia",
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
+            http_client=_tracked_stripe_http_client(),
         )
 
         endpoints = client.webhook_endpoints.list(params={"limit": 100})
@@ -454,6 +645,64 @@ def delete_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
         return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {error_str}")
 
 
+def update_webhook_events(
+    api_key: str, stripe_account_id: str | None, webhook_url: str, desired_events: list[str]
+) -> WebhookSyncResult:
+    """Add `desired_events` to the matching Stripe endpoint, writing only on drift.
+    A 403 (missing webhook write scope) returns a failure result rather than raising, so
+    callers can enable the table and warn instead of hard-failing."""
+    logger = LOGGER.bind()
+
+    if not desired_events:
+        return WebhookSyncResult(success=True)
+
+    try:
+        client = StripeClient(
+            api_key,
+            stripe_account=stripe_account_id,
+            stripe_version="2024-09-30.acacia",
+            max_network_retries=2,
+            base_addresses=_stripe_base_addresses(),
+            http_client=_tracked_stripe_http_client(),
+        )
+
+        endpoints = client.webhook_endpoints.list(params={"limit": 100})
+
+        for endpoint in endpoints.auto_paging_iter():
+            if endpoint.url != webhook_url:
+                continue
+
+            current = set(endpoint.enabled_events or [])
+            # "*" already covers everything.
+            if "*" in current:
+                return WebhookSyncResult(success=True)
+
+            missing = [e for e in desired_events if e not in current]
+            if not missing:
+                return WebhookSyncResult(success=True)
+
+            # Merge, don't replace — never drop events the user added themselves.
+            merged = sorted(current | set(desired_events))
+            client.webhook_endpoints.update(endpoint.id, params={"enabled_events": merged})  # type: ignore
+            return WebhookSyncResult(success=True)
+
+        # No matching endpoint — nothing to reconcile (creation is handled elsewhere).
+        return WebhookSyncResult(success=True)
+    except stripe_lib.PermissionError as e:
+        logger.warning("No permission to update Stripe webhook events", error=str(e))
+        return WebhookSyncResult(
+            success=False,
+            error=(
+                "Your Stripe API key doesn't have permission to update webhooks. Add the 'Write' permission "
+                f"for 'Webhook endpoints' to your API key, or add these events manually: {', '.join(desired_events)}"
+            ),
+        )
+    except Exception as e:
+        error_str = _clean_stripe_error_message(str(e))
+        logger.warning("Failed to update Stripe webhook events", error=error_str)
+        return WebhookSyncResult(success=False, error=f"Failed to update webhook events automatically: {error_str}")
+
+
 def get_external_webhook_info(api_key: str, stripe_account_id: str | None, webhook_url: str) -> ExternalWebhookInfo:
     try:
         client = StripeClient(
@@ -462,6 +711,7 @@ def get_external_webhook_info(api_key: str, stripe_account_id: str | None, webho
             stripe_version="2024-09-30.acacia",
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
+            http_client=_tracked_stripe_http_client(),
         )
 
         endpoints = client.webhook_endpoints.list(params={"limit": 100})

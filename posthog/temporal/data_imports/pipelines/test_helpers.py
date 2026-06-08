@@ -1,20 +1,40 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 import structlog
 
-from posthog.temporal.data_imports.pipelines.helpers import sync_revenue_analytics_views
+from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_operator, sync_revenue_analytics_views
 from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
 
-from products.data_warehouse.backend.models import (
-    DataWarehouseCredential,
-    DataWarehouseManagedViewSet,
-    ExternalDataSchema,
-    ExternalDataSource,
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_warehouse.backend.types import (
+    DataWarehouseManagedViewSetKind,
+    ExternalDataSourceType,
+    IncrementalFieldType,
 )
-from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-PATH = "products.data_warehouse.backend.models.datawarehouse_saved_query"
+PATH = "products.data_modeling.backend.models.datawarehouse_saved_query"
+
+
+@pytest.mark.parametrize(
+    "field_type,expected",
+    [
+        # Date is the only inclusive case — day-granularity cursors otherwise lose any
+        # rows landed on the boundary day after the cursor is saved.
+        (IncrementalFieldType.Date, ">="),
+        (IncrementalFieldType.DateTime, ">"),
+        (IncrementalFieldType.Timestamp, ">"),
+        (IncrementalFieldType.Integer, ">"),
+        (IncrementalFieldType.Numeric, ">"),
+        (IncrementalFieldType.ObjectID, ">"),
+    ],
+)
+def test_incremental_type_to_operator(field_type: IncrementalFieldType, expected: str) -> None:
+    assert incremental_type_to_operator(field_type) == expected
 
 
 class TestSyncRevenueAnalyticsViews(BaseTest):

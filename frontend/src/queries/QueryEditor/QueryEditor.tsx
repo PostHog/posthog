@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -9,7 +9,6 @@ import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { urls } from 'scenes/urls'
 
 import { queryEditorLogic } from '~/queries/QueryEditor/queryEditorLogic'
-import schema from '~/queries/schema.json'
 import { QueryContext } from '~/queries/types'
 
 export interface QueryEditorProps {
@@ -24,8 +23,27 @@ let i = 0
 
 export function QueryEditor(props: QueryEditorProps): JSX.Element {
     const [key] = useState(() => i++)
+    const [schema, setSchema] = useState<Record<string, any> | undefined>(undefined)
     const { queryInput, error, inputChanged } = useValues(queryEditorLogic({ ...props, key }))
     const { setQueryInput, saveQuery } = useActions(queryEditorLogic({ ...props, key }))
+
+    useEffect(() => {
+        let cancelled = false
+        import('~/queries/schema.json')
+            .then((m) => {
+                if (!cancelled) {
+                    setSchema(m.default)
+                }
+            })
+            .catch((err) => {
+                if (!cancelled) {
+                    console.warn('Failed to load query schema for editor', err)
+                }
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [])
 
     return (
         <>

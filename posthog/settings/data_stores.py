@@ -5,7 +5,6 @@ from contextlib import suppress
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -174,11 +173,22 @@ if persons_db_writer_url:
         DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
         DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
+    if TEST:
+        # The persons DB schema is built by sqlx (rust/persons_migrations), not Django —
+        # PersonDBRouter.allow_migrate blocks every Django migration on it. Without MIGRATE=False,
+        # pytest-django's setup_databases still walks and records all ~1,300 Django migrations
+        # against the empty persons test database on every shard (~300s of pure overhead, scaling
+        # with migration count), even though the router skips the actual DDL. Skipping migrate here
+        # leaves conftest.run_persons_sqlx_migrations to build the real schema.
+        DATABASES["persons_db_writer"]["TEST"] = {"MIGRATE": False, "DEPENDENCIES": []}
+        DATABASES["persons_db_reader"]["TEST"] = {"MIRROR": "persons_db_writer"}
+
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
 
 product_routes = load_product_db_routes(Path(__file__).resolve().parents[2])
 configured_product_databases: set[str] = set()
+PRODUCT_DB_WRITER_URLS: dict[str, str] = {}
 
 for route in product_routes:
     if route.database in configured_product_databases:
@@ -199,6 +209,7 @@ for route in product_routes:
     if not writer_url:
         continue
 
+    PRODUCT_DB_WRITER_URLS[db] = writer_url
     DATABASES[writer_alias] = dict(dj_database_url.parse(writer_url, conn_max_age=0))
     DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
 
@@ -207,11 +218,23 @@ for route in product_routes:
     DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
 
     if TEST:
-        # Tell Django's test runner to create an independent test database and run
-        # migrations (via the router). Without this, test databases are created
-        # but left empty. Reader shares the writer's test database so reads inside
-        # a write transaction see uncommitted data.
-        DATABASES[writer_alias]["TEST"] = {"DEPENDENCIES": []}
+        # Skip the global migration-graph walk during test DB setup. Without
+        # `MIGRATE: False`, Django's `create_test_db` calls `migrate --database
+        # <alias>` with no app filter, which walks the full ~1300-migration
+        # graph for `state_forwards` on every alias — even though
+        # `ProductDBRouter.allow_migrate` gates DDL to just the owning product
+        # app. The state-machine walk runs regardless of the router and burns
+        # ~5 min per affected shard on a fresh test DB.
+        #
+        # `MIGRATE: False` makes `create_test_db` skip migrations and fall
+        # through to `run_syncdb=True`, which creates tables directly from the
+        # current model definitions for any app that `allow_migrate` permits.
+        # For Django-owned product DBs (`managed=True` models), that yields
+        # the same final-schema tables in milliseconds instead of minutes.
+        #
+        # Reader shares the writer's test database so reads inside a write
+        # transaction see uncommitted data.
+        DATABASES[writer_alias]["TEST"] = {"MIGRATE": False, "DEPENDENCIES": []}
         DATABASES[reader_alias]["TEST"] = {"MIRROR": writer_alias}
 
     if DISABLE_SERVER_SIDE_CURSORS:
@@ -289,6 +312,11 @@ CLICKHOUSE_SINGLE_SHARD_CLUSTER: str = os.getenv("CLICKHOUSE_SINGLE_SHARD_CLUSTE
 CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "posthog_writable")
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
 CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
+CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "ai_events")
+# Opt-in flag for the multinode ClickHouse smoke-test stack. When true, migrations
+# respect their declared NodeRole(s) instead of being collapsed to NodeRole.ALL,
+# so a per-cluster topology can actually exercise routing.
+MULTINODE_CLICKHOUSE: bool = get_from_env("MULTINODE_CLICKHOUSE", False, type_cast=str_to_bool)
 CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER = get_from_env(
     "CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER", default=False, type_cast=str_to_bool
 )
@@ -305,6 +333,18 @@ QUERYSERVICE_VERIFY: bool = get_from_env("QUERYSERVICE_VERIFY", CLICKHOUSE_VERIF
 
 CLICKHOUSE_CONN_POOL_MIN: int = get_from_env("CLICKHOUSE_CONN_POOL_MIN", 20, type_cast=int)
 CLICKHOUSE_CONN_POOL_MAX: int = get_from_env("CLICKHOUSE_CONN_POOL_MAX", 1000, type_cast=int)
+
+# Connection to the autoresearch test cluster, used by the query-performance
+# autoresearch proxy. Unset host fails closed at the call site.
+CLICKHOUSE_TEST_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_HOST", "")
+CLICKHOUSE_TEST_CLUSTER_DATABASE: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_DATABASE", "")
+CLICKHOUSE_TEST_CLUSTER_USER: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_USER", "")
+CLICKHOUSE_TEST_CLUSTER_PASSWORD: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_PASSWORD", "")
+CLICKHOUSE_TEST_CLUSTER_SECURE: bool = get_from_env(
+    "CLICKHOUSE_TEST_CLUSTER_SECURE", not TEST and not DEBUG, type_cast=str_to_bool
+)
+CLICKHOUSE_TEST_CLUSTER_CA: str | None = os.getenv("CLICKHOUSE_TEST_CLUSTER_CA", None)
+CLICKHOUSE_TEST_CLUSTER_VERIFY: bool = get_from_env("CLICKHOUSE_TEST_CLUSTER_VERIFY", True, type_cast=str_to_bool)
 
 CLICKHOUSE_STABLE_HOST: str = get_from_env("CLICKHOUSE_STABLE_HOST", CLICKHOUSE_HOST)
 # If enabled, some queries will use system.cluster table to query each shard
@@ -332,6 +372,15 @@ CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION: str = os.getenv(
 CLICKHOUSE_KAFKA_WARPSTREAM_CALCULATED_EVENTS_NAMED_COLLECTION: str = os.getenv(
     "CLICKHOUSE_KAFKA_WARPSTREAM_CALCULATED_EVENTS_NAMED_COLLECTION", "warpstream_calculated_events"
 )
+CLICKHOUSE_KAFKA_WARPSTREAM_REPLAY_NAMED_COLLECTION: str = os.getenv(
+    "CLICKHOUSE_KAFKA_WARPSTREAM_REPLAY_NAMED_COLLECTION", "warpstream_replay"
+)
+CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION: str = os.getenv(
+    "CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION", "warpstream_shared"
+)
+CLICKHOUSE_KAFKA_WARPSTREAM_CYCLOTRON_NAMED_COLLECTION: str = os.getenv(
+    "CLICKHOUSE_KAFKA_WARPSTREAM_CYCLOTRON_NAMED_COLLECTION", "warpstream_cyclotron"
+)
 
 # Per-team settings used for client/pool connection parameters. Note that this takes precedence over any workload-based
 # routing. Keys should be strings, not numbers.
@@ -347,19 +396,6 @@ except Exception:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
 
 
-def is_enable_analyzer_team(team_id: int | None) -> bool:
-    if team_id is None:
-        return False
-    return team_id in _get_enable_analyzer_teams(round(time.time() / 120))
-
-
-@lru_cache(maxsize=1)
-def _get_enable_analyzer_teams(_ttl: int) -> list[int]:
-    from posthog.models.instance_setting import get_instance_setting
-
-    return get_instance_setting("CLICKHOUSE_ENABLE_ANALYZER_TEAMS")
-
-
 def is_web_analytics_events_prefilter_team(team_id: int | None) -> bool:
     if team_id is None:
         return False
@@ -371,7 +407,8 @@ def _get_web_analytics_events_prefilter_teams(_ttl: int) -> list[int]:
     from posthog.models.instance_setting import get_instance_setting
 
     try:
-        return get_instance_setting("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS")
+        value = get_instance_setting("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS")
+        return value if isinstance(value, list) else []
     except Exception:
         return []
 
@@ -409,67 +446,6 @@ READONLY_CLICKHOUSE_USER: str | None = os.getenv("READONLY_CLICKHOUSE_USER", Non
 READONLY_CLICKHOUSE_PASSWORD: str | None = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
 
 
-def _parse_kafka_hosts(hosts_string: str) -> list[str]:
-    hosts = []
-    for host in hosts_string.split(","):
-        if "://" in host:
-            hosts.append(urlparse(host).netloc)
-        else:
-            hosts.append(host)
-
-    # We don't want empty strings
-    return [host for host in hosts if host]
-
-
-# URL(s) used by Kafka clients/producers - KEEP IN SYNC WITH plugin-server/src/config/config.ts
-# We prefer KAFKA_HOSTS over KAFKA_URL (which used to be used)
-KAFKA_HOSTS = _parse_kafka_hosts(os.getenv("KAFKA_HOSTS", "") or os.getenv("KAFKA_URL", "") or "kafka:9092")
-# Dedicated kafka hosts for session recordings
-SESSION_RECORDING_KAFKA_HOSTS = _parse_kafka_hosts(os.getenv("SESSION_RECORDING_KAFKA_HOSTS", "")) or KAFKA_HOSTS
-# Kafka broker host(s) that is used by clickhouse for ingesting messages.
-# Useful if clickhouse is hosted outside the cluster.
-KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", "")) or KAFKA_HOSTS
-
-# To support e.g. Multi-tenanted plans on Heroko, we support specifying a prefix for
-# Kafka Topics. See
-# https://devcenter.heroku.com/articles/multi-tenant-kafka-on-heroku#differences-to-dedicated-kafka-plans
-# for details.
-KAFKA_PREFIX = os.getenv("KAFKA_PREFIX", "")
-
-KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
-
-KAFKA_PRODUCER_SETTINGS = {
-    key: value
-    for key, value in {
-        "client_id": get_from_env("KAFKA_PRODUCER_CLIENT_ID", optional=True),
-        "metadata_max_age_ms": get_from_env("KAFKA_PRODUCER_METADATA_MAX_AGE_MS", optional=True, type_cast=int),
-        "batch_size": get_from_env("KAFKA_PRODUCER_BATCH_SIZE", optional=True, type_cast=int),
-        "max_request_size": get_from_env("KAFKA_PRODUCER_MAX_REQUEST_SIZE", optional=True, type_cast=int),
-        "linger_ms": get_from_env("KAFKA_PRODUCER_LINGER_MS", optional=True, type_cast=int),
-        "partitioner": get_from_env("KAFKA_PRODUCER_PARTITIONER", optional=True),
-        "max_in_flight_requests_per_connection": get_from_env(
-            "KAFKA_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION", optional=True, type_cast=int
-        ),
-        "buffer_memory": get_from_env("KAFKA_PRODUCER_BUFFER_MEMORY", optional=True, type_cast=int),
-        "max_block_ms": get_from_env("KAFKA_PRODUCER_MAX_BLOCK_MS", optional=True, type_cast=int),
-    }.items()
-    if value is not None
-}
-
-SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES: int = get_from_env(
-    "SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES",
-    1024 * 1024,  # 1MB
-    type_cast=int,
-)
-
-KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", None)
-SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL = os.getenv(
-    "SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL", KAFKA_SECURITY_PROTOCOL
-)
-KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", None)
-KAFKA_SASL_USER = os.getenv("KAFKA_SASL_USER", None)
-KAFKA_SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD", None)
-
 # A list of tokens for which events should be sent to the historical topic
 # TODO: possibly remove this and replace with something that provides the
 # separation of concerns between realtime and historical ingestion but without
@@ -498,6 +474,14 @@ if get_from_env("POSTHOG_SESSION_RECORDING_REDIS_HOST", ""):
     SESSION_RECORDING_REDIS_URL = "redis://{}:{}/".format(
         os.getenv("POSTHOG_SESSION_RECORDING_REDIS_HOST", ""),
         os.getenv("POSTHOG_SESSION_RECORDING_REDIS_PORT", "6379"),
+    )
+
+REPLAY_VISION_REDIS_URL = REDIS_URL
+
+if get_from_env("POSTHOG_REPLAY_VISION_REDIS_HOST", ""):
+    REPLAY_VISION_REDIS_URL = "redis://{}:{}/".format(
+        os.getenv("POSTHOG_REPLAY_VISION_REDIS_HOST", ""),
+        os.getenv("POSTHOG_REPLAY_VISION_REDIS_PORT", "6379"),
     )
 
 if not REDIS_URL:
@@ -546,9 +530,20 @@ if not EMBEDDING_API_URL:
 # This allows feature-flags service to have dedicated Redis for better resource isolation
 FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 
+# Dedicated Redis for ai-gateway HyperCache reads
+AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", None)
+
+TASKS_REDIS_URL = os.getenv("TASKS_REDIS_URL", None)
+
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
+
+# Bearer token for marking Django -> Rust /flags calls as internal (non-billable).
+# When set, internal Django callers (toolbar prep, my_flags, evaluation_reasons) pass this
+# as `Authorization: Bearer …` so the Rust service skips per-team billing and quota limits.
+# Must match `INTERNAL_REQUEST_TOKEN` in the feature-flags service env.
+INTERNAL_REQUEST_TOKEN = os.getenv("INTERNAL_REQUEST_TOKEN", "")
 
 FLAGS_CACHE_TTL = int(os.getenv("FLAGS_CACHE_TTL", str(60 * 60 * 24 * 7)))  # 7 days
 FLAGS_CACHE_MISS_TTL = int(os.getenv("FLAGS_CACHE_MISS_TTL", str(60 * 60 * 24)))  # 1 day
@@ -587,6 +582,33 @@ if FLAGS_REDIS_URL:
         "KEY_PREFIX": "posthog",
     }
 
+# Dedicated cache for the ai-gateway service (if configured)
+if AI_GATEWAY_REDIS_URL:
+    from posthog.caching.ai_gateway_redis_cache import AI_GATEWAY_DEDICATED_CACHE_ALIAS
+
+    CACHES[AI_GATEWAY_DEDICATED_CACHE_ALIAS] = {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": AI_GATEWAY_REDIS_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",
+        },
+        "KEY_PREFIX": "posthog",
+    }
+
+if TASKS_REDIS_URL:
+    from posthog.caching.tasks_redis_cache import TASKS_DEDICATED_CACHE_ALIAS
+
+    CACHES[TASKS_DEDICATED_CACHE_ALIAS] = {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": TASKS_REDIS_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",
+        },
+        "KEY_PREFIX": "posthog",
+    }
+
 QUERY_CACHE_REDIS_CLUSTER_URL: str | None = os.getenv("QUERY_CACHE_REDIS_CLUSTER_URL", None)
 
 if QUERY_CACHE_REDIS_CLUSTER_URL:
@@ -615,3 +637,8 @@ PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM: set[int] = get_from_env(
 )
 
 CLICKHOUSE_EVENT_LIST_MAX_THREADS: int = get_from_env("CLICKHOUSE_EVENT_LIST_MAX_THREADS", 50, type_cast=int)
+
+WAREHOUSE_SOURCES_DATABASE_URL: str = os.getenv("WAREHOUSE_SOURCES_DATABASE_URL", "")
+WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL: str = os.getenv(
+    "WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL", ""
+)

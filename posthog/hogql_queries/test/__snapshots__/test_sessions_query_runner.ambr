@@ -11,8 +11,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
@@ -43,6 +42,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -58,8 +59,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
@@ -90,6 +90,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -105,8 +107,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
@@ -135,6 +136,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -150,8 +153,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
@@ -180,6 +182,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -195,8 +199,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
@@ -225,6 +228,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -247,8 +252,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
   ORDER BY tuple(sessions.session_id, sessions.distinct_id, sessions.`$start_timestamp`, sessions.`$end_timestamp`, sessions.`$session_duration`, sessions.`$entry_current_url`, sessions.`$end_current_url`, sessions.`$pageview_count`, sessions.`$autocapture_count`, sessions.`$screen_count`, sessions.`$is_bounce`) ASC
   LIMIT 101
@@ -260,6 +264,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -282,8 +288,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 07:00:05.000000', 6, 'America/Phoenix'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'America/Phoenix'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 07:00:05.000000', 6, 'America/Phoenix')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'America/Phoenix')), 0))
   ORDER BY tuple(sessions.session_id, sessions.distinct_id, sessions.`$start_timestamp`, sessions.`$end_timestamp`, sessions.`$session_duration`, sessions.`$entry_current_url`, sessions.`$end_current_url`, sessions.`$pageview_count`, sessions.`$autocapture_count`, sessions.`$screen_count`, sessions.`$is_bounce`) ASC
   LIMIT 101
@@ -295,6 +300,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -317,8 +324,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 23:00:05.000000', 6, 'Asia/Tokyo'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'Asia/Tokyo'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 23:00:05.000000', 6, 'Asia/Tokyo')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'Asia/Tokyo')), 0))
   ORDER BY tuple(sessions.session_id, sessions.distinct_id, sessions.`$start_timestamp`, sessions.`$end_timestamp`, sessions.`$session_duration`, sessions.`$entry_current_url`, sessions.`$end_current_url`, sessions.`$pageview_count`, sessions.`$autocapture_count`, sessions.`$screen_count`, sessions.`$is_bounce`) ASC
   LIMIT 101
@@ -330,6 +336,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -343,8 +351,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE and(globalIn(sessions.session_id,
                        (SELECT DISTINCT events.`$session_id` AS `$session_id`
                         FROM events
@@ -359,6 +366,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -374,8 +383,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
@@ -404,6 +412,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -419,8 +429,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
@@ -449,6 +458,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -465,8 +476,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
@@ -495,6 +505,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -510,8 +522,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(greaterOrEquals(sessions.`$session_duration`, 0.0), 0), ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
   ORDER BY sessions.session_id ASC
   LIMIT 101
@@ -523,6 +534,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -538,8 +551,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
@@ -570,6 +582,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -587,8 +601,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
@@ -619,6 +632,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -634,8 +649,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
@@ -664,6 +678,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -679,8 +695,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
@@ -711,6 +726,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -726,8 +743,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
@@ -758,6 +774,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -773,8 +791,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
@@ -803,6 +820,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -818,8 +837,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
@@ -848,6 +866,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -871,8 +891,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
@@ -903,6 +922,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -919,8 +940,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
   ORDER BY sessions.`$start_timestamp` DESC
   LIMIT 101
@@ -932,6 +952,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -948,8 +970,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
@@ -980,6 +1001,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -995,8 +1018,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
   ORDER BY sessions.session_id ASC
   LIMIT 101
@@ -1008,6 +1030,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1025,8 +1049,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   LEFT JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
@@ -1055,6 +1078,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1077,8 +1102,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-03 23:59:59.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-03 23:59:59.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-02 00:00:00.000000', 6, 'UTC')), 0))
   ORDER BY tuple(sessions.session_id, sessions.distinct_id, sessions.`$start_timestamp`, sessions.`$end_timestamp`, sessions.`$session_duration`, sessions.`$entry_current_url`, sessions.`$end_current_url`, sessions.`$pageview_count`, sessions.`$autocapture_count`, sessions.`$screen_count`, sessions.`$is_bounce`) ASC
   LIMIT 101
@@ -1090,6 +1114,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1112,8 +1138,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-03 16:59:59.000000', 6, 'America/Phoenix'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-02 00:00:00.000000', 6, 'America/Phoenix'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-03 16:59:59.000000', 6, 'America/Phoenix')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-02 00:00:00.000000', 6, 'America/Phoenix')), 0))
   ORDER BY tuple(sessions.session_id, sessions.distinct_id, sessions.`$start_timestamp`, sessions.`$end_timestamp`, sessions.`$session_duration`, sessions.`$entry_current_url`, sessions.`$end_current_url`, sessions.`$pageview_count`, sessions.`$autocapture_count`, sessions.`$screen_count`, sessions.`$is_bounce`) ASC
   LIMIT 101
@@ -1125,6 +1150,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1147,8 +1174,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-04 08:59:59.000000', 6, 'Asia/Tokyo'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-02 00:00:00.000000', 6, 'Asia/Tokyo'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-04 08:59:59.000000', 6, 'Asia/Tokyo')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-02 00:00:00.000000', 6, 'Asia/Tokyo')), 0))
   ORDER BY tuple(sessions.session_id, sessions.distinct_id, sessions.`$start_timestamp`, sessions.`$end_timestamp`, sessions.`$session_duration`, sessions.`$entry_current_url`, sessions.`$end_current_url`, sessions.`$pageview_count`, sessions.`$autocapture_count`, sessions.`$screen_count`, sessions.`$is_bounce`) ASC
   LIMIT 101
@@ -1160,6 +1186,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1182,8 +1210,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
   ORDER BY tuple(sessions.session_id, sessions.distinct_id, sessions.`$start_timestamp`, sessions.`$end_timestamp`, sessions.`$session_duration`, sessions.`$entry_current_url`, sessions.`$end_current_url`, sessions.`$pageview_count`, sessions.`$autocapture_count`, sessions.`$screen_count`, sessions.`$is_bounce`) ASC
   LIMIT 3
@@ -1195,6 +1222,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1209,8 +1238,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 15:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 15:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
   GROUP BY sessions.distinct_id
   ORDER BY count() DESC
@@ -1223,6 +1251,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1237,8 +1267,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 15:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 15:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
   ORDER BY sessions.`$start_timestamp` ASC
   LIMIT 101
@@ -1250,6 +1279,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1268,8 +1299,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
   ORDER BY sessions.`$start_timestamp` DESC
   LIMIT 101
@@ -1281,6 +1311,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1296,8 +1328,7 @@
             raw_sessions.session_id_v7 AS session_id_v7
      FROM raw_sessions
      WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC'), toIntervalDay(3))))
-     GROUP BY raw_sessions.session_id_v7,
-              raw_sessions.session_id_v7) AS sessions
+     GROUP BY raw_sessions.session_id_v7) AS sessions
   WHERE and(ifNull(greater(sessions.`$session_duration`, 300), 0), ifNull(less(sessions.`$start_timestamp`, toDateTime64('2024-01-01 14:00:05.000000', 6, 'UTC')), 0), ifNull(greater(sessions.`$start_timestamp`, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), 0))
   ORDER BY sessions.session_id ASC
   LIMIT 101
@@ -1309,6 +1340,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''

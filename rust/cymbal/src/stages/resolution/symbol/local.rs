@@ -1,16 +1,26 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use async_trait::async_trait;
 
 use common_types::error_tracking::RawFrameId;
-use moka::future::{Cache, CacheBuilder};
+use moka::{
+    future::{Cache, CacheBuilder},
+    Expiry,
+};
 
 use sqlx::PgPool;
 
 use crate::{
     config::Config,
     error::{JsResolveErr, ProguardError, ResolveError, UnhandledError},
-    frames::{records::ErrorTrackingStackFrame, releases::ReleaseRecord, Frame, RawFrame},
+    frames::{
+        records::{ErrorTrackingStackFrame, FrameResultTtlPolicy},
+        releases::ReleaseRecord,
+        Frame, RawFrame,
+    },
     langs::apple::AppleDebugImage,
     metric_consts::{
         FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES,
@@ -27,27 +37,66 @@ use crate::{
     types::operator::TeamId,
 };
 
+const FRAME_EXPIRY_FALLBACK_SECONDS: u64 = 300;
+
 #[derive(Clone)]
 pub struct LocalSymbolResolver {
     catalog: Arc<Catalog>,
     cache: Cache<RawFrameId, Vec<ErrorTrackingStackFrame>>,
     pool: PgPool,
-    result_ttl: chrono::Duration,
+    ttl_policy: FrameResultTtlPolicy,
+}
+
+impl Expiry<RawFrameId, Vec<ErrorTrackingStackFrame>> for FrameResultTtlPolicy {
+    fn expire_after_create(
+        &self,
+        key: &RawFrameId,
+        value: &Vec<ErrorTrackingStackFrame>,
+        _created_at: Instant,
+    ) -> Option<Duration> {
+        Some(expiration_duration(self, key, value))
+    }
+
+    fn expire_after_update(
+        &self,
+        key: &RawFrameId,
+        value: &Vec<ErrorTrackingStackFrame>,
+        _updated_at: Instant,
+        _duration_until_expiry: Option<Duration>,
+    ) -> Option<Duration> {
+        Some(expiration_duration(self, key, value))
+    }
+}
+
+fn expiration_duration(
+    policy: &FrameResultTtlPolicy,
+    key: &RawFrameId,
+    value: &[ErrorTrackingStackFrame],
+) -> Duration {
+    policy
+        .ttl_for_records(key, value)
+        .to_std()
+        .unwrap_or_else(|err| {
+            tracing::warn!(error = %err, "invalid frame cache ttl, using fallback");
+            Duration::from_secs(FRAME_EXPIRY_FALLBACK_SECONDS)
+        })
 }
 
 impl LocalSymbolResolver {
     pub fn new(config: &Config, catalog: Arc<Catalog>, pool: PgPool) -> Self {
+        let ttl_policy = FrameResultTtlPolicy::new(
+            chrono::Duration::seconds(config.frame_resolved_ttl_seconds as i64),
+            chrono::Duration::seconds(config.frame_unresolved_ttl_seconds as i64),
+        );
         let cache = CacheBuilder::new(config.frame_cache_size)
-            .time_to_live(Duration::from_secs(config.frame_cache_ttl_seconds))
+            .expire_after(ttl_policy)
             .build();
-
-        let result_ttl = chrono::Duration::minutes(config.frame_result_ttl_minutes as i64);
 
         Self {
             catalog,
             pool,
             cache,
-            result_ttl,
+            ttl_policy,
         }
     }
 
@@ -87,7 +136,7 @@ impl LocalSymbolResolver {
         debug_images: &[AppleDebugImage],
     ) -> Result<Vec<ErrorTrackingStackFrame>, UnhandledError> {
         let loaded =
-            ErrorTrackingStackFrame::load_all(&self.pool, &raw_id, self.result_ttl).await?;
+            ErrorTrackingStackFrame::load_all(&self.pool, &raw_id, self.ttl_policy).await?;
         if !loaded.is_empty() {
             metrics::counter!(FRAME_DB_HITS).increment(1);
             return Ok(loaded);
@@ -161,10 +210,8 @@ impl SymbolResolver for LocalSymbolResolver {
         class: String,
     ) -> Result<String, ResolveError> {
         let map: Arc<FetchedMapping> = self.catalog.pg.lookup(team_id, symbolset_ref).await?;
-        let mapper = map.get_mapper();
-        let result = mapper
-            .remap_class(class.as_str())
-            .map(|s| s.to_string())
+        let result = map
+            .remap_class(class.as_str())?
             .ok_or(ProguardError::MissingClass)?;
         Ok(result)
     }
@@ -196,6 +243,7 @@ mod test {
 
     use std::sync::Arc;
 
+    use bytes::Bytes;
     use common_types::ClickHouseEvent;
     use httpmock::MockServer;
     use mockall::predicate;
@@ -358,7 +406,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
             )
-            .returning(|_, _| Ok(Some(get_sourcemapcache_bytes())))
+            .returning(|_, _| Ok(Some(Bytes::from(get_sourcemapcache_bytes()))))
             .times(gets);
 
         client
@@ -398,12 +446,11 @@ mod test {
 
         // get the frame
         let frame_id = frame.raw_id(0);
-        let frame =
-            ErrorTrackingStackFrame::load_all(&pool, &frame_id, chrono::Duration::minutes(30))
-                .await
-                .unwrap()
-                .pop()
-                .unwrap();
+        let frame = ErrorTrackingStackFrame::load_all(&pool, &frame_id, resolver.ttl_policy)
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
 
         assert_eq!(frame.symbol_set_id.unwrap(), set.id);
 

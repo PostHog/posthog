@@ -61,7 +61,7 @@ export function createFlushBatchStoresStep<TOutput, COutput, CBatch, R extends s
             personsStore.reset()
             groupStore.reset()
 
-            return ok({ elements: input.elements, batchContext: input.batchContext }, producePromises)
+            return ok(input, producePromises)
         } catch (error) {
             // If flush fails, the error will bubble up and fail the entire batch
             // This maintains the existing behavior where flush errors are fatal
@@ -89,6 +89,7 @@ function createProducePromises(personsStoreMessages: FlushResult[], outputs: Per
                 .produce(message.output, {
                     key: null,
                     value: message.value,
+                    teamId: record.teamId,
                 })
                 .catch((error) => {
                     // Handle message size errors gracefully by capturing a warning

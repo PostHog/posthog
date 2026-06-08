@@ -14,6 +14,8 @@ import {
 import { actionToUrl, urlToAction } from 'kea-router'
 import { useEffect } from 'react'
 
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -33,12 +35,13 @@ import { cleanSourceId, isSelfManagedSourceId } from 'products/data_warehouse/fr
 
 import type { sourceSceneLogicType } from './SourceSceneType'
 import { ConfigurationTab } from './tabs/ConfigurationTab'
+import { MetricsTab } from './tabs/MetricsTab'
 import { SchemasTab } from './tabs/SchemasTab'
 import { sourceSettingsLogic } from './tabs/sourceSettingsLogic'
 import { SyncsTab } from './tabs/SyncsTab'
 import { WebhookTab } from './tabs/WebhookTab'
 
-const SOURCE_SCENE_TABS = ['schemas', 'syncs', 'configuration', 'webhook'] as const
+const SOURCE_SCENE_TABS = ['schemas', 'syncs', 'metrics', 'configuration', 'webhook'] as const
 export type SourceSceneTab = (typeof SOURCE_SCENE_TABS)[number]
 
 export interface SourceSceneProps {
@@ -55,10 +58,9 @@ export function isManagedSourceSceneId(id: string): boolean {
 }
 
 export function shouldShowManagedSourceSyncsTab(
-    source: Pick<ExternalDataSource, 'access_method'> | null | undefined,
-    isDirectQueryEnabled: boolean
+    source: Pick<ExternalDataSource, 'access_method'> | null | undefined
 ): boolean {
-    return !!source && !(isDirectQueryEnabled && source.access_method === 'direct')
+    return !!source && source.access_method !== 'direct'
 }
 
 export const sourceSceneLogic = kea<sourceSceneLogicType>([
@@ -217,15 +219,13 @@ function ManagedSourceTabs({
 }): JSX.Element {
     const settingsLogic = sourceSettingsLogic({ id: sourceId, availableSources: {} })
     const { featureFlags } = useValues(featureFlagLogic)
-    const { source } = useValues(settingsLogic)
+    const { source, sourceLoading } = useValues(settingsLogic)
 
     useAttachedLogic(settingsLogic, attachTo)
 
-    const showSyncsTab = shouldShowManagedSourceSyncsTab(
-        source,
-        !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
-    )
-    const showWebhookTab = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_SOURCE_WEBHOOKS] && !!source?.supports_webhooks
+    const showSyncsTab = shouldShowManagedSourceSyncsTab(source)
+    const showWebhookTab = !!source?.supports_webhooks
+    const showMetricsTab = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
 
     useEffect(() => {
         if (!showSyncsTab && currentTab === 'syncs') {
@@ -234,28 +234,28 @@ function ManagedSourceTabs({
         if (!showWebhookTab && currentTab === 'webhook') {
             setCurrentTab('schemas')
         }
-    }, [showSyncsTab, showWebhookTab, currentTab, setCurrentTab])
+        if (!showMetricsTab && currentTab === 'metrics') {
+            setCurrentTab('schemas')
+        }
+    }, [showSyncsTab, showWebhookTab, showMetricsTab, currentTab, setCurrentTab])
+
+    if (sourceLoading && !source) {
+        return <LemonSkeleton className="w-full h-12" />
+    }
 
     const tabs: LemonTab<SourceSceneTab>[] = [
-        {
-            label: 'Schemas',
-            key: 'schemas',
-            content: <SchemasTab id={sourceId} />,
-        },
-        {
-            label: 'Configuration',
-            key: 'configuration',
-            content: <ConfigurationTab id={sourceId} />,
-        },
+        { label: 'Schemas', key: 'schemas', content: <SchemasTab id={sourceId} /> },
     ]
 
     if (showSyncsTab) {
-        tabs.splice(1, 0, {
-            label: 'Syncs',
-            key: 'syncs',
-            content: <SyncsTab id={sourceId} />,
-        })
+        tabs.push({ label: 'Syncs', key: 'syncs', content: <SyncsTab id={sourceId} /> })
     }
+
+    if (showMetricsTab) {
+        tabs.push({ label: 'Metrics', key: 'metrics', content: <MetricsTab id={sourceId} /> })
+    }
+
+    tabs.push({ label: 'Configuration', key: 'configuration', content: <ConfigurationTab id={sourceId} /> })
 
     if (showWebhookTab) {
         tabs.push({

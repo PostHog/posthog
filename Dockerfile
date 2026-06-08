@@ -37,6 +37,7 @@ COPY common/hogvm/typescript/ common/hogvm/typescript/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/replay-shared/ common/replay-shared/
 COPY common/tailwind/ common/tailwind/
+COPY packages/quill/ packages/quill/
 COPY products/ products/
 COPY docs/onboarding/ docs/onboarding/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
@@ -103,10 +104,10 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/astral-sh/uv:0.10.2 AS uv
+FROM ghcr.io/astral-sh/uv:0.11.14 AS uv
 
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
-FROM python:3.12.12-slim-bookworm@sha256:78e702aee4d693e769430f0d7b4f4858d8ea3f1118dc3f57fee3f757d0ca64b1 AS posthog-build
+FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f AS posthog-build
 COPY --from=uv /uv /uvx /bin/
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
@@ -135,6 +136,7 @@ RUN apt-get update && \
 RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=tools/hogli,target=tools/hogli \
     uv sync --locked --no-dev --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
@@ -182,7 +184,7 @@ RUN apt-get update && \
 # ---------------------------------------------------------
 #
 # NOTE: v1.32 is running bullseye, v1.33+ is running bookworm
-FROM unit:1.34.2-python3.12
+FROM unit:1.34.2-python3.13
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
@@ -293,8 +295,9 @@ RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
     && rm -rf /tmp/*
 
 # Install and use a non-root user.
-RUN groupadd -g 1000 posthog && \
-    useradd -r -g posthog posthog && \
+# Pin uid/gid to a fixed, host-safe value (avoid 1000, which maps to ec2-user on the nodes).
+RUN groupadd -g 10001 posthog && \
+    useradd -u 10001 -g posthog -m -d /home/posthog -s /bin/bash posthog && \
     chown posthog:posthog /code
 USER posthog
 
@@ -312,7 +315,7 @@ ENV PATH=/python-runtime/bin:$PATH \
 # Use cache mount for browser binaries to avoid re-downloading on every build
 USER root
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN --mount=type=cache,id=playwright-browsers,target=/tmp/playwright-cache \
+RUN --mount=type=cache,id=playwright-browsers,target=/tmp/playwright-cache,sharing=locked \
     PLAYWRIGHT_BROWSERS_PATH=/tmp/playwright-cache \
     /python-runtime/bin/python -m playwright install --with-deps chromium && \
     mkdir -p /ms-playwright && \

@@ -1,4 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
+import equal from 'fast-deep-equal'
 import {
     actions,
     afterMount,
@@ -13,36 +14,34 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import isEqual from 'lodash.isequal'
-import { Uri, editor } from 'monaco-editor'
+import { type IRange, Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 
 import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { initModel } from 'lib/monaco/CodeEditor'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
-import { objectsEqual, removeUndefinedAndNull, slugify } from 'lib/utils'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { objectsEqual, slugify } from 'lib/utils'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { parseQueryTablesAndColumns } from 'scenes/data-warehouse/editor/sql-utils'
+import { parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { insightsModel } from '~/models/insightsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { performQuery, queryExportContext } from '~/queries/query'
@@ -51,15 +50,14 @@ import {
     DataTableNode,
     DataVisualizationNode,
     DatabaseSchemaViewTable,
-    FileSystemIconType,
     HogLanguage,
+    HogQLFilters,
     HogQLMetadata,
     HogQLMetadataResponse,
     HogQLQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import {
-    Breadcrumb,
     ChartDisplayType,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
@@ -74,9 +72,9 @@ import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics
 import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
 import { dataModelingLogic } from '../scene/dataModelingLogic'
 import { draftsLogic } from './draftsLogic'
-import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import { findInnermostSelectAtOffset, findQueryAtCursor, type QueryRange, splitQueries } from './multiQueryUtils'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
@@ -98,12 +96,80 @@ export interface SqlEditorLogicProps {
     editor?: editor.IStandaloneCodeEditor | null
 }
 
+// Position the active-query outline overlay around `range` in viewport coords.
+// Monaco renders inline decorations per-line, so we can't get a single rectangular
+// border from a className. Instead, we maintain an absolutely-positioned `div`
+// inside the editor's overlay layer and recompute its bounding box from the pixel
+// positions of the range's start/end on each line.
+function renderQueryOutline(editorInstance: editor.IStandaloneCodeEditor, node: HTMLElement, range: IRange): void {
+    const model = editorInstance.getModel()
+    if (!model) {
+        node.style.display = 'none'
+        return
+    }
+
+    let minLeft = Infinity
+    let maxRight = -Infinity
+    let minTop = Infinity
+    let maxBottom = -Infinity
+
+    for (let line = range.startLineNumber; line <= range.endLineNumber; line++) {
+        const leftCol = line === range.startLineNumber ? range.startColumn : 1
+        const rightCol = line === range.endLineNumber ? range.endColumn : model.getLineMaxColumn(line)
+        if (leftCol >= rightCol) {
+            continue
+        }
+        const startVis = editorInstance.getScrolledVisiblePosition({ lineNumber: line, column: leftCol })
+        const endVis = editorInstance.getScrolledVisiblePosition({ lineNumber: line, column: rightCol })
+        if (!startVis || !endVis) {
+            continue
+        }
+        if (startVis.left < minLeft) {
+            minLeft = startVis.left
+        }
+        if (endVis.left > maxRight) {
+            maxRight = endVis.left
+        }
+        if (startVis.top < minTop) {
+            minTop = startVis.top
+        }
+        // With wordWrap on, a single model line can span multiple visual rows: `endVis`
+        // sits on a later row than `startVis`. Take the max bottom of both so the outline
+        // covers the wrapped tail. Width on wrapped lines is still approximate — the
+        // mid-rows could extend past either anchor — but the bottom must be correct or
+        // wrapped queries get clipped vertically.
+        const startBottom = startVis.top + startVis.height
+        const endBottom = endVis.top + endVis.height
+        if (startBottom > maxBottom) {
+            maxBottom = startBottom
+        }
+        if (endBottom > maxBottom) {
+            maxBottom = endBottom
+        }
+    }
+
+    if (minLeft === Infinity) {
+        node.style.display = 'none'
+        return
+    }
+
+    // Small padding so the border doesn't touch the glyphs / cursor caret.
+    const padX = 3
+    const padY = 1
+    node.style.display = 'block'
+    node.style.left = `${minLeft - padX}px`
+    node.style.top = `${minTop - padY}px`
+    node.style.width = `${maxRight - minLeft + padX * 2}px`
+    node.style.height = `${maxBottom - minTop + padY * 2}px`
+}
+
 export const NEW_QUERY = 'Untitled'
 
 export interface QueryTab {
     uri: Uri
     view?: DataWarehouseSavedQuery
     name: string
+    description?: string
     sourceQuery?: DataVisualizationNode
     insight?: QueryBasedInsightModel
     response?: Record<string, any>
@@ -111,12 +177,6 @@ export interface QueryTab {
 }
 
 export type SqlEditorSource = 'insight' | 'endpoint'
-
-export interface SaveAsMenuItem {
-    action: 'insight' | 'endpoint' | 'view'
-    label: string
-    dataAttr?: string
-}
 
 export interface SuggestionPayload {
     suggestedValue?: string
@@ -151,7 +211,37 @@ type LegacyDataVisualizationNode = DataVisualizationNode & {
     connectionId?: string
 }
 
-function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
+function hasOwnProperty(object: Record<string, any>, key: string): boolean {
+    return Object.prototype.hasOwnProperty.call(object, key)
+}
+
+export function normalizeFiltersForUrl(filters: HogQLFilters | null | undefined): HogQLFilters | undefined {
+    const normalizedFilters: HogQLFilters = {}
+
+    if (filters?.properties?.length) {
+        normalizedFilters.properties = filters.properties
+    }
+
+    if (filters?.dateRange?.date_from || filters?.dateRange?.date_to) {
+        normalizedFilters.dateRange = filters.dateRange
+    }
+
+    if (filters?.filterTestAccounts) {
+        normalizedFilters.filterTestAccounts = true
+    }
+
+    return Object.keys(normalizedFilters).length ? normalizedFilters : undefined
+}
+
+function parseFiltersFromUrl(filters: unknown): HogQLFilters | undefined {
+    if (!filters || typeof filters !== 'object' || Array.isArray(filters)) {
+        return undefined
+    }
+
+    return normalizeFiltersForUrl(filters as HogQLFilters)
+}
+
+export function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
     return {
         ...source,
         sendRawQuery: source.connectionId ? source.sendRawQuery || undefined : undefined,
@@ -167,7 +257,7 @@ function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizat
     }
 }
 
-function toDataVisualizationNode(
+export function toDataVisualizationNode(
     query: QueryBasedInsightModel['query'] | null | undefined
 ): DataVisualizationNode | undefined {
     if (!query) {
@@ -190,7 +280,7 @@ function toDataVisualizationNode(
     return undefined
 }
 
-function getCurrentVisualizationQuery(
+export function getCurrentVisualizationQuery(
     dataLogicKey: string,
     fallbackQuery: DataVisualizationNode
 ): DataVisualizationNode {
@@ -210,11 +300,15 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
         output_tab: values.outputActiveTab,
     }
     const connectionId = values.sourceQuery?.source.connectionId
-    if (values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && connectionId) {
+    if (connectionId) {
         hash['c'] = connectionId
         if (values.sourceQuery?.source.sendRawQuery) {
             hash['raw'] = '1'
         }
+    }
+    const filters = normalizeFiltersForUrl(values.sourceQuery?.source.filters)
+    if (filters) {
+        hash['filters'] = filters
     }
     if (values.activeTab?.view) {
         hash['view'] = values.activeTab.view.id
@@ -272,6 +366,32 @@ export function activeTabMatchesUrlTarget(
     return !activeTab?.draft && !activeTab?.view && !activeTab?.insight
 }
 
+// The Monaco model URI string for a tab's editor content. QueryWindow binds the editor to
+// this `path` and createTab creates the model at it — they must agree, so both derive it here.
+export function tabModelPath(tabId: string): string {
+    return `tab-${tabId}`
+}
+
+// Apply `text` to the tab's persistent Monaco model as a single undoable edit. The model is
+// kept alive across the diff <-> editor swap by `keepCurrentModel` (see QueryWindow), so its
+// full undo history survives — pushEditOperations adds one more undoable step rather than
+// wiping the stack. This also keeps the editor content in sync after accepting/rejecting a
+// suggestion: @monaco-editor/react reuses the existing model on remount without re-applying
+// the `value` prop, so the content has to be written onto the model directly. No-ops when the
+// editor isn't mounted yet or the content already matches.
+function applyUndoableModelEdit(monaco: Monaco | null | undefined, uri: Uri | undefined, text: string): void {
+    if (!monaco || !uri) {
+        return
+    }
+    const model = monaco.editor.getModel(uri)
+    if (!model || model.getValue() === text) {
+        return
+    }
+    model.pushStackElement()
+    model.pushEditOperations([], [{ range: model.getFullModelRange(), text }], () => null)
+    model.pushStackElement()
+}
+
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
     props({ mode: SQLEditorMode.FullScene } as SqlEditorLogicProps),
@@ -310,8 +430,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ],
             outputPaneLogic({ tabId: props.tabId }),
             ['setActiveTab'],
-            editorSceneLogic,
-            ['reportAIQueryPrompted', 'reportAIQueryAccepted', 'reportAIQueryRejected', 'reportAIQueryPromptOpen'],
             fixSQLErrorsLogic,
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
             draftsLogic,
@@ -385,6 +503,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             dagId,
         }),
         updateInsight: true,
+        setEditingInsightName: (name: string) => ({ name }),
+        setEditingInsightDescription: (description: string) => ({ description }),
         closeEditingObject: true,
         setFinishedLoading: (loading: boolean) => ({ loading }),
         setError: (error: string | null) => ({ error }),
@@ -420,14 +540,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             shouldRunQuery,
         }),
         onRejectSuggestedQueryInput: true,
-        shareTab: true,
-        openHistoryModal: true,
-        closeHistoryModal: true,
+        reportAIQueryPrompted: true,
+        reportAIQueryAccepted: true,
+        reportAIQueryRejected: true,
+        reportAIQueryPromptOpen: true,
         setInProgressViewEdit: (viewId: string, historyId: string) => ({
             viewId,
             historyId,
         }),
-        setInProgressViewEdits: (inProgressViewEdits: Record<DataWarehouseSavedQuery['id'], string>) => ({
+        setInProgressViewEdits: (inProgressViewEdits: Record<string, string>) => ({
             inProgressViewEdits,
         }),
         deleteInProgressViewEdit: (viewId: string) => ({ viewId }),
@@ -435,7 +556,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             draftId,
             historyId,
         }),
-        setInProgressDraftEdits: (inProgressDraftEdits: Record<DataWarehouseSavedQueryDraft['id'], string>) => ({
+        setInProgressDraftEdits: (inProgressDraftEdits: Record<string, string>) => ({
             inProgressDraftEdits,
         }),
         deleteInProgressDraftEdit: (draftId: string) => ({ draftId }),
@@ -481,6 +602,48 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     cache.activeQueryDecorationDebounceTimeout = null
                     cache.updateActiveQueryDecoration?.()
                 }, 150)
+            })
+
+            // Set up the active-query outline overlay. We render a single `div` parented
+            // to Monaco's overlay layer (viewport-fixed) and reposition it on scroll/layout.
+            const editorInstance = props.editor
+            const outlineNode = document.createElement('div')
+            outlineNode.className = 'active-query-outline'
+            outlineNode.style.position = 'absolute'
+            outlineNode.style.display = 'none'
+            const outlineWidget: editor.IOverlayWidget = {
+                getId: () => 'sql-editor.active-query-outline',
+                getDomNode: () => outlineNode,
+                // Returning `null` keeps the widget unanchored — we drive its position
+                // manually via inline `top`/`left` styles set in `renderQueryOutline`.
+                getPosition: () => null,
+            }
+            editorInstance.addOverlayWidget(outlineWidget)
+            cache.queryOutlineWidget = outlineWidget
+            cache.queryOutlineNode = outlineNode
+
+            cache.updateQueryOutline = (range: IRange | null): void => {
+                cache.queryOutlineRange = range
+                if (!range) {
+                    outlineNode.style.display = 'none'
+                    return
+                }
+                renderQueryOutline(editorInstance, outlineNode, range)
+            }
+
+            // Reposition the overlay on scroll and layout/resize. These don't change the
+            // range, only its pixel coordinates, so we skip the SQL parsing path entirely.
+            cache.scrollDisposable?.dispose()
+            cache.scrollDisposable = editorInstance.onDidScrollChange(() => {
+                if (cache.queryOutlineRange) {
+                    renderQueryOutline(editorInstance, outlineNode, cache.queryOutlineRange)
+                }
+            })
+            cache.layoutDisposable?.dispose()
+            cache.layoutDisposable = editorInstance.onDidLayoutChange(() => {
+                if (cache.queryOutlineRange) {
+                    renderQueryOutline(editorInstance, outlineNode, cache.queryOutlineRange)
+                }
             })
         }
     }),
@@ -619,16 +782,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 _setSuggestionPayload: (_, { payload }) => payload,
             },
         ],
-        isHistoryModalOpen: [
-            false as boolean,
-            {
-                openHistoryModal: () => true,
-                closeHistoryModal: () => false,
-            },
-        ],
         // if a view edit starts, store the historyId in the state
         inProgressViewEdits: [
-            {} as Record<DataWarehouseSavedQuery['id'], string>,
+            {} as Record<string, string>,
             {
                 setInProgressViewEdit: (state, { viewId, historyId }) => ({
                     ...state,
@@ -643,7 +799,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         inProgressDraftEdits: [
-            {} as Record<DataWarehouseSavedQueryDraft['id'], string>,
+            {} as Record<string, string>,
             {
                 setInProgressDraftEdit: (state, { draftId, historyId }) => ({
                     ...state,
@@ -711,6 +867,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             fixErrorsFailure: () => {
                 posthog.capture('ai-error-fixer-failure')
             },
+            reportAIQueryPrompted: () => {
+                posthog.capture('ai_query_prompted')
+            },
+            reportAIQueryAccepted: () => {
+                posthog.capture('ai_query_accepted')
+            },
+            reportAIQueryRejected: () => {
+                posthog.capture('ai_query_rejected')
+            },
+            reportAIQueryPromptOpen: () => {
+                posthog.capture('ai_query_prompt_open')
+            },
             insertTextAtCursor: ({ text }) => {
                 const editor = props.editor
                 if (!editor) {
@@ -742,43 +910,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 editor.focus()
             },
-            shareTab: () => {
-                const currentTab = values.activeTab
-                if (!currentTab) {
-                    return
-                }
-
-                if (currentTab.insight) {
-                    const currentUrl = new URL(window.location.href)
-                    const shareUrl = new URL(currentUrl.origin + currentUrl.pathname)
-                    shareUrl.searchParams.set('open_insight', currentTab.insight.short_id)
-
-                    if (currentTab.insight.query?.kind === NodeKind.DataVisualizationNode) {
-                        const query = (currentTab.insight.query as DataVisualizationNode).source.query
-                        if (values.queryInput !== query) {
-                            shareUrl.searchParams.set('open_query', values.queryInput ?? '')
-                        }
-                    }
-
-                    void copyToClipboard(shareUrl.toString(), 'share link')
-                } else if (currentTab.view) {
-                    const currentUrl = new URL(window.location.href)
-                    const shareUrl = new URL(currentUrl.origin + currentUrl.pathname)
-                    shareUrl.searchParams.set('open_view', currentTab.view.id)
-
-                    if (values.queryInput != currentTab.view.query?.query) {
-                        shareUrl.searchParams.set('open_query', values.queryInput ?? '')
-                    }
-
-                    void copyToClipboard(shareUrl.toString(), 'share link')
-                } else {
-                    const currentUrl = new URL(window.location.href)
-                    const shareUrl = new URL(currentUrl.origin + currentUrl.pathname)
-                    shareUrl.searchParams.set('open_query', values.queryInput ?? '')
-
-                    void copyToClipboard(shareUrl.toString(), 'share link')
-                }
-            },
             setSuggestedQueryInput: ({ suggestedQueryInput, source }) => {
                 // If there's no active tab, create one first to ensure Monaco Editor is available
                 if (!values.activeTab) {
@@ -806,48 +937,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             onAcceptSuggestedQueryInput: ({ shouldRunQuery }) => {
                 values.suggestionPayload?.onAccept(!!shouldRunQuery, actions, values, props)
 
-                // Re-create the model to prevent it from being purged
-                if (props.monaco && values.activeTab) {
-                    const existingModel = props.monaco.editor.getModel(values.activeTab.uri)
-                    if (!existingModel) {
-                        const newModel = props.monaco.editor.createModel(
-                            values.suggestedQueryInput,
-                            'hogQL',
-                            values.activeTab.uri
-                        )
-                        cache.createdModels = cache.createdModels || []
-                        cache.createdModels.push(newModel)
+                // Write the accepted query onto the tab's persistent model as one undoable
+                // edit. The model survives the diff <-> editor swap (keepCurrentModel), so its
+                // existing undo history is preserved and cmd+z walks back through the accepted
+                // query to the pre-AI query and the rest of the edit history.
+                applyUndoableModelEdit(props.monaco, values.activeTab?.uri, values.queryInput ?? '')
 
-                        initModel(
-                            newModel,
-                            codeEditorLogic({
-                                key: `hogql-editor-${props.tabId}`,
-                                query: values.suggestedQueryInput,
-                                language: 'hogQL',
-                            })
-                        )
-
-                        // Handle both diff editor and regular editor
-                        if (props.editor && 'getModifiedEditor' in props.editor) {
-                            // It's a diff editor, set model on the modified editor
-                            const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(newModel)
-                        } else {
-                            // Regular editor
-                            props.editor?.setModel(newModel)
-                        }
-                    } else {
-                        // Handle both diff editor and regular editor
-                        if (props.editor && 'getModifiedEditor' in props.editor) {
-                            // It's a diff editor, set model on the modified editor
-                            const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(existingModel)
-                        } else {
-                            // Regular editor
-                            props.editor?.setModel(existingModel)
-                        }
-                    }
-                }
                 posthog.capture('sql-editor-accepted-suggestion', {
                     source: values.suggestedSource,
                 })
@@ -856,47 +951,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             onRejectSuggestedQueryInput: () => {
                 values.suggestionPayload?.onReject(actions, values, props)
 
-                // Re-create the model to prevent it from being purged
-                if (props.monaco && values.activeTab) {
-                    const existingModel = props.monaco.editor.getModel(values.activeTab.uri)
-                    if (!existingModel) {
-                        const newModel = props.monaco.editor.createModel(
-                            values.queryInput ?? '',
-                            'hogQL',
-                            values.activeTab.uri
-                        )
-                        cache.createdModels = cache.createdModels || []
-                        cache.createdModels.push(newModel)
-                        initModel(
-                            newModel,
-                            codeEditorLogic({
-                                key: `hogql-editor-${props.tabId}`,
-                                query: values.queryInput ?? '',
-                                language: 'hogQL',
-                            })
-                        )
+                // Keep the persistent model's content in sync with the reverted query (the
+                // suggestion was shown in a throwaway diff model, not this one). This is a
+                // no-op when the model already matches, so rejecting adds no undo step.
+                applyUndoableModelEdit(props.monaco, values.activeTab?.uri, values.queryInput ?? '')
 
-                        // Handle both diff editor and regular editor
-                        if (props.editor && 'getModifiedEditor' in props.editor) {
-                            // It's a diff editor, set model on the modified editor
-                            const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(newModel)
-                        } else {
-                            // Regular editor
-                            props.editor?.setModel(newModel)
-                        }
-                    } else {
-                        // Handle both diff editor and regular editor
-                        if (props.editor && 'getModifiedEditor' in props.editor) {
-                            // It's a diff editor, set model on the modified editor
-                            const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(existingModel)
-                        } else {
-                            // Regular editor
-                            props.editor?.setModel(existingModel)
-                        }
-                    }
-                }
                 posthog.capture('sql-editor-rejected-suggestion', {
                     source: values.suggestedSource,
                 })
@@ -910,14 +969,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             createTab: async ({ query = '', view, insight, draft }) => {
                 // Use tabId to ensure each browser tab has its own unique Monaco model
-                const tabName = draft?.name || view?.name || insight?.name || NEW_QUERY
+                const tabName = insight ? (insight.name ?? NEW_QUERY) : draft?.name || view?.name || NEW_QUERY
+                const tabDescription = insight?.description ?? ''
                 const rawInsightVisualizationQuery = toDataVisualizationNode(insight?.query)
                 const insightVisualizationQuery = rawInsightVisualizationQuery
                     ? sanitizeSourceQuery(rawInsightVisualizationQuery)
                     : undefined
 
                 if (props.monaco) {
-                    const uri = props.monaco.Uri.parse(`tab-${props.tabId}`)
+                    const uri = props.monaco.Uri.parse(tabModelPath(props.tabId))
                     let model = props.monaco.editor.getModel(uri)
                     if (!model) {
                         model = props.monaco.editor.createModel(query, 'hogQL', uri)
@@ -939,6 +999,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         view,
                         insight,
                         name: tabName,
+                        description: tabDescription,
                         sourceQuery: insightVisualizationQuery,
                         draft: draft,
                     })
@@ -1131,6 +1192,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 // Mark the first query task as complete when the query is run
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
+                const compactQuery = query.replace(/\s+/g, ' ').trim()
+                const truncated = compactQuery.length > 80 ? compactQuery.slice(0, 77) + '…' : compactQuery
+                tryShowMCPHint('sql.execute', truncated ? { derivedPrompt: `Run this SQL: ${truncated}` } : undefined)
             },
             saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
                 const multiDagEnabled = !!values.featureFlags[FEATURE_FLAGS.DATA_MODELING_MULTI_DAG]
@@ -1284,12 +1348,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             </>
                         ),
                     errors: {
-                        viewName: (name) =>
-                            !name
-                                ? 'You must enter a name'
-                                : !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
-                                  ? 'Name must be valid'
-                                  : undefined,
+                        viewName: validateSavedQueryName,
                         dagId: (dagId) => (multiDagEnabled && !dagId ? 'Please select a DAG' : undefined),
                     },
                     onSubmit: async ({ viewName, dagId, folderId, isTest }) => {
@@ -1593,6 +1652,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     lemonToast.error(error.detail || 'Failed to create endpoint')
                 }
             },
+            setEditingInsightName: ({ name }) => {
+                if (values.activeTab) {
+                    actions.updateTab({ ...values.activeTab, name })
+                }
+            },
+            setEditingInsightDescription: ({ description }) => {
+                if (values.activeTab) {
+                    actions.updateTab({ ...values.activeTab, description })
+                }
+            },
             updateInsight: async () => {
                 if (!values.editingInsight) {
                     return
@@ -1601,10 +1670,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.setInsightLoading(true)
 
                 const insightName = values.activeTab?.name
+                const insightDescription = values.activeTab?.description
                 const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
 
                 const insightRequest: Partial<QueryBasedInsightModel> = {
                     name: insightName ?? values.editingInsight.name,
+                    description: insightDescription ?? values.editingInsight.description ?? '',
                     query: currentVisualizationQuery,
                 }
 
@@ -1628,6 +1699,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         insight: savedInsight,
                     })
                 }
+                insightsModel.findMounted()?.actions.renameInsightSuccess(savedInsight)
                 const loadedLogic = insightLogic.findMounted({
                     dashboardItemId: values.editingInsight.short_id,
                     dashboardId: undefined,
@@ -1672,6 +1744,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const nextActiveTab = {
                     ...values.activeTab,
                     name: NEW_QUERY,
+                    description: '',
                     view: undefined,
                     insight: undefined,
                     draft: undefined,
@@ -1826,8 +1899,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.setSelectedQueryTablesAndColumns(result)
             }, 200)
         },
-        showLegacyFilters: (showLegacyFilters: boolean) => {
-            if (showLegacyFilters) {
+        hasFiltersPlaceholder: (hasFiltersPlaceholder: boolean) => {
+            if (hasFiltersPlaceholder) {
                 if (typeof values.sourceQuery.source.filters !== 'object') {
                     actions.setSourceQuery({
                         ...values.sourceQuery,
@@ -1837,16 +1910,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         },
                     })
                 }
-            } else {
-                if (values.sourceQuery.source.filters !== undefined) {
-                    actions.setSourceQuery({
-                        ...values.sourceQuery,
-                        source: {
-                            ...values.sourceQuery.source,
-                            filters: undefined,
-                        },
-                    })
-                }
+            }
+        },
+        sourceQuery: (sourceQuery: DataVisualizationNode, previousSourceQuery: DataVisualizationNode | undefined) => {
+            if (values.isEmbeddedMode || !values.activeTab) {
+                return
+            }
+
+            const filters = normalizeFiltersForUrl(sourceQuery.source.filters)
+            const previousFilters = normalizeFiltersForUrl(previousSourceQuery?.source.filters)
+            if (!equal(filters ?? {}, previousFilters ?? {})) {
+                actions.syncUrlWithQuery()
             }
         },
         editingView: (editingView) => {
@@ -1951,11 +2025,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         selectedConnectionId: [
-            (s) => [s.sourceQuery, s.featureFlags],
-            (sourceQuery, featureFlags) => {
-                if (!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]) {
-                    return undefined
-                }
+            (s) => [s.sourceQuery],
+            (sourceQuery) => {
                 return sourceQuery.source && 'connectionId' in sourceQuery.source
                     ? sourceQuery.source.connectionId
                     : undefined
@@ -1991,30 +2062,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return splitRanges.some((q) => q.query.trim() === lastRunQueryText)
             },
         ],
-        updateInsightButtonEnabled: [
-            (s) => [s.sourceQuery, s.activeTab, s.editingInsight, s.dataLogicKey],
-            (sourceQuery, activeTab, editingInsight, dataLogicKey) => {
-                if (!editingInsight?.query) {
-                    return false
-                }
-
-                const updatedName = activeTab?.name !== editingInsight.name
-                const currentVisualizationQuery = getCurrentVisualizationQuery(dataLogicKey, sourceQuery)
-
-                const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(currentVisualizationQuery)
-                // Normalize so DataTableNode-based insights don't look "changed" immediately after load.
-                const editingInsightQuery = toDataVisualizationNode(editingInsight.query) ?? editingInsight.query
-
-                return (
-                    updatedName ||
-                    !isEqual(sourceQueryWithoutUndefinedAndNullKeys, removeUndefinedAndNull(editingInsightQuery))
-                )
-            },
-        ],
-        showLegacyFilters: [
+        hasFiltersPlaceholder: [
             (s) => [s.queryInput],
             (queryInput) => {
-                return queryInput && (queryInput.indexOf('{filters}') !== -1 || queryInput.indexOf('{filters.') !== -1)
+                return queryUsesFiltersPlaceholder(queryInput)
             },
         ],
         hasQueryInput: [(s) => [s.queryInput], (queryInput) => !!queryInput],
@@ -2025,193 +2076,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         dataLogicKey: [(_, p) => [p.tabId], (tabId) => `data-warehouse-editor-data-node-${tabId}`],
         isDraft: [(s) => [s.activeTab], (activeTab) => (activeTab ? !!activeTab.draft?.id : false)],
         currentDraft: [(s) => [s.activeTab], (activeTab) => (activeTab ? activeTab.draft : null)],
-        breadcrumbs: [
-            (s) => [s.activeTab],
-            (activeTab): Breadcrumb[] => {
-                const { draft, insight, view } = activeTab || {}
-                const first = {
-                    key: Scene.SQLEditor,
-                    name: 'SQL query',
-                    to: urls.sqlEditor(),
-                    iconType: 'sql_editor' as FileSystemIconType,
-                }
-                if (view) {
-                    return [
-                        {
-                            key: view.id,
-                            name: view.name,
-                            path: urls.sqlEditor({ view_id: view.id }),
-                            iconType: 'sql_editor',
-                        },
-                    ]
-                } else if (insight) {
-                    return [
-                        first,
-                        {
-                            key: insight.id,
-                            name: insight.name || insight.derived_name || 'Untitled',
-                            path: urls.sqlEditor({
-                                insightShortId: insight.short_id,
-                            }),
-                            iconType: 'sql_editor',
-                        },
-                    ]
-                } else if (draft) {
-                    return [
-                        first,
-                        {
-                            key: draft.id,
-                            name: draft.name || 'Untitled',
-                            path: urls.sqlEditor({ draftId: draft.id }),
-                            iconType: 'sql_editor',
-                        },
-                    ]
-                }
-                return [first]
-            },
-        ],
-        titleSectionProps: [
-            (s) => [
-                s.editingInsight,
-                s.insightLoading,
-                s.editingView,
-                s.viewLoading,
-                s.editorSource,
-                s.dashboardId,
-                s.activeTab,
-            ],
-            (editingInsight, insightLoading, editingView, viewLoading, editorSource, dashboardId, activeTab) => {
-                if (editingInsight) {
-                    const forceBackTo: Breadcrumb = dashboardId
-                        ? {
-                              key: 'dashboard',
-                              name: 'Back to dashboard',
-                              path: urls.dashboard(dashboardId),
-                              iconType: 'dashboard',
-                          }
-                        : {
-                              key: editingInsight.short_id,
-                              name: 'Back to insight',
-                              path: urls.insightView(editingInsight.short_id),
-                              iconType: 'insight/hog',
-                          }
-
-                    return {
-                        forceBackTo,
-                        name: editingInsight.name || editingInsight.derived_name || 'Untitled',
-                        resourceType: { type: 'insight/hog' },
-                    }
-                }
-
-                if (insightLoading) {
-                    return {
-                        name: 'Loading insight...',
-                        resourceType: { type: 'insight/hog' },
-                    }
-                }
-
-                if (editingView) {
-                    return {
-                        name: editingView.name,
-                        resourceType: {
-                            type: editingView.is_materialized ? 'matview' : 'view',
-                        },
-                    }
-                }
-
-                if (viewLoading) {
-                    return {
-                        name: 'Loading view...',
-                        resourceType: { type: 'view' },
-                    }
-                }
-
-                if (!activeTab) {
-                    const searchParams = new URLSearchParams(window.location.search)
-                    const hashParams = new URLSearchParams(window.location.hash.slice(1))
-                    if (searchParams.get('open_view') || hashParams.get('view')) {
-                        return {
-                            name: 'Loading view...',
-                            resourceType: { type: 'view' },
-                        }
-                    }
-
-                    if (searchParams.get('open_insight') || hashParams.get('insight')) {
-                        return {
-                            name: 'Loading insight...',
-                            resourceType: { type: 'insight/hog' },
-                        }
-                    }
-                }
-
-                if (editorSource === 'endpoint') {
-                    const forceBackTo: Breadcrumb = {
-                        key: 'endpoints',
-                        name: 'Endpoints',
-                        path: urls.endpoints(),
-                        iconType: 'endpoints',
-                    }
-
-                    return {
-                        forceBackTo,
-                        name: 'New endpoint',
-                        resourceType: { type: 'sql_editor' },
-                    }
-                }
-
-                if (dashboardId) {
-                    const forceBackTo: Breadcrumb = {
-                        key: 'dashboard',
-                        name: 'Back to dashboard',
-                        path: urls.dashboard(dashboardId),
-                        iconType: 'dashboard',
-                    }
-
-                    return {
-                        forceBackTo,
-                        name: 'New SQL query',
-                        resourceType: { type: 'sql_editor' },
-                    }
-                }
-
-                return {
-                    name: 'New SQL query',
-                    resourceType: { type: 'sql_editor' },
-                }
-            },
-        ],
-
-        saveAsMenuItems: [
-            (s) => [s.editorSource, s.dashboardId],
-            (editorSource, dashboardId): { primary: SaveAsMenuItem; secondary: SaveAsMenuItem[] } => {
-                const saveAsInsightItem: SaveAsMenuItem = {
-                    action: 'insight',
-                    label: dashboardId ? 'Save & add to dashboard' : 'Save as insight',
-                }
-                const saveAsEndpointItem: SaveAsMenuItem = {
-                    action: 'endpoint',
-                    label: 'Save as endpoint',
-                }
-                const saveAsViewItem: SaveAsMenuItem = {
-                    action: 'view',
-                    label: 'Save as view',
-                    dataAttr: 'sql-editor-save-view-button',
-                }
-
-                if (editorSource === 'endpoint') {
-                    return {
-                        primary: saveAsEndpointItem,
-                        secondary: [saveAsInsightItem, saveAsViewItem],
-                    }
-                }
-
-                return {
-                    primary: saveAsInsightItem,
-                    secondary: [saveAsEndpointItem, saveAsViewItem],
-                }
-            },
-        ],
-
         selectedQueryColumns: [
             (s) => [s.selectedQueryTablesAndColumns],
             (tablesAndColumns: Record<string, Record<string, boolean>>): Record<string, boolean> => {
@@ -2224,7 +2088,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
     }),
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         syncUrlWithQuery: () => {
             if (values.isEmbeddedMode) {
                 return
@@ -2244,7 +2108,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
         },
     })),
-    tabAwareUrlToAction(({ actions, values, props }) => ({
+    urlToAction(({ actions, values, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams, hashParams) => {
             if (isEmbeddedSQLEditorMode(props.mode ?? SQLEditorMode.FullScene)) {
                 return
@@ -2261,6 +2125,30 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             const outputTabFromUrl = parseOutputTab(searchParams.output_tab ?? hashParams.output_tab)
+            const draftIdFromUrl = searchParams.open_draft || hashParams.draft
+            const viewIdFromUrl = searchParams.open_view || hashParams.view
+            const insightShortIdFromUrl = searchParams.open_insight || hashParams.insight
+            const hasFiltersHashParam = hasOwnProperty(hashParams, 'filters')
+            const shouldApplyFiltersFromUrl =
+                hasFiltersHashParam ||
+                (!!(searchParams.open_query || hashParams.q) &&
+                    !draftIdFromUrl &&
+                    !viewIdFromUrl &&
+                    !insightShortIdFromUrl)
+            const filtersFromUrl = hasFiltersHashParam ? parseFiltersFromUrl(hashParams.filters) : undefined
+            const applyFiltersFromUrl = (sourceQuery: DataVisualizationNode): DataVisualizationNode => {
+                if (!shouldApplyFiltersFromUrl) {
+                    return sourceQuery
+                }
+
+                return {
+                    ...sourceQuery,
+                    source: {
+                        ...sourceQuery.source,
+                        filters: filtersFromUrl ?? {},
+                    },
+                }
+            }
             const expectedDatabaseConnectionId = values.selectedConnectionId ?? null
             const shouldSyncDatabaseConnection =
                 values.databaseConnectionId !== expectedDatabaseConnectionId || !values.database
@@ -2274,6 +2162,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 !hashParams.q &&
                 !hashParams.c &&
                 !hashParams.raw &&
+                !hasFiltersHashParam &&
                 !hashParams.view &&
                 !hashParams.insight &&
                 !hashParams.draft &&
@@ -2288,25 +2177,30 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             const connectionIdFromHash =
-                values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-                typeof hashParams.c === 'string' &&
-                hashParams.c !== ''
-                    ? hashParams.c
-                    : undefined
-            const sendRawQueryFromHash =
-                connectionIdFromHash !== undefined &&
-                values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-                String(hashParams.raw) === '1'
+                typeof hashParams.c === 'string' && hashParams.c !== '' ? hashParams.c : undefined
+            const sendRawQueryFromHash = connectionIdFromHash !== undefined && String(hashParams.raw) === '1'
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
             const currentSendRawQuery = values.sourceQuery.source.sendRawQuery ?? false
+            const filtersForSourceQuery = applyFiltersFromUrl(values.sourceQuery).source.filters
+            const shouldSyncFilters =
+                shouldApplyFiltersFromUrl &&
+                !equal(
+                    normalizeFiltersForUrl(filtersForSourceQuery) ?? {},
+                    normalizeFiltersForUrl(values.sourceQuery.source.filters) ?? {}
+                )
 
-            if (connectionIdFromHash !== currentConnectionId || sendRawQueryFromHash !== currentSendRawQuery) {
+            if (
+                connectionIdFromHash !== currentConnectionId ||
+                sendRawQueryFromHash !== currentSendRawQuery ||
+                shouldSyncFilters
+            ) {
                 actions.setSourceQuery({
                     ...values.sourceQuery,
                     source: {
                         ...values.sourceQuery.source,
                         connectionId: connectionIdFromHash,
                         sendRawQuery: sendRawQueryFromHash || undefined,
+                        filters: filtersForSourceQuery,
                     },
                 })
             }
@@ -2317,9 +2211,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (outputTabFromUrl && values.outputActiveTab !== outputTabFromUrl) {
                     actions.setActiveTab(outputTabFromUrl)
                 }
-                const draftIdFromUrl = searchParams.open_draft || hashParams.draft
-                const viewIdFromUrl = searchParams.open_view || hashParams.view
-                const insightShortIdFromUrl = searchParams.open_insight || hashParams.insight
 
                 if (
                     draftIdFromUrl &&
@@ -2439,7 +2330,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     const queryToOpen = searchParams.open_query ? searchParams.open_query : query
 
                     if (insightVisualizationQuery) {
-                        actions.setSourceQuery(insightVisualizationQuery)
+                        actions.setSourceQuery(applyFiltersFromUrl(insightVisualizationQuery))
                     }
                     actions.editInsight(queryToOpen, insight)
                     if (!outputTabFromUrl) {
@@ -2549,14 +2440,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // Helper to validate a subquery standalone. Results are cached by subquery text
             // to avoid re-hitting the metadata endpoint for the same subquery on every cursor
             // move; the cache is invalidated whenever queryInput changes (see subscription).
-            const validateSubquery = async (
-                subqueryText: string
-            ): Promise<{ className: string; errorMessage: string | null }> => {
+            const validateSubquery = async (subqueryText: string): Promise<{ errorMessage: string | null }> => {
                 if (!cache.subqueryValidationCache) {
-                    cache.subqueryValidationCache = new Map<
-                        string,
-                        { className: string; errorMessage: string | null }
-                    >()
+                    cache.subqueryValidationCache = new Map<string, { errorMessage: string | null }>()
                 }
                 const cached = cache.subqueryValidationCache.get(subqueryText)
                 if (cached) {
@@ -2572,122 +2458,131 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     const result =
                         errors.length > 0
                             ? {
-                                  className: 'active-subquery-highlight-invalid',
                                   errorMessage: `This subquery may fail standalone:\n${errors.map((e) => e.message).join('\n')}`,
                               }
-                            : {
-                                  className: 'active-subquery-highlight',
-                                  errorMessage: null,
-                              }
+                            : { errorMessage: null }
                     cache.subqueryValidationCache.set(subqueryText, result)
                     return result
                 } catch {
-                    return {
-                        className: 'active-subquery-highlight-invalid',
-                        errorMessage: 'This subquery may fail standalone',
-                    }
+                    return { errorMessage: 'This subquery may fail standalone' }
                 }
             }
 
-            // Helper to find subquery and build its decoration
-            const buildSubqueryDecoration = async (
+            // Resolve the innermost subquery at the cursor and build:
+            //   - the range to draw the outline overlay around
+            //   - per-line gutter/glyph decorations when the subquery can't run standalone
+            // The outline itself is rendered via a DOM overlay (see renderQueryOutline) rather
+            // than an inline className, so it reads as a frame around the code instead of a
+            // text background that can be confused with selection.
+            const buildSubquery = async (
                 activeQuery: QueryRange,
                 offset: number
-            ): Promise<editor.IModelDeltaDecoration | null> => {
+            ): Promise<{ range: IRange | null; decorations: editor.IModelDeltaDecoration[] }> => {
                 const subquery = await findInnermostSelectAtOffset(activeQuery.query, offset, activeQuery.start)
                 if (!subquery) {
-                    return null
+                    return { range: null, decorations: [] }
                 }
                 const subStart = model.getPositionAt(subquery.start)
                 const subEnd = model.getPositionAt(subquery.end)
-                const { className, errorMessage } = await validateSubquery(subquery.query)
-                return {
-                    range: {
-                        startLineNumber: subStart.lineNumber,
-                        startColumn: subStart.column,
-                        endLineNumber: subEnd.lineNumber,
-                        endColumn: subEnd.column,
-                    },
-                    options: {
-                        className,
-                        inlineClassName: errorMessage ? 'active-subquery-underline-invalid' : undefined,
-                        hoverMessage: errorMessage ? { value: errorMessage } : undefined,
-                    },
+                const range: IRange = {
+                    startLineNumber: subStart.lineNumber,
+                    startColumn: subStart.column,
+                    endLineNumber: subEnd.lineNumber,
+                    endColumn: subEnd.column,
                 }
+                const { errorMessage } = await validateSubquery(subquery.query)
+                const decorations: editor.IModelDeltaDecoration[] = []
+                if (errorMessage) {
+                    decorations.push({
+                        range,
+                        options: {
+                            linesDecorationsClassName: 'active-subquery-border-invalid',
+                            hoverMessage: { value: errorMessage },
+                        },
+                    })
+                    decorations.push({
+                        range: {
+                            startLineNumber: subStart.lineNumber,
+                            startColumn: 1,
+                            endLineNumber: subStart.lineNumber,
+                            endColumn: 1,
+                        },
+                        options: {
+                            glyphMarginClassName: 'active-subquery-glyph-invalid',
+                            glyphMarginHoverMessage: { value: errorMessage },
+                        },
+                    })
+                }
+                return { range, decorations }
             }
 
-            // Single query — check for subqueries only
+            const applyResult = (range: IRange | null, decorations: editor.IModelDeltaDecoration[]): void => {
+                cache.updateQueryOutline?.(range)
+                cache.activeQueryDecorationIds = editorInstance.deltaDecorations(
+                    cache.activeQueryDecorationIds ?? [],
+                    decorations
+                )
+            }
+
+            // Single query — outline the innermost subquery at the cursor (which collapses
+            // to the whole SELECT when there is no nested subquery).
             if (queries.length <= 1) {
                 const singleQuery = queries.length === 1 ? queries[0] : null
-                actions.setActiveQueryText(singleQuery?.query ?? null, 0)
+                // Offset must be the statement's start in the full text, not 0 — otherwise leading
+                // whitespace/newlines desync the metadata markers (squiggles) by that many characters.
+                actions.setActiveQueryText(singleQuery?.query ?? null, singleQuery?.start ?? 0)
 
-                if (singleQuery) {
-                    const subDeco = await buildSubqueryDecoration(singleQuery, cursorOffset)
+                if (!singleQuery) {
                     if (isStale()) {
                         return
                     }
-                    if (subDeco) {
-                        cache.activeQueryDecorationIds = editorInstance.deltaDecorations(
-                            cache.activeQueryDecorationIds ?? [],
-                            [subDeco]
-                        )
-                        return
-                    }
+                    applyResult(null, [])
+                    return
                 }
 
+                const { range, decorations } = await buildSubquery(singleQuery, cursorOffset)
                 if (isStale()) {
                     return
                 }
-                cache.activeQueryDecorationIds = editorInstance.deltaDecorations(
-                    cache.activeQueryDecorationIds ?? [],
-                    []
-                )
+                applyResult(range, decorations)
                 return
             }
 
-            // Multiple queries
+            // Multiple queries — outline only the innermost subquery within the active one.
             const match = findQueryAtCursor(queries, cursorOffset)
             if (!match) {
+                actions.setActiveQueryText(null, 0)
                 if (isStale()) {
                     return
                 }
-                cache.activeQueryDecorationIds = editorInstance.deltaDecorations(
-                    cache.activeQueryDecorationIds ?? [],
-                    []
-                )
-                actions.setActiveQueryText(null, 0)
+                applyResult(null, [])
                 return
             }
 
             actions.setActiveQueryText(match.query, match.start)
 
-            const startPos = model.getPositionAt(match.start)
-            const endPos = model.getPositionAt(match.end)
-
-            const decorations: editor.IModelDeltaDecoration[] = [
-                {
-                    range: {
-                        startLineNumber: startPos.lineNumber,
-                        startColumn: startPos.column,
-                        endLineNumber: endPos.lineNumber,
-                        endColumn: endPos.column,
-                    },
-                    options: { className: 'active-query-highlight' },
-                },
-            ]
-
-            const subDeco = await buildSubqueryDecoration(match, cursorOffset)
+            const { range, decorations } = await buildSubquery(match, cursorOffset)
             if (isStale()) {
                 return
             }
-            if (subDeco) {
-                decorations.push(subDeco)
-            }
 
-            cache.activeQueryDecorationIds = editorInstance.deltaDecorations(
-                cache.activeQueryDecorationIds ?? [],
-                decorations
-            )
+            // With several semicolon-separated statements in the editor, the inner-subquery
+            // outline alone doesn't tell you which top-level statement Cmd+Enter will run.
+            // A soft blue gutter bar spanning the active statement keeps that visible without
+            // re-introducing a range-wide background that reads as text selection.
+            const matchStart = model.getPositionAt(match.start)
+            const matchEnd = model.getPositionAt(match.end)
+            decorations.push({
+                range: {
+                    startLineNumber: matchStart.lineNumber,
+                    startColumn: matchStart.column,
+                    endLineNumber: matchEnd.lineNumber,
+                    endColumn: matchEnd.column,
+                },
+                options: { linesDecorationsClassName: 'active-query-gutter' },
+            })
+
+            applyResult(range, decorations)
         }
 
         const expectedDatabaseConnectionId = values.selectedConnectionId ?? null
@@ -2707,10 +2602,26 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             actions.loadDatabase()
         }
     }),
-    beforeUnmount(({ cache }) => {
+    beforeUnmount(({ cache, props }) => {
         cache.cursorDisposable?.dispose()
         cache.cursorDisposable = null
+        cache.scrollDisposable?.dispose()
+        cache.scrollDisposable = null
+        cache.layoutDisposable?.dispose()
+        cache.layoutDisposable = null
+        if (cache.queryOutlineWidget && props.editor) {
+            try {
+                props.editor.removeOverlayWidget(cache.queryOutlineWidget)
+            } catch (e) {
+                console.warn('[sqlEditorLogic] failed to remove outline overlay widget', e)
+            }
+        }
+        cache.queryOutlineWidget = null
+        cache.queryOutlineNode = null
+        cache.queryOutlineRange = null
+        cache.updateQueryOutline = null
         cache.umountDataNode?.()
+        cache.umountDataNode = null
 
         // Drop any pending decoration work so late callbacks don't touch a disposed editor.
         if (cache.activeQueryDecorationDebounceTimeout) {
@@ -2728,6 +2639,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         cache.decorationGeneration = (cache.decorationGeneration ?? 0) + 1
 
         cache.createdModels?.forEach((m: editor.ITextModel) => {
+            clearLogicReference(m)
             try {
                 m.dispose()
             } catch {}

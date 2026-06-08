@@ -3,12 +3,15 @@ import typing
 import datetime as dt
 import collections.abc
 from dataclasses import dataclass
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-import requests
+from requests import Response
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from posthog.temporal.data_imports.sources.meta_ads.schemas import RESOURCE_SCHEMAS
 
@@ -17,6 +20,60 @@ from products.data_warehouse.backend.types import IncrementalFieldType
 # Meta Ads API only supports data from the last 3 years
 META_ADS_MAX_HISTORY_DAYS = 3 * 365
 DEFAULT_SYNC_LOOKBACK_DAYS = 90
+
+
+@dataclass
+class MetaAdsResumeConfig:
+    """Resume state for a Meta Ads sync.
+
+    Two shapes are encoded here:
+
+    - Simple pagination (non-stats endpoints, no time range): only ``next_url``
+      is set. It is a ``paging.next`` URL returned by the Graph API with its
+      ``access_token`` query param stripped (see ``_strip_access_token``); the
+      token is re-attached from the integration config at request time on
+      resume.
+    - Time-range pagination (stats endpoints): ``end_date`` acts as the
+      discriminator. ``chunk_since`` and ``chunk_size_days`` describe where to
+      restart the outer chunk loop. ``chunk_next_url`` is set when the crash
+      happened mid-chunk — on resume we fetch that URL directly, skipping the
+      initial chunk request. When the chunk was complete at save time,
+      ``chunk_next_url`` is None and we issue a fresh initial request for
+      ``chunk_since``. ``chunk_limit`` is set when an in-flight timeout caused
+      the per-page limit to be reduced; the smaller limit then persists across
+      resumes so we don't re-trip the same timeout. Saved URLs have
+      ``access_token`` stripped.
+    """
+
+    next_url: str | None = None
+    end_date: str | None = None
+    chunk_since: str | None = None
+    chunk_size_days: int | None = None
+    chunk_next_url: str | None = None
+    chunk_limit: int | None = None
+
+
+def _strip_access_token(url: str) -> str:
+    """Remove the ``access_token`` query parameter from a URL.
+
+    Meta's ``paging.next`` URLs embed the caller's access token as a query
+    param. We never want that token at rest in Redis or in logs — we re-attach
+    a fresh one from the integration config at request time.
+    """
+    parts = urlsplit(url)
+    if not parts.query:
+        return url
+    filtered = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != "access_token"]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(filtered), parts.fragment))
+
+
+def _fetch_paging_url(url: str, access_token: str) -> Response:
+    """Fetch a Meta ``paging.next``-style URL with a freshly injected access token.
+
+    Saved URLs have ``access_token`` stripped; we pass it via ``params`` at
+    request time so the token never persists in Redis or debug logs.
+    """
+    return make_tracked_session().get(url, params={"access_token": access_token})
 
 
 def _clean_account_id(s: str | None) -> str | None:
@@ -97,8 +154,43 @@ META_TIMEOUT_ERROR_SUBCODES = {1504018, 1504038}
 # Start with 30-day chunks, fall back to smaller chunks on timeout
 TIME_RANGE_CHUNK_SIZES = [30, 7, 1]
 
+# Per-page row limits for adaptive pagination. When the Graph API times out
+# mid-chunk (i.e. on a paging.next cursor request, after we've already yielded
+# rows from the chunk), shrinking the chunk's date range would force us to
+# re-issue earlier pages and re-emit rows we've already produced. Instead we
+# shrink the per-page ``limit`` and retry the same cursor URL — Meta accepts
+# ``limit`` as a query param on cursor URLs.
+PAGE_LIMIT_FALLBACK_SIZES = [500, 100, 50]
 
-def _is_timeout_error(response: requests.Response) -> bool:
+
+def _override_limit(url: str, limit: int) -> str:
+    """Return ``url`` with its ``limit`` query parameter overridden.
+
+    Meta's ``paging.next`` URLs encode the limit that produced the cursor; if
+    we want a smaller batch on the retry, we have to rewrite the URL.
+    """
+    parts = urlsplit(url)
+    pairs = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != "limit"]
+    pairs.append(("limit", str(limit)))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(pairs), parts.fragment))
+
+
+def _next_smaller_limit(current: int) -> int | None:
+    """Return the next smaller value in ``PAGE_LIMIT_FALLBACK_SIZES``.
+
+    Returns ``None`` if ``current`` is already at or below the smallest rung —
+    in that case the caller should treat the timeout as terminal.
+    """
+    if current in PAGE_LIMIT_FALLBACK_SIZES:
+        idx = PAGE_LIMIT_FALLBACK_SIZES.index(current)
+        if idx >= len(PAGE_LIMIT_FALLBACK_SIZES) - 1:
+            return None
+        return PAGE_LIMIT_FALLBACK_SIZES[idx + 1]
+    smaller = [s for s in PAGE_LIMIT_FALLBACK_SIZES if s < current]
+    return max(smaller) if smaller else None
+
+
+def _is_timeout_error(response: Response) -> bool:
     """Check if the response is a Meta API timeout error that can be resolved with smaller date ranges."""
     try:
         error = response.json().get("error", {})
@@ -114,77 +206,224 @@ def _is_timeout_error(response: requests.Response) -> bool:
         return False
 
 
-def _fetch_time_range_chunk(
-    url: str,
-    params: dict,
-    chunk_start: dt.datetime,
-    chunk_end: dt.datetime,
-    chunk_size_days: int,
-) -> collections.abc.Generator[list[dict], None, None]:
-    """Fetch data for a single time range chunk, with adaptive fallback to smaller chunks on timeout.
+# Meta error codes that indicate a permanent auth or permission problem — the
+# only fix is for the user to re-authorize the integration, so retrying the job
+# is pointless. We key off the numeric ``code`` rather than the error ``type``:
+# Meta returns ``type: "OAuthException"`` for transient service errors too (e.g.
+# code 2, "Service temporarily unavailable"), so the type alone is not reliable.
+#   190 — access token expired/invalid/revoked, checkpoint required, password
+#         changed, etc. (the dominant variant for this source).
+#   102 — invalid or expired session.
+#   10 and 200-299 — permission denied.
+# https://developers.facebook.com/docs/graph-api/guides/error-handling
+META_AUTH_ERROR_CODES = {102, 190}
+META_PERMISSION_ERROR_CODES = {10, *range(200, 300)}
 
-    Fallback only happens on the initial request for a chunk (before any data is yielded).
-    If a timeout occurs during pagination (after data has been yielded), the error is raised
-    to avoid duplicate data.
+META_AUTH_ERROR_MESSAGE = (
+    "Meta Ads access token is invalid, expired, or lacks the required permissions. Please re-authorize the integration."
+)
+
+
+def _is_permanent_auth_error(response: Response) -> bool:
+    """Return True for Meta errors that only re-authorization can fix.
+
+    Covers expired/invalid/revoked access tokens, invalidated sessions, and
+    permission denials. These are terminal: retrying the sync keeps failing
+    until the user reconnects the integration.
     """
-    chunk_time_range = {
-        "since": chunk_start.strftime("%Y-%m-%d"),
-        "until": chunk_end.strftime("%Y-%m-%d"),
-    }
+    try:
+        error = response.json().get("error", {})
+    except (ValueError, AttributeError):
+        return False
+    code = error.get("code")
+    if not isinstance(code, int):
+        return False
+    return code in META_AUTH_ERROR_CODES or code in META_PERMISSION_ERROR_CODES
 
-    chunk_params = params.copy()
-    chunk_params["time_range"] = json.dumps(chunk_time_range)
 
-    # Make the initial request for this chunk
-    response = requests.get(url, params=chunk_params)
+def _raise_meta_api_error(response: Response) -> typing.NoReturn:
+    """Raise a descriptive exception for a non-200 Meta API response.
 
-    if response.status_code != 200:
-        # Only attempt fallback on the initial request (before any data is yielded)
-        if _is_timeout_error(response) and chunk_size_days in TIME_RANGE_CHUNK_SIZES:
-            current_index = TIME_RANGE_CHUNK_SIZES.index(chunk_size_days)
-            if current_index < len(TIME_RANGE_CHUNK_SIZES) - 1:
-                smaller_chunk_size = TIME_RANGE_CHUNK_SIZES[current_index + 1]
-                yield from _fetch_with_chunk_size(url, params, chunk_start, chunk_end, smaller_chunk_size)
-                return
-        raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
+    Permanent auth/permission failures raise a clean, user-actionable message
+    that ``MetaAdsSource.get_non_retryable_errors`` matches on, so the job fails
+    fast instead of burning retries. The raw response is appended for debugging.
+    Everything else raises the raw response and stays retryable.
+    """
+    if _is_permanent_auth_error(response):
+        raise Exception(f"{META_AUTH_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
+    raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
 
-    response_payload = response.json()
-    yield response_payload.get("data", [])
 
-    # Handle pagination for remaining pages (no fallback here to avoid duplicates)
-    next_url = response_payload.get("paging", {}).get("next")
-    while next_url:
-        response = requests.get(next_url)
+def _iter_simple_pagination(
+    initial_url: str,
+    params: dict,
+    resume_config: MetaAdsResumeConfig | None,
+    resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
+) -> collections.abc.Generator[list[dict], None, None]:
+    """Iterate a non-time-range Graph API request via ``paging.next`` URLs.
 
+    On resume, the saved ``next_url`` is re-issued with a fresh ``access_token``
+    injected at request time, so the initial request is skipped.
+    """
+    access_token = params["access_token"]
+    if resume_config is not None and resume_config.next_url and resume_config.end_date is None:
+        response = _fetch_paging_url(resume_config.next_url, access_token)
+    else:
+        response = make_tracked_session().get(initial_url, params=params)
+
+    while True:
         if response.status_code != 200:
-            raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
+            _raise_meta_api_error(response)
 
         response_payload = response.json()
         yield response_payload.get("data", [])
 
         next_url = response_payload.get("paging", {}).get("next")
+        if not next_url:
+            return
+
+        # Saved state points at the NEXT page. On resume we re-fetch from there;
+        # the already-yielded page is not re-emitted (primary keys would dedupe it anyway).
+        # Strip access_token from the URL before using it so we don't end up with a
+        # duplicated `access_token` query param (requests merges `params=...` into the URL).
+        stripped_next_url = _strip_access_token(next_url)
+        resumable_source_manager.save_state(MetaAdsResumeConfig(next_url=stripped_next_url))
+        response = _fetch_paging_url(stripped_next_url, access_token)
 
 
-def _fetch_with_chunk_size(
+def _iter_time_range_pagination(
     url: str,
     params: dict,
-    start_date: dt.datetime,
-    end_date: dt.datetime,
-    chunk_size_days: int,
+    time_range: dict,
+    resume_config: MetaAdsResumeConfig | None,
+    resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
 ) -> collections.abc.Generator[list[dict], None, None]:
-    """Fetch data by breaking the date range into chunks of the specified size."""
-    current_start = start_date
-    while current_start <= end_date:
-        current_end = current_start + dt.timedelta(days=chunk_size_days - 1)
-        current_end = min(current_end, end_date)
+    """Iterate an insights-style request by chunked date ranges.
 
-        yield from _fetch_time_range_chunk(url, params, current_start, current_end, chunk_size_days)
+    The outer loop walks adaptive date chunks (30/7/1 days). The inner loop
+    follows ``paging.next`` within each chunk. There are two adaptive-fallback
+    dimensions:
+
+    - **Chunk size** (``TIME_RANGE_CHUNK_SIZES``): shrunk only when the
+      *initial* chunk request times out, before any rows are yielded.
+    - **Page limit** (``PAGE_LIMIT_FALLBACK_SIZES``): shrunk when a *cursor*
+      request inside the chunk times out, after we've already yielded earlier
+      pages from this chunk. We must not re-shrink the chunk here — that would
+      force re-yielding rows we already produced. Instead we override the
+      ``limit`` query param on the same cursor URL and retry.
+
+    Resume state captures both levels: ``chunk_since`` + ``chunk_size_days``
+    for the outer loop, ``chunk_next_url`` when the crash happened mid-chunk,
+    and ``chunk_limit`` so a reduced limit persists across resumes.
+    """
+    access_token = params["access_token"]
+    start_date = dt.datetime.strptime(time_range["since"], "%Y-%m-%d")
+    end_date = dt.datetime.strptime(time_range["until"], "%Y-%m-%d")
+
+    chunk_size_days = TIME_RANGE_CHUNK_SIZES[0]
+    current_limit = PAGE_LIMIT_FALLBACK_SIZES[0]
+    current_start = start_date
+    pending_next_url: str | None = None
+
+    if resume_config is not None and resume_config.end_date is not None and resume_config.chunk_since is not None:
+        current_start = dt.datetime.strptime(resume_config.chunk_since, "%Y-%m-%d")
+        chunk_size_days = resume_config.chunk_size_days or TIME_RANGE_CHUNK_SIZES[0]
+        pending_next_url = resume_config.chunk_next_url
+        if resume_config.chunk_limit:
+            current_limit = resume_config.chunk_limit
+
+    end_date_iso = end_date.strftime("%Y-%m-%d")
+
+    def _save(since: dt.datetime, size_days: int, next_url_in_chunk: str | None) -> None:
+        # Saved URLs have the access_token stripped so the token never sits
+        # at rest in Redis or appears in debug logs.
+        sanitised = _strip_access_token(next_url_in_chunk) if next_url_in_chunk else None
+        resumable_source_manager.save_state(
+            MetaAdsResumeConfig(
+                end_date=end_date_iso,
+                chunk_since=since.strftime("%Y-%m-%d"),
+                chunk_size_days=size_days,
+                chunk_next_url=sanitised,
+                # Persist only when we've shrunk below the default — keeps
+                # the saved state minimal for healthy syncs.
+                chunk_limit=current_limit if current_limit != PAGE_LIMIT_FALLBACK_SIZES[0] else None,
+            )
+        )
+
+    while current_start <= end_date:
+        current_end = min(current_start + dt.timedelta(days=chunk_size_days - 1), end_date)
+        # The most recent cursor URL we tried (without a limit override applied),
+        # used to retry-with-smaller-limit if a mid-chunk request times out.
+        last_paging_url: str | None = None
+
+        if pending_next_url:
+            # Mid-chunk resume: re-attach a fresh access_token at request time
+            # and apply the (possibly previously-shrunk) limit.
+            last_paging_url = pending_next_url
+            response = _fetch_paging_url(_override_limit(pending_next_url, current_limit), access_token)
+            pending_next_url = None
+        else:
+            chunk_time_range = {
+                "since": current_start.strftime("%Y-%m-%d"),
+                "until": current_end.strftime("%Y-%m-%d"),
+            }
+
+            chunk_params = {**params, "limit": current_limit, "time_range": json.dumps(chunk_time_range)}
+            response = make_tracked_session().get(url, params=chunk_params)
+
+            if response.status_code != 200:
+                # Fallback only happens on the initial chunk request (before any data is yielded).
+                if _is_timeout_error(response) and chunk_size_days in TIME_RANGE_CHUNK_SIZES:
+                    current_index = TIME_RANGE_CHUNK_SIZES.index(chunk_size_days)
+                    if current_index < len(TIME_RANGE_CHUNK_SIZES) - 1:
+                        chunk_size_days = TIME_RANGE_CHUNK_SIZES[current_index + 1]
+                        continue
+                _raise_meta_api_error(response)
+
+        while True:
+            if response.status_code != 200:
+                # Mid-chunk timeout: retry the same cursor URL with a smaller
+                # ``limit``. Re-issuing earlier pages (i.e. shrinking the
+                # chunk) is not safe here — we've already yielded them.
+                if _is_timeout_error(response) and last_paging_url is not None:
+                    smaller = _next_smaller_limit(current_limit)
+                    if smaller is not None:
+                        current_limit = smaller
+                        retry_url = _override_limit(last_paging_url, current_limit)
+                        response = _fetch_paging_url(retry_url, access_token)
+                        continue
+                _raise_meta_api_error(response)
+
+            response_payload = response.json()
+            yield response_payload.get("data", [])
+
+            next_url = response_payload.get("paging", {}).get("next")
+            if not next_url:
+                break
+
+            # Strip the token once and use the same URL for both save and fetch,
+            # otherwise `requests.get(url_with_token, params={access_token: ...})`
+            # would send two `access_token` query params.
+            stripped_next_url = _strip_access_token(next_url)
+            _save(current_start, chunk_size_days, stripped_next_url)
+            last_paging_url = stripped_next_url
+            response = _fetch_paging_url(_override_limit(stripped_next_url, current_limit), access_token)
 
         current_start = current_end + dt.timedelta(days=1)
+        # Always save the chunk-boundary state, even when we've advanced past
+        # end_date. This clears any stale mid-chunk next_url from the previous
+        # iteration (so a resume doesn't redo already-completed pagination)
+        # and guarantees a crash right after the final chunk finds the loop
+        # already satisfied on restart.
+        _save(current_start, chunk_size_days, None)
 
 
 def _make_paginated_api_request(
-    url: str, params: dict, access_token: str, time_range: dict | None = None
+    url: str,
+    params: dict,
+    access_token: str,
+    time_range: dict | None,
+    resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
 ) -> collections.abc.Generator[list[dict], None, None]:
     """Make paginated requests to the Meta Graph API.
     This function handles two types of pagination:
@@ -192,37 +431,20 @@ def _make_paginated_api_request(
     2. Time-range pagination: Breaks large date ranges into chunks, with adaptive fallback
        to smaller chunks (30-day -> 7-day -> 1-day) if the API times out
     """
-    params["access_token"] = access_token
+    params = {**params, "access_token": access_token}
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     if time_range is None:
-        # Original pagination logic for non-time-range requests
-        next_url = url
-        while next_url:
-            if next_url == url:
-                response = requests.get(next_url, params=params)
-            else:
-                response = requests.get(next_url)
-
-            if response.status_code != 200:
-                raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
-
-            response_payload = response.json()
-            yield response_payload.get("data", [])
-
-            paging = response_payload.get("paging", {})
-            next_url = paging.get("next")
+        yield from _iter_simple_pagination(url, params, resume_config, resumable_source_manager)
     else:
-        start_date = dt.datetime.strptime(time_range["since"], "%Y-%m-%d")
-        end_date = dt.datetime.strptime(time_range["until"], "%Y-%m-%d")
-
-        # Start with the largest chunk size and adaptively fall back to smaller ones on timeout
-        yield from _fetch_with_chunk_size(url, params, start_date, end_date, TIME_RANGE_CHUNK_SIZES[0])
+        yield from _iter_time_range_pagination(url, params, time_range, resume_config, resumable_source_manager)
 
 
 def meta_ads_source(
     resource_name: str,
     config: MetaAdsSourceConfig,
     team_id: int,
+    resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
@@ -274,11 +496,13 @@ def meta_ads_source(
         )
         params = {
             "fields": ",".join(schema.field_names),
-            "limit": 500,
+            "limit": PAGE_LIMIT_FALLBACK_SIZES[0],
             **schema.extra_params,
         }
 
-        yield from _make_paginated_api_request(formatted_url, params, access_token, time_range)
+        yield from _make_paginated_api_request(
+            formatted_url, params, access_token, time_range, resumable_source_manager
+        )
 
     return SourceResponse(
         name=name,

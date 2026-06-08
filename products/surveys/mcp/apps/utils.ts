@@ -1,8 +1,8 @@
-export const STATUS_VARIANTS: Record<string, 'success' | 'warning' | 'neutral' | 'info'> = {
+export const STATUS_VARIANTS: Record<string, 'success' | 'warning' | 'default' | 'info'> = {
     active: 'success',
-    draft: 'neutral',
+    draft: 'default',
     completed: 'info',
-    archived: 'neutral',
+    archived: 'default',
 }
 
 export const SURVEY_TYPE_LABELS: Record<string, string> = {

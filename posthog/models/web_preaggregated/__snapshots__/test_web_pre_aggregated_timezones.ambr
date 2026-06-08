@@ -18,6 +18,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -43,8 +45,7 @@
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
         WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Asia/Kolkata')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Asia/Kolkata')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7,
-                 raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -56,7 +57,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -69,6 +69,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -92,6 +94,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -117,8 +121,7 @@
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
         WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7,
-                 raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -130,7 +133,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -143,6 +145,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -166,6 +170,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -191,8 +197,7 @@
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
         WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'America/Los_Angeles')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'America/Los_Angeles')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7,
-                 raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -204,7 +209,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -217,6 +221,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -240,6 +246,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -265,8 +273,7 @@
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
         WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Asia/Tokyo')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Asia/Tokyo')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7,
-                 raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -278,7 +285,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -291,6 +297,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -314,6 +322,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -339,8 +349,7 @@
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
         WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'America/Los_Angeles')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'America/Los_Angeles')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7,
-                 raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -352,7 +361,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -365,6 +373,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -388,6 +398,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -413,8 +425,7 @@
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
         WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'America/New_York')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'America/New_York')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7,
-                 raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -426,7 +437,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -439,6 +449,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -462,6 +474,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -487,8 +501,7 @@
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
         WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'America/Sao_Paulo')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'America/Sao_Paulo')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7,
-                 raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -500,7 +513,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -513,6 +525,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -536,6 +550,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -561,8 +577,7 @@
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
         WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7,
-                 raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -574,7 +589,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -587,6 +601,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -610,6 +626,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -635,8 +653,7 @@
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
         WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Europe/Berlin')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Europe/Berlin')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7,
-                 raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -648,7 +665,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -661,6 +677,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -684,6 +702,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -709,8 +729,7 @@
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
         WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Africa/Cairo')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Africa/Cairo')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7,
-                 raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -722,7 +741,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -735,6 +753,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -758,6 +778,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -783,8 +805,7 @@
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
         WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Europe/Moscow')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Europe/Moscow')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7,
-                 raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -796,7 +817,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -809,6 +829,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -832,6 +854,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -857,8 +881,7 @@
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
         WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Asia/Karachi')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Asia/Karachi')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7,
-                 raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -870,7 +893,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -883,6 +905,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -906,6 +930,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -931,8 +957,7 @@
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
         WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Asia/Tokyo')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Asia/Tokyo')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7,
-                 raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -944,7 +969,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -957,6 +981,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -980,6 +1006,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1005,8 +1033,7 @@
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
         WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Australia/Sydney')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Australia/Sydney')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7,
-                 raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1018,7 +1045,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -1031,6 +1057,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1054,6 +1082,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -1079,8 +1109,7 @@
                raw_sessions.session_id_v7 AS session_id_v7
         FROM raw_sessions
         WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Pacific/Auckland')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Pacific/Auckland')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7,
-                 raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1092,7 +1121,6 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING isNotNull(`context.columns.breakdown_value`)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -1105,6 +1133,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''

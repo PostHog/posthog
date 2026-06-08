@@ -19,13 +19,21 @@ jobs:
         outputs:
             sandbox_image: ${{ steps.filter.outputs.sandbox_image }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       sandbox_image:
+                        - '.github/workflows/cd-sandbox-base-image.yml'
                         - 'products/tasks/backend/sandbox/images/**'
                         - 'products/*/skills/**'
                         - 'products/posthog_ai/scripts/**'
@@ -45,7 +53,7 @@ jobs:
             contents: read
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Start Docker services
               env:
@@ -56,11 +64,12 @@ jobs:
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
+                  token: ${{ github.token }}
 
             - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2'
+                  version: '0.11.14'
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
@@ -68,20 +77,20 @@ jobs:
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: stable
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-skills'
                   workspaces: rust
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
-              run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Wait for Docker services
               env:
@@ -137,7 +146,7 @@ jobs:
                   echo "Installed ${count} context-mill skills into ${TARGET_DIR}"
 
             - name: Upload built skills
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: built-skills
                   path: products/posthog_ai/dist/skills/
@@ -161,12 +170,12 @@ jobs:
 
         steps:
             - name: Check out
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 2
 
             - name: Download built skills
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   name: built-skills
                   path: products/posthog_ai/dist/skills/
@@ -211,3 +220,52 @@ jobs:
                   tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-notebook:master,ghcr.io/posthog/posthog-sandbox-notebook:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-notebook:{0}', github.sha) }}
                   platforms: linux/arm64,linux/amd64
                   build-args: COMMIT_HASH=${{ github.sha }}
+
+            - name: Build and push container image (pi)
+              id: build-pi
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  context: . # use local checkout (includes downloaded artifact)
+                  file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-pi
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
+                  push: true
+                  tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-pi:master,ghcr.io/posthog/posthog-sandbox-pi:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-pi:{0}', github.sha) }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: |
+                      BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
+
+    # Single required status check for branch protection. Add future sandbox
+    # image jobs to `needs` here rather than reconfiguring GitHub.
+    sandbox_base_image_check:
+        needs: [changes, build_skills, sandbox_base_build]
+        name: Sandbox Base Image Pass
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: always()
+        permissions: {}
+        steps:
+            - name: Check all sandbox image jobs
+              run: |
+                  # Fail if change detection itself failed
+                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
+                    echo "Change detection job failed."
+                    exit 1
+                  fi
+
+                  # Pass if build wasn't required (no relevant changes, no dispatch, no label)
+                  if [[ "${{ needs.build_skills.result }}" == "skipped" && "${{ needs.sandbox_base_build.result }}" == "skipped" ]]; then
+                    echo "Sandbox image build was skipped (no relevant changes)."
+                    exit 0
+                  fi
+
+                  if [[ "${{ needs.build_skills.result }}" != "success" && "${{ needs.build_skills.result }}" != "skipped" ]]; then
+                    echo "Agent skills build failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.sandbox_base_build.result }}" != "success" && "${{ needs.sandbox_base_build.result }}" != "skipped" ]]; then
+                    echo "Sandbox base image build failed."
+                    exit 1
+                  fi
+
+                  echo "All sandbox image checks passed."

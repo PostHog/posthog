@@ -20,27 +20,24 @@ interface LogsAlertEventHistoryModalProps {
 
 export function LogsAlertEventHistoryModal({ alert, onClose }: LogsAlertEventHistoryModalProps): JSX.Element {
     return (
-        <LemonModal isOpen={alert !== null} onClose={onClose} width={640} title="" simple>
+        <LemonModal
+            isOpen={alert !== null}
+            onClose={onClose}
+            width={640}
+            title={alert ? `Alert history · ${alert.name}` : 'Alert history'}
+            description="Transitions, errors, and user actions."
+        >
             {alert ? <LogsAlertEventHistoryContent alert={alert} /> : null}
         </LemonModal>
     )
 }
 
-function LogsAlertEventHistoryContent({ alert }: { alert: LogsAlertConfigurationApi }): JSX.Element {
+export function LogsAlertEventHistoryContent({ alert }: { alert: LogsAlertConfigurationApi }): JSX.Element {
     const logicProps: LogsAlertEventHistoryLogicProps = { alertId: alert.id }
 
     return (
         <BindLogic logic={logsAlertEventHistoryLogic} props={logicProps}>
-            <LemonModal.Header>
-                <h3 className="flex items-center gap-2">
-                    Alert history
-                    <span className="text-muted text-sm font-normal">· {alert.name}</span>
-                </h3>
-                <p className="text-muted text-sm m-0">Transitions, errors, and user actions.</p>
-            </LemonModal.Header>
-            <LemonModal.Content>
-                <LogsAlertEventTimeline />
-            </LemonModal.Content>
+            <LogsAlertEventTimeline />
         </BindLogic>
     )
 }
@@ -117,6 +114,7 @@ const CONTROL_PLANE_DESCRIPTIONS: Record<
     [LogsAlertEventKindEnumApi.Snooze]: { label: 'Snoozed', type: 'highlight' },
     [LogsAlertEventKindEnumApi.Unsnooze]: { label: 'Unsnoozed', type: 'highlight' },
     [LogsAlertEventKindEnumApi.ThresholdChange]: { label: 'Threshold changed', type: 'completion' },
+    [LogsAlertEventKindEnumApi.BrokenConfig]: { label: 'Broken config', type: 'caution' },
 }
 
 function describeEvent(event: LogsAlertEventApi): EventDescription {

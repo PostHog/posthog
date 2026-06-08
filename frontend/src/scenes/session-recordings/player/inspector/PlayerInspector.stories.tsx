@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { largeRecordingJSONL } from 'scenes/session-recordings/__mocks__/large_recording_blob_one'
 import largeRecordingEventsJson from 'scenes/session-recordings/__mocks__/large_recording_load_events_one.json'
 import largeRecordingMetaJson from 'scenes/session-recordings/__mocks__/large_recording_meta.json'
@@ -10,7 +11,7 @@ import { PlayerInspector } from 'scenes/session-recordings/player/inspector/Play
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { mswDecorator } from '~/mocks/browser'
+import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
 
 type Story = StoryObj<{}>
 const meta: Meta = {
@@ -127,4 +128,34 @@ export default meta
 
 export const Default: Story = {
     args: {},
+}
+
+export const WithLogsFilter: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS],
+    },
+    decorators: [
+        (Story) => {
+            useEffect(() => {
+                setFeatureFlags([FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS])
+                return () => setFeatureFlags([])
+            }, [])
+            return <Story />
+        },
+    ],
+}
+
+export const WithLogsFilterUpsell: Story = {
+    parameters: {
+        featureFlags: [],
+    },
+    decorators: [
+        (Story) => {
+            useEffect(() => {
+                setFeatureFlags([])
+                return () => setFeatureFlags([])
+            }, [])
+            return <Story />
+        },
+    ],
 }

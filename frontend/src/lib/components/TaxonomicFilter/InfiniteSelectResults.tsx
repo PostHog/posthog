@@ -6,6 +6,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import {
+    CategoryDropdownVariant,
     DefinitionPopoverRenderer,
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
@@ -22,6 +23,7 @@ export interface InfiniteSelectResultsProps {
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     popupAnchorElement: HTMLDivElement | null
     definitionPopoverRenderer?: DefinitionPopoverRenderer
+    categoryDropdownVariant?: CategoryDropdownVariant
 }
 
 // CategoryPillContent uses useValues(infiniteListLogic) without props, relying on BindLogic context
@@ -122,6 +124,7 @@ export function InfiniteSelectResults({
     taxonomicFilterLogicProps,
     popupAnchorElement,
     definitionPopoverRenderer,
+    categoryDropdownVariant = 'control',
 }: InfiniteSelectResultsProps): JSX.Element {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
         useValues(taxonomicFilterLogic)
@@ -139,6 +142,7 @@ export function InfiniteSelectResults({
     const RenderComponent = activeTaxonomicGroup?.render
 
     const hasMultipleGroups = taxonomicGroupTypes.length > 1
+    const showCategoryColumn = hasMultipleGroups && categoryDropdownVariant === 'control'
 
     const listComponent = RenderComponent ? (
         <RenderComponent
@@ -173,7 +177,7 @@ export function InfiniteSelectResults({
 
     return (
         <div ref={wrapperRef} className="flex flex-row h-full">
-            {hasMultipleGroups && (
+            {showCategoryColumn && (
                 <div className="border-r pr-2 mr-2 flex-shrink-0 border-primary">
                     <div className="taxonomic-group-title">Categories</div>
                     <div className="taxonomic-pills flex flex-col gap-1">

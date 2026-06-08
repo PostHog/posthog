@@ -20,6 +20,7 @@ import {
     calculateViewportRange,
 } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { dateFilterToText } from 'lib/utils'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
@@ -34,6 +35,26 @@ export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'green', label: 'Green (monocolor)' },
     { value: 'blue', label: 'Blue (monocolor)' },
 ]
+
+async function parseHeatmapErrorMessage(response: Response): Promise<string> {
+    try {
+        const body = await response.clone().json()
+        if (typeof body?.detail === 'string' && body.detail.length > 0) {
+            return body.detail
+        }
+        for (const value of Object.values(body ?? {})) {
+            if (Array.isArray(value) && typeof value[0] === 'string') {
+                return value[0]
+            }
+            if (typeof value === 'string' && value.length > 0) {
+                return value
+            }
+        }
+    } catch {
+        /* empty */
+    }
+    return `Heatmap request failed (status ${response.status})`
+}
 
 export interface HeatmapDataLogicProps {
     context: 'in-app' | 'toolbar'
@@ -172,7 +193,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
 
                     actions.setIsReady(false)
 
-                    const { date_from, date_to, filter_test_accounts } = values.commonFilters
+                    const { date_from, date_to, filter_test_accounts, cohort_ids } = values.commonFilters
                     const { type, aggregation } = values.heatmapFilters
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name
@@ -187,6 +208,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             viewport_width_max: values.viewportRange.max,
                             aggregation,
                             filter_test_accounts,
+                            cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
                         },
                         '?'
                     )}`
@@ -204,7 +226,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     }
 
                     if (response.status !== 200) {
-                        throw new Error('API error')
+                        throw new Error(await parseHeatmapErrorMessage(response))
                     }
 
                     const data = await response.json()
@@ -224,7 +246,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
 
                     await breakpoint(100)
 
-                    const { date_from, date_to, filter_test_accounts } = values.commonFilters
+                    const { date_from, date_to, filter_test_accounts, cohort_ids } = values.commonFilters
                     const { type } = values.heatmapFilters
 
                     const apiURL = `/api/heatmap/events/${encodeParams(
@@ -237,6 +259,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             viewport_width_min: values.viewportRange.min,
                             viewport_width_max: values.viewportRange.max,
                             filter_test_accounts,
+                            cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
                             points: JSON.stringify(area.points),
                         },
                         '?'
@@ -250,7 +273,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     breakpoint()
 
                     if (response.status !== 200) {
-                        throw new Error('API error')
+                        throw new Error(await parseHeatmapErrorMessage(response))
                     }
 
                     return await response.json()
@@ -413,7 +436,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                 return
             }
 
-            const { date_from, date_to, filter_test_accounts } = values.commonFilters
+            const { date_from, date_to, filter_test_accounts, cohort_ids } = values.commonFilters
             const { type } = values.heatmapFilters
             const nextOffset = currentEvents.results.length
 
@@ -427,6 +450,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     viewport_width_min: values.viewportRange.min,
                     viewport_width_max: values.viewportRange.max,
                     filter_test_accounts,
+                    cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
                     points: JSON.stringify(area.points),
                     offset: nextOffset,
                 },
@@ -440,6 +464,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                   : fetch(apiURL))
 
             if (response.status !== 200) {
+                lemonToast.error(await parseHeatmapErrorMessage(response))
                 return
             }
 
@@ -450,6 +475,13 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                 total_count: newData.total_count,
                 has_more: newData.has_more,
             })
+        },
+        loadHeatmapFailure: ({ error }) => {
+            lemonToast.error(error || 'Heatmap query failed')
+            actions.setIsReady(true)
+        },
+        loadAreaEventsFailure: ({ error }) => {
+            lemonToast.error(error || 'Failed to load events for selected area')
         },
     })),
     subscriptions(({ actions }) => ({

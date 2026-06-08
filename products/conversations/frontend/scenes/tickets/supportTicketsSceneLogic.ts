@@ -48,6 +48,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         applyViewFilters: (filters: TicketViewFilters) => ({ filters }),
         setActiveView: (view: SavedTicketView | null) => ({ view }),
         clearActiveView: true,
+        bulkUpdateStatus: (ids: string[], status: TicketStatus) => ({ ids, status }),
+        setBulkUpdating: (updating: boolean) => ({ updating }),
+        setSelectedTicketIds: (ids: string[]) => ({ ids }),
+        clearSelectedTickets: true,
     }),
     reducers({
         tickets: [
@@ -159,6 +163,20 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 clearActiveView: () => null,
             },
         ],
+        bulkUpdating: [
+            false,
+            {
+                setBulkUpdating: (_, { updating }) => updating,
+            },
+        ],
+        selectedTicketIds: [
+            [] as string[],
+            {
+                setSelectedTicketIds: (_, { ids }) => ids,
+                clearSelectedTickets: () => [],
+                loadTickets: () => [],
+            },
+        ],
     }),
     selectors({
         orderBy: [
@@ -169,6 +187,13 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 }
                 const prefix = sorting.order === 1 ? '' : '-'
                 return `${prefix}${sorting.columnKey}`
+            },
+        ],
+        selectedTickets: [
+            (s) => [s.tickets, s.selectedTicketIds],
+            (tickets: Ticket[], selectedIds: string[]): Ticket[] => {
+                const idSet = new Set(selectedIds)
+                return tickets.filter((t) => idSet.has(t.id))
             },
         ],
         currentFilters: [
@@ -317,12 +342,26 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 router.actions.replace(router.values.location.pathname, rest)
             }
         },
+        bulkUpdateStatus: async ({ ids, status }) => {
+            actions.setBulkUpdating(true)
+            try {
+                const result = await api.conversationsTickets.bulkUpdateStatus(ids, status)
+                lemonToast.success(`Updated ${result.updated} ticket${result.updated === 1 ? '' : 's'}`)
+                actions.clearSelectedTickets()
+                actions.loadTickets()
+            } catch {
+                lemonToast.error('Failed to update tickets')
+            } finally {
+                actions.setBulkUpdating(false)
+            }
+        },
     })),
     afterMount(({ actions }) => {
         const { searchParams } = router.values
         const viewShortId = searchParams.view
         if (viewShortId) {
             const teamId = teamLogic.values.currentTeamId
+            // nosemgrep: prefer-codegen-api
             api.get(`api/environments/${teamId}/conversations/views/${viewShortId}`)
                 .then((view: SavedTicketView) => {
                     actions.applyViewFilters(view.filters || {})

@@ -23,6 +23,8 @@ from langgraph.errors import NodeInterrupt
 
 from posthog.schema import AssistantMessage, ContextMessage, EventTaxonomyItem, HumanMessage
 
+from products.posthog_ai.backend.models.assistant import CoreMemory
+
 from ee.hogai.chat_agent.memory import prompts
 from ee.hogai.chat_agent.memory.nodes import (
     MemoryCollectorNode,
@@ -37,7 +39,6 @@ from ee.hogai.chat_agent.memory.nodes import (
 )
 from ee.hogai.core.agent_modes import SlashCommandName
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.models import CoreMemory
 
 
 class TestMemoryInitializerContextMixin(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -131,7 +132,7 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         node = MemoryOnboardingNode(team=self.team, user=self.user)
         self.assertEqual(await node.should_run_onboarding_at_start(AssistantState(messages=[])), "continue")
 
-    async def test_onboarding_initial_message_is_sent_if_no_events(self):
+    async def test_onboarding_message_explains_missing_events_when_no_pageviews(self):
         await sync_to_async(flush_persons_and_events)()
         node = MemoryOnboardingNode(team=self.team, user=self.user)
         # Mock _aretrieve_context to return None (no events found) to avoid ClickHouse state leakage between tests
@@ -142,7 +143,10 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         new_state = cast(PartialAssistantState, new_state)
         self.assertEqual(len(new_state.messages), 1)
         self.assertTrue(isinstance(new_state.messages[0], AssistantMessage))
-        self.assertEqual(cast(AssistantMessage, new_state.messages[0]).content, prompts.ENQUIRY_INITIAL_MESSAGE)
+        self.assertEqual(
+            cast(AssistantMessage, new_state.messages[0]).content,
+            prompts.ENQUIRY_NO_EVENTS_INITIAL_MESSAGE,
+        )
 
     async def test_node_uses_project_description(self):
         self.team.project.product_description = "This is a product analytics platform"

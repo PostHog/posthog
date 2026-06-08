@@ -13,13 +13,13 @@ runners) to provide maximum flexibility during development. This allows usage in
 - Any future features that leverage HogQL expressions
 
 Bot definitions (patterns, categories, names) live in
-posthog.hogql_queries.web_analytics.bot_definitions so that changes to
+products.web_analytics.backend.hogql_queries.bot_definitions so that changes to
 bot data do not require a HogQL review.
 """
 
 from posthog.hogql import ast
 
-from posthog.hogql_queries.web_analytics.bot_definitions import BOT_DEFINITIONS
+from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 
 
 def _build_bot_array_lookup(
@@ -74,6 +74,17 @@ def get_bot_name(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     Returns bot name: "Googlebot", "ChatGPT", etc. Empty string for regular traffic.
     """
     return _build_bot_array_lookup(args[0], "name", default="", empty_ua_value="")
+
+
+def get_bot_operator(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
+    """
+    HogQL function: __preview_getBotOperator(user_agent)
+
+    EXPERIMENTAL: This function may change without notice.
+
+    Returns operator/company name: "Google", "OpenAI", "Anthropic", etc. Empty string for regular traffic.
+    """
+    return _build_bot_array_lookup(args[0], "operator", default="", empty_ua_value="")
 
 
 def get_traffic_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:

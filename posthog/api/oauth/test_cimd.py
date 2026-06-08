@@ -14,10 +14,12 @@ from django.test import override_settings
 import requests
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.api.oauth.cimd import (
-    CIMDBurstThrottle,
+    CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
+    CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT,
     CIMDFetchError,
     CIMDValidationError,
     _fetch_lock_key,
@@ -25,11 +27,13 @@ from posthog.api.oauth.cimd import (
     fetch_cimd_metadata,
     get_application_by_client_id,
     get_or_create_cimd_application,
+    get_or_create_cimd_provisioning_application,
     is_cimd_client_id,
     refresh_cimd_metadata_task,
     validate_cimd_url,
 )
-from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth import OAuthApplication, create_cimd_verification_token
+from posthog.scopes import OAUTH_HIDDEN_SCOPES, PRIVILEGED_SCOPES
 
 
 def generate_rsa_key() -> str:
@@ -45,8 +49,8 @@ def generate_rsa_key() -> str:
 VALID_CIMD_URL = "https://app.example.com/.well-known/oauth-client-metadata.json"
 
 
-def _make_metadata(url: str = VALID_CIMD_URL, **overrides) -> dict:
-    metadata = {
+def _make_metadata(url: str = VALID_CIMD_URL, com_posthog: dict | None = None, **overrides: object) -> dict:
+    metadata: dict[str, object] = {
         "client_id": url,
         "client_name": "Test MCP Client",
         "redirect_uris": ["http://127.0.0.1:3000/callback"],
@@ -54,6 +58,8 @@ def _make_metadata(url: str = VALID_CIMD_URL, **overrides) -> dict:
         "response_types": ["code"],
         "token_endpoint_auth_method": "none",
     }
+    if com_posthog is not None:
+        metadata["com.posthog"] = com_posthog
     metadata.update(overrides)
     return metadata
 
@@ -437,6 +443,312 @@ class TestGetApplicationByClientId(APIBaseTest):
             get_application_by_client_id("https://unknown.example.com/.well-known/oauth-client-metadata.json")
 
 
+@patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
+@override_settings(
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    }
+)
+class TestGetOrCreateCimdProvisioningApplication(APIBaseTest):
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_creates_new_app_with_provisioning_defaults(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+
+        app = get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+        assert app is not None
+
+        self.assertTrue(app.is_cimd_client)
+        self.assertEqual(app.cimd_metadata_url, VALID_CIMD_URL)
+        self.assertEqual(app.provisioning_auth_method, "pkce")
+        self.assertTrue(app.provisioning_active)
+        self.assertTrue(app.provisioning_can_create_accounts)
+        self.assertTrue(app.provisioning_can_provision_resources)
+        self.assertEqual(
+            app.provisioning_rate_limit_account_requests,
+            CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
+        )
+
+    @patch("posthog.api.oauth.cimd.posthoganalytics.capture")
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_emits_registration_event_on_provisioning_upgrade(self, mock_get, mock_capture, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+
+        get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+
+        events = [call.kwargs.get("event") for call in mock_capture.call_args_list]
+        self.assertIn("cimd_provisioning_partner_registered", events)
+
+    @patch("posthog.api.oauth.cimd.posthoganalytics.capture")
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_no_event_when_provisioning_already_configured(self, mock_get, mock_capture, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+        mock_capture.reset_mock()
+
+        get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+
+        events = [call.kwargs.get("event") for call in mock_capture.call_args_list]
+        self.assertNotIn("cimd_provisioning_partner_registered", events)
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_backfills_provisioning_defaults_on_existing_cimd_app(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        existing = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert existing is not None
+        self.assertFalse(existing.is_provisioning_partner)
+
+        app = get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+        assert app is not None
+
+        self.assertEqual(app.pk, existing.pk)
+        self.assertEqual(app.provisioning_auth_method, "pkce")
+        self.assertTrue(app.provisioning_active)
+        self.assertTrue(app.provisioning_can_create_accounts)
+        self.assertTrue(app.provisioning_can_provision_resources)
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_preserves_existing_provisioning_config(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        existing = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert existing is not None
+        existing.provisioning_auth_method = "hmac"
+        existing.provisioning_active = False
+        existing.provisioning_can_create_accounts = False
+        existing.save(
+            update_fields=["provisioning_auth_method", "provisioning_active", "provisioning_can_create_accounts"]
+        )
+
+        app = get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+        assert app is not None
+
+        self.assertEqual(app.provisioning_auth_method, "hmac")
+        self.assertFalse(app.provisioning_active)
+        self.assertFalse(app.provisioning_can_create_accounts)
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_fetch_failure_raises(self, mock_get, _url_mock):
+        mock_get.side_effect = requests.ConnectionError("DNS resolution failed")
+        with self.assertRaises(CIMDFetchError):
+            get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+
+    def test_blocked_url_returns_none(self, _url_mock):
+        from posthog.api.oauth.cimd import block_cimd_url, unblock_cimd_url
+
+        block_cimd_url(VALID_CIMD_URL)
+        result = get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+        self.assertIsNone(result)
+
+        unblock_cimd_url(VALID_CIMD_URL)
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_blocked_url_prevents_fetch(self, mock_get, _url_mock):
+        from posthog.api.oauth.cimd import block_cimd_url, unblock_cimd_url
+
+        block_cimd_url(VALID_CIMD_URL)
+        result = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        self.assertIsNone(result)
+        mock_get.assert_not_called()
+
+        unblock_cimd_url(VALID_CIMD_URL)
+
+
+@patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
+@override_settings(
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    }
+)
+class TestCIMDVerificationToken(APIBaseTest):
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_valid_verification_token_links_app_to_organization(self, mock_get, _url_mock):
+        token, plaintext = create_cimd_verification_token(
+            organization=self.organization, label="Test partner", created_by=self.user
+        )
+        metadata = _make_metadata(posthog_verification_token=plaintext)
+        mock_get.return_value = _mock_response(metadata, headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(app.organization_id, self.organization.id)
+        token.refresh_from_db()
+        self.assertIsNotNone(token.last_used_at)
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_invalid_verification_token_leaves_app_unlinked(self, mock_get, _url_mock):
+        metadata = _make_metadata(posthog_verification_token="phvt_totally_made_up")
+        mock_get.return_value = _mock_response(metadata, headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertIsNone(app.organization_id)
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_missing_verification_token_leaves_app_unlinked(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertIsNone(app.organization_id)
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_verified_partner_gets_higher_rate_limit(self, mock_get, _url_mock):
+        _, plaintext = create_cimd_verification_token(
+            organization=self.organization, label="Verified partner", created_by=self.user
+        )
+        metadata = _make_metadata(posthog_verification_token=plaintext)
+        mock_get.return_value = _mock_response(metadata, headers={})
+
+        app = get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(app.organization_id, self.organization.id)
+        self.assertEqual(
+            app.provisioning_rate_limit_account_requests,
+            CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT,
+        )
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_unverified_partner_gets_default_rate_limit(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+
+        app = get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertIsNone(app.organization_id)
+        self.assertEqual(
+            app.provisioning_rate_limit_account_requests,
+            CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
+        )
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_refresh_unlinks_app_when_token_removed(self, mock_get, _url_mock):
+        _, plaintext = create_cimd_verification_token(
+            organization=self.organization, label="Rotating partner", created_by=self.user
+        )
+        # First fetch: with token → linked
+        mock_get.return_value = _mock_response(_make_metadata(posthog_verification_token=plaintext), headers={})
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert app is not None
+        self.assertEqual(app.organization_id, self.organization.id)
+
+        # Second fetch: metadata no longer contains the token → must unlink
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert refreshed is not None
+        self.assertIsNone(refreshed.organization_id)
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_refresh_links_app_when_token_added(self, mock_get, _url_mock):
+        # First fetch: no token → unlinked
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert app is not None
+        self.assertIsNone(app.organization_id)
+
+        # Partner adds a token and we refetch
+        _, plaintext = create_cimd_verification_token(
+            organization=self.organization, label="Added later", created_by=self.user
+        )
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        mock_get.return_value = _mock_response(_make_metadata(posthog_verification_token=plaintext), headers={})
+        refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert refreshed is not None
+        self.assertEqual(refreshed.organization_id, self.organization.id)
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_non_string_verification_token_is_ignored(self, mock_get, _url_mock):
+        metadata = _make_metadata()
+        metadata["posthog_verification_token"] = {"not": "a string"}
+        mock_get.return_value = _mock_response(metadata, headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertIsNone(app.organization_id)
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_refresh_bumps_rate_limit_when_token_added_post_registration(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+        app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
+        self.assertIsNone(app.organization_id)
+        self.assertEqual(
+            app.provisioning_rate_limit_account_requests,
+            CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
+        )
+
+        _, plaintext = create_cimd_verification_token(
+            organization=self.organization, label="Added post-registration", created_by=self.user
+        )
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        mock_get.return_value = _mock_response(_make_metadata(posthog_verification_token=plaintext), headers={})
+        refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert refreshed is not None
+        self.assertEqual(refreshed.organization_id, self.organization.id)
+        self.assertEqual(
+            refreshed.provisioning_rate_limit_account_requests,
+            CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT,
+        )
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_refresh_drops_rate_limit_when_token_removed(self, mock_get, _url_mock):
+        _, plaintext = create_cimd_verification_token(
+            organization=self.organization, label="Rotating partner", created_by=self.user
+        )
+        mock_get.return_value = _mock_response(_make_metadata(posthog_verification_token=plaintext), headers={})
+        get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+        app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
+        self.assertEqual(app.organization_id, self.organization.id)
+        self.assertEqual(
+            app.provisioning_rate_limit_account_requests,
+            CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT,
+        )
+
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert refreshed is not None
+        self.assertIsNone(refreshed.organization_id)
+        self.assertEqual(
+            refreshed.provisioning_rate_limit_account_requests,
+            CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
+        )
+
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_refresh_preserves_admin_custom_rate_limit(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        get_or_create_cimd_provisioning_application(VALID_CIMD_URL)
+        app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
+        app.provisioning_rate_limit_account_requests = 250
+        app.provisioning_rate_limit_account_requests_source = "admin"
+        app.save(
+            update_fields=[
+                "provisioning_rate_limit_account_requests",
+                "provisioning_rate_limit_account_requests_source",
+            ]
+        )
+
+        _, plaintext = create_cimd_verification_token(
+            organization=self.organization, label="Post-admin-override", created_by=self.user
+        )
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        mock_get.return_value = _mock_response(_make_metadata(posthog_verification_token=plaintext), headers={})
+        refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert refreshed is not None
+        self.assertEqual(refreshed.organization_id, self.organization.id)
+        self.assertEqual(refreshed.provisioning_rate_limit_account_requests, 250)
+        self.assertEqual(refreshed.provisioning_rate_limit_account_requests_source, "admin")
+
+
 @override_settings(
     OAUTH2_PROVIDER={
         **settings.OAUTH2_PROVIDER,
@@ -540,12 +852,14 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
         metadata = _make_metadata()
         mock_get.return_value = _mock_response(metadata)
 
-        throttle = CIMDBurstThrottle()
-        with patch("posthog.api.oauth.views.CIMD_THROTTLES", new=[throttle]):
-            with patch.object(throttle, "allow_request", return_value=False):
-                with patch.object(throttle, "wait", return_value=30):
-                    url = self._authorize_url("https://new-client.example.com/.well-known/oauth-client-metadata.json")
-                    response = self.client.get(url)
+        mock_throttle = MagicMock()
+        mock_throttle.allow_request.return_value = False
+        mock_throttle.wait.return_value = 30
+        mock_throttle.scope = "cimd_burst"
+        mock_throttle_cls = MagicMock(return_value=mock_throttle)
+        with patch("posthog.api.oauth.views.CIMD_THROTTLE_CLASSES", new=[mock_throttle_cls]):
+            url = self._authorize_url("https://new-client.example.com/.well-known/oauth-client-metadata.json")
+            response = self.client.get(url)
 
         self.assertEqual(response.status_code, 400)
         mock_get.assert_not_called()
@@ -558,3 +872,176 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
 
         self.assertEqual(response.status_code, 302)
         self.assertIn("/login", response["Location"])
+
+
+@patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
+@override_settings(
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    }
+)
+class TestCIMDComPostHogNamespace(APIBaseTest):
+    """Tests for the com.posthog namespace: scopes and nested verification_token."""
+
+    # (d) dual-read: both com.posthog.verification_token and the legacy
+    # posthog_verification_token must link the app to the organization.
+    @parameterized.expand(
+        [
+            ("nested",),
+            ("top_level",),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_verification_token_dual_read(self, token_placement, mock_get, _url_mock):
+        token, plaintext = create_cimd_verification_token(
+            organization=self.organization, label="Dual-read partner", created_by=self.user
+        )
+        if token_placement == "nested":
+            metadata = _make_metadata(com_posthog={"verification_token": plaintext})
+        else:
+            metadata = _make_metadata(posthog_verification_token=plaintext)
+
+        mock_get.return_value = _mock_response(metadata, headers={})
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(app.organization_id, self.organization.id)
+
+    # (d) continued: an unrecognized nested token falls back to a valid top-level one.
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_verification_token_falls_back_when_nested_unrecognized(self, mock_get, _url_mock):
+        _, plaintext = create_cimd_verification_token(
+            organization=self.organization, label="Fallback partner", created_by=self.user
+        )
+        metadata = _make_metadata(
+            posthog_verification_token=plaintext,
+            com_posthog={"verification_token": "phvt_does_not_exist"},
+        )
+        mock_get.return_value = _mock_response(metadata, headers={})
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(app.organization_id, self.organization.id)
+
+    # (d) continued: nested token takes precedence over top-level when both present.
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_nested_token_takes_precedence_over_top_level(self, mock_get, _url_mock):
+        _, plaintext_nested = create_cimd_verification_token(
+            organization=self.organization, label="Nested partner", created_by=self.user
+        )
+        metadata = _make_metadata(
+            posthog_verification_token="phvt_fake_top_level",
+            com_posthog={"verification_token": plaintext_nested},
+        )
+        mock_get.return_value = _mock_response(metadata, headers={})
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(app.organization_id, self.organization.id)
+
+    # (a) + (e) present scopes are written to application.scopes on creation.
+    @parameterized.expand(
+        [
+            ("with_scopes", ["insight:read", "dashboard:write"], ["insight:read", "dashboard:write"]),
+            ("empty", [], []),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_scopes_written_to_app_on_creation(self, _name, input_scopes, expected_scopes, mock_get, _url_mock):
+        metadata = _make_metadata(com_posthog={"scopes": input_scopes})
+        mock_get.return_value = _mock_response(metadata, headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(sorted(app.scopes), sorted(expected_scopes))
+
+    # (c) Only UNPRIVILEGED_SCOPES pass — privileged, hidden, and unknown strings are all dropped.
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_non_grantable_scopes_stripped(self, mock_get, _url_mock):
+        hidden_scope = next(iter(OAUTH_HIDDEN_SCOPES)) if OAUTH_HIDDEN_SCOPES else None
+        input_scopes = [
+            *sorted(PRIVILEGED_SCOPES),
+            "not_a_real_scope:write",  # unknown / garbage string
+            "insight:read",  # legitimate — must survive
+        ]
+        if hidden_scope:
+            input_scopes.append(hidden_scope)
+
+        metadata = _make_metadata(com_posthog={"scopes": input_scopes})
+        mock_get.return_value = _mock_response(metadata, headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        for privileged_scope in PRIVILEGED_SCOPES:
+            self.assertNotIn(privileged_scope, app.scopes)
+        self.assertNotIn("not_a_real_scope:write", app.scopes)
+        if hidden_scope:
+            self.assertNotIn(hidden_scope, app.scopes)
+        self.assertIn("insight:read", app.scopes)
+
+    # (b) absent com.posthog.scopes on refresh leaves existing scopes untouched.
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_absent_scopes_on_refresh_leaves_existing_untouched(self, mock_get, _url_mock):
+        metadata_create = _make_metadata(com_posthog={"scopes": ["insight:read"]})
+        mock_get.return_value = _mock_response(metadata_create, headers={})
+        fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        # Refresh with metadata that has no com.posthog.scopes.
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert refreshed is not None
+        self.assertIn("insight:read", refreshed.scopes)
+
+    # (a) present scopes on refresh override the existing application.scopes.
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_present_scopes_on_refresh_override_existing(self, mock_get, _url_mock):
+        metadata_create = _make_metadata(com_posthog={"scopes": ["insight:read", "dashboard:write"]})
+        mock_get.return_value = _mock_response(metadata_create, headers={})
+        fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        metadata_refresh = _make_metadata(com_posthog={"scopes": ["survey:read"]})
+        mock_get.return_value = _mock_response(metadata_refresh, headers={})
+        refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert refreshed is not None
+        self.assertEqual(refreshed.scopes, ["survey:read"])
+
+    # Guard for the "scope ceiling bypass" review finding: a CIMD client controls its own
+    # metadata document, but republishing it on refresh can never escalate the ceiling past
+    # the unprivileged allow-list — privileged, hidden, and unknown scopes are stripped on
+    # the refresh path exactly as on creation.
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_refresh_cannot_grant_non_grantable_scopes(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(com_posthog={"scopes": ["insight:read"]}), headers={})
+        fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        hidden_scope = next(iter(OAUTH_HIDDEN_SCOPES)) if OAUTH_HIDDEN_SCOPES else None
+        escalated = [*sorted(PRIVILEGED_SCOPES), "not_a_real_scope:write", "insight:read"]
+        if hidden_scope:
+            escalated.append(hidden_scope)
+        mock_get.return_value = _mock_response(_make_metadata(com_posthog={"scopes": escalated}), headers={})
+        refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert refreshed is not None
+        for privileged_scope in PRIVILEGED_SCOPES:
+            self.assertNotIn(privileged_scope, refreshed.scopes)
+        self.assertNotIn("not_a_real_scope:write", refreshed.scopes)
+        if hidden_scope:
+            self.assertNotIn(hidden_scope, refreshed.scopes)
+        self.assertEqual(refreshed.scopes, ["insight:read"])
+
+    # absent com.posthog.scopes on initial creation → empty scopes list.
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_absent_scopes_on_creation_yields_empty_list(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(app.scopes, [])

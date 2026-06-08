@@ -3,103 +3,85 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
 /**
- * Paginated delivery history for a subscription. Requires premium subscriptions.
- * @summary List subscription deliveries
- */
-export const SubscriptionsDeliveriesListParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    subscription_id: zod.number(),
-})
-
-export const SubscriptionsDeliveriesListQueryParams = /* @__PURE__ */ zod.object({
-    cursor: zod.string().optional().describe('The pagination cursor value.'),
-    status: zod
-        .enum(['completed', 'failed', 'skipped', 'starting'])
-        .optional()
-        .describe('Return only deliveries in this run status (starting, completed, failed, or skipped).'),
-})
-
-/**
- * Fetch one delivery row by id.
- * @summary Retrieve subscription delivery
- */
-export const SubscriptionsDeliveriesRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this subscription delivery.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    subscription_id: zod.number(),
-})
-
-/**
  * Retrieve a project and its settings.
  */
-export const retrieve2PathIdMin = -2147483648
-export const retrieve2PathIdMax = 2147483647
+export const organizationsProjectsRetrievePathIdMin = -2147483648
+export const organizationsProjectsRetrievePathIdMax = 2147483647
 
-export const Retrieve2Params = /* @__PURE__ */ zod.object({
+export const OrganizationsProjectsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod
         .number()
-        .min(retrieve2PathIdMin)
-        .max(retrieve2PathIdMax)
+        .min(organizationsProjectsRetrievePathIdMin)
+        .max(organizationsProjectsRetrievePathIdMax)
         .describe('A unique value identifying this project.'),
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
 /**
  * Update one or more of a project's settings. Only the fields included in the request body are changed.
  */
-export const partialUpdate2PathIdMin = -2147483648
-export const partialUpdate2PathIdMax = 2147483647
+export const organizationsProjectsPartialUpdatePathIdMin = -2147483648
+export const organizationsProjectsPartialUpdatePathIdMax = 2147483647
 
-export const PartialUpdate2Params = /* @__PURE__ */ zod.object({
+export const OrganizationsProjectsPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod
         .number()
-        .min(partialUpdate2PathIdMin)
-        .max(partialUpdate2PathIdMax)
+        .min(organizationsProjectsPartialUpdatePathIdMin)
+        .max(organizationsProjectsPartialUpdatePathIdMax)
         .describe('A unique value identifying this project.'),
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
-export const partialUpdate2BodyNameMax = 200
+export const organizationsProjectsPartialUpdateBodyNameMax = 200
 
-export const partialUpdate2BodyProductDescriptionMax = 1000
+export const organizationsProjectsPartialUpdateBodyProductDescriptionMax = 1000
 
-export const partialUpdate2BodyAppUrlsItemMax = 200
+export const organizationsProjectsPartialUpdateBodyAppUrlsItemMax = 200
 
-export const partialUpdate2BodyPersonDisplayNamePropertiesItemMax = 400
+export const organizationsProjectsPartialUpdateBodyPersonDisplayNamePropertiesItemMax = 400
 
-export const partialUpdate2BodySessionRecordingSampleRateRegExp = new RegExp('^-?\\d{0,1}(?:\\.\\d{0,2})?$')
-export const partialUpdate2BodySessionRecordingMinimumDurationMillisecondsMin = 0
-export const partialUpdate2BodySessionRecordingMinimumDurationMillisecondsMax = 30000
+export const organizationsProjectsPartialUpdateBodySessionRecordingSampleRateRegExp = new RegExp(
+    '^-?\\d{0,1}(?:\\.\\d{0,2})?$'
+)
+export const organizationsProjectsPartialUpdateBodySessionRecordingMinimumDurationMillisecondsMin = 0
+export const organizationsProjectsPartialUpdateBodySessionRecordingMinimumDurationMillisecondsMax = 30000
 
-export const partialUpdate2BodySessionRecordingTriggerMatchTypeConfigMax = 24
+export const organizationsProjectsPartialUpdateBodySessionRecordingTriggerMatchTypeConfigMax = 24
 
-export const partialUpdate2BodyRecordingDomainsItemMax = 200
+export const organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax = 200
 
-export const PartialUpdate2Body = /* @__PURE__ */ zod
+export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
-        name: zod.string().min(1).max(partialUpdate2BodyNameMax).optional().describe('Human-readable project name.'),
+        name: zod
+            .string()
+            .min(1)
+            .max(organizationsProjectsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Human-readable project name.'),
         product_description: zod
             .string()
-            .max(partialUpdate2BodyProductDescriptionMax)
+            .max(organizationsProjectsPartialUpdateBodyProductDescriptionMax)
             .nullish()
             .describe(
                 'Short description of what the project is about. This is helpful to give our AI agents context about your project.'
             ),
-        app_urls: zod.array(zod.string().max(partialUpdate2BodyAppUrlsItemMax).nullable()).optional(),
+        app_urls: zod
+            .array(zod.string().max(organizationsProjectsPartialUpdateBodyAppUrlsItemMax).nullable())
+            .optional(),
         anonymize_ips: zod
             .boolean()
             .optional()
@@ -115,7 +97,7 @@ export const PartialUpdate2Body = /* @__PURE__ */ zod
             .describe('When true, new insights default to excluding internal/test users.'),
         path_cleaning_filters: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths.'
             ),
@@ -133,10 +115,10 @@ export const PartialUpdate2Body = /* @__PURE__ */ zod
                 "Element attributes that posthog-js should capture as action identifiers (e.g. `['data-attr']`)."
             ),
         person_display_name_properties: zod
-            .array(zod.string().max(partialUpdate2BodyPersonDisplayNamePropertiesItemMax))
+            .array(zod.string().max(organizationsProjectsPartialUpdateBodyPersonDisplayNamePropertiesItemMax))
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
-        correlation_config: zod.unknown().nullish(),
+        correlation_config: zod.unknown().optional(),
         autocapture_opt_out: zod
             .boolean()
             .nullish()
@@ -149,8 +131,8 @@ export const PartialUpdate2Body = /* @__PURE__ */ zod
             .boolean()
             .nullish()
             .describe('Enables automatic capture of Core Web Vitals performance metrics.'),
-        autocapture_web_vitals_allowed_metrics: zod.unknown().nullish(),
-        autocapture_exceptions_errors_to_ignore: zod.unknown().nullish(),
+        autocapture_web_vitals_allowed_metrics: zod.unknown().optional(),
+        autocapture_exceptions_errors_to_ignore: zod.unknown().optional(),
         capture_console_log_opt_in: zod
             .boolean()
             .nullish()
@@ -164,31 +146,30 @@ export const PartialUpdate2Body = /* @__PURE__ */ zod
             .optional()
             .describe('Enables session replay recording for this project.'),
         session_recording_sample_rate: zod
-            .string()
-            .regex(partialUpdate2BodySessionRecordingSampleRateRegExp)
+            .stringFormat('decimal', organizationsProjectsPartialUpdateBodySessionRecordingSampleRateRegExp)
             .nullish()
             .describe(
                 'Fraction of sessions to record, as a decimal string between `0.00` and `1.00` (e.g. `0.1` = 10%).'
             ),
         session_recording_minimum_duration_milliseconds: zod
             .number()
-            .min(partialUpdate2BodySessionRecordingMinimumDurationMillisecondsMin)
-            .max(partialUpdate2BodySessionRecordingMinimumDurationMillisecondsMax)
+            .min(organizationsProjectsPartialUpdateBodySessionRecordingMinimumDurationMillisecondsMin)
+            .max(organizationsProjectsPartialUpdateBodySessionRecordingMinimumDurationMillisecondsMax)
             .nullish()
             .describe('Skip saving sessions shorter than this many milliseconds.'),
-        session_recording_linked_flag: zod.unknown().nullish(),
-        session_recording_network_payload_capture_config: zod.unknown().nullish(),
-        session_recording_masking_config: zod.unknown().nullish(),
-        session_recording_url_trigger_config: zod.array(zod.unknown().nullable()).nullish(),
-        session_recording_url_blocklist_config: zod.array(zod.unknown().nullable()).nullish(),
+        session_recording_linked_flag: zod.unknown().optional(),
+        session_recording_network_payload_capture_config: zod.unknown().optional(),
+        session_recording_masking_config: zod.unknown().optional(),
+        session_recording_url_trigger_config: zod.array(zod.unknown()).nullish(),
+        session_recording_url_blocklist_config: zod.array(zod.unknown()).nullish(),
         session_recording_event_trigger_config: zod.array(zod.string().nullable()).nullish(),
         session_recording_trigger_match_type_config: zod
             .string()
-            .max(partialUpdate2BodySessionRecordingTriggerMatchTypeConfigMax)
+            .max(organizationsProjectsPartialUpdateBodySessionRecordingTriggerMatchTypeConfigMax)
             .nullish(),
         session_recording_trigger_groups: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
@@ -199,15 +180,12 @@ export const PartialUpdate2Body = /* @__PURE__ */ zod
             .describe(
                 'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n* `30d` - 30 Days\n* `90d` - 90 Days\n* `1y` - 1 Year\n* `5y` - 5 Years'
             ),
-        session_replay_config: zod.unknown().nullish(),
-        survey_config: zod.unknown().nullish(),
+        session_replay_config: zod.unknown().optional(),
+        survey_config: zod.unknown().optional(),
         access_control: zod.boolean().optional(),
         week_start_day: zod
-            .union([
-                zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'),
-                zod.literal(null),
-            ])
-            .nullish()
+            .union([zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'), zod.null()])
+            .optional()
             .describe(
                 'First day of the week for date range filters. 0 = Sunday, 1 = Monday.\n\n* `0` - Sunday\n* `1` - Monday'
             ),
@@ -217,13 +195,13 @@ export const PartialUpdate2Body = /* @__PURE__ */ zod
             .describe("ID of the dashboard shown as the project's default landing dashboard."),
         live_events_columns: zod.array(zod.string()).nullish(),
         recording_domains: zod
-            .array(zod.string().max(partialUpdate2BodyRecordingDomainsItemMax).nullable())
+            .array(zod.string().max(organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax).nullable())
             .nullish()
             .describe('Origins permitted to record session replays and heatmaps. Empty list allows all origins.'),
         inject_web_apps: zod.boolean().nullish(),
-        extra_settings: zod.unknown().nullish(),
-        modifiers: zod.unknown().nullish(),
-        has_completed_onboarding_for: zod.unknown().nullish(),
+        extra_settings: zod.unknown().optional(),
+        modifiers: zod.unknown().optional(),
+        has_completed_onboarding_for: zod.unknown().optional(),
         surveys_opt_in: zod
             .boolean()
             .nullish()
@@ -238,9 +216,9 @@ export const PartialUpdate2Body = /* @__PURE__ */ zod
             .union([
                 zod.enum(['b2b', 'b2c', 'other']).describe('* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.\n\n* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'
             ),
@@ -248,15 +226,19 @@ export const PartialUpdate2Body = /* @__PURE__ */ zod
             .boolean()
             .nullish()
             .describe('Enables the customer conversations / live chat product for this project.'),
-        conversations_settings: zod.unknown().nullish(),
-        logs_settings: zod.unknown().nullish(),
+        conversations_settings: zod.unknown().optional(),
+        logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
-    .describe(
-        'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
-    )
+    .describe('Mixin for serializers to add user access control fields')
 
-export const SubscriptionsListParams = /* @__PURE__ */ zod.object({
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const DesktopFileSystemListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -264,259 +246,88 @@ export const SubscriptionsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const SubscriptionsListQueryParams = /* @__PURE__ */ zod.object({
-    created_by: zod.string().optional().describe('Filter by creator user UUID.'),
-    dashboard: zod.number().optional().describe('Filter by dashboard ID.'),
-    insight: zod.number().optional().describe('Filter by insight ID.'),
+export const DesktopFileSystemListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    ordering: zod.string().optional().describe('Which field to use when ordering the results.'),
-    resource_type: zod
-        .enum(['dashboard', 'insight'])
-        .optional()
-        .describe('Filter by subscription resource: insight vs dashboard export.'),
     search: zod.string().optional().describe('A search term.'),
-    target_type: zod
-        .enum(['email', 'slack', 'webhook'])
+})
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const DesktopFileSystemCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const desktopFileSystemCreateBodyTypeMax = 100
+
+export const desktopFileSystemCreateBodyRefMax = 100
+
+export const DesktopFileSystemCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemCreateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemCreateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const DesktopFileSystemRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Return the latest non-deleted instructions for this folder.
+ */
+export const DesktopFileSystemInstructionsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Publish a new version of the folder's instructions.
+ */
+export const DesktopFileSystemInstructionsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const desktopFileSystemInstructionsPartialUpdateBodyBaseVersionMin = 0
+
+export const DesktopFileSystemInstructionsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    content: zod.string().optional().describe('Full markdown instructions to publish as a new version for the folder.'),
+    base_version: zod
+        .number()
+        .min(desktopFileSystemInstructionsPartialUpdateBodyBaseVersionMin)
         .optional()
-        .describe('Filter by delivery channel (email, Slack, or webhook).'),
-})
-
-export const SubscriptionsCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const subscriptionsCreateBodyIntervalMin = -2147483648
-export const subscriptionsCreateBodyIntervalMax = 2147483647
-
-export const subscriptionsCreateBodyBysetposMin = -2147483648
-export const subscriptionsCreateBodyBysetposMax = 2147483647
-
-export const subscriptionsCreateBodyCountMin = -2147483648
-export const subscriptionsCreateBodyCountMax = 2147483647
-
-export const subscriptionsCreateBodyTitleMax = 100
-
-export const subscriptionsCreateBodySummaryPromptGuideMax = 500
-
-export const SubscriptionsCreateBody = /* @__PURE__ */ zod
-    .object({
-        dashboard: zod
-            .number()
-            .nullish()
-            .describe('Dashboard ID to subscribe to (mutually exclusive with insight on create).'),
-        insight: zod
-            .number()
-            .nullish()
-            .describe('Insight ID to subscribe to (mutually exclusive with dashboard on create).'),
-        dashboard_export_insights: zod
-            .array(zod.number())
-            .optional()
-            .describe(
-                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
-            ),
-        target_type: zod
-            .enum(['email', 'slack', 'webhook'])
-            .describe('* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook')
-            .describe(
-                'Delivery channel: email, slack, or webhook.\n\n* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook'
-            ),
-        target_value: zod
-            .string()
-            .describe(
-                'Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.'
-            ),
-        frequency: zod
-            .enum(['daily', 'weekly', 'monthly', 'yearly'])
-            .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly')
-            .describe(
-                'How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
-            ),
-        interval: zod
-            .number()
-            .min(subscriptionsCreateBodyIntervalMin)
-            .max(subscriptionsCreateBodyIntervalMax)
-            .optional()
-            .describe('Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.'),
-        byweekday: zod
-            .array(
-                zod
-                    .enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
-                    .describe(
-                        '* `monday` - Monday\n* `tuesday` - Tuesday\n* `wednesday` - Wednesday\n* `thursday` - Thursday\n* `friday` - Friday\n* `saturday` - Saturday\n* `sunday` - Sunday'
-                    )
-            )
-            .nullish()
-            .describe(
-                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
-            ),
-        bysetpos: zod
-            .number()
-            .min(subscriptionsCreateBodyBysetposMin)
-            .max(subscriptionsCreateBodyBysetposMax)
-            .nullish()
-            .describe('Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).'),
-        count: zod
-            .number()
-            .min(subscriptionsCreateBodyCountMin)
-            .max(subscriptionsCreateBodyCountMax)
-            .nullish()
-            .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({}).describe('When to start delivering (ISO 8601 datetime).'),
-        until_date: zod.iso
-            .datetime({})
-            .nullish()
-            .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
-        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
-        title: zod
-            .string()
-            .max(subscriptionsCreateBodyTitleMax)
-            .nullish()
-            .describe('Human-readable name for this subscription.'),
-        integration_id: zod
-            .number()
-            .nullish()
-            .describe('ID of a connected Slack integration. Required when target_type is slack.'),
-        invite_message: zod
-            .string()
-            .nullish()
-            .describe('Optional message included in the invitation email when adding new recipients.'),
-        summary_enabled: zod.boolean().optional(),
-        summary_prompt_guide: zod.string().max(subscriptionsCreateBodySummaryPromptGuideMax).optional(),
-    })
-    .describe('Standard Subscription serializer.')
-
-export const SubscriptionsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this subscription.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const SubscriptionsPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this subscription.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const subscriptionsPartialUpdateBodyIntervalMin = -2147483648
-export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
-
-export const subscriptionsPartialUpdateBodyBysetposMin = -2147483648
-export const subscriptionsPartialUpdateBodyBysetposMax = 2147483647
-
-export const subscriptionsPartialUpdateBodyCountMin = -2147483648
-export const subscriptionsPartialUpdateBodyCountMax = 2147483647
-
-export const subscriptionsPartialUpdateBodyTitleMax = 100
-
-export const subscriptionsPartialUpdateBodySummaryPromptGuideMax = 500
-
-export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        dashboard: zod
-            .number()
-            .nullish()
-            .describe('Dashboard ID to subscribe to (mutually exclusive with insight on create).'),
-        insight: zod
-            .number()
-            .nullish()
-            .describe('Insight ID to subscribe to (mutually exclusive with dashboard on create).'),
-        dashboard_export_insights: zod
-            .array(zod.number())
-            .optional()
-            .describe(
-                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
-            ),
-        target_type: zod
-            .enum(['email', 'slack', 'webhook'])
-            .describe('* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook')
-            .optional()
-            .describe(
-                'Delivery channel: email, slack, or webhook.\n\n* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook'
-            ),
-        target_value: zod
-            .string()
-            .optional()
-            .describe(
-                'Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.'
-            ),
-        frequency: zod
-            .enum(['daily', 'weekly', 'monthly', 'yearly'])
-            .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly')
-            .optional()
-            .describe(
-                'How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
-            ),
-        interval: zod
-            .number()
-            .min(subscriptionsPartialUpdateBodyIntervalMin)
-            .max(subscriptionsPartialUpdateBodyIntervalMax)
-            .optional()
-            .describe('Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.'),
-        byweekday: zod
-            .array(
-                zod
-                    .enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
-                    .describe(
-                        '* `monday` - Monday\n* `tuesday` - Tuesday\n* `wednesday` - Wednesday\n* `thursday` - Thursday\n* `friday` - Friday\n* `saturday` - Saturday\n* `sunday` - Sunday'
-                    )
-            )
-            .nullish()
-            .describe(
-                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
-            ),
-        bysetpos: zod
-            .number()
-            .min(subscriptionsPartialUpdateBodyBysetposMin)
-            .max(subscriptionsPartialUpdateBodyBysetposMax)
-            .nullish()
-            .describe('Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).'),
-        count: zod
-            .number()
-            .min(subscriptionsPartialUpdateBodyCountMin)
-            .max(subscriptionsPartialUpdateBodyCountMax)
-            .nullish()
-            .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({}).optional().describe('When to start delivering (ISO 8601 datetime).'),
-        until_date: zod.iso
-            .datetime({})
-            .nullish()
-            .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
-        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
-        title: zod
-            .string()
-            .max(subscriptionsPartialUpdateBodyTitleMax)
-            .nullish()
-            .describe('Human-readable name for this subscription.'),
-        integration_id: zod
-            .number()
-            .nullish()
-            .describe('ID of a connected Slack integration. Required when target_type is slack.'),
-        invite_message: zod
-            .string()
-            .nullish()
-            .describe('Optional message included in the invitation email when adding new recipients.'),
-        summary_enabled: zod.boolean().optional(),
-        summary_prompt_guide: zod.string().max(subscriptionsPartialUpdateBodySummaryPromptGuideMax).optional(),
-    })
-    .describe('Standard Subscription serializer.')
-
-export const SubscriptionsTestDeliveryCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this subscription.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet."
         ),
 })
 
@@ -561,9 +372,9 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .union([
             zod.enum(['disabled', 'toolbar']).describe('* `disabled` - disabled\n* `toolbar` - toolbar'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     set_current_organization: zod.string().optional(),
     set_current_team: zod.string().optional(),
     password: zod.string().max(usersPartialUpdateBodyPasswordMax).optional(),
@@ -574,15 +385,15 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
             "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
-    has_seen_product_intro_for: zod.unknown().nullish(),
+    has_seen_product_intro_for: zod.unknown().optional(),
     theme_mode: zod
         .union([
             zod.enum(['light', 'dark', 'system']).describe('* `light` - Light\n* `dark` - Dark\n* `system` - System'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
-    hedgehog_config: zod.unknown().nullish(),
+        .optional(),
+    hedgehog_config: zod.unknown().optional(),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -590,9 +401,9 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .enum(['above', 'below', 'hidden'])
                 .describe('* `above` - Above\n* `below` - Below\n* `hidden` - Hidden'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     role_at_organization: zod
         .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
         .optional()
@@ -604,5 +415,11 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
+        ),
+    hide_mcp_hints: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
 })

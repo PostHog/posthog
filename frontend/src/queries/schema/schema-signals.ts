@@ -10,17 +10,25 @@ export enum SignalSourceProduct {
     ZENDESK = 'zendesk',
     CONVERSATIONS = 'conversations',
     ERROR_TRACKING = 'error_tracking',
+    ENDPOINTS = 'endpoints',
+    PGANALYZE = 'pganalyze',
+    SIGNALS_SCOUT = 'signals_scout',
+    LOGS = 'logs',
 }
 
 export enum SignalSourceType {
     SESSION_ANALYSIS_CLUSTER = 'session_analysis_cluster',
     SESSION_PROBLEM = 'session_problem',
     EVALUATION = 'evaluation',
+    EVALUATION_REPORT = 'evaluation_report',
     ISSUE = 'issue',
     TICKET = 'ticket',
     ISSUE_CREATED = 'issue_created',
     ISSUE_REOPENED = 'issue_reopened',
     ISSUE_SPIKING = 'issue_spiking',
+    ENDPOINT_EXECUTION_FAILED = 'endpoint_execution_failed',
+    CROSS_SOURCE_ISSUE = 'cross_source_issue',
+    ALERT_STATE_CHANGE = 'alert_state_change',
 }
 
 // ── Per-product signal extras & inputs ──────────────────────────────────────────
@@ -111,6 +119,27 @@ export interface LlmEvaluationSignalInput {
     description: string
     weight: number
     extra: LlmEvalSignalExtra
+}
+
+// LLM evaluation report (one signal per report run, distilled from many results)
+
+export interface LlmEvalReportSignalExtra {
+    evaluation_id: string
+    evaluation_name: string
+    evaluation_description: string
+    report_id: string
+    report_run_id: string
+    period_start: string
+    period_end: string
+}
+
+export interface LlmEvaluationReportSignalInput {
+    source_type: 'evaluation_report'
+    source_product: 'llm_analytics'
+    source_id: string
+    description: string
+    weight: number
+    extra: LlmEvalReportSignalExtra
 }
 
 // Zendesk ticket
@@ -215,6 +244,121 @@ export interface ErrorTrackingSignalInput {
     extra: ErrorTrackingSignalExtra
 }
 
+// pganalyze issue (database performance finding)
+
+export interface PgAnalyzeIssueReference {
+    kind: string | null
+    name: string | null
+    url: string | null
+    queryText: string | null
+}
+
+export interface PgAnalyzeIssueSignalExtra {
+    severity: string | null
+    references: PgAnalyzeIssueReference[]
+    database_id: string | null
+    server_human_id: string | null
+    server_name: string | null
+    synced_at: string
+}
+
+export interface PgAnalyzeIssueSignalInput {
+    source_type: 'issue'
+    source_product: 'pganalyze'
+    source_id: string
+    description: string
+    weight: number
+    extra: PgAnalyzeIssueSignalExtra
+}
+
+// Endpoint execution failure
+
+export interface EndpointExecutionFailedSignalExtra {
+    endpoint_name: string
+    endpoint_version: number | null
+    materialized: boolean
+    saved_query_id: string | null
+    error_class: string
+    error_message: string
+}
+
+export interface EndpointExecutionFailedSignalInput {
+    source_type: 'endpoint_execution_failed'
+    source_product: 'endpoints'
+    source_id: string
+    description: string
+    weight: number
+    extra: EndpointExecutionFailedSignalExtra
+}
+
+// Signals scout — cross-source findings emitted by the headless Signals scout harness.
+
+export interface SignalsScoutEvidenceEntry {
+    /** The product the evidence came from, e.g. 'error_tracking', 'logs', 'session_replay'. */
+    source_product: string
+    /** Optional entity id within that product, e.g. an issue id or session id. */
+    entity_id?: string
+    /** One-line summary of the evidence the scout used. */
+    summary: string
+}
+
+export interface SignalsScoutSignalExtra {
+    scout_run_id: string
+    /** The `tasks.TaskRun` id the scout span ran inside. Join key into the `signals_scouts_runs`
+     * LLM-analytics view, which is keyed on `task_run_id` (the `scout_run_id` bridge row is not). */
+    task_run_id: string
+    finding_id: string
+    skill_name: string
+    skill_version: number
+    /** Scout's self-reported confidence in [0, 1]. Independent of the top-level `weight`. */
+    confidence: number
+    severity?: 'P0' | 'P1' | 'P2' | 'P3' | 'P4'
+    hypothesis?: string
+    evidence: SignalsScoutEvidenceEntry[]
+    /** Free-form short keys the harness can use for cross-run dedupe. */
+    dedupe_keys?: string[]
+    /** Optional time window the finding refers to. */
+    time_range?: {
+        date_from: string
+        date_to: string
+    }
+    /** Trace id from the LLM analytics span for the scout run, when available. */
+    mcp_trace_id?: string
+}
+
+export interface SignalsScoutSignalInput {
+    source_type: 'cross_source_issue'
+    source_product: 'signals_scout'
+    source_id: string
+    description: string
+    weight: number
+    extra: SignalsScoutSignalExtra
+}
+
+// Logs alert notification (firing / broken)
+
+export interface LogsAlertStateChangeSignalExtra {
+    alert_id: string
+    alert_name: string
+    action: 'firing' | 'broken'
+    threshold_count: number
+    threshold_operator: 'above' | 'below'
+    window_minutes: number
+    result_count: number | null
+    consecutive_failures: number
+    filters: Record<string, unknown>
+    url: string
+}
+
+export interface LogsAlertStateChangeSignalInput {
+    source_type: 'alert_state_change'
+    source_product: 'logs'
+    source_id: string
+    description: string
+    weight: number
+    extra: LogsAlertStateChangeSignalExtra
+}
+
 // ── Report reviewer types ────────────────────────────────────────────────────────
 
 export interface RelevantCommit {
@@ -238,14 +382,21 @@ export interface EnrichedReviewer {
     user: SignalReviewerUserInfo | null
 }
 
-// ── Discriminated union over all signal variants ─────────────────────────────────
+// ── Union over all signal variants ─────────────────────────────────
+// Discrimination is handled at the application layer via a (source_product, source_type)
+// lookup in products/signals/backend/api.py — see _SIGNAL_VARIANT_LOOKUP. We can't use a
+// Pydantic discriminator here because some products (llm_analytics) have multiple variants.
 
-/** @discriminator source_product */
 export type SignalInput =
     | SessionProblemSignalInput
     | LlmEvaluationSignalInput
+    | LlmEvaluationReportSignalInput
     | ZendeskTicketSignalInput
     | GithubIssueSignalInput
     | LinearIssueSignalInput
     | ConversationsTicketSignalInput
     | ErrorTrackingSignalInput
+    | EndpointExecutionFailedSignalInput
+    | PgAnalyzeIssueSignalInput
+    | SignalsScoutSignalInput
+    | LogsAlertStateChangeSignalInput

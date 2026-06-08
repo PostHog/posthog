@@ -11,6 +11,12 @@ import {
     ElementSelectorType,
     experimentsTabLogic,
 } from '~/toolbar/experiments/experimentsTabLogic'
+import {
+    htmlSanitizationWouldStrip,
+    setSanitizedHTML,
+    setSanitizedStyle,
+    styleSanitizationWouldStrip,
+} from '~/toolbar/experiments/sanitize'
 import { WebExperimentTransform } from '~/toolbar/types'
 
 interface WebExperimentTransformFieldProps {
@@ -83,12 +89,17 @@ export function WebExperimentTransformField({
                                     ? (document.querySelector(transform.selector) as HTMLElement)
                                     : null
                                 if (element) {
-                                    element.innerHTML = value
+                                    setSanitizedHTML(element, value)
                                 }
                             }}
                             value={transform.html}
                             maxRows={8}
                         />
+                        {htmlSanitizationWouldStrip(transform.html) && (
+                            <div className="text-xs text-secondary mt-1">
+                                Some markup will be removed when applied (scripts, event handlers, inline styles).
+                            </div>
+                        )}
                     </div>
                     <div className="mt-4">
                         <LemonLabel>CSS</LemonLabel>
@@ -112,13 +123,18 @@ export function WebExperimentTransformField({
                                         ? (document.querySelector(transform.selector) as HTMLElement)
                                         : null
                                     if (element) {
-                                        element.setAttribute('style', value)
+                                        setSanitizedStyle(element, value)
                                     }
                                 }
                             }}
                             value={transform.css || ''}
                             maxRows={8}
                         />
+                        {styleSanitizationWouldStrip(transform.css) && (
+                            <div className="text-xs text-secondary mt-1">
+                                Some declarations will be removed when applied (url(), image-set, paint).
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

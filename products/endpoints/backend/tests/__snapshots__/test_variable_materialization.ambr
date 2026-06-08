@@ -14,7 +14,6 @@
       os_name
   FROM
       cte
-  LIMIT 50000
   '''
 # ---
 # name: TestCTETransformSnapshots.test_cte_range_variable_deduped_group_by
@@ -34,7 +33,6 @@
       end_hour
   FROM
       cte
-  LIMIT 50000
   '''
 # ---
 # name: TestCTETransformSnapshots.test_cte_two_variables_same_cte
@@ -55,7 +53,6 @@
       user_id
   FROM
       cte
-  LIMIT 50000
   '''
 # ---
 # name: TestCTETransformSnapshots.test_cte_variable_preserves_non_variable_where
@@ -75,7 +72,6 @@
       event_name
   FROM
       cte
-  LIMIT 50000
   '''
 # ---
 # name: TestCTETransformSnapshots.test_cte_variable_top_level_no_group_by_passthrough
@@ -96,7 +92,6 @@
       cte
   GROUP BY
       event_name
-  LIMIT 50000
   '''
 # ---
 # name: TestCTETransformSnapshots.test_cte_variable_with_group_by
@@ -117,7 +112,6 @@
       event_name
   FROM
       cte
-  LIMIT 50000
   '''
 # ---
 # name: TestCTETransformSnapshots.test_cte_variable_without_group_by
@@ -134,7 +128,6 @@
       cte
   GROUP BY
       event_name
-  LIMIT 50000
   '''
 # ---
 # name: TestCTETransformSnapshots.test_top_level_variable_with_cte_present
@@ -153,9 +146,110 @@
       event AS event_name
   FROM
       cte
-  GROUP BY
-      event
-  LIMIT 50000
+  '''
+# ---
+# name: TestDownstreamTransformSnapshots.test_transform_downstream_aggregation_propagation
+  '''
+  WITH
+      base AS (SELECT
+              event,
+              distinct_id,
+              event AS event_name
+          FROM
+              events),
+      agg AS (SELECT
+              distinct_id,
+              count() AS cnt,
+              base.event_name AS event_name
+          FROM
+              base
+          GROUP BY
+              distinct_id,
+              event_name)
+  SELECT
+      distinct_id,
+      cnt,
+      event_name
+  FROM
+      agg
+  '''
+# ---
+# name: TestDownstreamTransformSnapshots.test_transform_downstream_cross_join_propagation
+  '''
+  WITH
+      base AS (SELECT
+              event,
+              distinct_id,
+              event AS event_name
+          FROM
+              events),
+      left_side AS (SELECT
+              distinct_id AS did_l,
+              base.event_name AS event_name
+          FROM
+              base),
+      right_side AS (SELECT
+              distinct_id AS did_r,
+              base.event_name AS event_name
+          FROM
+              base),
+      combined AS (SELECT
+              l.did_l,
+              r.did_r,
+              l.event_name AS event_name
+          FROM
+              left_side AS l
+              CROSS JOIN right_side AS r
+          WHERE
+              equals(l.event_name, r.event_name))
+  SELECT
+      did_l,
+      did_r,
+      event_name
+  FROM
+      combined
+  '''
+# ---
+# name: TestDownstreamTransformSnapshots.test_transform_downstream_distinct_propagation
+  '''
+  WITH
+      base AS (SELECT
+              event,
+              distinct_id,
+              event AS event_name
+          FROM
+              events),
+      u AS (SELECT
+              DISTINCT distinct_id,
+              base.event_name AS event_name
+          FROM
+              base)
+  SELECT
+      distinct_id,
+      event_name
+  FROM
+      u
+  '''
+# ---
+# name: TestDownstreamTransformSnapshots.test_transform_downstream_projection_propagation
+  '''
+  WITH
+      base AS (SELECT
+              event,
+              distinct_id,
+              event AS event_name
+          FROM
+              events),
+      proj AS (SELECT
+              distinct_id,
+              base.event_name AS event_name
+          FROM
+              base)
+  SELECT
+      distinct_id,
+      event_name
+  FROM
+      proj
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_all_where_conditions_are_variables
@@ -169,7 +263,6 @@
   GROUP BY
       event,
       distinct_id
-  LIMIT 50000
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_duplicate_placeholder_produces_single_alias
@@ -181,7 +274,6 @@
       events
   GROUP BY
       event
-  LIMIT 50000
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_existing_group_by_preserved
@@ -195,7 +287,6 @@
   GROUP BY
       day,
       event
-  LIMIT 50000
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_function_call_toDate
@@ -207,7 +298,6 @@
       events
   GROUP BY
       toDate(timestamp)
-  LIMIT 50000
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_hard_cap_timestamp_with_variable_range
@@ -222,7 +312,6 @@
       greater(timestamp, minus(today(), toIntervalDay(90)))
   GROUP BY
       toStartOfDay(timestamp)
-  LIMIT 50000
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_like_operator
@@ -234,7 +323,6 @@
       events
   GROUP BY
       event
-  LIMIT 50000
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_mixed_equality_and_range
@@ -248,7 +336,6 @@
   GROUP BY
       event,
       toStartOfDay(hour)
-  LIMIT 50000
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_mixed_field_and_function_call
@@ -262,7 +349,6 @@
   GROUP BY
       event,
       toDate(timestamp)
-  LIMIT 50000
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_nested_and_variable_removed
@@ -276,7 +362,6 @@
       equals(distinct_id, 'u1')
   GROUP BY
       event
-  LIMIT 50000
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_order_by_having_limit_preserved
@@ -305,7 +390,6 @@
       events
   GROUP BY
       person.properties.city
-  LIMIT 50000
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_preserves_non_variable_where
@@ -319,7 +403,6 @@
       and(greater(timestamp, '2024-01-01'), equals(distinct_id, 'user1'))
   GROUP BY
       event
-  LIMIT 50000
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_property_variable_json_extract
@@ -331,7 +414,6 @@
       events
   GROUP BY
       properties.os
-  LIMIT 50000
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_range_on_same_function_call_deduped
@@ -344,7 +426,6 @@
       events
   GROUP BY
       toDate(timestamp)
-  LIMIT 50000
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_range_same_column_deduped
@@ -357,7 +438,6 @@
       events
   GROUP BY
       toStartOfDay(hour)
-  LIMIT 50000
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_single_equality
@@ -369,7 +449,6 @@
       events
   GROUP BY
       event
-  LIMIT 50000
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_single_equality_with_alias
@@ -381,7 +460,6 @@
       events
   GROUP BY
       event
-  LIMIT 50000
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_three_variables_range_deduped
@@ -396,7 +474,6 @@
   GROUP BY
       event,
       toStartOfDay(hour)
-  LIMIT 50000
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_two_equality_different_columns
@@ -410,7 +487,6 @@
   GROUP BY
       event,
       distinct_id
-  LIMIT 50000
   '''
 # ---
 # name: TestTransformQuerySnapshots.test_variable_on_left_side
@@ -422,6 +498,5 @@
       events
   GROUP BY
       event
-  LIMIT 50000
   '''
 # ---

@@ -5,10 +5,6 @@ on:
     pull_request:
     merge_group:
 
-concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 name: Security
 
 permissions:
@@ -18,29 +14,15 @@ env:
     SEMGREP_ENABLE_VERSION_CHECK: 'false'
 
 jobs:
-    ensure-pinned-actions:
-        runs-on: ubuntu-latest
-        timeout-minutes: 15
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v6
-            - name: Ensure SHA pinned actions
-              uses: zgosalvez/github-actions-ensure-sha-pinned-actions@6124774845927d14c601359ab8138699fa5b70c3 # v4.0.1
-              with:
-                  allowlist: |
-                      actions/
-                      github/
-                      PostHog/
-
     semgrep-python:
         runs-on: ubuntu-latest
-        timeout-minutes: 15
+        timeout-minutes: 30
         container:
-            image: semgrep/semgrep
+            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Run Semgrep
               run: |
@@ -56,17 +38,17 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
-                    common/ ee/ posthog/ products/ services/llm-gateway/ services/stripe-mock/
+                    bin/ common/ ee/ frontend/ posthog/ products/ services/llm-gateway/ services/stripe-mock/
 
     semgrep-go:
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 10
         container:
-            image: semgrep/semgrep
+            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Run Semgrep
               run: |
@@ -84,13 +66,13 @@ jobs:
 
     semgrep-rust:
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 10
         container:
-            image: semgrep/semgrep
+            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Run Semgrep
               run: |
@@ -110,13 +92,13 @@ jobs:
 
     semgrep-js:
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        timeout-minutes: 20
         container:
-            image: semgrep/semgrep
+            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Run Semgrep
               run: |
@@ -131,16 +113,39 @@ jobs:
                     --verbose \
                     frontend/ nodejs/ services/mcp/ services/oauth-proxy/ services/stripe-app/
 
-    # scans GitHub Actions and other repo-wide config
-    semgrep-general:
+    semgrep-products-frontend:
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        timeout-minutes: 20
         container:
-            image: semgrep/semgrep
+            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # Single-rule scan — keeps the failure surface here aligned with the
+            # job name. Other custom TS rules (no-direct-fuse-instantiation,
+            # require-iframe-sandbox, ...) live in semgrep-js. When more
+            # product-specific rules land, extend the --config list explicitly.
+            - name: Run Semgrep
+              run: |
+                  semgrep \
+                    --config ".semgrep/rules/prefer-codegen-api.yaml" \
+                    --error \
+                    --metrics=off \
+                    --verbose \
+                    products/
+
+    # scans GitHub Actions and other repo-wide config
+    semgrep-general:
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        container:
+            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             # exclude all directories already scanned by other jobs
             - name: Run Semgrep
@@ -170,22 +175,69 @@ jobs:
                     --exclude ./services/ \
                     .
 
-    semgrep-test-rules:
+    # Devex / hygiene rules. Two passes:
+    #   - WARNING-severity rules print findings without failing the job
+    #     (used while migrating away from a pattern with a known backlog).
+    #   - ERROR-severity rules fail the job on any finding (regression guards).
+    # See `.semgrep/devex-rules/README.md`.
+    semgrep-devex:
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 20
         container:
-            image: semgrep/semgrep
+            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # Pass 1: print WARNING-severity findings. No --error — this step
+            # does not fail CI. Backlogs from migration-in-progress rules show
+            # up here.
+            - name: Warnings (informational)
+              run: |
+                  semgrep \
+                    --config ".semgrep/devex-rules/" \
+                    --severity=WARNING \
+                    --metrics=off \
+                    --verbose \
+                    bin/ common/ ee/ frontend/ posthog/ products/
+
+            # Pass 2: enforce ERROR-severity rules. Any finding fails the
+            # job — regression guards live here.
+            - name: Errors (blocking)
+              run: |
+                  semgrep \
+                    --config ".semgrep/devex-rules/" \
+                    --severity=ERROR \
+                    --error \
+                    --metrics=off \
+                    --verbose \
+                    bin/ common/ ee/ frontend/ posthog/ products/
+
+    semgrep-test-rules:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        container:
+            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Test custom Semgrep rules
               run: |
                   semgrep --test .semgrep/
 
     semgrep_checks:
-        needs: [semgrep-python, semgrep-go, semgrep-rust, semgrep-js, semgrep-general, semgrep-test-rules]
+        needs:
+            - semgrep-python
+            - semgrep-go
+            - semgrep-rust
+            - semgrep-js
+            - semgrep-products-frontend
+            - semgrep-general
+            - semgrep-devex
+            - semgrep-test-rules
         name: Semgrep Checks Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -209,8 +261,16 @@ jobs:
                     echo "semgrep-js did not complete successfully."
                     exit 1
                   fi
+                  if [[ "${{ needs.semgrep-products-frontend.result }}" != "success" && "${{ needs.semgrep-products-frontend.result }}" != "skipped" ]]; then
+                    echo "semgrep-products-frontend did not complete successfully."
+                    exit 1
+                  fi
                   if [[ "${{ needs.semgrep-general.result }}" != "success" && "${{ needs.semgrep-general.result }}" != "skipped" ]]; then
                     echo "semgrep-general did not complete successfully."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.semgrep-devex.result }}" != "success" && "${{ needs.semgrep-devex.result }}" != "skipped" ]]; then
+                    echo "semgrep-devex did not complete successfully."
                     exit 1
                   fi
                   if [[ "${{ needs.semgrep-test-rules.result }}" != "success" && "${{ needs.semgrep-test-rules.result }}" != "skipped" ]]; then

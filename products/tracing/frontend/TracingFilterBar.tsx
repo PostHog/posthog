@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
 import { IconChevronDown, IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
@@ -79,11 +79,11 @@ const dateMapping: DateMappingOption[] = [
 ]
 
 export function TracingFilterBar(): JSX.Element {
-    const { spansLoading } = useValues(tracingDataLogic)
-    const { runQuery } = useActions(tracingDataLogic)
-    const { filters, utcDateRange } = useValues(tracingFiltersLogic)
-    const { setDateRange, setServiceNames, setFilterGroup } = useActions(tracingFiltersLogic)
-    const { dateRange, serviceNames, filterGroup } = filters
+    const { spansLoading } = useValues(tracingDataLogic())
+    const { runQuery } = useActions(tracingDataLogic())
+    const { filters, utcDateRange } = useValues(tracingFiltersLogic())
+    const { setDateRange, setServiceNames, setFilterGroup, setCompareMode } = useActions(tracingFiltersLogic())
+    const { dateRange, serviceNames, filterGroup, compareMode } = filters
 
     return (
         <TracingFilterGroup filterGroup={filterGroup} onFilterGroupChange={setFilterGroup}>
@@ -145,6 +145,13 @@ export function TracingFilterBar(): JSX.Element {
                                 }}
                             />
                         </div>
+                        <LemonSwitch
+                            label="Compare"
+                            checked={compareMode}
+                            onChange={setCompareMode}
+                            bordered
+                            size="small"
+                        />
                         <LemonButton
                             size="small"
                             icon={<IconRefresh />}
@@ -169,7 +176,7 @@ function TracingFilterGroup({
     onFilterGroupChange: (filterGroup: UniversalFiltersGroup) => void
     children: React.ReactNode
 }): JSX.Element {
-    const { utcDateRange, filters } = useValues(tracingFiltersLogic)
+    const { utcDateRange, filters } = useValues(tracingFiltersLogic())
 
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
@@ -194,7 +201,7 @@ function TracingFilterGroup({
 
 function TracingFilterSearch(): JSX.Element {
     const [visible, setVisible] = useState<boolean>(false)
-    const { utcDateRange, filters: tracingFilters } = useValues(tracingFiltersLogic)
+    const { utcDateRange, filters: tracingFilters } = useValues(tracingFiltersLogic())
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
 

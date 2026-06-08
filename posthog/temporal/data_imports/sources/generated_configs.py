@@ -5,8 +5,8 @@ from typing import Literal
 
 from posthog.temporal.data_imports.sources.common import config
 
-from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnelConfig
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnelConfig
 
 
 @config.config
@@ -62,6 +62,14 @@ class HubspotCustomPropertiesConfig(config.Config):
 
 
 @config.config
+class ServiceNowAuthMethodConfig(config.Config):
+    selection: Literal["basic", "api_key"] = "basic"
+    username: str | None = None
+    password: str | None = None
+    api_key: str | None = None
+
+
+@config.config
 class SnowflakeAuthTypeConfig(config.Config):
     user: str
     selection: Literal["password", "keypair"] = "password"
@@ -73,8 +81,16 @@ class SnowflakeAuthTypeConfig(config.Config):
 @config.config
 class StripeAuthMethodConfig(config.Config):
     stripe_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
-    selection: Literal["oauth", "api_key"] = "oauth"
+    selection: Literal["api_key", "oauth"] = "api_key"
     stripe_secret_key: str | None = None
+
+
+@config.config
+class TwilioAuthMethodConfig(config.Config):
+    selection: Literal["api_key", "auth_token"] = "api_key"
+    api_key_sid: str | None = None
+    api_key_secret: str | None = None
+    auth_token: str | None = None
 
 
 @config.config
@@ -85,7 +101,8 @@ class VitallyRegionConfig(config.Config):
 
 @config.config
 class ActiveCampaignSourceConfig(config.Config):
-    pass
+    api_url: str
+    api_key: str
 
 
 @config.config
@@ -95,7 +112,8 @@ class AdjustSourceConfig(config.Config):
 
 @config.config
 class AircallSourceConfig(config.Config):
-    pass
+    api_id: str
+    api_token: str
 
 
 @config.config
@@ -110,7 +128,9 @@ class AmazonAdsSourceConfig(config.Config):
 
 @config.config
 class AmplitudeSourceConfig(config.Config):
-    pass
+    api_key: str
+    secret_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -125,12 +145,12 @@ class AppsFlyerSourceConfig(config.Config):
 
 @config.config
 class AsanaSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
 class AshbySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -150,7 +170,8 @@ class AzureBlobSourceConfig(config.Config):
 
 @config.config
 class BambooHRSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -187,12 +208,13 @@ class BraintreeSourceConfig(config.Config):
 
 @config.config
 class BrazeSourceConfig(config.Config):
-    pass
+    api_key: str
+    url: str
 
 
 @config.config
 class BrevoSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -202,12 +224,13 @@ class BuildBetterSourceConfig(config.Config):
 
 @config.config
 class CalendlySourceConfig(config.Config):
-    pass
+    personal_access_token: str
 
 
 @config.config
 class CampaignMonitorSourceConfig(config.Config):
-    pass
+    api_key: str
+    client_id: str
 
 
 @config.config
@@ -218,7 +241,7 @@ class ChargebeeSourceConfig(config.Config):
 
 @config.config
 class ChartMogulSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -237,6 +260,7 @@ class ClickHouseSourceConfig(config.Config):
     database: str
     user: str
     port: int = config.value(converter=int)
+    connection_string: str | None = None
     password: str | None = None
     secure: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
     verify: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
@@ -245,12 +269,13 @@ class ClickHouseSourceConfig(config.Config):
 
 @config.config
 class ClickUpSourceConfig(config.Config):
-    pass
+    api_key: str
+    workspace_id: str
 
 
 @config.config
 class CloseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -260,12 +285,14 @@ class CockroachDBSourceConfig(config.Config):
 
 @config.config
 class ConfluenceSourceConfig(config.Config):
-    pass
+    subdomain: str
+    email: str
+    api_token: str
 
 
 @config.config
 class ConvertKitSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -276,17 +303,31 @@ class ConvexSourceConfig(config.Config):
 
 @config.config
 class CopperSourceConfig(config.Config):
-    pass
+    api_key: str
+    user_email: str
+
+
+@config.config
+class CustomSourceConfig(config.Config):
+    manifest_json: str
+    auth_token: str | None = None
+    auth_api_key: str | None = None
+    auth_password: str | None = None
 
 
 @config.config
 class CustomerIOSourceConfig(config.Config):
-    pass
+    app_api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
 class DatadogSourceConfig(config.Config):
-    pass
+    api_key: str
+    application_key: str
+    site: Literal[
+        "datadoghq.com", "us3.datadoghq.com", "us5.datadoghq.com", "datadoghq.eu", "ap1.datadoghq.com", "ddog-gov.com"
+    ] = config.value(default="datadoghq.com")
 
 
 @config.config
@@ -296,7 +337,8 @@ class DoItSourceConfig(config.Config):
 
 @config.config
 class DripSourceConfig(config.Config):
-    pass
+    api_token: str
+    account_id: str
 
 
 @config.config
@@ -311,7 +353,7 @@ class ElasticsearchSourceConfig(config.Config):
 
 @config.config
 class EventbriteSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -326,17 +368,19 @@ class FirebaseSourceConfig(config.Config):
 
 @config.config
 class FreshdeskSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
 class FreshsalesSourceConfig(config.Config):
-    pass
+    domain: str
+    api_key: str
 
 
 @config.config
 class FrontSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -346,7 +390,9 @@ class FullStorySourceConfig(config.Config):
 
 @config.config
 class GitLabSourceConfig(config.Config):
-    pass
+    personal_access_token: str
+    project: str
+    gitlab_host: str | None = None
 
 
 @config.config
@@ -357,7 +403,8 @@ class GithubSourceConfig(config.Config):
 
 @config.config
 class GongSourceConfig(config.Config):
-    pass
+    access_key: str
+    access_key_secret: str
 
 
 @config.config
@@ -378,23 +425,31 @@ class GoogleDriveSourceConfig(config.Config):
 
 
 @config.config
+class GoogleSearchConsoleSourceConfig(config.Config):
+    site_url: str
+    google_search_console_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
 class GoogleSheetsSourceConfig(config.Config):
     spreadsheet_url: str
 
 
 @config.config
 class GorgiasSourceConfig(config.Config):
-    pass
+    gorgias_domain: str
+    email: str
+    api_key: str
 
 
 @config.config
 class GranolaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
 class GreenhouseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -415,17 +470,20 @@ class InstagramSourceConfig(config.Config):
 
 @config.config
 class IntercomSourceConfig(config.Config):
-    pass
+    intercom_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
 class IterableSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
 class JiraSourceConfig(config.Config):
-    pass
+    subdomain: str
+    email: str
+    api_token: str
 
 
 @config.config
@@ -440,12 +498,12 @@ class KlaviyoSourceConfig(config.Config):
 
 @config.config
 class LaunchDarklySourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
 class LeverSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -467,6 +525,7 @@ class MSSQLSourceConfig(config.Config):
     password: str
     schema: str
     port: int = config.value(converter=int)
+    connection_string: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
 
 
@@ -477,12 +536,13 @@ class MailchimpSourceConfig(config.Config):
 
 @config.config
 class MailerLiteSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
 class MailjetSourceConfig(config.Config):
-    pass
+    api_key: str
+    secret_key: str
 
 
 @config.config
@@ -504,7 +564,10 @@ class MicrosoftTeamsSourceConfig(config.Config):
 
 @config.config
 class MixpanelSourceConfig(config.Config):
-    pass
+    project_id: str
+    service_account_username: str
+    service_account_secret: str
+    region: Literal["us", "eu", "in"] = config.value(default="us")
 
 
 @config.config
@@ -525,6 +588,7 @@ class MySQLSourceConfig(config.Config):
     password: str
     schema: str
     port: int = config.value(converter=int)
+    connection_string: str | None = None
     using_ssl: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
     ssh_tunnel: SSHTunnelConfig | None = None
 
@@ -536,17 +600,18 @@ class NetSuiteSourceConfig(config.Config):
 
 @config.config
 class NotionSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
 class OktaSourceConfig(config.Config):
-    pass
+    okta_domain: str
+    api_key: str
 
 
 @config.config
 class OmnisendSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -566,12 +631,12 @@ class OutreachSourceConfig(config.Config):
 
 @config.config
 class PaddleSourceConfig(config.Config):
-    pass
+    paddle_api_key: str
 
 
 @config.config
 class PagerDutySourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -586,7 +651,15 @@ class PayPalSourceConfig(config.Config):
 
 @config.config
 class PendoSourceConfig(config.Config):
-    pass
+    integration_key: str
+    region: Literal["us", "us1", "eu", "jp", "au"] = config.value(default="us")
+
+
+@config.config
+class PgAnalyzeSourceConfig(config.Config):
+    api_key: str
+    organization_slug: str
+    api_url: str | None = None
 
 
 @config.config
@@ -597,7 +670,8 @@ class PinterestAdsSourceConfig(config.Config):
 
 @config.config
 class PipedriveSourceConfig(config.Config):
-    pass
+    company_domain: str
+    api_token: str
 
 
 @config.config
@@ -606,8 +680,13 @@ class PlaidSourceConfig(config.Config):
 
 
 @config.config
+class PlainSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class PolarSourceConfig(config.Config):
-    pass
+    polar_api_key: str
 
 
 @config.config
@@ -624,12 +703,12 @@ class PostgresSourceConfig(config.Config):
 
 @config.config
 class PostmarkSourceConfig(config.Config):
-    pass
+    server_token: str
 
 
 @config.config
 class ProductboardSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -639,12 +718,13 @@ class QuickBooksSourceConfig(config.Config):
 
 @config.config
 class RechargeSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
 class RecurlySourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -666,8 +746,14 @@ class RedshiftSourceConfig(config.Config):
 
 
 @config.config
+class ResendSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class RevenueCatSourceConfig(config.Config):
-    pass
+    secret_api_key: str
+    project_id: str
 
 
 @config.config
@@ -682,7 +768,7 @@ class SFTPSourceConfig(config.Config):
 
 @config.config
 class SalesLoftSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -692,7 +778,7 @@ class SalesforceSourceConfig(config.Config):
 
 @config.config
 class SendGridSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -706,7 +792,8 @@ class SentrySourceConfig(config.Config):
 
 @config.config
 class ServiceNowSourceConfig(config.Config):
-    pass
+    instance_url: str
+    auth_method: ServiceNowAuthMethodConfig
 
 
 @config.config
@@ -723,7 +810,7 @@ class ShopifySourceConfig(config.Config):
 
 @config.config
 class ShortcutSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -733,7 +820,7 @@ class SlackSourceConfig(config.Config):
 
 @config.config
 class SmartsheetSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -749,12 +836,14 @@ class SnowflakeSourceConfig(config.Config):
     warehouse: str
     auth_type: SnowflakeAuthTypeConfig
     schema: str
+    connection_string: str | None = None
     role: str | None = None
 
 
 @config.config
 class SquareSourceConfig(config.Config):
-    pass
+    access_token: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
@@ -777,7 +866,8 @@ class SupabaseSourceConfig(config.Config):
 
 @config.config
 class SurveyMonkeySourceConfig(config.Config):
-    pass
+    access_token: str
+    data_center: Literal["us", "eu", "ca"] = config.value(default="us")
 
 
 @config.config
@@ -799,12 +889,14 @@ class TikTokAdsSourceConfig(config.Config):
 
 @config.config
 class TrelloSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_token: str
 
 
 @config.config
 class TwilioSourceConfig(config.Config):
-    pass
+    account_sid: str
+    auth_method: TwilioAuthMethodConfig
 
 
 @config.config
@@ -828,12 +920,15 @@ class VitallySourceConfig(config.Config):
 
 @config.config
 class WebflowSourceConfig(config.Config):
-    pass
+    api_token: str
+    site_id: str
 
 
 @config.config
 class WooCommerceSourceConfig(config.Config):
-    pass
+    store_url: str
+    consumer_key: str
+    consumer_secret: str
 
 
 @config.config
@@ -842,8 +937,14 @@ class WorkdaySourceConfig(config.Config):
 
 
 @config.config
+class WorkOSSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class WrikeSourceConfig(config.Config):
-    pass
+    access_token: str
+    host: str
 
 
 @config.config
@@ -870,7 +971,9 @@ class ZohoCRMSourceConfig(config.Config):
 
 @config.config
 class ZoomSourceConfig(config.Config):
-    pass
+    account_id: str
+    client_id: str
+    client_secret: str
 
 
 @config.config
@@ -916,6 +1019,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.CONVERTKIT: ConvertKitSourceConfig,
         ExternalDataSourceType.CONVEX: ConvexSourceConfig,
         ExternalDataSourceType.COPPER: CopperSourceConfig,
+        ExternalDataSourceType.CUSTOM: CustomSourceConfig,
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DATADOG: DatadogSourceConfig,
         ExternalDataSourceType.DOIT: DoItSourceConfig,
@@ -935,6 +1039,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.GOOGLEADS: GoogleAdsSourceConfig,
         ExternalDataSourceType.GOOGLEANALYTICS: GoogleAnalyticsSourceConfig,
         ExternalDataSourceType.GOOGLEDRIVE: GoogleDriveSourceConfig,
+        ExternalDataSourceType.GOOGLESEARCHCONSOLE: GoogleSearchConsoleSourceConfig,
         ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
         ExternalDataSourceType.GORGIAS: GorgiasSourceConfig,
         ExternalDataSourceType.GRANOLA: GranolaSourceConfig,
@@ -974,9 +1079,11 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PARDOT: PardotSourceConfig,
         ExternalDataSourceType.PAYPAL: PayPalSourceConfig,
         ExternalDataSourceType.PENDO: PendoSourceConfig,
+        ExternalDataSourceType.PGANALYZE: PgAnalyzeSourceConfig,
         ExternalDataSourceType.PINTERESTADS: PinterestAdsSourceConfig,
         ExternalDataSourceType.PIPEDRIVE: PipedriveSourceConfig,
         ExternalDataSourceType.PLAID: PlaidSourceConfig,
+        ExternalDataSourceType.PLAIN: PlainSourceConfig,
         ExternalDataSourceType.POLAR: PolarSourceConfig,
         ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
         ExternalDataSourceType.POSTMARK: PostmarkSourceConfig,
@@ -986,6 +1093,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.RECURLY: RecurlySourceConfig,
         ExternalDataSourceType.REDDITADS: RedditAdsSourceConfig,
         ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
+        ExternalDataSourceType.RESEND: ResendSourceConfig,
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.RINGCENTRAL: RingCentralSourceConfig,
         ExternalDataSourceType.SFTP: SFTPSourceConfig,
@@ -1015,6 +1123,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.WEBFLOW: WebflowSourceConfig,
         ExternalDataSourceType.WOOCOMMERCE: WooCommerceSourceConfig,
         ExternalDataSourceType.WORKDAY: WorkdaySourceConfig,
+        ExternalDataSourceType.WORKOS: WorkOSSourceConfig,
         ExternalDataSourceType.WRIKE: WrikeSourceConfig,
         ExternalDataSourceType.XERO: XeroSourceConfig,
         ExternalDataSourceType.YOUTUBEANALYTICS: YouTubeAnalyticsSourceConfig,

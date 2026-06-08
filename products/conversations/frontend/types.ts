@@ -4,13 +4,16 @@ import type { TicketAssignee } from './components/Assignee'
 
 export type NotificationPermission = 'default' | 'granted' | 'denied'
 export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'resolved'
-export type TicketChannel = 'widget' | 'slack' | 'email'
+export type TicketChannel = 'widget' | 'slack' | 'email' | 'teams' | 'github'
 export type TicketChannelDetail =
     | 'slack_channel_message'
     | 'slack_bot_mention'
     | 'slack_emoji_reaction'
+    | 'teams_channel_message'
+    | 'teams_bot_mention'
     | 'widget_embedded'
     | 'widget_api'
+    | 'github_issue'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
 export type TicketPriority = 'low' | 'medium' | 'high'
 export type SceneTabKey = 'tickets' | 'settings'
@@ -95,6 +98,8 @@ export interface Ticket {
     email_from?: string | null
     email_to?: string | null
     cc_participants?: string[]
+    github_repo?: string | null
+    github_issue_number?: number | null
     person?: TicketPerson | null
     tags?: string[]
 }
@@ -132,6 +137,9 @@ export interface MessageAuthor {
     email?: string
 }
 
+/** Delivery state of an outbound email reply, denormalized from the backend outbox. */
+export type EmailDeliveryStatus = 'sending' | 'sent' | 'failed'
+
 export interface ChatMessage {
     id: string
     content: string
@@ -141,6 +149,7 @@ export interface ChatMessage {
     createdBy?: MessageAuthor | null
     createdAt: string
     isPrivate?: boolean
+    emailDeliveryStatus?: EmailDeliveryStatus
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [
@@ -186,7 +195,9 @@ export const channelOptions: { value: TicketChannel | 'all'; label: string }[] =
     { value: 'all', label: 'All channels' },
     { value: 'widget', label: 'Widget' },
     { value: 'slack', label: 'Slack' },
+    { value: 'teams', label: 'Microsoft Teams' },
     { value: 'email', label: 'Email' },
+    { value: 'github', label: 'GitHub' },
 ]
 
 export const slaOptions: { value: TicketSlaState | 'all'; label: string }[] = [

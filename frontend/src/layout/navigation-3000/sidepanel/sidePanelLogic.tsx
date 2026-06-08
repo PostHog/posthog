@@ -4,9 +4,10 @@ import { combineUrl, router, urlToAction } from 'kea-router'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
-import { SidePanelTab } from '~/types'
+import { AvailableFeature, SidePanelTab } from '~/types'
 
 import { sidePanelContextLogic } from './sidePanelContextLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
@@ -35,14 +36,22 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['scenePanelIsPresent'],
             preflightLogic,
             ['isCloudOrDev'],
+            userLogic,
+            ['hasAvailableFeature'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     })),
 
     selectors({
         enabledTabs: [
-            (s) => [s.sceneSidePanelContext, s.currentTeam, s.scenePanelIsPresent, s.isCloudOrDev],
-            (sceneSidePanelContext, currentTeam, scenePanelIsPresent, isCloudOrDev) => {
+            (s) => [
+                s.sceneSidePanelContext,
+                s.currentTeam,
+                s.scenePanelIsPresent,
+                s.isCloudOrDev,
+                s.hasAvailableFeature,
+            ],
+            (sceneSidePanelContext, currentTeam, scenePanelIsPresent, isCloudOrDev, hasAvailableFeature) => {
                 const tabs: SidePanelTab[] = []
 
                 if (scenePanelIsPresent) {
@@ -52,17 +61,13 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 tabs.push(SidePanelTab.Max)
                 tabs.push(SidePanelTab.Notebooks)
 
-                if (sceneSidePanelContext?.activity_scope) {
+                if (sceneSidePanelContext?.activity_scope && hasAvailableFeature(AvailableFeature.AUDIT_LOGS)) {
                     tabs.push(SidePanelTab.Activity)
                 }
                 tabs.push(SidePanelTab.Discussion)
 
                 if (sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id) {
                     tabs.push(SidePanelTab.AccessControl)
-                }
-
-                if (sceneSidePanelContext.settings_section) {
-                    tabs.push(SidePanelTab.Settings)
                 }
 
                 // Exports and Support are openable programmatically but not shown in the nav bar
@@ -85,7 +90,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             (s) => [s.enabledTabs],
             (enabledTabs): SidePanelTab[] => {
                 // Some tabs are openable programmatically but not shown in the nav bar
-                const hiddenTabs = [SidePanelTab.Exports]
+                const hiddenTabs: SidePanelTab[] = [SidePanelTab.Exports]
                 return enabledTabs.filter((tab) => !hiddenTabs.includes(tab))
             },
         ],

@@ -5,7 +5,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { CommonConfig } from '../common/config'
-import { KafkaConsumer } from '../kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../kafka/consumer'
 import {
     HealthCheckResult,
     HealthCheckResultError,
@@ -14,7 +14,10 @@ import {
     RedisPool,
 } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
-import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
+import {
+    EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerComponent,
+} from '../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
@@ -41,7 +44,7 @@ import {
     PersonDistinctIdsOutput,
     PersonsOutput,
 } from './analytics/outputs'
-import { EventFilterManager } from './common/event-filters'
+import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
 import {
     AppMetricsOutput,
     DlqOutput,
@@ -115,7 +118,7 @@ export class IngestionConsumer {
     protected name = 'ingestion-consumer'
     protected groupId: string
     protected topic: string
-    protected kafkaConsumer: KafkaConsumer
+    protected kafkaConsumer: KafkaConsumerInterface
     isStopping = false
     public hogTransformer: HogTransformerService
     private overflowRedirectService?: OverflowRedirectService
@@ -125,8 +128,12 @@ export class IngestionConsumer {
     private tokenDistinctIdsToForceOverflow: string[] = []
     private personsStore: PersonsStore
     public groupStore: BatchWritingGroupStore
-    private eventFilterManager: EventFilterManager
-    private eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    private eventFilterManagerComponent: EventFilterManagerComponent
+    private eventFilterManager!: EventFilterManager
+    private stopEventFilterManager?: () => Promise<void>
+    private eventIngestionRestrictionManagerComponent: EventIngestionRestrictionManagerComponent
+    private eventIngestionRestrictionManager!: EventIngestionRestrictionManager
+    private stopEventIngestionRestrictionManager?: () => Promise<void>
     private eventSchemaEnforcementManager: EventSchemaEnforcementManager
     public readonly promiseScheduler = new PromiseScheduler()
     private topHog!: TopHog
@@ -158,13 +165,13 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToForceOverflow = config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(deps.redisPool, {
+        this.eventIngestionRestrictionManagerComponent = new EventIngestionRestrictionManagerComponent(deps.redisPool, {
             pipeline: 'analytics',
             staticDropEventTokens: this.tokenDistinctIdsToDrop,
             staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
             staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
         })
-        this.eventFilterManager = new EventFilterManager(deps.postgres)
+        this.eventFilterManagerComponent = new EventFilterManagerComponent(deps.postgres)
         this.eventSchemaEnforcementManager = new EventSchemaEnforcementManager(deps.postgres)
 
         this.name = `ingestion-consumer-${this.topic}`
@@ -215,7 +222,7 @@ export class IngestionConsumer {
             }
         )
 
-        this.kafkaConsumer = new KafkaConsumer({
+        this.kafkaConsumer = createKafkaConsumer({
             groupId: this.groupId,
             topic: this.topic,
         })
@@ -236,6 +243,12 @@ export class IngestionConsumer {
     }
 
     public async start(): Promise<void> {
+        const startedRestrictions = await this.eventIngestionRestrictionManagerComponent.start()
+        this.eventIngestionRestrictionManager = startedRestrictions.value
+        this.stopEventIngestionRestrictionManager = startedRestrictions.stop
+        const startedFilters = await this.eventFilterManagerComponent.start()
+        this.eventFilterManager = startedFilters.value
+        this.stopEventFilterManager = startedFilters.stop
         await this.hogTransformer.start()
 
         this.topHog.start()
@@ -261,7 +274,8 @@ export class IngestionConsumer {
             splitAiEventsConfig: parseSplitAiEventsConfig(
                 this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
                 this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS,
-                this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY
+                this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS,
+                this.config.INGESTION_AI_EVENT_SPLITTING_PERCENTAGE
             ),
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
@@ -271,6 +285,7 @@ export class IngestionConsumer {
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
             },
+            concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
         }
         const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
             personsStore: this.personsStore,
@@ -311,6 +326,8 @@ export class IngestionConsumer {
         await this.topHog.stop()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
+        await this.stopEventFilterManager?.()
+        await this.stopEventIngestionRestrictionManager?.()
         logger.info('👍', `${this.name} - stopped!`)
     }
 

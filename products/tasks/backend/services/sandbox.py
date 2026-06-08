@@ -12,6 +12,7 @@ This module exports:
 from __future__ import annotations
 
 import os
+import re
 import shlex
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
@@ -24,6 +25,8 @@ from django.conf import settings
 
 import structlog
 from pydantic import BaseModel
+
+from products.tasks.backend.services.sandbox_config import SANDBOX_TTL_SECONDS
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
@@ -45,6 +48,7 @@ class SandboxStatus(str, Enum):
 class SandboxTemplate(str, Enum):
     DEFAULT_BASE = "default_base"
     NOTEBOOK_BASE = "notebook_base"
+    PI_BASE = "pi_base"
 
 
 class ExecutionResult(BaseModel):
@@ -60,9 +64,6 @@ class ExecutionStream(Protocol):
     def wait(self) -> ExecutionResult: ...
 
 
-SANDBOX_TTL_SECONDS = 60 * 120  # 2 hours (safety net; workflow inactivity timeout handles cleanup)
-
-
 class SandboxConfig(BaseModel):
     name: str
     template: SandboxTemplate = SandboxTemplate.DEFAULT_BASE
@@ -75,16 +76,28 @@ class SandboxConfig(BaseModel):
     memory_gb: float = 16
     cpu_cores: float = 4
     disk_size_gb: float = 64
+    vm_runtime: bool = False
 
 
 WORKING_DIR = "/tmp/workspace"
 
-PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox"})
-"""Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration."""
+PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.github"})
+"""Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration"""
+# TODO: Remove `posthog/.github` when we switch repo discovery to repo-less agent (now it works as a lightweight dummy)
+
+SENSITIVE_AGENT_RUNTIME_ENV_NAMES: frozenset[str] = frozenset({"POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN"})
+SENSITIVE_AGENT_RUNTIME_ENV_PATTERN = re.compile(
+    r"(?P<name>" + "|".join(re.escape(name) for name in SENSITIVE_AGENT_RUNTIME_ENV_NAMES) + r")="
+    r"(?P<value>'(?:[^']|'\"'\"')*'|\"(?:\\.|[^\"])*\"|\S+)"
+)
 
 
 def is_public_sandbox_repo(repository: str | None) -> bool:
     return repository is not None and repository.lower() in PUBLIC_SANDBOX_REPOS
+
+
+def redact_sandbox_command(command: str) -> str:
+    return SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
 
 
 def build_agent_runtime_env_prefix(
@@ -94,6 +107,7 @@ def build_agent_runtime_env_prefix(
     provider: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    event_ingest_token: str | None = None,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
@@ -101,6 +115,7 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_PROVIDER": provider,
         "POSTHOG_CODE_MODEL": model,
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
+        "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN": event_ingest_token,
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
@@ -209,6 +224,7 @@ class SandboxBase(ABC):
         reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
+        event_ingest_token: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -285,8 +301,15 @@ def wait_for_health_check(
     """
     health_script = (
         f"for i in $(seq 1 {max_attempts}); do "
-        f"  status=$(curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{port}/health); "
-        f'  [ "$status" = "200" ] && echo "ok:$i" && exit 0; '
+        f"  body=$(curl -s http://localhost:{port}/health); "
+        "  status=$?; "
+        '  if [ "$status" = "0" ]; then '
+        "    python3 -c '"
+        "import json, sys; "
+        "payload = json.loads(sys.argv[1]); "
+        'sys.exit(0 if payload.get("status") == "ok" and payload.get("hasSession") is True else 1)'
+        f'\' "$body" && echo "ok:$i" && exit 0; '
+        "  fi; "
         f"  sleep {poll_interval}; "
         f"done; "
         f"exit 1"

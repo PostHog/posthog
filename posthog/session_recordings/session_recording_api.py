@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import json
+import time
 import struct
 import asyncio
 import builtins
@@ -20,6 +21,7 @@ from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 import requests
 import structlog
 import posthoganalytics
+from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
@@ -38,10 +40,13 @@ from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.utils.encoders import JSONEncoder
+from temporalio.service import RPCError, RPCStatusCode
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
 from posthog.schema import (
+    HideViewedRecordings,
     MatchedRecordingEvent,
     MatchingEventsResponse,
     ProductIntentContext,
@@ -62,6 +67,7 @@ from posthog.auth import (
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SharingAccessTokenAuthentication,
+    SharingPasswordProtectedAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
@@ -72,7 +78,15 @@ from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.utils import hash_key_value
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    PersonalApiKeyRateThrottle,
+    is_rate_limit_enabled,
+    team_is_allowed_to_bypass_throttle,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import ServerSentEventRenderer
@@ -92,12 +106,21 @@ from posthog.session_recordings.utils import (
     query_as_params_to_dict,
 )
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
-from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session_video_stream
+from posthog.temporal.common.client import async_connect
+from posthog.temporal.session_replay.session_summary.workflow import (
+    SummarizeSingleSessionWorkflow,
+    execute_summarize_session_video_stream,
+)
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.output_data import OutcomeSerializer
-from ee.hogai.session_summaries.tracking import capture_session_summary_started, generate_tracking_id
+from ee.hogai.session_summaries.tracking import (
+    capture_session_summary_generated,
+    capture_session_summary_started,
+    generate_tracking_id,
+)
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
+from ee.models.team_session_summaries_config import TeamSessionSummariesConfig
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
@@ -154,6 +177,21 @@ SESSION_RECORDING_THROTTLED = Counter(
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+async def _cancel_summary_workflow(workflow_id: str) -> None:
+    """Issue a Temporal cancel for the given workflow id.
+
+    Treats NOT_FOUND as success so the cancel endpoint stays idempotent —
+    the workflow may have already finished, been cancelled, or never started.
+    """
+    client = await async_connect()
+    handle = client.get_workflow_handle(workflow_id)
+    try:
+        await handle.cancel()
+    except RPCError as exc:
+        if exc.status != RPCStatusCode.NOT_FOUND:
+            raise
 
 
 def _request_auth_type(request) -> str:
@@ -262,6 +300,9 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     activity_score = serializers.SerializerMethodField()
     has_summary = serializers.SerializerMethodField()
     summary_outcome = serializers.SerializerMethodField()
+    # Dynamic attrs set on the model instance — not Django fields, so declare explicitly
+    expiry_time = serializers.DateTimeField(read_only=True, allow_null=True)
+    recording_ttl = serializers.IntegerField(read_only=True, allow_null=True)
 
     def get_ongoing(self, obj: SessionRecording) -> bool:
         # ongoing is a custom field that we add if loading from ClickHouse
@@ -500,6 +541,34 @@ def list_recordings_response(
     return response
 
 
+class _SessionRecordingListViewShim:
+    """Minimal view shim so SessionRecordingSerializer skips list-view N+1 loads."""
+
+    action = "list"
+
+
+def session_recording_list_serializer_context(team: Team) -> dict[str, Any]:
+    return {"view": _SessionRecordingListViewShim(), "get_team": lambda: team}
+
+
+def run_recordings_list_query(
+    query: RecordingsQuery,
+    *,
+    user: User | None,
+    team: Team,
+    allow_event_property_expansion: bool = False,
+) -> dict[str, Any]:
+    """Fetch and serialize recordings the same way as SessionRecordingViewSet.list."""
+    listing_result = list_recordings_from_query(
+        query=query,
+        user=user,
+        team=team,
+        allow_event_property_expansion=allow_event_property_expansion,
+    )
+    response = list_recordings_response(listing_result, context=session_recording_list_serializer_context(team))
+    return cast(dict[str, Any], response.data)
+
+
 def ensure_not_weak(etag: str) -> str:
     """
     minio at least doesn't like weak etags, so we need to strip the W/ prefix if it exists.
@@ -655,6 +724,53 @@ class ListingSustainedRateThrottle(_TierAwareReplayThrottle):
         return listing_rates()
 
 
+def get_replay_listing_throttle_error(request, view) -> str | None:
+    """Return a client-facing error when replay listing throttles would block this request."""
+    auth_type = _request_auth_type(request)
+    for throttle_cls in (ListingBurstRateThrottle, ListingSustainedRateThrottle):
+        throttle = throttle_cls()
+        if throttle.allow_request(request, view):
+            continue
+        wait = throttle.wait()
+        scope = throttle.scope or "listing"
+        SESSION_RECORDING_THROTTLED.labels(location=scope, auth_type=auth_type).inc()
+        if wait:
+            return f"Rate limit exceeded. Expected available in {wait} seconds."
+        return "Rate limit exceeded. Try again later."
+    # None: both listing burst and sustained throttles allowed the request.
+    return None
+
+
+class SharingTokenReplayThrottle(SimpleRateThrottle):
+    """Per-token cap for replay endpoints reached via a sharing-token authenticator."""
+
+    scope = "replay_sharing_token"
+
+    def __init__(self) -> None:
+        # Read at instantiation so override_settings takes effect.
+        self.rate = settings.REPLAY_SHARING_TOKEN_RATE
+        super().__init__()
+
+    def get_cache_key(self, request, view) -> str | None:
+        auth = request.successful_authenticator
+        token = getattr(getattr(auth, "sharing_configuration", None), "access_token", None)
+        if not token:
+            return None
+        # Hash the bearer token before composing the key — mirrors PersonalApiKeyRateThrottle.
+        return self.cache_format % {"scope": self.scope, "ident": hash_key_value(token)}
+
+    def allow_request(self, request, view) -> bool:
+        if not is_rate_limit_enabled(round(time.time() / 60)):
+            return True
+        team_id = PersonalApiKeyRateThrottle.safely_get_team_id_from_view(view)
+        if team_id is not None and team_is_allowed_to_bypass_throttle(team_id):
+            return True
+        if super().allow_request(request, view):
+            return True
+        SESSION_RECORDING_THROTTLED.labels(location=self.scope, auth_type="sharing_token").inc()
+        return False
+
+
 def _length_prefix_blocks(blocks: list[bytes]) -> bytes:
     chunks = []
     for block in blocks:
@@ -717,6 +833,12 @@ class SessionRecordingViewSet(
         return SessionRecording.get_or_build(session_id=self.kwargs["pk"], team=self.team)
 
     def get_throttles(self):
+        if isinstance(
+            self.request.successful_authenticator,
+            SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+        ):
+            # Sharing-token requests get a per-token cap instead of per-IP / per-team.
+            return [SharingTokenReplayThrottle()]
         if self.action == "list":
             return [*super().get_throttles(), ListingBurstRateThrottle(), ListingSustainedRateThrottle()]
         return super().get_throttles()
@@ -1113,11 +1235,20 @@ class SessionRecordingViewSet(
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=False, url_path="batch_check_exists")
     def batch_check_exists(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        """Batch check which session IDs have recordings.
+        """Batch check which session IDs have recordings, optionally with persisted AI summary outcomes.
 
         Returns a dict mapping session_id -> exists (boolean).
         Only positive results (exists=True) are cached.
         Negative results are not cached since recordings may still be ingesting.
+
+        When ``include_outcomes`` is truthy, also returns ``outcomes`` mapping session_id ->
+        ``{"description": ...}`` for sessions with a persisted AI summary outcome description.
+
+        This action is deliberately *not* in ``scope_object_read_actions`` so personal API keys
+        cannot call it; outcome descriptions can contain user-activity text and must remain
+        scoped to authenticated session-based access.
+        Sessions without a persisted summary or without an outcome description are omitted from
+        the outcomes map rather than returned with a null value.
         """
         session_ids = request.data.get("session_ids", [])
 
@@ -1127,8 +1258,30 @@ class SessionRecordingViewSet(
         if len(session_ids) > 100:
             raise exceptions.ValidationError("Cannot check more than 100 session IDs at once")
 
+        if not all(isinstance(sid, str) for sid in session_ids):
+            raise exceptions.ValidationError("session_ids must contain only strings")
+
+        include_outcomes = bool(request.data.get("include_outcomes"))
+
         results = SessionReplayEvents().batch_exists(session_ids, self.team)
-        return Response({"results": results})
+        payload: dict[str, Any] = {"results": results}
+
+        if include_outcomes:
+            outcomes: dict[str, dict] = {}
+            try:
+                from ee.models.session_summaries import SingleSessionSummary
+            except ImportError:
+                # Distinguishes OSS deploys (expected) from EE refactors that break the import (silent feature
+                # degradation otherwise).
+                logger.warning("session_summaries module not importable; returning empty outcomes")
+            else:
+                bulk_outcomes = SingleSessionSummary.objects.get_outcomes_bulk(self.team.id, session_ids)
+                for session_id, outcome in bulk_outcomes.items():
+                    if outcome and outcome.get("description"):
+                        outcomes[session_id] = {"description": outcome["description"]}
+            payload["outcomes"] = outcomes
+
+        return Response(payload)
 
     @tracer.start_as_current_span("replay_snapshots_api")
     @extend_schema(exclude=True)
@@ -1373,7 +1526,15 @@ class SessionRecordingViewSet(
         except:
             return "unknown"
 
-    async def _generate_video_based_summary(self, session_id: str, user: User) -> AsyncGenerator[str, None]:
+    async def _generate_video_based_summary(
+        self,
+        session_id: str,
+        user: User,
+        tracking_id: str,
+        product_context: str | None = None,
+        custom_tags: dict[str, str] | None = None,
+        force_restart: bool = False,
+    ) -> AsyncGenerator[str, None]:
         """Stream video-based summarization progress events and final summary to the client.
 
         Progress events (``session-summary-progress``) carry the workflow's
@@ -1385,19 +1546,54 @@ class SessionRecordingViewSet(
         hit Django's ``list()``-materialize fallback path and buffer the entire
         response server-side before any bytes reach the client.
         """
+        success: bool | None = None
+        error_type: str | None = None
+        error_message: str | None = None
         try:
             async for chunk in execute_summarize_session_video_stream(
                 session_id=session_id,
                 user=user,
                 team=self.team,
+                force_restart=force_restart,
+                product_context=product_context,
+                custom_tags=custom_tags,
             ):
+                if chunk.startswith("event: session-summary-stream"):
+                    success = True
+                elif chunk.startswith("event: session-summary-error"):
+                    success = False
+                    error_type = "stream_error"
                 yield chunk
         except Exception as e:
+            success = False
+            error_type = type(e).__name__
+            error_message = str(e)
             capture_exception(e)
             yield serialize_to_sse_event(
                 event_label="session-summary-error",
                 event_data="Something went wrong while generating the summary. Please try again.",
             )
+        finally:
+            if success is not None:
+                await asyncio.to_thread(
+                    capture_session_summary_generated,
+                    user=user,
+                    team=self.team,
+                    tracking_id=tracking_id,
+                    summary_source="dock",
+                    summary_type="single",
+                    session_ids=[session_id],
+                    video_based=True,
+                    success=success,
+                    error_type=error_type,
+                    error_message=error_message,
+                )
+
+    def _load_team_summary_config(self) -> tuple[str | None, dict[str, str] | None]:
+        team_config = get_or_create_team_extension(self.team, TeamSessionSummariesConfig)
+        product_context = (team_config.product_context or "").strip() or None
+        custom_tags = team_config.custom_tags or None
+        return product_context, custom_tags
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
@@ -1432,21 +1628,71 @@ class SessionRecordingViewSet(
         ):
             raise exceptions.ValidationError("session summary is not enabled for this user")
         session_id = str(recording.session_id)
+
+        # Per-team monthly hard cap as a cost backstop is enforced inside
+        # `execute_summarize_session_video_stream`, just before a *fresh*
+        # workflow start — gating it here would 402 cached-summary fast-path
+        # hits and silent-attach (`id_conflict_policy=USE_EXISTING`) cases that
+        # don't issue any LLM work.
         tracking_id = generate_tracking_id()
+        force_restart = bool(request.data.get("force_restart", False)) if isinstance(request.data, dict) else False
+        product_context, custom_tags = self._load_team_summary_config()
 
         capture_session_summary_started(
             user=user,
             team=self.team,
             tracking_id=tracking_id,
-            summary_source="api",
+            summary_source="dock",
             summary_type="single",
             session_ids=[session_id],
             video_based=True,
         )
-        return StreamingHttpResponse(
-            self._generate_video_based_summary(session_id, user),
+        response = StreamingHttpResponse(
+            self._generate_video_based_summary(
+                session_id, user, tracking_id, product_context, custom_tags, force_restart=force_restart
+            ),
             content_type=ServerSentEventRenderer.media_type,
         )
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=True, url_path="summarize/cancel")
+    def cancel_summary(self, request: request.Request, **kwargs):
+        """Cancel an in-flight session summary Temporal workflow.
+
+        Idempotent: if the workflow doesn't exist (already finished, never started,
+        or already cancelled) we still return 200 so the client can fire-and-forget.
+        Stops billable LLM/rasterizer work that the user no longer cares about.
+        """
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        recording = self.get_object()
+        session_id = str(recording.session_id)
+        workflow_id = SummarizeSingleSessionWorkflow.workflow_id_for(self.team.id, session_id)
+
+        try:
+            async_to_sync(_cancel_summary_workflow)(workflow_id)
+        except Exception as e:
+            # Don't surface raw Temporal error strings to the client — gRPC
+            # error messages can leak internal hostnames, namespaces, or TLS
+            # error details. Log the full exception server-side, return a
+            # generic message to the client.
+            logger.exception(
+                "session_summary_cancel_failed",
+                error=str(e),
+                team_id=self.team.id,
+                session_id=session_id,
+                workflow_id=workflow_id,
+            )
+            return Response(
+                {"cancelled": False, "error": "An internal server error occurred. Please try again later."},
+                status=500,
+            )
+
+        return Response({"cancelled": True})
 
     async def _stream_lts_blob_v2_to_client_async(
         self,
@@ -1788,11 +2034,22 @@ def list_recordings_from_query(
 
             query_for_list = query.model_copy(update=query_updates)
 
+            # Resolve the "hide viewed recordings" filter into a server-side exclusion set, so pagination
+            # and the cursor operate on the filtered set. Skip when explicit session_ids are requested
+            # (pinned recordings, comment search) since those are intentional and shouldn't be hidden.
+            session_ids_to_exclude: list[str] = []
+            if query_for_list.session_ids is None:
+                with timer("load_viewed_recordings_to_exclude"):
+                    session_ids_to_exclude = _viewed_session_ids_to_exclude(
+                        query_for_list.hide_viewed_recordings, user, team
+                    )
+
             query_result = SessionRecordingListFromQuery(
                 query=query_for_list,
                 team=team,
                 hogql_query_modifiers=None,
                 allow_event_property_expansion=allow_event_property_expansion,
+                session_ids_to_exclude=session_ids_to_exclude,
             ).run()
             ch_session_recordings = query_result.results
 
@@ -1841,21 +2098,9 @@ def list_recordings_from_query(
             default_summary_session_ids = set()
         else:
             with timer("load_summary_existence"), tracer.start_as_current_span("load_summary_existence"):
-                summaries = (
-                    SingleSessionSummary.objects.filter(
-                        team_id=team.id,
-                        session_id__in=recording_ids_in_list,
-                        # Keep this aligned with summarize() default behavior (no extra context).
-                        extra_summary_context__isnull=True,
-                    )
-                    .order_by("session_id", "-created_at")
-                    .distinct("session_id")
-                    .values_list("session_id", "summary__session_outcome")
-                )
-                for session_id, outcome in summaries:
-                    default_summary_session_ids.add(session_id)
-                    if outcome and isinstance(outcome, dict):
-                        summary_outcomes[session_id] = outcome
+                bulk_outcomes = SingleSessionSummary.objects.get_outcomes_bulk(team.id, recording_ids_in_list)
+                default_summary_session_ids = set(bulk_outcomes.keys())
+                summary_outcomes = {sid: outcome for sid, outcome in bulk_outcomes.items() if outcome}
 
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
@@ -1903,6 +2148,42 @@ def current_user_viewed(recording_ids_in_list: list[str], user: User | None, tea
         .values_list("session_id", flat=True)
     )
     return viewed_session_recordings
+
+
+# The exclusion list is inlined into the ClickHouse query, so an unbounded set (e.g. a large team in
+# 'any-user' mode) could exceed max_query_size and make the query fail or run slowly. Cap it; the
+# client-side filter still hides any viewed recordings beyond the cap.
+MAX_VIEWED_SESSION_IDS_TO_EXCLUDE = 10_000
+
+
+def _viewed_session_ids_to_exclude(
+    hide_viewed_recordings: HideViewedRecordings | None, user: User | None, team: Team
+) -> list[str]:
+    """
+    Resolve the "hide viewed recordings" filter into the set of session_ids to exclude server-side,
+    so pagination and the result cursor operate on the already-filtered set.
+
+    - 'current-user': recordings this user has viewed (empty when there is no user, e.g. Celery callers)
+    - 'any-user': recordings any team member has viewed
+
+    Not bounded by date: SessionRecordingViewed only stores the view time (created_at), which does not
+    correspond to the recording's start_time, so a date bound would exclude/include the wrong rows.
+    Bounded by count: see MAX_VIEWED_SESSION_IDS_TO_EXCLUDE. Ordered by session_id so the truncation
+    is deterministic across paginated requests rather than returning an arbitrary slice each time.
+    """
+    queryset = SessionRecordingViewed.objects.filter(team=team)
+    if hide_viewed_recordings == HideViewedRecordings.CURRENT_USER:
+        if not user:
+            return []
+        queryset = queryset.filter(user=user)
+    elif hide_viewed_recordings != HideViewedRecordings.ANY_USER:
+        return []
+
+    return list(
+        queryset.values_list("session_id", flat=True)
+        .distinct()
+        .order_by("session_id")[:MAX_VIEWED_SESSION_IDS_TO_EXCLUDE]
+    )
 
 
 def create_openai_messages(system_content: str, user_content: str) -> list[ChatCompletionMessageParam]:

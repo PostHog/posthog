@@ -1,23 +1,26 @@
 import json
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import structlog
-from django_redis import get_redis_connection
 from temporalio import activity
 
+from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.redis import get_tasks_stream_redis_sync
 from products.tasks.backend.services.agent_command import (
+    FOLLOWUP_TIMEOUT_SECONDS,
     REFRESH_TIMEOUT_SECONDS,
     CommandResult,
     send_refresh_session,
     send_user_message,
 )
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
-from products.tasks.backend.services.sandbox import SANDBOX_TTL_SECONDS
+from products.tasks.backend.services.staged_artifacts import get_task_run_artifacts_by_id
 from products.tasks.backend.stream.redis_stream import get_task_run_stream_key
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.process_task.utils import (
@@ -37,11 +40,13 @@ REFRESH_RETRY_DELAY_SECONDS = 0.5
 @dataclass
 class SendFollowupToSandboxInput:
     run_id: str
-    message: str
+    message: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes = "read_only"
+    artifact_ids: list[str] | None = None
 
 
 @activity.defn
+@close_db_connections
 def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
     """Send a follow-up user message to the sandbox and write result markers to Redis.
 
@@ -69,11 +74,31 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
     # ACP session to a non-stale OAuth token. Non-fatal: if refresh fails we
     # still deliver the follow-up with the existing (possibly stale) creds.
     _refresh_sandbox_mcp(task_run, input.posthog_mcp_scopes, auth_token)
+    artifacts = None
+    artifact_ids = input.artifact_ids or []
+    if artifact_ids:
+        artifacts, missing_artifact_ids = get_task_run_artifacts_by_id(task_run, artifact_ids)
+        if missing_artifact_ids:
+            error_msg = f"Artifacts not found on this run: {', '.join(missing_artifact_ids)}"
+            _write_error_and_complete(input.run_id, error_msg, task_run.created_at)
+            raise RuntimeError(f"send_followup failed: {error_msg}")
 
-    result = send_user_message(task_run, input.message, auth_token=auth_token, timeout=SANDBOX_TTL_SECONDS)
+    result = send_user_message(
+        task_run,
+        input.message,
+        artifacts=artifacts,
+        auth_token=auth_token,
+        timeout=FOLLOWUP_TIMEOUT_SECONDS,
+    )
+    logger.info(
+        "send_followup_to_sandbox_attempted",
+        run_id=input.run_id,
+        has_message=bool(input.message),
+        artifact_count=len(artifacts or []),
+    )
 
     if result.success:
-        _write_turn_complete(input.run_id, _get_stop_reason(result.data))
+        _write_turn_complete(input.run_id, _get_stop_reason(result.data), task_run.created_at)
         logger.info("send_followup_delivered", run_id=input.run_id)
     else:
         logger.warning(
@@ -83,7 +108,7 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
             status_code=result.status_code,
         )
         error_msg = result.error or "Failed to send message to sandbox"
-        _write_error_and_complete(input.run_id, error_msg)
+        _write_error_and_complete(input.run_id, error_msg, task_run.created_at)
         # Propagate failure to the workflow.
         raise RuntimeError(f"send_followup failed: {error_msg}")
 
@@ -117,12 +142,14 @@ def _refresh_sandbox_mcp(
         token=access_token,
         project_id=task_run.team_id,
         scopes=scopes,
+        interaction_origin=(task_run.state or {}).get("interaction_origin"),
     )
     if task.created_by_id:
         user_mcp_configs = get_user_mcp_server_configs(
             token=access_token,
             team_id=task_run.team_id,
             user_id=task.created_by_id,
+            interaction_origin=(task_run.state or {}).get("interaction_origin"),
         )
         if user_mcp_configs:
             mcp_configs = mcp_configs + user_mcp_configs
@@ -182,7 +209,9 @@ def _get_stop_reason(result_data: dict[str, Any] | None) -> str:
     return stop_reason if isinstance(stop_reason, str) and stop_reason else STOP_REASON_END_TURN
 
 
-def _write_turn_complete(run_id: str, stop_reason: str = STOP_REASON_END_TURN) -> None:
+def _write_turn_complete(
+    run_id: str, stop_reason: str = STOP_REASON_END_TURN, created_at: datetime | None = None
+) -> None:
     """Write a synthetic turn_complete event to the Redis stream."""
     stream_key = get_task_run_stream_key(run_id)
     event = {
@@ -192,14 +221,14 @@ def _write_turn_complete(run_id: str, stop_reason: str = STOP_REASON_END_TURN) -
             "params": {"source": "posthog", "stopReason": stop_reason},
         },
     }
-    conn = get_redis_connection("default")
+    conn = get_tasks_stream_redis_sync(created_at)
     conn.xadd(stream_key, {"data": json.dumps(event)}, maxlen=2000)
 
 
-def _write_error_and_complete(run_id: str, error_message: str) -> None:
+def _write_error_and_complete(run_id: str, error_message: str, created_at: datetime | None = None) -> None:
     """Write an error event followed by turn_complete to the Redis stream."""
     stream_key = get_task_run_stream_key(run_id)
-    conn = get_redis_connection("default")
+    conn = get_tasks_stream_redis_sync(created_at)
 
     error_event = {
         "type": "notification",
@@ -209,4 +238,4 @@ def _write_error_and_complete(run_id: str, error_message: str) -> None:
         },
     }
     conn.xadd(stream_key, {"data": json.dumps(error_event)}, maxlen=2000)
-    _write_turn_complete(run_id)
+    _write_turn_complete(run_id, created_at=created_at)

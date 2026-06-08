@@ -1,7 +1,12 @@
-from typing import Optional, cast
+import logging
+from typing import TYPE_CHECKING, Optional, cast
 
+import structlog
 from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -12,17 +17,24 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
+from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
+from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection, drop_slot_and_publication
 from posthog.temporal.data_imports.sources.postgres.postgres import (
+    PostgresImplementation,
     SSLRequiredError,
     filter_postgres_incremental_fields,
     get_connection_metadata as get_postgres_connection_metadata,
     get_foreign_keys as get_postgres_foreign_keys,
+    get_leading_index_columns,
     get_postgres_row_count,
     get_primary_key_columns,
     get_schemas as get_postgres_schemas,
@@ -31,7 +43,10 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     source_requires_ssl,
 )
 
+from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
+
+log = logging.getLogger(__name__)
 
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
@@ -43,11 +58,18 @@ PostgresErrors = {
 }
 
 
+_POSTGRES_IMPLEMENTATION = PostgresImplementation()
+
+
 @SourceRegistry.register
-class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
     def __init__(self, source_name: str = "Postgres"):
         super().__init__()
         self.source_name = source_name
+
+    @property
+    def get_implementation(self) -> PostgresImplementation:
+        return _POSTGRES_IMPLEMENTATION
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -69,6 +91,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="postgresql://user:password@localhost:5432/database",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="host",
@@ -76,6 +99,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="localhost",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="port",
@@ -83,6 +107,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.NUMBER,
                         required=True,
                         placeholder="5432",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="database",
@@ -90,6 +115,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="postgres",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="user",
@@ -97,6 +123,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="postgres",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="password",
@@ -104,6 +131,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="schema",
@@ -111,10 +139,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="public",
-                        caption=(
-                            "Required for warehouse imports. Leave blank only for direct Postgres queries "
-                            "to browse tables across all non-system schemas."
-                        ),
+                        secret=False,
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
@@ -150,12 +175,71 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             "connection timeout expired": None,
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
+            "Could not establish session to SSH gateway": None,
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
+            # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
+            # decimal type — the pipeline falls back through the best-fit decimal and
+            # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely
+            # exceeds Delta Lake's decimal budget (precision > 76 or scale > 32); retrying won't
+            # help because the value shape is fixed in the source.
+            "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
+            # Raised when an integer column's source type was widened (e.g. `integer` → `bigint`)
+            # after the destination table was created with the narrower type. Delta Lake can't widen
+            # an existing column in place, so retrying won't help — the table must be reset and
+            # fully re-synced to adopt the new type.
+            "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
 
+    def reconcile_schema_metadata(
+        self,
+        source: "ExternalDataSource",
+        source_schemas: list[SourceSchema],
+        team_id: int,
+    ) -> list[str]:
+        """Delegates to `reconcile_postgres_schemas` so direct-query mode also rebuilds DWH tables."""
+        return reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+
+    def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
+        """Drop the Temporal schedule + PostHog-managed slot/publication.
+
+        Schedule lives on our side, slot lives on the customer's DB. No-op for
+        postgres sources without CDC enabled.
+        """
+        cdc_config = PostgresCDCConfig.from_source(source)
+        if not cdc_config.enabled:
+            return
+
+        # Lazy: data_load.service pulls in Temporal client / Celery setup we don't want at module load.
+        from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
+
+        # Schedule key = source id. NotFound is a no-op.
+        try:
+            delete_cdc_extraction_schedule(str(source.id))
+        except Exception:
+            log.exception("Failed to delete CDC extraction schedule", extra={"source_id": str(source.id)})
+
+        if cdc_config.management_mode != "posthog":
+            return
+        if not cdc_config.slot_name or not cdc_config.publication_name:
+            return
+
+        try:
+            with cdc_pg_connection(source, connect_timeout=10) as conn:
+                drop_slot_and_publication(conn, cdc_config.slot_name, cdc_config.publication_name)
+        except Exception:
+            log.exception(
+                "Failed to drop CDC slot/publication on source DB (best-effort)",
+                extra={"source_id": str(source.id), "slot_name": cdc_config.slot_name},
+            )
+
     def get_schemas(
-        self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: PostgresSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = []
 
@@ -192,22 +276,26 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             else:
                 row_counts = {}
 
-            # PK lookup powers `supports_cdc`. Wrap in try/except so a permissions
-            # quirk on `information_schema` (rare but possible) only disables CDC
-            # advertising for this listing instead of breaking schema discovery for
-            # everyone — including non-CDC users.
+            table_names_by_schema: dict[str, list[str]] = {}
+            table_names_by_source_location: dict[tuple[str, str], str] = {}
+            for discovered_schema in db_schemas.values():
+                table_names_by_schema.setdefault(discovered_schema.source_schema, []).append(
+                    discovered_schema.source_table_name
+                )
+            for table_name, discovered_schema in db_schemas.items():
+                table_names_by_source_location[
+                    (discovered_schema.source_schema, discovered_schema.source_table_name)
+                ] = table_name
+
             pk_columns_by_table: dict[str, list[str]] = {}
+            # `indexed_columns_by_table` is None when discovery failed (so we default
+            # `is_indexed=True` and never warn), and a dict[table -> set] when it
+            # succeeded. A successful lookup returns an empty set for tables without
+            # indexes — that's how we tell "no indexes" apart from "couldn't check".
+            indexed_columns_by_table: dict[str, set[str]] | None = {}
+            tables_with_pks: set[str] = set()
+
             try:
-                table_names_by_schema: dict[str, list[str]] = {}
-                table_names_by_source_location: dict[tuple[str, str], str] = {}
-                for discovered_schema in db_schemas.values():
-                    table_names_by_schema.setdefault(discovered_schema.source_schema, []).append(
-                        discovered_schema.source_table_name
-                    )
-                for table_name, discovered_schema in db_schemas.items():
-                    table_names_by_source_location[
-                        (discovered_schema.source_schema, discovered_schema.source_table_name)
-                    ] = table_name
                 with pg_connection(
                     host=host,
                     port=port,
@@ -215,24 +303,68 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     password=config.password,
                     database=config.database,
                 ) as conn:
-                    for source_schema, source_table_names in table_names_by_schema.items():
-                        if not source_table_names:
-                            continue
+                    # PK lookup powers `supports_cdc`. Wrap in try/except so a permissions
+                    # quirk on `pg_catalog` (rare) only disables CDC advertising for this
+                    # listing instead of breaking schema discovery for everyone — including
+                    # non-CDC users.
+                    try:
+                        for source_schema, source_table_names in table_names_by_schema.items():
+                            if not source_table_names:
+                                continue
+                            source_pk_columns_by_table = get_primary_key_columns(
+                                conn, source_schema, source_table_names
+                            )
+                            for source_table_name, pk_columns in source_pk_columns_by_table.items():
+                                display_name = table_names_by_source_location.get((source_schema, source_table_name))
+                                if display_name is not None:
+                                    pk_columns_by_table[display_name] = pk_columns
+                        tables_with_pks = set(pk_columns_by_table.keys())
+                    except Exception as e:
+                        capture_exception(e)
+                        pk_columns_by_table = {}
+                        tables_with_pks = set()
 
-                        source_pk_columns_by_table = get_primary_key_columns(conn, source_schema, source_table_names)
-                        for source_table_name, pk_columns in source_pk_columns_by_table.items():
-                            display_name = table_names_by_source_location.get((source_schema, source_table_name))
-                            if display_name is not None:
-                                pk_columns_by_table[display_name] = pk_columns
-
-                tables_with_pks = set(pk_columns_by_table.keys())
+                    # Index lookup powers the unindexed-incremental-field warning. Isolated
+                    # in its own try/except so a failure here doesn't discard PK results
+                    # (and vice versa). The helper catches and logs its own per-query errors
+                    # and returns None on failure; once any schema returns None we mark the
+                    # whole listing as unknown so the UI defaults to no warning rather than
+                    # a misleading one.
+                    try:
+                        for source_schema, source_table_names in table_names_by_schema.items():
+                            if not source_table_names:
+                                continue
+                            source_indexed_by_table = get_leading_index_columns(conn, source_schema, source_table_names)
+                            if source_indexed_by_table is None:
+                                indexed_columns_by_table = None
+                                break
+                            if indexed_columns_by_table is None:
+                                continue
+                            for source_table_name in source_table_names:
+                                display_name = table_names_by_source_location.get((source_schema, source_table_name))
+                                if display_name is not None:
+                                    # Use an empty set when the table has no indexes, so the
+                                    # frontend warning fires for those tables.
+                                    indexed_columns_by_table[display_name] = source_indexed_by_table.get(
+                                        source_table_name, set()
+                                    )
+                    except Exception as e:
+                        structlog.get_logger().warning(
+                            "Failed to detect leading index columns for Postgres schemas", exc_info=e
+                        )
+                        indexed_columns_by_table = None
             except Exception as e:
+                # Connection-level failure: neither lookup is usable.
                 capture_exception(e)
                 pk_columns_by_table = {}
+                indexed_columns_by_table = None
                 tables_with_pks = set()
 
         for table_name, discovered_schema in db_schemas.items():
             incremental_field_tuples = filter_postgres_incremental_fields(discovered_schema.columns)
+            # None when index discovery failed for the whole listing — default to True so
+            # a transient permission/query error never produces a misleading warning.
+            indexed_cols = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
             incremental_fields: list[IncrementalField] = [
                 {
                     "label": field_name,
@@ -240,6 +372,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     "field": field_name,
                     "field_type": field_type,
                     "nullable": nullable,
+                    "is_indexed": True if indexed_cols is None else field_name in indexed_cols,
                 }
                 for field_name, field_type, nullable in incremental_field_tuples
             ]
@@ -257,8 +390,10 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     source_catalog=discovered_schema.source_catalog,
                     source_schema=discovered_schema.source_schema,
                     source_table_name=discovered_schema.source_table_name,
-                    detected_primary_keys=pk_columns_by_table.get(table_name)
-                    or (["id"] if any(col[0] == "id" for col in discovered_schema.columns) else None),
+                    detected_primary_keys=resolve_detected_primary_keys(
+                        pk_columns_by_table.get(table_name),
+                        discovered_schema.columns,
+                    ),
                 )
             )
 
@@ -308,11 +443,6 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
         access_method: str,
         schema_name: Optional[str] = None,
     ) -> tuple[bool, str | None]:
-        if access_method != "direct":
-            schema = config.schema.strip() if isinstance(config.schema, str) else ""
-            if not schema and not schema_name:
-                return False, "Schema is required for warehouse imports."
-
         return self.validate_credentials(config, team_id, schema_name=schema_name)
 
     def get_connection_metadata(
@@ -370,7 +500,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
         from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 
-        from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         ssh_tunnel = self.make_ssh_tunnel_func(config)
 
@@ -385,6 +515,13 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             else None
         )
 
+        # Self-heal qualified rows that don't have schema_metadata yet by splitting the dotted name,
+        # so we don't fall through to `config.schema or "public"` + the literal dotted table name.
+        if (not source_schema or not source_table_name) and "." in inputs.schema_name:
+            inferred_schema, inferred_table = inputs.schema_name.split(".", 1)
+            source_schema = source_schema or inferred_schema
+            source_table_name = source_table_name or inferred_table
+
         # CDC streaming schemas are handled by CDCExtractionWorkflow, not here
         if schema.is_cdc and schema.cdc_mode == "streaming":
             raise CDCHandledExternally(
@@ -394,7 +531,10 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
         # CDC snapshot schemas fall through to run initial full_refresh via postgres_source()
         require_ssl = source_requires_ssl(schema.source, config)
 
-        return postgres_source(
+        # Prefer the per-row `schema_metadata.source_schema` so multi-schema warehouse sources work
+        # without needing to encode the schema in `config.schema`. Falls back to `config.schema` for
+        # legacy single-schema warehouse sources whose rows haven't been reconciled yet.
+        response = postgres_source(
             tunnel=ssh_tunnel,
             user=config.user,
             password=config.password,
@@ -411,4 +551,11 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             team_id=inputs.team_id,
             require_ssl=require_ssl,
             is_initial_sync=not schema.initial_sync_complete,
+            enabled_columns=inputs.enabled_columns,
         )
+        # `SourceResponse.name` must match `DataWarehouseTable.url_pattern` (both derived from the
+        # storage key when present, otherwise the row name) so HogQL reads from where we wrote.
+        storage_key = (schema.sync_type_config or {}).get("dwh_storage_key")
+        storage_schema_name = storage_key if isinstance(storage_key, str) and storage_key else inputs.schema_name
+        response.name = NamingConvention.normalize_identifier(storage_schema_name)
+        return response

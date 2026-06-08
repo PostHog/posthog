@@ -27,7 +27,7 @@ export const Default: Story = {
                     </EmptyDescription>
                 </EmptyHeader>
                 <EmptyContent className="flex-row justify-center gap-2">
-                    <Button>Create Project</Button>
+                    <Button variant="primary">Create Project</Button>
                     <Button variant="outline">Import Project</Button>
                 </EmptyContent>
                 <Button

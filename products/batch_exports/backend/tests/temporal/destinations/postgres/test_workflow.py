@@ -42,6 +42,7 @@ pytestmark = [
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("model", TEST_MODELS)
+@pytest.mark.parametrize("integration", [True, False], indirect=True)
 async def test_postgres_export_workflow(
     clickhouse_client,
     postgres_config,
@@ -55,6 +56,7 @@ async def test_postgres_export_workflow(
     generate_test_data,
     data_interval_start,
     data_interval_end,
+    integration,
 ):
     """Test Postgres Export Workflow end-to-end by using a local PG database.
 
@@ -75,6 +77,14 @@ async def test_postgres_export_workflow(
     elif model is not None:
         batch_export_schema = model
 
+    if integration is not None:
+        config = postgres_batch_export.destination.config.copy()
+        for conn_param in ("host", "port", "user", "password"):
+            # These should be present in the integration, so drop them to confirm
+            config.pop(conn_param)
+    else:
+        config = postgres_batch_export.destination.config
+
     workflow_id = str(uuid.uuid4())
     inputs = PostgresBatchExportInputs(
         team_id=ateam.pk,
@@ -83,7 +93,8 @@ async def test_postgres_export_workflow(
         interval=interval,
         batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
-        **postgres_batch_export.destination.config,
+        integration_id=integration.id if integration is not None else None,
+        **config,
     )
 
     sort_key = "event"

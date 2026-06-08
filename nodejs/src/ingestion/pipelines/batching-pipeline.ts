@@ -3,7 +3,9 @@ import { createOkContext } from './helpers'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResult, isOkResult } from './results'
 
-export type FeedResult = { ok: true } | { ok: false; reason: string }
+export type FeedRejectionKind = 'at_capacity' | 'before_batch_failed'
+
+export type FeedResult = { ok: true } | { ok: false; kind: FeedRejectionKind; reason: string }
 
 export interface BatchingContext {
     messageId: number
@@ -25,10 +27,16 @@ export interface AfterBatchInput<TOutput, COutput, CBatch, R extends string = ne
     batchId: number
 }
 
-export interface AfterBatchOutput<TOutput, COutput, CBatch, R extends string = never> {
-    elements: BatchPipelineResultWithContext<TOutput, COutput, R>
-    batchContext: CBatch
-}
+/**
+ * What an afterBatch pipeline produces. Structurally the same as
+ * `AfterBatchInput` — extending it means a passthrough step (one that
+ * returns its input untouched) satisfies the afterBatch contract without
+ * needing an explicit Input→Output transformer in front. The runtime
+ * downstream of `afterPipeline.process(...)` only reads `elements`, so
+ * carrying `batchId` through is harmless.
+ */
+export interface AfterBatchOutput<TOutput, COutput, CBatch, R extends string = never>
+    extends AfterBatchInput<TOutput, COutput, CBatch, R> {}
 
 export type BeforeBatchStep<TInput, CInput, CBatch> = (
     input: BeforeBatchInput<TInput, CInput>
@@ -123,7 +131,11 @@ export class BatchingPipeline<
 
     async feed(elements: OkResultWithContext<TInput, CInput>[]): Promise<FeedResult> {
         if (this.batches.size >= this.options.concurrentBatches) {
-            return { ok: false, reason: `at concurrent batch capacity (${this.options.concurrentBatches})` }
+            return {
+                ok: false,
+                kind: 'at_capacity',
+                reason: `at concurrent batch capacity (${this.options.concurrentBatches})`,
+            }
         }
 
         const batchId = this.nextBatchId++
@@ -132,7 +144,11 @@ export class BatchingPipeline<
         const beforeResult = await this.beforePipeline.process(createOkContext(beforeInput, {}))
 
         if (!isOkResult(beforeResult.result)) {
-            return { ok: false, reason: `beforeBatch hook returned non-ok result for batch ${batchId}` }
+            return {
+                ok: false,
+                kind: 'before_batch_failed',
+                reason: `beforeBatch hook returned non-ok result for batch ${batchId}`,
+            }
         }
 
         const { elements: mappedElements, batchContext } = beforeResult.result.value
