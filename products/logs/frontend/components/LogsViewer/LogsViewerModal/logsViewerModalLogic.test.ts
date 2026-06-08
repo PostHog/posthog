@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import { router } from 'kea-router'
 
 import { initKeaTests } from '~/test/init'
 
@@ -111,6 +112,35 @@ describe('logsViewerModalLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.closeLogsViewerModal()
             }).toMatchValues({ initialFilters: null })
+        })
+    })
+
+    describe('closes on navigation', () => {
+        it('closes the modal when navigating to a new scene', async () => {
+            logic.actions.openLogsViewerModal()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                router.actions.push('/project/1/dashboard')
+            }).toMatchValues({ isOpen: false })
+        })
+
+        it('does not react to query/hash-only changes on the same pathname', async () => {
+            router.actions.push('/project/1/logs')
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.openLogsViewerModal()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                router.actions.push('/project/1/logs', { search: 'foo' })
+            }).toMatchValues({ isOpen: true })
+        })
+
+        it('stays closed when navigating while not open', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/project/1/dashboard')
+            }).toMatchValues({ isOpen: false })
         })
     })
 
