@@ -682,7 +682,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         })
     }
 
-    async fetchForChecking(teamId: Team['id'], distinctId: string, batchId?: number): Promise<InternalPerson | null> {
+    async fetchForChecking(teamId: Team['id'], distinctId: string, batchId: number): Promise<InternalPerson | null> {
         this.incrementCount('fetchForChecking', distinctId)
 
         // First check the main cache
@@ -844,7 +844,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         })
     }
 
-    async fetchForUpdate(teamId: Team['id'], distinctId: string, batchId?: number): Promise<InternalPerson | null> {
+    async fetchForUpdate(teamId: Team['id'], distinctId: string, batchId: number): Promise<InternalPerson | null> {
         this.incrementCount('fetchForUpdate', distinctId)
 
         const cachedPerson = this.getCachedPersonForUpdateByDistinctId(teamId, distinctId)
@@ -966,8 +966,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         person: InternalPerson,
         distinctId: string,
         version: number,
-        tx?: PersonRepositoryTransaction,
-        batchId?: number
+        tx: PersonRepositoryTransaction | undefined,
+        batchId: number
     ): Promise<PersonMessage[]> {
         this.incrementCount('addDistinctId', distinctId)
         this.incrementDatabaseOperation('addDistinctId', distinctId)
@@ -984,7 +984,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         distinctId: string,
         limit: number | undefined,
         tx: PersonRepositoryTransaction,
-        batchId?: number
+        batchId: number
     ): Promise<MoveDistinctIdsResult> {
         this.incrementCount('moveDistinctIds', distinctId)
         this.incrementDatabaseOperation('moveDistinctIds', distinctId)
@@ -1050,12 +1050,14 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     async addPersonlessDistinctIdForMerge(
         teamId: Team['id'],
         distinctId: string,
-        tx?: PersonRepositoryTransaction
+        tx: PersonRepositoryTransaction | undefined,
+        batchId: number
     ): Promise<boolean> {
         this.incrementCount('addPersonlessDistinctIdForMerge', distinctId)
         const isMerged = await (tx || this.personRepository).addPersonlessDistinctIdForMerge(teamId, distinctId)
         // Update the batch results cache so processPersonlessStep knows this was merged
         if (isMerged) {
+            this.trackBatchEntry(batchId, teamId, distinctId)
             this.personlessBatchResults.set(this.getDistinctCacheKey(teamId, distinctId), true)
         }
         return isMerged
@@ -1063,7 +1065,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
     async processPersonlessDistinctIdsBatch(
         entries: { teamId: number; distinctId: string }[],
-        batchId?: number
+        batchId: number
     ): Promise<void> {
         if (entries.length === 0) {
             return
@@ -1395,9 +1397,9 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         isIdentified: boolean,
         uuid: string,
         primaryDistinctId: { distinctId: string; version?: number },
-        extraDistinctIds?: { distinctId: string; version?: number }[],
-        tx?: PersonRepositoryTransaction,
-        batchId?: number
+        extraDistinctIds: { distinctId: string; version?: number }[] | undefined,
+        tx: PersonRepositoryTransaction | undefined,
+        batchId: number
     ): Promise<CreatePersonResult> {
         this.incrementCount('createPerson', primaryDistinctId.distinctId)
         this.incrementDatabaseOperation('createPerson', primaryDistinctId.distinctId)

@@ -476,7 +476,7 @@ describe('BatchWritingGroupStore', () => {
             // upsertGroup on an existing group with new properties marks the cache entry dirty
             await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
 
-            await expect(groupStore.shutdown()).rejects.toThrow(/dirty cache entries/)
+            expect(() => groupStore.shutdown()).toThrow(/dirty cache entries/)
         })
 
         it('emits accumulated metrics before throwing on dirty cache', async () => {
@@ -484,7 +484,7 @@ describe('BatchWritingGroupStore', () => {
 
             const emitSpy = jest.spyOn(groupStore as any, 'emitAccumulatedMetrics')
 
-            await expect(groupStore.shutdown()).rejects.toThrow()
+            expect(() => groupStore.shutdown()).toThrow()
 
             expect(emitSpy).toHaveBeenCalledTimes(1)
         })

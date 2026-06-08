@@ -15,6 +15,7 @@ import {
     personPropertyKeyUpdateCounter,
 } from './metrics'
 import { fromInternalPerson } from './person-update-batch'
+import { BatchBoundPersonsStore } from './persons-store-for-batch'
 
 // Mock the ingestion warnings module
 jest.mock('../../../ingestion/common/ingestion-warnings', () => ({
@@ -411,14 +412,14 @@ describe('BatchWritingPersonStore', () => {
             const personStore = getPersonsStore()
 
             // Fetch for checking should cache in check cache
-            const personFromCheck = await personStore.fetchForChecking(teamId, 'test-distinct')
+            const personFromCheck = await personStore.fetchForChecking(teamId, 'test-distinct', 0)
             expect(personFromCheck).toEqual(person)
 
             const checkCache = (personStore as any)['personCheckCache']
             expect(checkCache.get('1:test-distinct')).toEqual(person)
 
             // Fetch for update should cache in update cache and return PersonUpdate converted to InternalPerson
-            const personFromUpdate = await personStore.fetchForUpdate(teamId, 'test-distinct2')
+            const personFromUpdate = await personStore.fetchForUpdate(teamId, 'test-distinct2', 0)
             expect(personFromUpdate).toBeDefined()
             expect(personFromUpdate!.id).toBe(person.id)
             expect(personFromUpdate!.team_id).toBe(person.team_id)
@@ -435,18 +436,18 @@ describe('BatchWritingPersonStore', () => {
             const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
 
             // First fetch should hit the database
-            await personStore.fetchForChecking(teamId, 'test-distinct')
+            await personStore.fetchForChecking(teamId, 'test-distinct', 0)
             expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
 
             // Second fetch should hit the cache
-            await personStore.fetchForChecking(teamId, 'test-distinct')
+            await personStore.fetchForChecking(teamId, 'test-distinct', 0)
             expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1) // No additional call
 
             // Similar for update cache
-            await personStore.fetchForUpdate(teamId, 'test-distinct2')
+            await personStore.fetchForUpdate(teamId, 'test-distinct2', 0)
             expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(2)
 
-            await personStore.fetchForUpdate(teamId, 'test-distinct2')
+            await personStore.fetchForUpdate(teamId, 'test-distinct2', 0)
             expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(2) // No additional call
         })
 
@@ -455,13 +456,13 @@ describe('BatchWritingPersonStore', () => {
             const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
 
             // First populate update cache
-            await personStore.fetchForUpdate(teamId, 'test-distinct')
+            await personStore.fetchForUpdate(teamId, 'test-distinct', 0)
 
             // Reset the mock to track new calls
             jest.clearAllMocks()
 
             // fetchForChecking should use the cached PersonUpdate instead of hitting DB
-            const result = await personStore.fetchForChecking(teamId, 'test-distinct')
+            const result = await personStore.fetchForChecking(teamId, 'test-distinct', 0)
             expect(result).toBeDefined()
             expect(mockRepo.fetchPerson).not.toHaveBeenCalled()
         })
@@ -471,10 +472,10 @@ describe('BatchWritingPersonStore', () => {
             mockRepo.fetchPerson = jest.fn().mockResolvedValue(undefined)
             const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
 
-            const checkResult = await personStore.fetchForChecking(teamId, 'nonexistent')
+            const checkResult = await personStore.fetchForChecking(teamId, 'nonexistent', 0)
             expect(checkResult).toBeNull()
 
-            const updateResult = await personStore.fetchForUpdate(teamId, 'nonexistent')
+            const updateResult = await personStore.fetchForUpdate(teamId, 'nonexistent', 0)
             expect(updateResult).toBeNull()
         })
     })
@@ -1316,7 +1317,7 @@ describe('BatchWritingPersonStore', () => {
 
             // Step 3: moveDistinctIds - this should preserve the merged cache
             const tx = createMockTransaction() as any
-            await personStore.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct', undefined, tx)
+            await personStore.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct', undefined, tx, 0)
 
             // Verify the repository method was called
             // moveDistinctIds is executed via tx, not repo
@@ -1372,7 +1373,7 @@ describe('BatchWritingPersonStore', () => {
 
             // Move distinct IDs
             const tx = createMockTransaction() as any
-            await personStore.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct', undefined, tx)
+            await personStore.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct', undefined, tx, 0)
 
             // Verify the repository method was called
             expect(tx.moveDistinctIds).toHaveBeenCalledTimes(1)
@@ -1417,7 +1418,7 @@ describe('BatchWritingPersonStore', () => {
 
             // Move distinct IDs
             const tx = createMockTransaction() as any
-            await personStore.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct', undefined, tx)
+            await personStore.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct', undefined, tx, 0)
 
             // Verify the repository method was called
             expect(tx.moveDistinctIds).toHaveBeenCalledTimes(1)
@@ -1488,7 +1489,7 @@ describe('BatchWritingPersonStore', () => {
 
             // Step 3: moveDistinctIds
             const tx = createMockTransaction() as any
-            await personStore.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct', undefined, tx)
+            await personStore.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct', undefined, tx, 0)
 
             // Verify the repository method was called
             expect(tx.moveDistinctIds).toHaveBeenCalledTimes(1)
@@ -1542,7 +1543,7 @@ describe('BatchWritingPersonStore', () => {
             const mockRepo = createMockRepository()
             const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
 
-            const result = await personStore.addPersonlessDistinctIdForMerge(teamId, 'test-distinct')
+            const result = await personStore.addPersonlessDistinctIdForMerge(teamId, 'test-distinct', undefined, 0)
 
             expect(mockRepo.addPersonlessDistinctIdForMerge).toHaveBeenCalledWith(teamId, 'test-distinct')
             expect(result).toBe(true)
@@ -1553,7 +1554,7 @@ describe('BatchWritingPersonStore', () => {
             mockRepo.addPersonlessDistinctIdForMerge = jest.fn().mockResolvedValue(false)
             const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
 
-            const result = await personStore.addPersonlessDistinctIdForMerge(teamId, 'test-distinct')
+            const result = await personStore.addPersonlessDistinctIdForMerge(teamId, 'test-distinct', undefined, 0)
 
             expect(mockRepo.addPersonlessDistinctIdForMerge).toHaveBeenCalledWith(teamId, 'test-distinct')
             expect(result).toBe(false)
@@ -2348,8 +2349,8 @@ describe('BatchWritingPersonStore', () => {
             const personStore = getPersonsStore()
 
             // Populate caches by fetching and updating a person
-            await personStore.fetchForUpdate(teamId, 'distinct-1')
-            await personStore.fetchForChecking(teamId, 'distinct-2')
+            await personStore.fetchForUpdate(teamId, 'distinct-1', 0)
+            await personStore.fetchForChecking(teamId, 'distinct-2', 0)
             await personStore.updatePersonWithPropertiesDiffForUpdate(person, { name: 'test' }, [], {}, 'distinct-1')
 
             const updateCacheSizeBefore = personStore.getUpdateCache().size
@@ -2369,7 +2370,7 @@ describe('BatchWritingPersonStore', () => {
             const personStore = getPersonsStore()
 
             // First batch: populate and flush
-            await personStore.fetchForUpdate(teamId, 'distinct-1')
+            await personStore.fetchForUpdate(teamId, 'distinct-1', 0)
             await personStore.updatePersonWithPropertiesDiffForUpdate(person, { batch: '1' }, [], {}, 'distinct-1')
             await personStore.flush()
 
@@ -2377,7 +2378,7 @@ describe('BatchWritingPersonStore', () => {
             const person2 = { ...person, id: '2', properties: { original: 'value' } }
             mockRepo.fetchPerson.mockResolvedValueOnce(person2)
 
-            await personStore.fetchForUpdate(teamId, 'distinct-2')
+            await personStore.fetchForUpdate(teamId, 'distinct-2', 0)
             await personStore.updatePersonWithPropertiesDiffForUpdate(person2, { batch: '2' }, [], {}, 'distinct-2')
             await personStore.flush()
 
@@ -2397,13 +2398,13 @@ describe('BatchWritingPersonStore', () => {
             const personBatch1 = { ...person, properties: { name: 'Batch1Person' } }
             mockRepo.fetchPerson.mockResolvedValueOnce(personBatch1)
 
-            await personStore.fetchForUpdate(teamId, 'user-1')
+            await personStore.fetchForUpdate(teamId, 'user-1', 0)
             await personStore.flush()
 
             // Second batch: same distinct_id should hit the persisted cache and
             // NOT re-fetch from DB. This is the cross-batch caching benefit
             // unlocked by the persistent-cache model.
-            const fetchedPerson = await personStore.fetchForUpdate(teamId, 'user-1')
+            const fetchedPerson = await personStore.fetchForUpdate(teamId, 'user-1', 0)
 
             expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
             expect(fetchedPerson?.properties).toEqual({ name: 'Batch1Person' })
@@ -2416,7 +2417,7 @@ describe('BatchWritingPersonStore', () => {
             // documented in the design doc — this test guards against that.
             const personStore = getPersonsStore()
 
-            await personStore.fetchForUpdate(teamId, 'distinct-1')
+            await personStore.fetchForUpdate(teamId, 'distinct-1', 0)
             await personStore.updatePersonWithPropertiesDiffForUpdate(person, { name: 'test' }, [], {}, 'distinct-1')
 
             const updateCache = personStore.getUpdateCache()
@@ -2441,7 +2442,7 @@ describe('BatchWritingPersonStore', () => {
             // delta.
             const personStore = getPersonsStore()
 
-            await personStore.fetchForUpdate(teamId, 'distinct-1')
+            await personStore.fetchForUpdate(teamId, 'distinct-1', 0)
             await personStore.updatePersonWithPropertiesDiffForUpdate(person, { round: '1' }, [], {}, 'distinct-1')
 
             const updateCacheKeyBefore = Array.from(personStore.getUpdateCache().keys())
@@ -2498,7 +2499,9 @@ describe('BatchWritingPersonStore', () => {
                 false,
                 'new-uuid',
                 { distinctId: 'primary-id' },
-                [{ distinctId: 'extra-id-1' }, { distinctId: 'extra-id-2' }, { distinctId: 'extra-id-3' }]
+                [{ distinctId: 'extra-id-1' }, { distinctId: 'extra-id-2' }, { distinctId: 'extra-id-3' }],
+                undefined,
+                0
             )
 
             // All distinct IDs should be cached - verify by checking the cache directly
@@ -2598,7 +2601,7 @@ describe('BatchWritingPersonStore', () => {
 
             // Pre-populate by fetching for update
             mockRepo.fetchPerson.mockResolvedValueOnce(person)
-            await personStoreForBatch.fetchForUpdate(teamId, 'user-1')
+            await personStoreForBatch.fetchForUpdate(teamId, 'user-1', 0)
 
             const person2 = { ...person, id: '2', team_id: teamId, distinct_id: 'user-2' }
             mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([person2])
@@ -2644,7 +2647,7 @@ describe('BatchWritingPersonStore', () => {
             await personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1', batchId: 0 }])
 
             // Now fetchForChecking should use cached data
-            const result = await personStoreForBatch.fetchForChecking(teamId, 'user-1')
+            const result = await personStoreForBatch.fetchForChecking(teamId, 'user-1', 0)
 
             // Result is InternalPerson (no distinct_id), so compare without it
             const { distinct_id: _, ...expectedPerson } = prefetchedPerson
@@ -2662,7 +2665,7 @@ describe('BatchWritingPersonStore', () => {
             await personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1', batchId: 0 }])
 
             // Now fetchForUpdate should use cached data
-            const result = await personStoreForBatch.fetchForUpdate(teamId, 'user-1')
+            const result = await personStoreForBatch.fetchForUpdate(teamId, 'user-1', 0)
 
             // Result is InternalPerson (no distinct_id), so compare without it
             const { distinct_id: _, ...expectedPerson } = prefetchedPerson
@@ -2689,7 +2692,7 @@ describe('BatchWritingPersonStore', () => {
             ])
 
             // Now call fetchForChecking while prefetch is still in flight
-            const fetchCheckingPromise = personStoreForBatch.fetchForChecking(teamId, 'user-1')
+            const fetchCheckingPromise = personStoreForBatch.fetchForChecking(teamId, 'user-1', 0)
 
             // Resolve the prefetch
             resolvePrefetch!([prefetchedPerson])
@@ -2724,7 +2727,7 @@ describe('BatchWritingPersonStore', () => {
             ])
 
             // Now call fetchForUpdate while prefetch is still in flight
-            const fetchUpdatePromise = personStoreForBatch.fetchForUpdate(teamId, 'user-1')
+            const fetchUpdatePromise = personStoreForBatch.fetchForUpdate(teamId, 'user-1', 0)
 
             // Resolve the prefetch
             resolvePrefetch!([prefetchedPerson])
@@ -2779,7 +2782,7 @@ describe('BatchWritingPersonStore', () => {
             await personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1', batchId: 0 }])
 
             // The failed prefetch left the caches empty, so fetchForUpdate must do its own fetch.
-            const result = await personStoreForBatch.fetchForUpdate(teamId, 'user-1')
+            const result = await personStoreForBatch.fetchForUpdate(teamId, 'user-1', 0)
 
             expect(result).toEqual(person)
             expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
@@ -2796,7 +2799,7 @@ describe('BatchWritingPersonStore', () => {
             mockRepo.fetchPersonsByDistinctIds.mockReturnValueOnce(fetchPromise)
 
             const prefetch = personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1', batchId: 0 }])
-            const checking = personStoreForBatch.fetchForChecking(teamId, 'user-1')
+            const checking = personStoreForBatch.fetchForChecking(teamId, 'user-1', 0)
 
             rejectFetch!(new DependencyUnavailableError('connect ECONNREFUSED', 'Postgres', new Error('boom')))
 
@@ -2817,7 +2820,7 @@ describe('BatchWritingPersonStore', () => {
             mockRepo.fetchPersonsByDistinctIds.mockReturnValueOnce(fetchPromise)
 
             const prefetch = personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1', batchId: 0 }])
-            const update = personStoreForBatch.fetchForUpdate(teamId, 'user-1')
+            const update = personStoreForBatch.fetchForUpdate(teamId, 'user-1', 0)
 
             rejectFetch!(new DependencyUnavailableError('connect ECONNREFUSED', 'Postgres', new Error('boom')))
 
@@ -2837,7 +2840,7 @@ describe('BatchWritingPersonStore', () => {
             const personStore = getPersonsStore()
 
             // BATCH 1 — set props {a, b} on distinct_id_1's person
-            await personStore.fetchForUpdate(teamId, 'distinct_id_1')
+            await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
             await personStore.updatePersonWithPropertiesDiffForUpdate(
                 person,
                 { a: '1', b: '2' },
@@ -2880,7 +2883,7 @@ describe('BatchWritingPersonStore', () => {
             mockRepo.fetchPerson.mockResolvedValue(person)
 
             // BATCH 1 — write via distinct_id_a
-            await personStore.fetchForUpdate(teamId, 'distinct_id_a')
+            await personStore.fetchForUpdate(teamId, 'distinct_id_a', 0)
             await personStore.updatePersonWithPropertiesDiffForUpdate(person, { via: 'a' }, [], {}, 'distinct_id_a')
             await personStore.flush()
 
@@ -2888,7 +2891,7 @@ describe('BatchWritingPersonStore', () => {
             // distinct_id update cache, so this hits a separate cache slot,
             // but both slots map to the same person id internally (via
             // distinctIdToPersonId resolution).
-            await personStore.fetchForUpdate(teamId, 'distinct_id_b')
+            await personStore.fetchForUpdate(teamId, 'distinct_id_b', 0)
             await personStore.updatePersonWithPropertiesDiffForUpdate(person, { via: 'b' }, [], {}, 'distinct_id_b')
             await personStore.flush()
 
@@ -2904,7 +2907,7 @@ describe('BatchWritingPersonStore', () => {
             const personStore = getPersonsStore()
 
             // BATCH 1 — write
-            await personStore.fetchForUpdate(teamId, 'distinct_id_1')
+            await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
             await personStore.updatePersonWithPropertiesDiffForUpdate(
                 person,
                 { name: 'first' },
@@ -2916,7 +2919,7 @@ describe('BatchWritingPersonStore', () => {
             expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
 
             // BATCH 2 — no writes. Just reads from the cache.
-            const cachedPerson = await personStore.fetchForUpdate(teamId, 'distinct_id_1')
+            const cachedPerson = await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
             expect(cachedPerson).toBeTruthy()
             await personStore.flush()
 
@@ -2931,8 +2934,8 @@ describe('BatchWritingPersonStore', () => {
 
             // BATCH 1 — primary distinct_id fetched, then a new distinct_id
             // is added to the same person.
-            await personStore.fetchForUpdate(teamId, 'distinct_id_primary')
-            await personStore.addDistinctId(person, 'distinct_id_secondary', 0)
+            await personStore.fetchForUpdate(teamId, 'distinct_id_primary', 0)
+            await personStore.addDistinctId(person, 'distinct_id_secondary', 0, undefined, 0)
             await personStore.flush()
 
             const distinctIdToPersonId = (personStore as any).distinctIdToPersonId as Map<string, string>
@@ -2978,8 +2981,8 @@ describe('BatchWritingPersonStore', () => {
             // → target by moving the source's distinct_ids onto the target.
             mockRepo.fetchPerson.mockResolvedValueOnce(sourcePerson).mockResolvedValueOnce(targetPerson)
 
-            await personStore.fetchForUpdate(teamId, 'distinct_id_source')
-            await personStore.fetchForUpdate(teamId, 'distinct_id_target')
+            await personStore.fetchForUpdate(teamId, 'distinct_id_source', 0)
+            await personStore.fetchForUpdate(teamId, 'distinct_id_target', 0)
 
             const tx = createMockTransaction() as any
             tx.moveDistinctIds.mockResolvedValueOnce({
@@ -2988,7 +2991,7 @@ describe('BatchWritingPersonStore', () => {
                 distinctIdsMoved: ['distinct_id_source'],
             })
 
-            await personStore.moveDistinctIds(sourcePerson, targetPerson, 'distinct_id_target', undefined, tx)
+            await personStore.moveDistinctIds(sourcePerson, targetPerson, 'distinct_id_target', undefined, tx, 0)
             await personStore.flush()
 
             // BATCH 2 — write via the previously-source distinct_id.
@@ -3194,11 +3197,22 @@ describe('BatchWritingPersonStore', () => {
 
         it('clears personlessBatchResults for evicted distinct IDs', () => {
             personStore.setCheckCachedPerson(teamId, 'user-a', null, 0)
-            ;(personStore as any)['personlessBatchResults'].set(`${teamId}|user-a`, true)
+            ;(personStore as any)['personlessBatchResults'].set(`${teamId}:user-a`, true)
 
             personStore.releaseBatch(0)
 
             expect(personStore.getPersonlessBatchResult(teamId, 'user-a')).toBeUndefined()
+        })
+
+        it('evicts personlessBatchResults written via addPersonlessDistinctIdForMerge after batch release', async () => {
+            const batchStore = new BatchBoundPersonsStore(personStore, 0)
+
+            await batchStore.addPersonlessDistinctIdForMerge(teamId, 'lonely-merge-distinct')
+            expect(personStore.getPersonlessBatchResult(teamId, 'lonely-merge-distinct')).toBe(true)
+
+            personStore.releaseBatch(0)
+
+            expect(personStore.getPersonlessBatchResult(teamId, 'lonely-merge-distinct')).toBeUndefined()
         })
 
         it('only evicts entries for the released batch, leaving other batch entries intact', () => {

@@ -76,6 +76,7 @@ export type PersonsStoreForBatch = Omit<
     | 'createPerson'
     | 'addDistinctId'
     | 'moveDistinctIds'
+    | 'addPersonlessDistinctIdForMerge'
     | 'prefetchPersons'
     | 'processPersonlessDistinctIdsBatch'
     | 'releaseBatch'
@@ -96,6 +97,11 @@ export type PersonsStoreForBatch = Omit<
         extraDistinctIds?: { distinctId: string; version?: number }[]
     ): Promise<CreatePersonResult>
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
+    addPersonlessDistinctIdForMerge(
+        teamId: number,
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<boolean>
     moveDistinctIds(
         source: InternalPerson,
         target: InternalPerson,
@@ -195,7 +201,7 @@ class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactionForBat
     }
 
     addPersonlessDistinctIdForMerge(teamId: number, distinctId: string): Promise<boolean> {
-        return this.tx.addPersonlessDistinctIdForMerge(teamId, distinctId)
+        return this.tx.addPersonlessDistinctIdForMerge(teamId, distinctId, this.batchId)
     }
 
     fetchPersonDistinctIds(person: InternalPerson, distinctId: string, limit?: number): Promise<string[]> {
@@ -332,7 +338,7 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
         distinctId: string,
         tx?: PersonRepositoryTransaction
     ): Promise<boolean> {
-        return this.store.addPersonlessDistinctIdForMerge(teamId, distinctId, tx)
+        return this.store.addPersonlessDistinctIdForMerge(teamId, distinctId, tx, this.batchId)
     }
 
     personPropertiesSize(personId: string, teamId: number): Promise<number> {

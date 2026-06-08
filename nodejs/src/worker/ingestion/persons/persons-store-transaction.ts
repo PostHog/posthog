@@ -28,8 +28,8 @@ export class PersonsStoreTransaction {
         isIdentified: boolean,
         uuid: string,
         primaryDistinctId: { distinctId: string; version?: number },
-        extraDistinctIds?: { distinctId: string; version?: number }[],
-        batchId?: number
+        extraDistinctIds: { distinctId: string; version?: number }[] | undefined,
+        batchId: number
     ): Promise<CreatePersonResult> {
         return await this.store.createPerson(
             createdAt,
@@ -82,7 +82,7 @@ export class PersonsStoreTransaction {
         person: InternalPerson,
         distinctId: string,
         version: number,
-        batchId?: number
+        batchId: number
     ): Promise<PersonMessage[]> {
         return await this.store.addDistinctId(person, distinctId, version, this.tx, batchId)
     }
@@ -91,8 +91,8 @@ export class PersonsStoreTransaction {
         source: InternalPerson,
         target: InternalPerson,
         distinctId: string,
-        limit?: number,
-        batchId?: number
+        limit: number | undefined,
+        batchId: number
     ): Promise<MoveDistinctIdsResult> {
         return await this.store.moveDistinctIds(source, target, distinctId, limit, this.tx, batchId)
     }
@@ -112,8 +112,8 @@ export class PersonsStoreTransaction {
         )
     }
 
-    async addPersonlessDistinctIdForMerge(teamId: number, distinctId: string): Promise<boolean> {
-        return await this.store.addPersonlessDistinctIdForMerge(teamId, distinctId, this.tx)
+    async addPersonlessDistinctIdForMerge(teamId: number, distinctId: string, batchId: number): Promise<boolean> {
+        return await this.store.addPersonlessDistinctIdForMerge(teamId, distinctId, this.tx, batchId)
     }
 
     async fetchPersonDistinctIds(person: InternalPerson, distinctId: string, limit?: number): Promise<string[]> {

@@ -3460,7 +3460,7 @@ describe('PersonState.processEvent()', () => {
                         })
                     }
                     // Second call succeeds - call the original method
-                    return originalMoveDistinctIds(source, target, distinctId, limit, tx)
+                    return originalMoveDistinctIds(source, target, distinctId, limit, tx, 0)
                 })
 
             // Attempt to merge persons - this should trigger the retry logic
