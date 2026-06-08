@@ -18,15 +18,19 @@ performance report. It pairs with [`query-clickhouse-via-metabase`](../query-cli
 which is the _mechanism_ (SSO-gated auth and `hogli metabase:query`). Run every query in this skill
 through that one.
 
-Reports themselves are not public. They live in the private `PostHog/query-performance-analysis` repo,
-which holds the historical reports and example query IDs; this repo holds only the tooling and
-methodology. That repo is usually checked out as a **sibling folder** to the posthog checkout (e.g.
+Reports themselves are not public. When it exists, the private `PostHog/query-performance-analysis` repo
+holds the historical reports and example query IDs; this repo holds only the tooling and methodology.
+That repo is usually checked out as a **sibling folder** to the posthog checkout (e.g.
 `../query-performance-analysis` relative to the repo root, or alongside it under the same parent
-directory). Locate it before writing up: look for a sibling directory named `query-performance-analysis`
-containing an `analysis/` folder of dated reports. **New reports are added there as a new markdown file**
-under `analysis/`, named `<YYYY-MM-DD>-<topic>.md` (match the existing naming, e.g.
-`2026-05-27-slow-queries-14d.md`). If you cannot find the sibling repo, ask the user for its path rather
-than writing the report into the public posthog repo.
+directory). Look for a sibling directory named `query-performance-analysis` containing an `analysis/`
+folder of dated reports. If you find it, **add the new report there as a new markdown file** under
+`analysis/`, named `<YYYY-MM-DD>-<topic>.md` (match the existing naming, e.g.
+`2026-05-27-slow-queries-14d.md`).
+
+**The sibling repo may not exist, and that is fine.** If you cannot find it, do not write into the public
+posthog repo and do not block on it: write the report to a temp folder instead (e.g.
+`/tmp/<YYYY-MM-DD>-<topic>.md`), tell the user where you put it, and skip the previous-report comparison
+in step 9 (there is no history to diff against).
 
 ## Data source: `posthog.query_log_archive` (not `system.query_log`)
 
@@ -122,8 +126,9 @@ mentioned. Diff against history only after the independent pass is done.
    resolved from `query_log_archive` (`WHERE query_id = '…' AND event_date = '…'`), not the old Metabase
    lookup card. Link each example to a shareable self-contained Metabase URL (the `query_link` recipe in
    `references/query-patterns.md`) so a reader clicks straight through to the query.
-9. **Diff against the previous report (do this last).** Only now, after the independent pass above, read
-   the most recent dated report in the sibling `query-performance-analysis` repo's `analysis/` folder
+9. **Diff against the previous report (do this last, if there is one).** If the sibling
+   `query-performance-analysis` repo is not present, skip this step entirely. Otherwise, only now, after
+   the independent pass above, read the most recent dated report in its `analysis/` folder
    (sort by filename date). Add a short **delta** section to the new report covering: what moved since
    last time (new incidents, findings that grew or resolved, headline numbers up or down), and a
    **follow-up check** on anything the previous report flagged as needing action (a materialization that
@@ -164,10 +169,12 @@ A report should contain, in order:
 6. Concrete recommendations tied to each finding (materialize property X, cap memory per API key,
    make pipeline Y incremental, ...).
 7. A **delta vs the previous report** (step 9): what changed since last time, plus a follow-up check on
-   each action the previous report recommended (resolved / still open / regressed, with numbers).
+   each action the previous report recommended (resolved / still open / regressed, with numbers). Omit
+   this section when there is no previous report.
 
 Save the finished report as `analysis/<YYYY-MM-DD>-<topic>.md` in the sibling
-`query-performance-analysis` repo, not in the public posthog repo.
+`query-performance-analysis` repo, never in the public posthog repo; if that repo is not present, save to
+a temp folder (e.g. `/tmp/<YYYY-MM-DD>-<topic>.md`) and tell the user the path.
 
 ## References
 
