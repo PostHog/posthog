@@ -305,9 +305,9 @@
       event_uuid String,
       distinct_id String,
       person_id String,
+      invocation_globals String,
       version UInt64,
-      is_deleted UInt8,
-      invocation_globals String
+      is_deleted UInt8
   )
   ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_hog_invocation_results_test', kafka_group_name = 'clickhouse_hog_invocation_results', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
@@ -1773,6 +1773,7 @@
       event_uuid String,
       distinct_id String,
       person_id String,
+      invocation_globals String,
       version UInt64,
       is_deleted UInt8
       
@@ -1808,6 +1809,7 @@
       event_uuid String,
       distinct_id String,
       person_id String,
+      invocation_globals String,
       version UInt64,
       is_deleted UInt8 DEFAULT 0,
       INDEX status_idx     status      TYPE set(8)             GRANULARITY 1,
@@ -1859,9 +1861,11 @@
       person_id,
       version,
       is_deleted,
-      -- `invocation_globals` is intentionally NOT selected: it's parsed off the
-      -- message but not persisted. `_partition`/`_offset` are the by-reference
-      -- pointer back to this message in the results topic, read on rerun.
+      -- `invocation_globals` is intentionally NOT selected: the column stays on the
+      -- table but the MV no longer writes it, so new rows leave it empty. It's
+      -- parsed off the message but not persisted — `_partition`/`_offset` are the
+      -- by-reference pointer back to this message in the results topic, read on
+      -- rerun.
       _timestamp,
       _offset,
       _partition
@@ -2165,9 +2169,9 @@
       event_uuid String,
       distinct_id String,
       person_id String,
+      invocation_globals String,
       version UInt64,
-      is_deleted UInt8,
-      invocation_globals String
+      is_deleted UInt8
   )
   ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_hog_invocation_results_test', kafka_group_name = 'clickhouse_hog_invocation_results', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
@@ -7823,6 +7827,7 @@
       event_uuid String,
       distinct_id String,
       person_id String,
+      invocation_globals String,
       version UInt64,
       is_deleted UInt8 DEFAULT 0,
       INDEX status_idx     status      TYPE set(8)             GRANULARITY 1,

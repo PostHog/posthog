@@ -49,14 +49,13 @@ def HOG_INVOCATION_RESULTS_ENGINE() -> ReplacingMergeTree:
 # Columns persisted on the data table and exposed via the distributed read
 # alias.
 #
-# `invocation_globals` is deliberately absent: the globals live only in the
-# results Kafka topic now (the producer still sends them in the message), and
-# reruns fetch them back by (partition, offset) from Warpstream's HTTP fetch
-# endpoint — see the rerun paginator. Persisting them in ClickHouse for the full
-# TTL is exactly the storage cost this table family is trying to avoid. The
-# reference itself needs no dedicated column: the Kafka engine's virtual
-# `_partition`/`_offset` (materialized via `KAFKA_COLUMNS_WITH_PARTITION`) record
-# the coordinates of each row's own lifecycle message.
+# `invocation_globals` is kept on the table, but the MV no longer writes it:
+# the globals also travel in the results Kafka topic (the producer still sends
+# them in the message), and reruns fetch them back by (partition, offset) from
+# Warpstream's HTTP fetch endpoint — see the rerun paginator. The Kafka engine's
+# virtual `_partition`/`_offset` (materialized via `KAFKA_COLUMNS_WITH_PARTITION`)
+# record the coordinates of each row's own lifecycle message. New rows leave
+# `invocation_globals` empty; existing rows retain whatever was written before.
 #
 # `first_scheduled_at` is set by the producer to the *original* cyclotron-
 # scheduled time and carried unchanged through retries. The ReplacingMergeTree
@@ -83,17 +82,17 @@ HOG_INVOCATION_RESULTS_STORED_COLUMNS = """
     event_uuid String,
     distinct_id String,
     person_id String,
+    invocation_globals String,
     version UInt64,
     is_deleted UInt8
 """.strip()
 
 
-# The Kafka engine still parses `invocation_globals` from each message — the
-# producer keeps sending it (the topic is the source of truth for globals). The
-# MV reads every column EXCEPT that one, so the field is parsed and dropped
-# rather than persisted. Keeping it on the Kafka engine table (which has no
-# storage) is cheap and avoids relying on `input_format_skip_unknown_fields`.
-HOG_INVOCATION_RESULTS_KAFKA_COLUMNS = HOG_INVOCATION_RESULTS_STORED_COLUMNS + ",\n    invocation_globals String"
+# The Kafka engine table has the same column set as the data table — it parses
+# `invocation_globals` off each message (the producer keeps sending it; the topic
+# is the source of truth for globals). The MV reads every column EXCEPT that one,
+# so `invocation_globals` is parsed but not written into the data table.
+HOG_INVOCATION_RESULTS_KAFKA_COLUMNS = HOG_INVOCATION_RESULTS_STORED_COLUMNS
 
 
 # The actual data lives on AUX. Skipping indexes match the listing/replay query
@@ -122,6 +121,7 @@ CREATE TABLE IF NOT EXISTS {HOG_INVOCATION_RESULTS_DATA_TABLE}
     event_uuid String,
     distinct_id String,
     person_id String,
+    invocation_globals String,
     version UInt64,
     is_deleted UInt8 DEFAULT 0,
     INDEX status_idx     status      TYPE set(8)             GRANULARITY 1,
@@ -210,9 +210,11 @@ AS SELECT
     person_id,
     version,
     is_deleted,
-    -- `invocation_globals` is intentionally NOT selected: it's parsed off the
-    -- message but not persisted. `_partition`/`_offset` are the by-reference
-    -- pointer back to this message in the results topic, read on rerun.
+    -- `invocation_globals` is intentionally NOT selected: the column stays on the
+    -- table but the MV no longer writes it, so new rows leave it empty. It's
+    -- parsed off the message but not persisted — `_partition`/`_offset` are the
+    -- by-reference pointer back to this message in the results topic, read on
+    -- rerun.
     _timestamp,
     _offset,
     _partition
