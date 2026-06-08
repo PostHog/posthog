@@ -1,4 +1,6 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { ComponentType } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
@@ -217,6 +219,14 @@ client.messages.create(
         { key: 'curl', label: 'cURL' },
     ]
 
+    // The logos are white in dark mode, but the selected segment has a light
+    // background — force the selected one's mark dark so it stays visible.
+    const providerIcon = (provider: EndpointProvider, Logo: ComponentType): JSX.Element => (
+        <span className={clsx('flex [&>svg]:size-4', endpointProvider === provider && '[&_path]:dark:fill-black')}>
+            <Logo />
+        </span>
+    )
+
     return (
         <section className="flex flex-col gap-2">
             <LemonSegmentedButton
@@ -224,24 +234,8 @@ client.messages.create(
                 value={endpointProvider}
                 onChange={setEndpointProvider}
                 options={[
-                    {
-                        value: 'openai',
-                        label: 'OpenAI',
-                        icon: (
-                            <span className="flex [&>svg]:size-4">
-                                <OpenAILogo />
-                            </span>
-                        ),
-                    },
-                    {
-                        value: 'anthropic',
-                        label: 'Anthropic',
-                        icon: (
-                            <span className="flex [&>svg]:size-4">
-                                <AnthropicLogo />
-                            </span>
-                        ),
-                    },
+                    { value: 'openai', label: 'OpenAI', icon: providerIcon('openai', OpenAILogo) },
+                    { value: 'anthropic', label: 'Anthropic', icon: providerIcon('anthropic', AnthropicLogo) },
                 ]}
             />
             <LemonTabs
