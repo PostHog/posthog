@@ -753,10 +753,10 @@ class TaskRun(models.Model):
         if not agent_active:
             return
 
-        from django.core.cache import cache
+        from products.tasks.backend.redis import get_tasks_cache
 
         cache_key = f"tasks:task_run:heartbeat:{self.id}:active"
-        if not cache.add(cache_key, True, timeout=60):
+        if not get_tasks_cache().add(cache_key, True, timeout=60):
             return
 
         import asyncio
@@ -978,7 +978,7 @@ class TaskRun(models.Model):
         }
 
     def publish_stream_event(self, event: dict[str, Any]) -> None:
-        publish_task_run_stream_event(str(self.id), event)
+        publish_task_run_stream_event(str(self.id), event, self.created_at)
 
     def publish_stream_state_event(self) -> None:
         self.publish_stream_event(self.build_stream_state_event())
