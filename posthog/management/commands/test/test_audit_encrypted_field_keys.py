@@ -73,7 +73,8 @@ class TestAuditClassify(SimpleTestCase):
         assert classify("not-encrypted-at-all", self.salt_only, self.legacy) == PLAINTEXT
 
     def test_empty_and_trivial_values_are_empty(self):
-        for value in (None, "", "{}", "[]", "null", {}, []):
+        values: list[object] = [None, "", "{}", "[]", "null", {}, []]
+        for value in values:
             assert classify(value, self.salt_only, self.legacy) == EMPTY, value
 
     def test_json_field_all_leaves_clean(self):
