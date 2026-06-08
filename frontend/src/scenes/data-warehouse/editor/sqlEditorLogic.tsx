@@ -1888,8 +1888,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // everything whenever the editor content changes.
             cache.subqueryValidationCache?.clear()
 
-            // Decorations are cheap and visual — update immediately for responsiveness.
-            cache.updateActiveQueryDecoration?.()
+            // Debounce the decoration update — updateActiveQueryDecoration calls
+            // splitQueries() and the WASM HogQL parser, which are too expensive to
+            // run synchronously on every keystroke.
+            if (cache.decorationUpdateTimeout) {
+                window.clearTimeout(cache.decorationUpdateTimeout)
+            }
+            cache.decorationUpdateTimeout = window.setTimeout(() => {
+                cache.decorationUpdateTimeout = null
+                cache.updateActiveQueryDecoration?.()
+            }, 150)
 
             // Skip re-parsing if the text hasn't changed since the last parse.
             if (cache.lastParsedQueryInput === queryInput && cache.lastParsedQueryResult !== undefined) {
