@@ -6,7 +6,6 @@ export {
     filterSchemaByOperationIds,
     resolveNestedRefs,
 } from './src/schema.mjs'
-export { generateWidgetConfigZodModule, generateZodFromOpenApiComponent } from './src/json-schema-to-zod.mjs'
 export {
     clampIntegerBounds,
     inlineSchemaRefs,
