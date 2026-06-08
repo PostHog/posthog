@@ -1717,6 +1717,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'organization',
         id: 'organization-security',
         title: 'Security',
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
         settings: [
             {
                 id: 'organization-security',
