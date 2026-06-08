@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
@@ -15,7 +15,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 
-import { aiGatewayDetailLogic, AIGatewayDetailLogicProps, EndpointTab } from './aiGatewayDetailLogic'
+import { aiGatewayDetailLogic, AIGatewayDetailLogicProps, EndpointProvider, EndpointTab } from './aiGatewayDetailLogic'
 import { GatewayCredentials } from './GatewayCredentials'
 import { UsageTiles } from './gatewayUsage'
 import { GatewayApi } from './generated/api.schemas'
@@ -107,13 +107,12 @@ function KeysTab({ gateway }: { gateway: GatewayApi }): JSX.Element {
 
 function GatewayEndpoint({ gateway }: { gateway: GatewayApi }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { endpointTab } = useValues(aiGatewayDetailLogic)
-    const { setEndpointTab } = useActions(aiGatewayDetailLogic)
+    const { endpointTab, endpointProvider } = useValues(aiGatewayDetailLogic)
+    const { setEndpointTab, setEndpointProvider } = useActions(aiGatewayDetailLogic)
 
     if (!preflight?.ai_gateway_url) {
         return (
             <section className="flex flex-col gap-2">
-                <h3 className="m-0">Endpoint</h3>
                 <p className="text-secondary m-0">
                     Set <code>AI_GATEWAY_PUBLIC_URL</code> to show this gateway's endpoint and code examples.
                 </p>
@@ -122,19 +121,17 @@ function GatewayEndpoint({ gateway }: { gateway: GatewayApi }): JSX.Element {
     }
 
     // Dispatch is namespaced by slug as a path prefix: <host>/g/<slug>/v1/<shape> (ai-gateway #80).
-    // Stock SDKs reach it with just a base-URL change — Anthropic appends "/v1/messages" to the gateway
-    // base, OpenAI appends "chat/completions" to the base + "/v1".
+    // The slug rides the path, so stock SDKs reach it with only a base-URL change.
     const gatewayBase = `${preflight.ai_gateway_url.replace(/\/$/, '')}/g/${gateway.slug}`
     const key = '<phx_ personal API key assigned to this gateway>'
 
-    // OpenAI-shaped examples (the broadest compatibility); cURL last. Anthropic SDKs
-    // work too — see the note below. The slug rides the path, so it's a base-URL change.
-    const tabs: { key: EndpointTab; label: string; language: Language; code: string }[] = [
-        {
-            key: 'typescript',
-            label: 'TypeScript',
-            language: Language.TypeScript,
-            code: `import OpenAI from 'openai'
+    // provider → language → snippet. The OpenAI SDK appends "chat/completions" to base + "/v1";
+    // the Anthropic SDK appends "/v1/messages" to the gateway base.
+    const snippets: Record<EndpointProvider, Record<EndpointTab, { language: Language; code: string }>> = {
+        openai: {
+            typescript: {
+                language: Language.TypeScript,
+                code: `import OpenAI from 'openai'
 
 const client = new OpenAI({
     baseURL: '${gatewayBase}/v1',
@@ -144,12 +141,10 @@ const response = await client.chat.completions.create({
     model: 'gpt-4o',
     messages: [{ role: 'user', content: 'Hello' }],
 })`,
-        },
-        {
-            key: 'python',
-            label: 'Python',
-            language: Language.Python,
-            code: `from openai import OpenAI
+            },
+            python: {
+                language: Language.Python,
+                code: `from openai import OpenAI
 
 client = OpenAI(
     base_url="${gatewayBase}/v1",
@@ -159,19 +154,65 @@ client.chat.completions.create(
     model="gpt-4o",
     messages=[{"role": "user", "content": "Hello"}],
 )`,
-        },
-        {
-            key: 'curl',
-            label: 'cURL',
-            language: Language.Bash,
-            code: `curl ${gatewayBase}/v1/chat/completions \\
+            },
+            curl: {
+                language: Language.Bash,
+                code: `curl ${gatewayBase}/v1/chat/completions \\
   -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
     "model": "gpt-4o",
     "messages": [{"role": "user", "content": "Hello"}]
   }'`,
+            },
         },
+        anthropic: {
+            typescript: {
+                language: Language.TypeScript,
+                code: `import Anthropic from '@anthropic-ai/sdk'
+
+const client = new Anthropic({
+    baseURL: '${gatewayBase}',
+    authToken: '${key}', // sets the Bearer header
+})
+const message = await client.messages.create({
+    model: 'claude-sonnet-4.6',
+    max_tokens: 512,
+    messages: [{ role: 'user', content: 'Hello' }],
+})`,
+            },
+            python: {
+                language: Language.Python,
+                code: `from anthropic import Anthropic
+
+client = Anthropic(
+    base_url="${gatewayBase}",
+    auth_token="${key}",  # sets the Bearer header
+)
+client.messages.create(
+    model="claude-sonnet-4.6",
+    max_tokens=512,
+    messages=[{"role": "user", "content": "Hello"}],
+)`,
+            },
+            curl: {
+                language: Language.Bash,
+                code: `curl ${gatewayBase}/v1/messages \\
+  -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "claude-sonnet-4.6",
+    "max_tokens": 512,
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'`,
+            },
+        },
+    }
+
+    const languages: { key: EndpointTab; label: string }[] = [
+        { key: 'typescript', label: 'TypeScript' },
+        { key: 'python', label: 'Python' },
+        { key: 'curl', label: 'cURL' },
     ]
 
     return (
@@ -181,19 +222,27 @@ client.chat.completions.create(
                 assigned to it.
             </p>
             <CodeSnippet language={Language.Bash}>{gatewayBase}</CodeSnippet>
+            <LemonSegmentedButton
+                size="small"
+                value={endpointProvider}
+                onChange={setEndpointProvider}
+                options={[
+                    { value: 'openai', label: 'OpenAI' },
+                    { value: 'anthropic', label: 'Anthropic' },
+                ]}
+            />
             <LemonTabs
                 activeKey={endpointTab}
                 onChange={setEndpointTab}
-                tabs={tabs.map(({ key, label, language, code }) => ({
-                    key,
-                    label,
-                    content: <CodeSnippet language={language}>{code}</CodeSnippet>,
-                }))}
+                tabs={languages.map(({ key, label }) => {
+                    const snippet = snippets[endpointProvider][key]
+                    return {
+                        key,
+                        label,
+                        content: <CodeSnippet language={snippet.language}>{snippet.code}</CodeSnippet>,
+                    }
+                })}
             />
-            <p className="text-secondary text-xs m-0">
-                Using the Anthropic SDK? Point its base URL at <code>{gatewayBase}</code> (it appends{' '}
-                <code>/v1/messages</code> itself).
-            </p>
         </section>
     )
 }
