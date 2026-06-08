@@ -173,8 +173,7 @@ if TYPE_CHECKING:
 
     from posthog.models import User
 
-    # Imported lazily where used: datawarehouse_saved_query imports this module, so a top-level
-    # import would be circular.
+    # datawarehouse_saved_query imports this module, so a top-level import would be circular.
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 tracer = trace.get_tracer(__name__)
@@ -193,10 +192,8 @@ class SerializedField:
 
 @dataclasses.dataclass
 class HogQLDatabaseSources:
-    """Everything Database.create_for needs from Postgres / feature flags / external services,
-    fetched up front by Database._fetch_sources so that Database._build_from_sources can construct
-    the HogQL tables without any I/O. Holds already-fetched Django models (with their select_related
-    and preloaded schemas) plus resolved flags and modifiers."""
+    """All I/O Database._build_from_sources needs, fetched up front by Database._fetch_sources so the
+    build phase runs without any queries."""
 
     team: "Team"
     user: Optional["User"]
@@ -376,14 +373,9 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
 def _compute_system_table_access_decision(
     team: "Team", user: Optional["User"]
 ) -> tuple[Optional["UserAccessControl"], set[str]]:
-    """Decide which scoped system tables to hide, doing all access-control I/O here so the
-    Database build phase can apply the decision without querying.
-
-    A user with no organization membership at admin level (or no user at all) loses access to every
-    access-controlled system table; otherwise a table is hidden when the user lacks access to its
-    resource scope. Returns the (warmed) UserAccessControl to attach to the database and the set of
-    system-node table names to remove. The UserAccessControl caches organization membership, roles
-    and access controls, so any later read on it is free of further queries."""
+    """Decide which scoped system tables to hide, doing the access-control I/O here so the build phase
+    can apply the result without querying. Returns the warmed UserAccessControl (whose membership/role/
+    access-control caches make later reads query-free) and the system-node table names to remove."""
     system_children = SystemTables().children
 
     # No user: remove every access-controlled system table.
@@ -674,15 +666,12 @@ class Database(BaseModel):
     def _apply_system_table_access(
         self, user_access_control: Optional["UserAccessControl"], denied_system_table_names: set[str]
     ) -> None:
-        """Apply a precomputed access-control decision (see _compute_system_table_access_decision).
-
-        The decision is made up front in _fetch_sources so this performs no I/O - it only stores the
-        UserAccessControl and removes the denied tables from the already-built "system" node."""
+        """Apply the precomputed access-control decision from _compute_system_table_access_decision,
+        without querying."""
         if user_access_control is not None:
             self.user_access_control = user_access_control
 
-        # Only record denials for system tables that actually exist on this database — a database
-        # without a "system" node (e.g. a direct-connection query) denies nothing.
+        # Record only denials we actually applied, so a database with no "system" node denies nothing.
         removed: set[str] = set()
         if denied_system_table_names:
             system_node = self.tables.children.get("system")
@@ -1118,9 +1107,8 @@ class Database(BaseModel):
         with timings.measure("data_warehouse_joins", emit_span=True):
             data_warehouse_joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
 
-        # Prefetch the saved query each dataWarehouseEventsModifier may need to resolve a timestamp
-        # field type. Warehouse/self-managed table models are read from `warehouse_tables` in the build
-        # phase, so only the saved-query lookup needs its own query here.
+        # Prefetch the saved query each modifier may resolve against; the table models come from the
+        # warehouse_tables fetch.
         event_modifier_saved_queries: dict[str, Optional[DataWarehouseSavedQuery]] = {}
         if modifiers.dataWarehouseEventsModifiers:
             with timings.measure("data_warehouse_event_modifiers_fetch", emit_span=True):
@@ -1415,8 +1403,7 @@ class Database(BaseModel):
 
         db_span.set_attribute("warehouse_table_count", len(sources.warehouse_tables))
 
-        # Index warehouse table models by name (newest by created_at wins on a name collision) so the
-        # dataWarehouseEventsModifiers path can resolve a table model without querying.
+        # Index warehouse table models by name, newest wins, mirroring the eager path's `.latest()`.
         warehouse_table_models_by_name: dict[str, DataWarehouseTable] = {}
         for warehouse_table_model in sources.warehouse_tables:
             existing = warehouse_table_models_by_name.get(warehouse_table_model.name)
@@ -1458,8 +1445,7 @@ class Database(BaseModel):
             timestamp_field_is_datetime = isinstance(table.fields.get("timestamp"), DateTimeDatabaseField)
 
             if table_has_no_timestamp_field or not timestamp_field_is_datetime:
-                # Raises DoesNotExist if the modifier names a table with no backing row, on purpose:
-                # a misconfigured modifier should fail loudly rather than silently skip timestamp setup.
+                # get_table raises (rather than skipping) when no backing row exists — see resolvers below.
                 table_model = get_table(warehouse_modifier)
                 timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
                 modifier_timestamp_field_is_timestamp = warehouse_modifier.timestamp_field == "timestamp"
@@ -1511,9 +1497,8 @@ class Database(BaseModel):
 
             return root_node
 
-        # Resolve the table model a modifier refers to from already-fetched sources. These mirror the
-        # per-modifier `.latest("created_at")` queries the eager path ran, including raising DoesNotExist
-        # when no row matches, so a modifier pointing at a missing table still fails loudly.
+        # Resolve a modifier's table model from already-fetched sources, raising DoesNotExist when no
+        # row matches just as the eager path's `.latest()` did.
         def _saved_query_model_for(wm: Any) -> "DataWarehouseSavedQuery":
             saved_query = sources.event_modifier_saved_queries.get(wm.table_name)
             if saved_query is None:
