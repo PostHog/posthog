@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconUndo } from '@posthog/icons'
+import { IconUndo, IconX } from '@posthog/icons'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
@@ -12,7 +12,8 @@ import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic
 
 export function EvaluationContextSuggestions(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { availableContexts, hiddenContexts } = useValues(defaultEvaluationContextsLogic)
+    const { availableContexts, hiddenContexts, defaultEvaluationContextsLoading } =
+        useValues(defaultEvaluationContextsLogic)
     const { hideContext, unhideContext } = useActions(defaultEvaluationContextsLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -37,13 +38,18 @@ export function EvaluationContextSuggestions(): JSX.Element | null {
                 ) : (
                     <div className="flex flex-wrap gap-2 items-center">
                         {availableContexts.map((name) => (
-                            <LemonTag
-                                key={name}
-                                type="default"
-                                closable={!restrictedReason}
-                                onClose={() => hideContext(name)}
-                            >
-                                {name}
+                            <LemonTag key={name} type="default">
+                                <span className="flex items-center gap-1">
+                                    {name}
+                                    <LemonButton
+                                        size="xsmall"
+                                        icon={<IconX />}
+                                        tooltip={`Hide "${name}" from suggestions`}
+                                        onClick={() => hideContext(name)}
+                                        disabledReason={restrictedReason}
+                                        loading={defaultEvaluationContextsLoading}
+                                    />
+                                </span>
                             </LemonTag>
                         ))}
                     </div>
@@ -64,6 +70,7 @@ export function EvaluationContextSuggestions(): JSX.Element | null {
                                         tooltip="Restore to suggestions"
                                         onClick={() => unhideContext(name)}
                                         disabledReason={restrictedReason}
+                                        loading={defaultEvaluationContextsLoading}
                                     />
                                 </span>
                             </LemonTag>

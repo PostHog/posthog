@@ -288,6 +288,17 @@ class TestEvaluationContextSuggestions(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertFalse(EvaluationContext.objects.get(name="secret", team=other_team).hidden_from_suggestions)
 
+    def test_hide_is_idempotent(self):
+        self._create_context("production")
+
+        with patch("posthog.api.team.report_user_action") as mock_report:
+            self.client.post(self.url, {"context_name": "production"}, format="json")
+            self.assertEqual(mock_report.call_count, 1)
+
+            response = self.client.post(self.url, {"context_name": "production"}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(mock_report.call_count, 1)
+
 
 class TestEvaluationContextRootTeamScoping(APIBaseTest):
     """Flags persist contexts under the project root team, so contexts must be visible and

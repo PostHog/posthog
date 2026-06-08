@@ -144,7 +144,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
 
                         const currentData = values.defaultEvaluationContexts
                         if (!currentData) {
-                            return null
+                            return currentData
                         }
 
                         return {
@@ -171,7 +171,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
 
                         const currentData = values.defaultEvaluationContexts
                         if (!currentData) {
-                            return null
+                            return currentData
                         }
 
                         return {
