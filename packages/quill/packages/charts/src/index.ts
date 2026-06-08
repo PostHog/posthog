@@ -16,6 +16,8 @@ export { TimeSeriesBarChart } from './charts/TimeSeriesBarChart/TimeSeriesBarCha
 export type { TimeSeriesBarChartConfig, TimeSeriesBarChartProps } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
 export { Sparkline } from './charts/Sparkline/Sparkline'
 export type { SparklineProps } from './charts/Sparkline/Sparkline'
+export { MetricCard } from './components/MetricCard/MetricCard'
+export type { MetricCardProps, ChangeColor, MetricChange } from './components/MetricCard/MetricCard'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
@@ -78,6 +80,10 @@ export type {
     YAxisScale,
 } from './core/types'
 export { DEFAULT_Y_AXIS_ID } from './core/types'
+
+// Theme: read a ChartTheme from quill data-viz CSS vars (with a built-in fallback palette)
+export { themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
+export type { ThemeFromCssOptions } from './core/theme'
 
 // Built-in tooltip (for reference or extension)
 export { DefaultTooltip } from './overlays/DefaultTooltip'

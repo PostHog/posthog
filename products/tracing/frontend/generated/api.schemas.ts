@@ -114,6 +114,27 @@ export interface _TracingAggregationRequestApi {
     query: _TracingAggregationQueryBodyApi
 }
 
+export interface _TracingCountBodyApi {
+    /** Date range for the count. Defaults to last hour. */
+    dateRange?: _TracingDateRangeApi
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Filter by HTTP status codes. */
+    statusCodes?: number[]
+    /** Property filters for the count. */
+    filterGroup?: _SpanPropertyFilterApi[]
+}
+
+export interface _TracingCountRequestApi {
+    /** The span count query to execute. */
+    query: _TracingCountBodyApi
+}
+
+export interface _TracingCountResponseApi {
+    /** Number of spans matching the filters. */
+    count: number
+}
+
 export interface _HasSpansResponseApi {
     /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
     hasSpans: boolean

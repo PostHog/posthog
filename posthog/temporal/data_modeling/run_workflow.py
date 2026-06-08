@@ -494,10 +494,6 @@ async def materialize_model(
     """
     await logger.ainfo(f"Starting materialization for model: label={model_label} name={saved_query.name}")
 
-    query_columns = saved_query.columns
-    if not query_columns:
-        query_columns = await database_sync_to_async(saved_query.get_columns)()
-
     if not isinstance(saved_query.query, dict):
         raise ValueError(f"Saved query {saved_query.id} is missing its query payload")
 
@@ -840,7 +836,12 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
     await logger.adebug(f"Running count query: {printed}")
 
     async with get_client() as client:
-        result = await client.read_query(printed, query_parameters=context.values)
+        async with client.apost_query(
+            query=printed,
+            query_parameters=context.values,
+            query_id=str(uuid.uuid4()),
+        ) as response:
+            result = await response.content.read()
         count = int(result.decode("utf-8").strip())
         return count
 
