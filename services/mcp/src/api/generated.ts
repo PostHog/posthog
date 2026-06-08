@@ -23611,6 +23611,47 @@ export namespace Schemas {
       readonly updated: string;
     }
 
+    export interface OrganizationPersonalAPIKeyOwner {
+      /** First name of the key's owner. */
+      readonly first_name: string;
+      /** Last name of the key's owner. */
+      readonly last_name: string;
+      /** Email address of the key's owner. */
+      readonly email: string;
+    }
+
+    export interface OrganizationPersonalAPIKeyProjectScope {
+      /** Project (team) ID the key is scoped to. */
+      id: number;
+      /** Name of the project the key is scoped to. */
+      name: string;
+    }
+
+    export interface OrganizationPersonalAPIKeyAccessScope {
+      /** Breadth of access: 'all' (every project the owner can reach), 'organization' (this whole organization), or 'projects' (specific projects listed under 'projects'). */
+      type: string;
+      /** Projects within this organization the key is scoped to, present only when type is 'projects'. */
+      projects?: OrganizationPersonalAPIKeyProjectScope[];
+    }
+
+    export interface OrganizationPersonalAPIKey {
+      /** The organization member who owns this key. */
+      readonly owner: OrganizationPersonalAPIKeyOwner;
+      /** Masked, display-safe hint of the key value (e.g. 'phx_***1234'). Not the secret. The owner sees the same masked value in their own settings, so it can be used to identify a key. */
+      readonly mask_value: string;
+      /** API scopes granted to the key, e.g. 'insight:read'. A single '*' means full access. */
+      readonly scopes: readonly string[];
+      /** Where the key's scopes apply within this organization. */
+      readonly access_scope: OrganizationPersonalAPIKeyAccessScope;
+      /**
+         * When the key was last used to authenticate, if ever.
+         * @nullable
+         */
+      readonly last_used_at: string | null;
+      /** When the key was created. */
+      readonly created_at: string;
+    }
+
     /**
      * * `error_tracking` - Error Tracking
     * `eval_clusters` - Eval Clusters
@@ -24727,6 +24768,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: OrganizationOAuthApplication[];
+    }
+
+    export interface PaginatedOrganizationPersonalAPIKeyList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: OrganizationPersonalAPIKey[];
     }
 
     export interface ParserRecipe {
@@ -46275,6 +46325,17 @@ export namespace Schemas {
     };
 
     export type OauthApplicationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type PersonalApiKeysListParams = {
     /**
      * Number of results to return per page.
      */
