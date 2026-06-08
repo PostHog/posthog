@@ -1,0 +1,55 @@
+import { useMemo } from 'react'
+
+import { LemonSkeleton } from '@posthog/lemon-ui'
+import { type ChartTheme, type Series, TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
+
+import { type ToolDailySeries } from '../mcpDashboardOverviewLogic'
+import { Card } from './Card'
+
+export function ToolUsageChart({
+    data,
+    loading,
+    theme,
+    timezone,
+}: {
+    data: ToolDailySeries
+    loading: boolean
+    theme: ChartTheme
+    timezone: string
+}): JSX.Element {
+    const series = useMemo<Series[]>(
+        () =>
+            data.tools.map((t, i) => ({
+                key: t.tool,
+                label: t.tool,
+                color: theme.colors[i % theme.colors.length],
+                data: t.data,
+            })),
+        [data, theme]
+    )
+    const config = useMemo<TimeSeriesBarChartConfig>(
+        () => ({
+            barLayout: 'stacked',
+            barCornerRadius: 2,
+            yAxis: { showGrid: false },
+            showAxisLines: true,
+            xAxis: { interval: 'day', timezone },
+            tooltip: { placement: 'cursor' },
+        }),
+        [timezone]
+    )
+
+    return (
+        <Card title="Daily breakdown of tool calls">
+            {loading && data.labels.length === 0 ? (
+                <LemonSkeleton className="h-[260px] w-full" />
+            ) : data.labels.length === 0 ? (
+                <div className="py-6 text-center text-[12px] text-secondary">No tool calls yet.</div>
+            ) : (
+                <div className="flex h-[260px] flex-col">
+                    <TimeSeriesBarChart series={series} labels={data.labels} config={config} theme={theme} />
+                </div>
+            )}
+        </Card>
+    )
+}
