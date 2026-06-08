@@ -185,10 +185,7 @@ pub fn expand_into_events(
                 // Stamp $lib so OTel-synthesized events self-identify like SDK-captured
                 // ones do. $lib_version comes from the OTel instrumentation scope version
                 // when present (e.g. the @posthog/ai exporter's version).
-                properties.insert(
-                    "$lib".to_string(),
-                    Value::String(OTEL_LIB_NAME.to_string()),
-                );
+                properties.insert("$lib".to_string(), Value::String(OTEL_LIB_NAME.to_string()));
                 if let Some(scope) = ss.scope.as_ref() {
                     if !scope.version.is_empty() {
                         properties.insert(
@@ -369,9 +366,24 @@ mod tests {
         assert!(event.timestamp.is_some());
     }
 
-    #[test]
-    fn test_lib_version_from_instrumentation_scope() {
+    #[rstest]
+    // No instrumentation scope at all -> $lib stamped, no $lib_version.
+    #[case::no_scope(None, None)]
+    // Scope present but version empty -> still no $lib_version.
+    #[case::empty_version(Some(""), None)]
+    // Scope with a version -> $lib_version taken from it.
+    #[case::with_version(Some("6.7.1"), Some("6.7.1"))]
+    fn test_lib_and_version_from_instrumentation_scope(
+        #[case] scope_version: Option<&str>,
+        #[case] expected_lib_version: Option<&str>,
+    ) {
         use opentelemetry_proto::tonic::common::v1::InstrumentationScope;
+
+        let scope = scope_version.map(|v| InstrumentationScope {
+            name: "@posthog/ai".to_string(),
+            version: v.to_string(),
+            ..Default::default()
+        });
 
         let request = ExportTraceServiceRequest {
             resource_spans: vec![ResourceSpans {
@@ -380,11 +392,7 @@ mod tests {
                     dropped_attributes_count: 0,
                 }),
                 scope_spans: vec![ScopeSpans {
-                    scope: Some(InstrumentationScope {
-                        name: "@posthog/ai".to_string(),
-                        version: "6.7.1".to_string(),
-                        ..Default::default()
-                    }),
+                    scope,
                     spans: vec![make_span(
                         vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
                         vec![1, 2, 3, 4, 5, 6, 7, 8],
@@ -406,7 +414,10 @@ mod tests {
         let events = expand_into_events(&request, "user-1");
         let props = events[0].properties.as_object().unwrap();
         assert_eq!(props["$lib"], "posthog-ai-otel");
-        assert_eq!(props["$lib_version"], "6.7.1");
+        match expected_lib_version {
+            Some(v) => assert_eq!(props["$lib_version"], v),
+            None => assert!(!props.contains_key("$lib_version")),
+        }
     }
 
     #[test]
