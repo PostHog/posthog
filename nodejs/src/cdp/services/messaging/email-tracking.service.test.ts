@@ -50,32 +50,42 @@ describe('EmailTrackingService', () => {
             return decodeURIComponent(match[1])
         }
 
-        it('preserves ampersands in URLs encoded as &amp; in the source HTML', () => {
-            const html = '<body><a href="https://example.com/?foo=bar&amp;baz=bop">click</a></body>'
-            const out = addTrackingToEmail(html, invocation)
-            expect(extractTarget(out)).toBe('https://example.com/?foo=bar&baz=bop')
-        })
-
-        it('preserves ampersands encoded via decimal and hex numeric entities', () => {
-            const decimal = addTrackingToEmail(
+        it.each([
+            [
+                'named entity &amp;',
+                '<body><a href="https://example.com/?foo=bar&amp;baz=bop">x</a></body>',
+                'https://example.com/?foo=bar&baz=bop',
+            ],
+            [
+                'decimal numeric entity &#38;',
                 '<body><a href="https://example.com/?a=1&#38;b=2">x</a></body>',
-                invocation
-            )
-            const hex = addTrackingToEmail('<body><a href="https://example.com/?a=1&#x26;b=2">x</a></body>', invocation)
-            expect(extractTarget(decimal)).toBe('https://example.com/?a=1&b=2')
-            expect(extractTarget(hex)).toBe('https://example.com/?a=1&b=2')
+                'https://example.com/?a=1&b=2',
+            ],
+            [
+                'hex numeric entity &#x26;',
+                '<body><a href="https://example.com/?a=1&#x26;b=2">x</a></body>',
+                'https://example.com/?a=1&b=2',
+            ],
+            [
+                'plain URL with no entities',
+                '<body><a href="https://example.com/path">x</a></body>',
+                'https://example.com/path',
+            ],
+        ])('decodes %s in the redirect target', (_name, html, expected) => {
+            expect(extractTarget(addTrackingToEmail(html, invocation))).toBe(expected)
         })
 
-        it('leaves plain URLs without entities unchanged in the redirect target', () => {
-            const html = '<body><a href="https://example.com/path">x</a></body>'
-            const out = addTrackingToEmail(html, invocation)
-            expect(extractTarget(out)).toBe('https://example.com/path')
-        })
-
-        it('skips javascript: hrefs', () => {
+        it('skips literal javascript: hrefs', () => {
             const html = '<body><a href="javascript:alert(1)">x</a></body>'
             const out = addTrackingToEmail(html, invocation)
             expect(out).toContain('href="javascript:alert(1)"')
+            expect(out).not.toContain('target=')
+        })
+
+        it('skips entity-encoded javascript: hrefs after decoding', () => {
+            const html = '<body><a href="java&#x73;cript:alert(1)">x</a></body>'
+            const out = addTrackingToEmail(html, invocation)
+            expect(out).toContain('href="java&#x73;cript:alert(1)"')
             expect(out).not.toContain('target=')
         })
     })
@@ -89,6 +99,10 @@ describe('EmailTrackingService', () => {
             ['https://example.com/path', 'https://example.com/path'],
             // Non-entity ampersands (legacy unencoded HTML) pass through untouched.
             ['https://example.com/?a=1&b=2', 'https://example.com/?a=1&b=2'],
+            // Out-of-range code points (> 0x10FFFF) must not throw RangeError;
+            // the entity is left as-is.
+            ['https://example.com/?x=&#x200000;', 'https://example.com/?x=&#x200000;'],
+            ['https://example.com/?x=&#2097152;', 'https://example.com/?x=&#2097152;'],
         ])('decodes %s to %s', (input, expected) => {
             expect(decodeHtmlEntitiesInHref(input)).toBe(expected)
         })

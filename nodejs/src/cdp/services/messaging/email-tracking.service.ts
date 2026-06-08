@@ -56,7 +56,9 @@ export const decodeHtmlEntitiesInHref = (value: string): string => {
             return NAMED_ENTITIES[named]
         }
         const code = dec ? parseInt(dec, 10) : parseInt(hex, 16)
-        return Number.isFinite(code) ? String.fromCodePoint(code) : _match
+        // `String.fromCodePoint` throws RangeError above 0x10FFFF — `Number.isFinite` alone
+        // wouldn't catch e.g. `&#x200000;` since `parseInt` happily returns a finite value.
+        return code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : _match
     })
 }
 
@@ -65,6 +67,11 @@ export const addTrackingToEmail = (html: string, invocation: CyclotronJobInvocat
 
     html = html.replace(LINK_REGEX, (m, d, s, u) => {
         const href = decodeHtmlEntitiesInHref(d || s || u || '')
+        // LINK_REGEX skips literal `javascript:` hrefs, but an attacker could entity-encode
+        // the scheme (e.g. `java&#x73;cript:`) to slip past it; re-check after decoding.
+        if (/^\s*javascript:/i.test(href)) {
+            return m
+        }
         const tracked = generateTrackingRedirectUrl(invocation, href)
 
         // replace just the href in the original tag to preserve other attributes
