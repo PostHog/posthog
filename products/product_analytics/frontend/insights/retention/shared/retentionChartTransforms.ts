@@ -7,15 +7,26 @@ import type {
     TrendLineConfig,
 } from '@posthog/quill-charts'
 
-import type { RetentionTrendPayload } from 'scenes/retention/types'
-
-import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
-
 import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
+import type { GoalLineLike } from 'products/product_analytics/frontend/insights/trends/shared/trendsChartDisplayOptions'
+
+// Dependency-neutral shape both the kea `RetentionTrendPayload` and lighter fixtures (e.g. the MCP
+// UI app) satisfy. Declared structurally rather than imported from `scenes/retention/types` so this
+// module stays free of `~/`/`scenes/` deps and compiles in the MCP Vite bundle, which only resolves
+// `products/*` and `@posthog/*`. The real `RetentionTrendPayload` is assignable to this (asserted in
+// retentionChartTransforms.test.ts), so web callers pass it unchanged.
+export interface RetentionResultLike {
+    count: number
+    data: number[]
+    days?: string[]
+    labels?: string[]
+    index?: number
+    breakdown_value?: string | number | null
+}
 
 // `retentionGraphLogic.trendSeries` spreads `cohortRetention` onto each entry, so the
 // runtime shape includes a cohort `label` field that the declared type doesn't list.
-export type RetentionTrendSeriesEntry = RetentionTrendPayload & { label?: string }
+export type RetentionTrendSeriesEntry = RetentionResultLike & { label?: string }
 
 export interface RetentionSeriesMeta {
     /** Original row index from the unfiltered results — drives modal opens in non-interval view. */
@@ -68,7 +79,7 @@ export function buildRetentionSeries(
 
 export interface BuildRetentionChartConfigOpts {
     isPercentage: boolean
-    goalLines?: SchemaGoalLine[] | null
+    goalLines?: GoalLineLike[] | null
     showTrendLines?: boolean
     series: Series<RetentionSeriesMeta>[]
     tooltip?: TooltipConfig
@@ -84,7 +95,7 @@ function buildTrendLines(
     return series.map((s) => ({ seriesKey: s.key, kind: 'linear' }))
 }
 
-function buildGoalLines(goalLines: SchemaGoalLine[] | null | undefined): GoalLineConfig[] | undefined {
+function buildGoalLines(goalLines: GoalLineLike[] | null | undefined): GoalLineConfig[] | undefined {
     return schemaGoalLinesToConfigs(goalLines)
 }
 

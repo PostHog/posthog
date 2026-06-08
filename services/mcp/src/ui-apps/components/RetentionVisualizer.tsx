@@ -2,8 +2,17 @@ import { type ReactElement, useMemo, useState } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
+import { TimeSeriesBarChart, TimeSeriesLineChart, type TooltipConfig } from '@posthog/quill-charts'
 
-import { BarChart, LineChart, Select, type Series } from './charts'
+import {
+    buildRetentionBarChartConfig,
+    buildRetentionLineChartConfig,
+    buildRetentionSeries,
+    type RetentionTrendSeriesEntry,
+} from 'products/product_analytics/frontend/insights/retention/shared/retentionChartTransforms'
+
+import { Select } from './charts'
+import { CHART_COLORS, CHART_THEME } from './charts/theme'
 import type {
     RetentionAggregationType,
     RetentionPeriod,
@@ -19,6 +28,8 @@ const CHART_MODE_OPTIONS = [
     { value: 'line' as const, label: 'Line' },
     { value: 'bar' as const, label: 'Bar' },
 ]
+
+const TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
 
 function formatStartDate(cohort: RetentionResultItem, period: RetentionPeriod): string | null {
     if (!cohort.date) {
@@ -113,19 +124,20 @@ function sortCohorts(results: RetentionResult): RetentionResult {
 
 // Cap at the size of the shared chart palette so each cohort gets its own distinct color rather
 // than cycling — beyond this the lines blur into noise anyway.
-const MAX_COHORTS = 8
+const MAX_COHORTS = CHART_COLORS.length
 
 export function RetentionVisualizer({ query, results }: RetentionVisualizerProps): ReactElement {
     const aggregationType: RetentionAggregationType = query?.retentionFilter?.aggregationType ?? 'count'
     const reference: RetentionReference = query?.retentionFilter?.retentionReference ?? 'total'
     const period: RetentionPeriod = query?.retentionFilter?.period ?? 'Day'
     const isPercentage = aggregationType === 'count'
+    const showTrendLines = query?.retentionFilter?.showTrendLines ?? false
 
     const [chartMode, setChartMode] = useState<ChartMode>('line')
 
-    const { series, labels, maxValue, totalCohorts } = useMemo(() => {
+    const { entries, labels, totalCohorts } = useMemo(() => {
         if (!results || results.length === 0) {
-            return { series: [] as Series[], labels: [] as string[], maxValue: 0, totalCohorts: 0 }
+            return { entries: [] as RetentionTrendSeriesEntry[], labels: [] as string[], totalCohorts: 0 }
         }
         const sorted = sortCohorts(results)
         // Cap to MAX_COHORTS so each line gets a distinct palette color rather than wrapping back
@@ -133,29 +145,47 @@ export function RetentionVisualizer({ query, results }: RetentionVisualizerProps
         const limited = sorted.slice(0, MAX_COHORTS)
         const numIntervals = limited.reduce((m, c) => Math.max(m, c.values.length), 0)
         const xLabels = buildXAxisLabels(numIntervals, period)
-        let computedMax = 0
 
-        const built: Series[] = limited.map((cohort, idx) => {
-            const points = Array.from({ length: numIntervals }, (_, i) => {
-                const y = computeSeriesValue(cohort.values, i, aggregationType, reference)
-                if (y > computedMax) {
-                    computedMax = y
-                }
-                return { x: i, y, label: xLabels[i] ?? `${i}` }
-            })
-            return {
-                label: formatCohortLegendLabel(cohort, idx + 1, period),
-                points,
-            }
-        })
-
-        return {
-            series: built,
+        const built: RetentionTrendSeriesEntry[] = limited.map((cohort, idx) => ({
+            count: cohort.values[0]?.count ?? 0,
+            data: Array.from({ length: numIntervals }, (_, i) =>
+                computeSeriesValue(cohort.values, i, aggregationType, reference)
+            ),
             labels: xLabels,
-            maxValue: computedMax || 1,
-            totalCohorts: sorted.length,
-        }
+            index: idx,
+            label: formatCohortLegendLabel(cohort, idx + 1, period),
+        }))
+
+        return { entries: built, labels: xLabels, totalCohorts: sorted.length }
     }, [results, aggregationType, reference, period])
+
+    // Each cohort is a series; the x-axis is interval offsets ("Day 0", "Day 1", ...). Assign palette
+    // colors by index so the chart and any legend stay in sync (canvas can't read CSS variables).
+    const series = useMemo(
+        () =>
+            buildRetentionSeries(entries, { isIntervalView: false }).map((s, i) => ({
+                ...s,
+                color: CHART_COLORS[i % CHART_COLORS.length]!,
+            })),
+        [entries]
+    )
+
+    const yAxisLabel = isPercentage ? 'Retention %' : aggregationType === 'sum' ? 'Sum' : 'Avg'
+
+    const lineConfig = useMemo(() => {
+        const config = buildRetentionLineChartConfig({
+            isPercentage,
+            showTrendLines,
+            series,
+            tooltip: TOOLTIP_CONFIG,
+        })
+        return { ...config, yAxis: { ...config.yAxis, label: yAxisLabel } }
+    }, [isPercentage, showTrendLines, series, yAxisLabel])
+
+    const barConfig = useMemo(() => {
+        const config = buildRetentionBarChartConfig({ isPercentage, series, tooltip: TOOLTIP_CONFIG })
+        return { ...config, yAxis: { ...config.yAxis, label: yAxisLabel } }
+    }, [isPercentage, series, yAxisLabel])
 
     if (!results || results.length === 0 || series.length === 0 || labels.length === 0) {
         return (
@@ -168,31 +198,23 @@ export function RetentionVisualizer({ query, results }: RetentionVisualizerProps
         )
     }
 
-    const yAxisLabel = isPercentage ? 'Retention %' : aggregationType === 'sum' ? 'Sum' : 'Avg'
     const truncationNotice =
         totalCohorts > MAX_COHORTS ? `Showing first ${MAX_COHORTS} of ${totalCohorts} cohorts (oldest first)` : null
 
     return (
         <div>
-            <div
-                style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginBottom: '0.5rem',
-                }}
-            >
-                <span style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary, #6b7280)' }}>
-                    {truncationNotice}
-                </span>
+            <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">{truncationNotice}</span>
                 {/* eslint-disable-next-line react/forbid-elements */}
                 <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
             </div>
-            {chartMode === 'bar' ? (
-                <BarChart series={series} labels={labels} maxValue={maxValue} yAxisLabel={yAxisLabel} />
-            ) : (
-                <LineChart series={series} labels={labels} maxValue={maxValue} yAxisLabel={yAxisLabel} />
-            )}
+            <div className="flex flex-col w-full h-[400px]">
+                {chartMode === 'bar' ? (
+                    <TimeSeriesBarChart series={series} labels={labels} theme={CHART_THEME} config={barConfig} />
+                ) : (
+                    <TimeSeriesLineChart series={series} labels={labels} theme={CHART_THEME} config={lineConfig} />
+                )}
+            </div>
         </div>
     )
 }

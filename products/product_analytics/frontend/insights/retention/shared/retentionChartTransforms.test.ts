@@ -1,14 +1,26 @@
 import type { Series, TooltipConfig } from '@posthog/quill-charts'
 
+import type { RetentionTrendPayload } from 'scenes/retention/types'
+
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
+
+import type { GoalLineLike } from 'products/product_analytics/frontend/insights/trends/shared/trendsChartDisplayOptions'
 
 import {
     buildRetentionBarChartConfig,
     buildRetentionLineChartConfig,
     buildRetentionSeries,
+    type RetentionResultLike,
     type RetentionSeriesMeta,
     type RetentionTrendSeriesEntry,
 } from './retentionChartTransforms'
+
+// The neutral structural types in retentionChartTransforms.ts exist so the shared chart code stays
+// free of `~/` and `scenes/` imports (the MCP Vite bundle can't resolve them). These helpers' return
+// types enforce that the real schema types stay assignable to the neutral ones — if a schema field
+// ever changes shape, the returns fail to compile and flag the drift here rather than at a call site.
+const asNeutralRetentionResult = (r: RetentionTrendPayload): RetentionResultLike => r
+const asNeutralGoalLine = (g: SchemaGoalLine): GoalLineLike => g
 
 const makeEntry = (overrides: Partial<RetentionTrendSeriesEntry> = {}): RetentionTrendSeriesEntry => ({
     count: 100,
@@ -23,6 +35,23 @@ const makeEntry = (overrides: Partial<RetentionTrendSeriesEntry> = {}): Retentio
 const TOOLTIP: TooltipConfig = { pinnable: true, placement: 'top' }
 
 describe('retentionChartTransforms', () => {
+    describe('schema type firewall', () => {
+        it('keeps the schema RetentionTrendPayload / GoalLine assignable to the neutral structural types', () => {
+            // Assignment is checked at compile time by the return types above; the runtime assertions
+            // just keep the helpers referenced so they participate in the typecheck.
+            expect(
+                asNeutralRetentionResult({
+                    count: 100,
+                    data: [100, 50],
+                    days: ['2024-01-01', '2024-01-02'],
+                    labels: ['Day 0', 'Day 1'],
+                    index: 0,
+                })
+            ).toMatchObject({ count: 100 })
+            expect(asNeutralGoalLine({ label: 'goal', value: 10 })).toMatchObject({ label: 'goal', value: 10 })
+        })
+    })
+
     describe('buildRetentionSeries', () => {
         it('builds one series per payload, keyed by row index', () => {
             const series = buildRetentionSeries([makeEntry({ index: 0 }), makeEntry({ index: 1 })], {

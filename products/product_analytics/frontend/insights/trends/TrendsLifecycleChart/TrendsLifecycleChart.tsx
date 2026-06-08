@@ -5,6 +5,7 @@ import { ChartLegend, TimeSeriesBarChart, legendItemsFromSeries } from '@posthog
 import type { PointClickData, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
+import { getBarColorFromStatus } from 'lib/colors'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -16,6 +17,7 @@ import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import type { LifecycleToggle } from '~/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
@@ -74,6 +76,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
 
     const { series, labels } = useMemo(() => {
         const lifecycleSeries = buildTrendsLifecycleSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
+            getColor: (status) => getBarColorFromStatus((status ?? 'new') as LifecycleToggle),
             buildMeta: buildTrendsSeriesMeta,
         })
         return { series: lifecycleSeries, labels: currentPeriodResult?.labels ?? EMPTY_LABELS }
