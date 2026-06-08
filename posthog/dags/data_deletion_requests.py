@@ -19,8 +19,8 @@ from posthog.models.data_deletion_request import (
     RequestStatus,
     RequestType,
     compile_hogql_predicate,
-    event_match_params,
-    event_match_sql_fragment,
+    count_remaining_matching_events,
+    event_removal_where,
     jsonhas_expr,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -125,27 +125,6 @@ def _base_params(ctx: DeletionRequestContext) -> dict:
     if ctx.person_properties:
         params.update(_property_filter_params(ctx.person_properties, prefix="pp_"))
     return params
-
-
-_EVENT_REMOVAL_TIME_PREDICATE = "team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s"
-
-
-def _event_removal_where(obj) -> tuple[str, dict]:
-    """Full WHERE predicate + params for event-removal queries.
-
-    Combines the mandatory team/timestamp bounds, the events filter (skipped
-    when ``delete_all_events`` is set), and any compiled HogQL predicate. The
-    compiled HogQL fragment uses unqualified column references, so the result
-    is safe to splice into queries against either the Distributed ``events``
-    proxy or the local ``sharded_events`` MergeTree.
-    """
-    parts = [_EVENT_REMOVAL_TIME_PREDICATE, event_match_sql_fragment(obj)]
-    params = event_match_params(obj)
-    hogql_sql, hogql_values = compile_hogql_predicate(obj)
-    if hogql_sql:
-        parts.append(f"AND ({hogql_sql})")
-        params.update(hogql_values)
-    return " ".join(p for p in parts if p), params
 
 
 def _mat_col_presence_clauses(mat_cols: list[tuple[str, bool]]) -> list[str]:
@@ -395,7 +374,7 @@ def _run_immediate_event_deletion(
         context.log.info(f"Processing shard {shard_num} ({idx}/{len(shards)})")
         shard_start = time.monotonic()
 
-        predicate, parameters = _event_removal_where(deletion_request)
+        predicate, parameters = event_removal_where(deletion_request)
         runner = LightweightDeleteMutationRunner(
             table=table,
             predicate=predicate,
@@ -423,7 +402,7 @@ def _queue_events_for_deferred_deletion(
     source_table = EVENTS_DATA_TABLE()
     db = django_settings.CLICKHOUSE_DATABASE
     shards = sorted(cluster.shards)
-    predicate, params = _event_removal_where(deletion_request)
+    predicate, params = event_removal_where(deletion_request)
     # nosemgrep: clickhouse-fstring-param-audit (all interpolated values are internal constants/settings)
     insert_sql = (
         f"INSERT INTO {db}.{ADHOC_EVENTS_DELETION_TABLE} (team_id, uuid) "
@@ -1152,32 +1131,6 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
 # ---------------------------------------------------------------------------
 
 
-def _count_remaining_matching_events(request: DataDeletionRequest) -> int:
-    from posthog.clickhouse.client import sync_execute
-    from posthog.clickhouse.client.connection import ClickHouseUser
-    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-    from posthog.clickhouse.workload import Workload
-
-    predicate, params = _event_removal_where(request)
-    with tags_context(
-        product=Product.INTERNAL,
-        feature=Feature.DATA_DELETION,
-        team_id=request.team_id,
-        workload=Workload.OFFLINE,
-        query_type="data_deletion_request_verify_queued",
-    ):
-        # nosemgrep: clickhouse-fstring-param-audit (predicate built from internal helper, not user input)
-        result = sync_execute(
-            f"SELECT count() FROM events WHERE {predicate} AND _row_exists = 1",
-            params,
-            team_id=request.team_id,
-            readonly=True,
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.META,
-        )
-    return int(result[0][0]) if result else 0
-
-
 @dagster.run_status_sensor(
     run_status=dagster.DagsterRunStatus.SUCCESS,
     monitored_jobs=[deletes_job],
@@ -1195,7 +1148,7 @@ def verify_queued_deletion_requests(context: dagster.RunStatusSensorContext):
     promoted = 0
     for request in queued:
         try:
-            remaining = _count_remaining_matching_events(request)
+            remaining = count_remaining_matching_events(request)
         except Exception as exc:
             context.log.warning(f"Could not verify deletion request {request.pk}: {exc}")
             continue

@@ -92,6 +92,27 @@ def event_match_params(obj) -> dict:
     return params
 
 
+_EVENT_REMOVAL_TIME_PREDICATE = "team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s"
+
+
+def event_removal_where(obj) -> tuple[str, dict]:
+    """Full WHERE predicate + params for event-removal queries.
+
+    Combines the mandatory team/timestamp bounds, the events filter (skipped
+    when ``delete_all_events`` is set), and any compiled HogQL predicate. The
+    compiled HogQL fragment uses unqualified column references, so the result
+    is safe to splice into queries against either the Distributed ``events``
+    proxy or the local ``sharded_events`` MergeTree.
+    """
+    parts = [_EVENT_REMOVAL_TIME_PREDICATE, event_match_sql_fragment(obj)]
+    params = event_match_params(obj)
+    hogql_sql, hogql_values = compile_hogql_predicate(obj)
+    if hogql_sql:
+        parts.append(f"AND ({hogql_sql})")
+        params.update(hogql_values)
+    return " ".join(p for p in parts if p), params
+
+
 class RequestType(models.TextChoices):
     PROPERTY_REMOVAL = "property_removal"
     EVENT_REMOVAL = "event_removal"
@@ -340,3 +361,30 @@ class DataDeletionRequest(UUIDModel):
             )
         if self.person_drop_profiles or self.person_drop_events or self.person_drop_recordings:
             raise ValidationError({"person_drop_profiles": "person_drop_* flags are only valid for person_removal."})
+
+
+def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
+    """Count events still matching an event-removal request's criteria in ClickHouse."""
+    from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.client.connection import ClickHouseUser
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+    from posthog.clickhouse.workload import Workload
+
+    predicate, params = event_removal_where(request)
+    with tags_context(
+        product=Product.INTERNAL,
+        feature=Feature.DATA_DELETION,
+        team_id=request.team_id,
+        workload=Workload.OFFLINE,
+        query_type="data_deletion_request_verify_queued",
+    ):
+        # nosemgrep: clickhouse-fstring-param-audit (predicate built from internal helper, not user input)
+        result = sync_execute(
+            f"SELECT count() FROM events WHERE {predicate} AND _row_exists = 1",
+            params,
+            team_id=request.team_id,
+            readonly=True,
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.META,
+        )
+    return int(result[0][0]) if result else 0
