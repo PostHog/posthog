@@ -19,6 +19,7 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     data_warehouse_node_to_filter,
     event_or_action_to_filter,
 )
+from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
 
 if TYPE_CHECKING:
     from products.experiments.backend.hogql_queries.experiment_query_builder import ExperimentQueryBuilder
@@ -229,8 +230,9 @@ class RetentionQueryBuilder:
                 else:
                     start_events_cte.expr.having = ast.And(exprs=[start_events_cte.expr.having, retention_maturity])
 
-        # Inject breakdown columns if breakdown filter is present
-        if self._b.breakdown_injector:
+        # Inject breakdown columns if breakdown filter is present. The metric-event injector is
+        # funnel-only, so retention metrics always use the property-from-exposure BreakdownInjector.
+        if isinstance(self._b.breakdown_injector, BreakdownInjector):
             self._b.breakdown_injector.inject_retention_breakdown_columns(query)
 
         return query
