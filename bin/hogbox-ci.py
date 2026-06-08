@@ -19,9 +19,29 @@ Env (set by the workflow):
 from __future__ import annotations
 
 import os
+import pathlib
+import subprocess
 import sys
+import tempfile
 
 from hogland import Hogland
+
+
+def _ephemeral_ssh_pubkey() -> str:
+    """Generate a throwaway ed25519 keypair and return its public key line.
+
+    TODO(keyless): drop this once hogland ships a keyless / api-only access
+    mode for service kinds. A CI box only ever uses the HTTP exec/files/proxy
+    API (never SSH), so the key here is dead weight that exists purely to
+    satisfy the current cold-boot spec validation. Tracked in hogland.
+    """
+    with tempfile.TemporaryDirectory() as d:
+        key = pathlib.Path(d) / "id_ed25519"
+        subprocess.run(
+            ["ssh-keygen", "-t", "ed25519", "-N", "", "-q", "-C", "hogbox-ci-probe", "-f", str(key)],
+            check=True,
+        )
+        return key.with_suffix(".pub").read_text().strip()
 
 
 def main() -> int:
@@ -40,7 +60,12 @@ def main() -> int:
     #    kind="ci" (2h default TTL); the explicit ttl is the real backstop so
     #    the box self-reaps even if the context-manager cleanup is skipped.
     run_id = os.environ.get("GITHUB_RUN_ID", "local")
-    with client.create(name=f"ci-probe-{run_id}", kind="ci", ttl_seconds=600) as box:
+    with client.create(
+        name=f"ci-probe-{run_id}",
+        kind="ci",
+        ttl_seconds=600,
+        ssh_public_key=_ephemeral_ssh_pubkey(),  # TODO(keyless): remove
+    ) as box:
         print(f"[probe] created box: {box.id} ({box.status})", flush=True)
         result = box.exec(["uname", "-a"], timeout_seconds=30)
         print(f"[probe] exec exit={result.exit_code} stdout={result.stdout!r}", flush=True)
