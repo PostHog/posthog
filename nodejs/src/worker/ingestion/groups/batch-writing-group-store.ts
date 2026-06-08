@@ -30,22 +30,38 @@ class GroupCache {
     private cache: Map<string, GroupUpdate | null>
     private fetchPromises: Map<string, Promise<GroupUpdate | null>>
     private metrics: CacheMetrics
+    private batchGroupKeys: Map<number, Set<string>>
+    private groupKeyRefCount: Map<string, number>
+    private deferredEvictions: Set<string>
 
     constructor() {
         this.cache = new Map()
         this.fetchPromises = new Map()
+        this.batchGroupKeys = new Map()
+        this.groupKeyRefCount = new Map()
+        this.deferredEvictions = new Set()
         this.metrics = {
             cacheHits: 0,
             cacheMisses: 0,
         }
     }
 
-    has(teamId: TeamId, groupKey: string): boolean {
+    obtainForBatchId(batchId: number): BatchBoundGroupCache {
+        return new BatchBoundGroupCache(this, batchId)
+    }
+
+    get(teamId: TeamId, groupKey: string): GroupUpdate | null | undefined {
+        return this.cache.get(this.getCacheKey(teamId, groupKey))
+    }
+
+    hasForBatch(batchId: number, teamId: TeamId, groupKey: string): boolean {
+        this.trackBatchEntry(batchId, teamId, groupKey)
         const key = this.getCacheKey(teamId, groupKey)
         return this.cache.has(key)
     }
 
-    get(teamId: TeamId, groupKey: string): GroupUpdate | null | undefined {
+    getForBatch(batchId: number, teamId: TeamId, groupKey: string): GroupUpdate | null | undefined {
+        this.trackBatchEntry(batchId, teamId, groupKey)
         const key = this.getCacheKey(teamId, groupKey)
         const result = this.cache.get(key)
         if (result !== undefined) {
@@ -56,7 +72,8 @@ class GroupCache {
         return result
     }
 
-    set(teamId: TeamId, groupKey: string, group: GroupUpdate | null): void {
+    setForBatch(batchId: number, teamId: TeamId, groupKey: string, group: GroupUpdate | null): void {
+        this.trackBatchEntry(batchId, teamId, groupKey)
         const key = this.getCacheKey(teamId, groupKey)
         this.cache.set(key, group)
     }
@@ -104,21 +121,91 @@ class GroupCache {
         }
     }
 
-    /**
-     * Remove all clean (non-dirty) entries. Called after a successful flush so
-     * the cache is bounded to the entries that arrived during the flush window.
-     * Dirty entries (re-marked by a concurrent batch during the flush) are kept.
-     */
-    evictClean(): void {
-        for (const [key, update] of this.cache.entries()) {
+    releaseBatchId(batchId: number): void {
+        const keys = this.batchGroupKeys.get(batchId)
+        if (!keys) {
+            return
+        }
+
+        for (const groupKey of keys) {
+            const refCount = (this.groupKeyRefCount.get(groupKey) ?? 1) - 1
+            if (refCount <= 0) {
+                this.groupKeyRefCount.delete(groupKey)
+                this.evictGroupKey(groupKey)
+            } else {
+                this.groupKeyRefCount.set(groupKey, refCount)
+            }
+        }
+
+        this.batchGroupKeys.delete(batchId)
+    }
+
+    processDeferredEvictions(): void {
+        for (const groupKey of this.deferredEvictions) {
+            const update = this.cache.get(groupKey)
             if (!update || !update.needsWrite) {
-                this.cache.delete(key)
+                this.cache.delete(groupKey)
+                this.deferredEvictions.delete(groupKey)
             }
         }
     }
 
     private getCacheKey(teamId: TeamId, groupKey: string): string {
         return `${teamId}:${groupKey}`
+    }
+
+    private trackBatchEntry(batchId: number, teamId: TeamId, groupKey: string): void {
+        const key = this.getCacheKey(teamId, groupKey)
+        let keys = this.batchGroupKeys.get(batchId)
+        if (!keys) {
+            keys = new Set()
+            this.batchGroupKeys.set(batchId, keys)
+        }
+        if (!keys.has(key)) {
+            keys.add(key)
+            this.groupKeyRefCount.set(key, (this.groupKeyRefCount.get(key) ?? 0) + 1)
+        }
+    }
+
+    private evictGroupKey(groupKey: string): void {
+        const update = this.cache.get(groupKey)
+        if (update && update.needsWrite) {
+            this.deferredEvictions.add(groupKey)
+            return
+        }
+
+        this.cache.delete(groupKey)
+    }
+}
+
+class BatchBoundGroupCache {
+    constructor(
+        private readonly cache: GroupCache,
+        private readonly batchId: number
+    ) {}
+
+    has(teamId: TeamId, groupKey: string): boolean {
+        return this.cache.hasForBatch(this.batchId, teamId, groupKey)
+    }
+
+    get(teamId: TeamId, groupKey: string): GroupUpdate | null | undefined {
+        return this.cache.getForBatch(this.batchId, teamId, groupKey)
+    }
+
+    set(teamId: TeamId, groupKey: string, group: GroupUpdate | null): void {
+        this.cache.setForBatch(this.batchId, teamId, groupKey, group)
+    }
+
+    getFetchPromise(teamId: TeamId, groupKey: string): Promise<GroupUpdate | null> | undefined {
+        return this.cache.getFetchPromise(teamId, groupKey)
+    }
+
+    setFetchPromise(teamId: TeamId, groupKey: string, promise: Promise<GroupUpdate | null>): void {
+        this.cache.setFetchPromise(teamId, groupKey, promise)
+    }
+
+    deleteFetchPromise(teamId: TeamId, groupKey: string): void {
+        this.cache.deleteFetchPromise(teamId, groupKey)
     }
 }
 
@@ -213,7 +300,7 @@ export class BatchWritingGroupStore implements GroupStore {
         // END synchronous linearization point.
 
         if (pendingUpdates.length === 0) {
-            this.groupCache.evictClean()
+            this.groupCache.processDeferredEvictions()
             return []
         }
 
@@ -223,7 +310,7 @@ export class BatchWritingGroupStore implements GroupStore {
             await Promise.all(
                 pendingUpdates.map(([distinctId, update]) => limit(() => this.processGroupUpdate(update, distinctId)))
             )
-            this.groupCache.evictClean()
+            this.groupCache.processDeferredEvictions()
             return []
         } catch (error) {
             logger.error('Failed to flush group updates', {
@@ -285,7 +372,8 @@ export class BatchWritingGroupStore implements GroupStore {
                 update.group_properties,
                 update.created_at,
                 true, // forUpdate = true, making us not use the cache
-                'conflictRetry'
+                'conflictRetry',
+                undefined
             )
         } catch (fallbackError) {
             logger.error('Failed to update group after max retries and direct upsert fallback', {
@@ -306,12 +394,23 @@ export class BatchWritingGroupStore implements GroupStore {
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
         properties: Properties,
-        timestamp: DateTime
+        timestamp: DateTime,
+        batchId?: number
     ): Promise<void> {
+        const effectiveBatchId = batchId ?? 0
         try {
-            await this.addToBatch(teamId, groupTypeIndex, groupKey, properties, timestamp)
+            await this.addToBatch(teamId, groupTypeIndex, groupKey, properties, timestamp, effectiveBatchId)
         } catch (error) {
-            await this.handleUpsertError(error, teamId, projectId, groupTypeIndex, groupKey, properties, timestamp)
+            await this.handleUpsertError(
+                error,
+                teamId,
+                projectId,
+                groupTypeIndex,
+                groupKey,
+                properties,
+                timestamp,
+                effectiveBatchId
+            )
         }
     }
 
@@ -320,9 +419,11 @@ export class BatchWritingGroupStore implements GroupStore {
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
         properties: Properties,
-        timestamp: DateTime
+        timestamp: DateTime,
+        batchId: number
     ): Promise<void> {
-        const group = await this.getGroup(teamId, groupTypeIndex, groupKey, false)
+        const groupCache = this.groupCache.obtainForBatchId(batchId)
+        const group = await this.getGroup(teamId, groupTypeIndex, groupKey, false, groupCache)
 
         if (!group) {
             await this.executeGroupUpsert(
@@ -332,14 +433,15 @@ export class BatchWritingGroupStore implements GroupStore {
                 properties,
                 timestamp,
                 false,
-                'batch-create'
+                'batch-create',
+                batchId
             )
             return
         }
 
         const propertiesUpdate = calculateUpdate(group.group_properties || {}, properties)
         if (propertiesUpdate.updated) {
-            this.groupCache.set(teamId, groupKey, {
+            groupCache.set(teamId, groupKey, {
                 team_id: teamId,
                 group_type_index: groupTypeIndex,
                 group_key: groupKey,
@@ -358,7 +460,8 @@ export class BatchWritingGroupStore implements GroupStore {
         properties: Properties,
         timestamp: DateTime,
         forUpdate: boolean,
-        source: string
+        source: string,
+        batchId?: number
     ): Promise<void> {
         const operation = 'upsertGroup' + (source ? `-${source}` : '')
         this.incrementDatabaseOperation(operation)
@@ -366,7 +469,16 @@ export class BatchWritingGroupStore implements GroupStore {
         const [propertiesUpdate, createdAt, actualVersion] = await this.groupRepository.inTransaction(
             operation,
             async (tx) =>
-                this.executeUpsertTransaction(teamId, groupTypeIndex, groupKey, properties, timestamp, forUpdate, tx)
+                this.executeUpsertTransaction(
+                    teamId,
+                    groupTypeIndex,
+                    groupKey,
+                    properties,
+                    timestamp,
+                    forUpdate,
+                    tx,
+                    batchId
+                )
         )
 
         if (propertiesUpdate.updated) {
@@ -409,9 +521,11 @@ export class BatchWritingGroupStore implements GroupStore {
         properties: Properties,
         timestamp: DateTime,
         forUpdate: boolean,
-        tx: GroupRepositoryTransaction
+        tx: GroupRepositoryTransaction,
+        batchId?: number
     ): Promise<[PropertiesUpdate, DateTime, number]> {
-        const group = await this.getGroup(teamId, groupTypeIndex, groupKey, forUpdate, tx)
+        const groupCache = batchId === undefined ? undefined : this.groupCache.obtainForBatchId(batchId)
+        const group = await this.getGroup(teamId, groupTypeIndex, groupKey, forUpdate, groupCache, tx)
         const createdAt = DateTime.min(group?.created_at || DateTime.now(), timestamp)
         const expectedVersion = (group?.version || 0) + 1
         const propertiesUpdate = calculateUpdate(group?.group_properties || {}, properties)
@@ -444,7 +558,7 @@ export class BatchWritingGroupStore implements GroupStore {
                     expectedVersion,
                     tx
                 )
-                this.groupCache.set(teamId, groupKey, {
+                groupCache?.set(teamId, groupKey, {
                     team_id: teamId,
                     group_type_index: groupTypeIndex,
                     group_key: groupKey,
@@ -560,16 +674,17 @@ export class BatchWritingGroupStore implements GroupStore {
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
         forUpdate: boolean,
+        groupCache: BatchBoundGroupCache | undefined,
         tx?: GroupRepositoryTransaction
     ): Promise<GroupUpdate | null> {
-        if (this.groupCache.has(teamId, groupKey) && !forUpdate) {
-            const cachedGroup = this.groupCache.get(teamId, groupKey)
+        if (groupCache?.has(teamId, groupKey) && !forUpdate) {
+            const cachedGroup = groupCache.get(teamId, groupKey)
             if (cachedGroup !== undefined) {
                 return cachedGroup
             }
         }
 
-        let fetchPromise = this.groupCache.getFetchPromise(teamId, groupKey)
+        let fetchPromise = groupCache?.getFetchPromise(teamId, groupKey)
         if (!fetchPromise) {
             groupFetchPromisesCacheOperationsCounter.inc({ operation: 'miss' })
             fetchPromise = (async () => {
@@ -579,20 +694,20 @@ export class BatchWritingGroupStore implements GroupStore {
                     const existingGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey, { forUpdate })
                     if (existingGroup) {
                         const groupUpdate = fromGroup(existingGroup)
-                        this.groupCache.set(teamId, groupKey, {
+                        groupCache?.set(teamId, groupKey, {
                             ...groupUpdate,
                             needsWrite: false,
                         })
                         return groupUpdate
                     } else {
-                        this.groupCache.set(teamId, groupKey, null)
+                        groupCache?.set(teamId, groupKey, null)
                         return null
                     }
                 } finally {
-                    this.groupCache.deleteFetchPromise(teamId, groupKey)
+                    groupCache?.deleteFetchPromise(teamId, groupKey)
                 }
             })()
-            this.groupCache.setFetchPromise(teamId, groupKey, fetchPromise)
+            groupCache?.setFetchPromise(teamId, groupKey, fetchPromise)
         } else {
             groupFetchPromisesCacheOperationsCounter.inc({ operation: 'hit' })
         }
@@ -606,7 +721,8 @@ export class BatchWritingGroupStore implements GroupStore {
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
         properties: Properties,
-        timestamp: DateTime
+        timestamp: DateTime,
+        batchId: number
     ): Promise<void> {
         if (error instanceof MessageSizeTooLarge) {
             await emitIngestionWarning(this.outputs, teamId, 'group_upsert_message_size_too_large', {
@@ -618,14 +734,13 @@ export class BatchWritingGroupStore implements GroupStore {
         if (error instanceof RaceConditionError) {
             // Remove from cache to prevent retry, the group was already created by another thread
             this.groupCache.delete(teamId, groupKey)
-            return this.upsertGroup(teamId, projectId, groupTypeIndex, groupKey, properties, timestamp)
+            return this.upsertGroup(teamId, projectId, groupTypeIndex, groupKey, properties, timestamp, batchId)
         }
         throw error
     }
 
-    releaseBatch(_batchId: number): void {
-        // Group store does not maintain per-distinct-id caches requiring reference-counted
-        // eviction. This satisfies the BatchWritingStore interface.
+    releaseBatch(batchId: number): void {
+        this.groupCache.releaseBatchId(batchId)
     }
 
     getCacheMetrics(): CacheMetrics {

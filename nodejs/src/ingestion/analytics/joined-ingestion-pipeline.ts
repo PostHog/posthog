@@ -16,6 +16,7 @@ import {
     createEventFiltersBatchAppMetricsBeforeBatchStep,
     createFlushEventFiltersBatchAppMetricsStep,
 } from '../common/steps/event-filters-steps'
+import { GroupStoreBatchContext, createGroupStoreBeforeBatchStep } from '../common/steps/group-store-batch-step'
 import { PersonsStoreBatchContext, createPersonsStoreBeforeBatchStep } from '../common/steps/persons-store-batch-step'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
@@ -104,7 +105,7 @@ export interface JoinedIngestionPipelineDeps {
     topHog: TopHogRegistry
 }
 
-type IngestionBatchContext = EventFiltersBatchContext & PersonsStoreBatchContext
+type IngestionBatchContext = EventFiltersBatchContext & PersonsStoreBatchContext & GroupStoreBatchContext
 
 export interface JoinedIngestionPipelineInput {
     message: Message
@@ -193,7 +194,6 @@ export function createJoinedIngestionPipeline<
         teamManager,
         groupTypeManager,
         hogTransformer,
-        groupStore,
         groupId,
         topHog: topHogWrapper,
     }
@@ -202,7 +202,8 @@ export function createJoinedIngestionPipeline<
         (beforeBatch) =>
             beforeBatch
                 .pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs))
-                .pipe(createPersonsStoreBeforeBatchStep(personsStore)),
+                .pipe(createPersonsStoreBeforeBatchStep(personsStore))
+                .pipe(createGroupStoreBeforeBatchStep(groupStore)),
         (batch) =>
             batch
                 .messageAware((b) =>

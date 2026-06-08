@@ -6,7 +6,7 @@ import { HogTransformerService } from '../../cdp/hog-transformations/hog-transfo
 import { EventHeaders, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
+import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch'
 import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
 import { IngestionWarningsOutput } from '../common/outputs'
 import { createCreateEventStep } from '../event-processing/create-event-step'
@@ -31,6 +31,7 @@ export interface EventSubpipelineInput {
     team: Team
     headers: EventHeaders
     personsStoreForBatch: PersonsStoreForBatch
+    groupStoreForBatch: GroupStoreForBatch
 }
 
 export interface EventSubpipelineConfig {
@@ -39,7 +40,6 @@ export interface EventSubpipelineConfig {
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
-    groupStore: BatchWritingGroupStore
     groupId: string
     topHog: TopHogWrapper
 }
@@ -48,7 +48,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
-    const { options, outputs, teamManager, groupTypeManager, hogTransformer, groupStore, groupId, topHog } = config
+    const { options, outputs, teamManager, groupTypeManager, hogTransformer, groupId, topHog } = config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
@@ -93,7 +93,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
             ])
         )
         .pipe(createPrepareEventStep())
-        .pipe(createProcessGroupsStep(teamManager, groupTypeManager, groupStore, options))
+        .pipe(createProcessGroupsStep(teamManager, groupTypeManager, options))
         .pipe(createCreateEventStep(EVENTS_OUTPUT))
         .pipe(
             topHog(

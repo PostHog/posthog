@@ -3,7 +3,7 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
+import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch'
 import { createCheckHeatmapOptInStep } from '../event-processing/check-heatmap-opt-in-step'
 import { createDisablePersonProcessingStep } from '../event-processing/disable-person-processing-step'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
@@ -20,6 +20,7 @@ export interface HeatmapSubpipelineInput {
     event: PluginEvent
     team: Team
     headers: EventHeaders
+    groupStoreForBatch: GroupStoreForBatch
 }
 
 export interface HeatmapSubpipelineConfig {
@@ -27,21 +28,20 @@ export interface HeatmapSubpipelineConfig {
     outputs: IngestionOutputs<HeatmapsOutput>
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
-    groupStore: BatchWritingGroupStore
 }
 
 export function createHeatmapSubpipeline<TInput extends HeatmapSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: HeatmapSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, outputs, teamManager, groupTypeManager, groupStore } = config
+    const { options, outputs, teamManager, groupTypeManager } = config
 
     return builder
         .pipe(createCheckHeatmapOptInStep())
         .pipe(createDisablePersonProcessingStep())
         .pipe(createNormalizeEventStep())
         .pipe(createPrepareEventStep())
-        .pipe(createProcessGroupsStep(teamManager, groupTypeManager, groupStore, options))
+        .pipe(createProcessGroupsStep(teamManager, groupTypeManager, options))
         .pipe(createExtractHeatmapDataStep(outputs))
         .pipe(createSkipEmitEventStep())
 }

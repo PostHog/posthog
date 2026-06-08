@@ -3215,6 +3215,42 @@ describe('BatchWritingPersonStore', () => {
             expect(personStore.getPersonlessBatchResult(teamId, 'lonely-merge-distinct')).toBeUndefined()
         })
 
+        it('tracks property-update cache writes through the batch-bound store', async () => {
+            const batchStore = new BatchBoundPersonsStore(personStore, 0)
+
+            await batchStore.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { plan: 'enterprise' },
+                [],
+                {},
+                'batch-bound-property'
+            )
+
+            expect(personStore.getCachedPersonForUpdateByDistinctId(teamId, 'batch-bound-property')).toBeDefined()
+
+            await personStore.flush()
+            personStore.releaseBatch(0)
+
+            expect(personStore.getCachedPersonForUpdateByDistinctId(teamId, 'batch-bound-property')).toBeUndefined()
+        })
+
+        it('tracks merge-update cache writes through the batch-bound store', async () => {
+            const batchStore = new BatchBoundPersonsStore(personStore, 0)
+
+            await batchStore.updatePersonForMerge(
+                person,
+                { properties: { merge_marker: 'tracked' } },
+                'batch-bound-merge'
+            )
+
+            expect(personStore.getCachedPersonForUpdateByDistinctId(teamId, 'batch-bound-merge')).toBeDefined()
+
+            await personStore.flush()
+            personStore.releaseBatch(0)
+
+            expect(personStore.getCachedPersonForUpdateByDistinctId(teamId, 'batch-bound-merge')).toBeUndefined()
+        })
+
         it('only evicts entries for the released batch, leaving other batch entries intact', () => {
             personStore.setCheckCachedPerson(teamId, 'user-a', person, 0)
             personStore.setCheckCachedPerson(teamId, 'user-b', person, 1)
@@ -3248,7 +3284,7 @@ describe('BatchWritingPersonStore', () => {
             expect(distinctKeyRefCount.get(`${teamId}:user-a`)).toBe(2)
 
             // Batch 0 per-event work: update user-a
-            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { prop0: 'batch0' }, [], {}, 'user-a')
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { prop0: 'batch0' }, [], {}, 'user-a', 0)
 
             // Batch 0 flushes — writes the dirty entry, clears needs_write
             await personStore.flush()
@@ -3260,7 +3296,7 @@ describe('BatchWritingPersonStore', () => {
             expect(personStore.getCheckCache().has(`${teamId}:user-a`)).toBe(true)
 
             // Batch 1 per-event work: update user-a (reuses the cached entry, no DB re-fetch)
-            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { prop1: 'batch1' }, [], {}, 'user-a')
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { prop1: 'batch1' }, [], {}, 'user-a', 1)
 
             // Batch 1 flushes — writes batch 1's dirty entry
             await personStore.flush()

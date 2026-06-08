@@ -74,6 +74,8 @@ export type PersonsStoreForBatch = Omit<
     | 'fetchForChecking'
     | 'fetchForUpdate'
     | 'createPerson'
+    | 'updatePersonForMerge'
+    | 'updatePersonWithPropertiesDiffForUpdate'
     | 'addDistinctId'
     | 'moveDistinctIds'
     | 'addPersonlessDistinctIdForMerge'
@@ -96,6 +98,21 @@ export type PersonsStoreForBatch = Omit<
         primaryDistinctId: { distinctId: string; version?: number },
         extraDistinctIds?: { distinctId: string; version?: number }[]
     ): Promise<CreatePersonResult>
+    updatePersonForMerge(
+        person: InternalPerson,
+        update: Partial<InternalPerson>,
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<[InternalPerson, PersonMessage[], boolean]>
+    updatePersonWithPropertiesDiffForUpdate(
+        person: InternalPerson,
+        propertiesToSet: Properties,
+        propertiesToUnset: string[],
+        otherUpdates: Partial<InternalPerson>,
+        distinctId: string,
+        forceUpdate?: boolean,
+        tx?: PersonRepositoryTransaction
+    ): Promise<[InternalPerson, PersonMessage[], boolean]>
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
     addPersonlessDistinctIdForMerge(
         teamId: number,
@@ -153,7 +170,7 @@ class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactionForBat
         update: Partial<InternalPerson>,
         distinctId: string
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
-        return this.tx.updatePersonForMerge(person, update, distinctId)
+        return this.tx.updatePersonForMerge(person, update, distinctId, this.batchId)
     }
 
     updatePersonWithPropertiesDiffForUpdate(
@@ -170,6 +187,7 @@ class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactionForBat
             propertiesToUnset,
             otherUpdates,
             distinctId,
+            this.batchId,
             forceUpdate
         )
     }
@@ -288,7 +306,7 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
         distinctId: string,
         tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
-        return this.store.updatePersonForMerge(person, update, distinctId, tx)
+        return this.store.updatePersonForMerge(person, update, distinctId, this.batchId, tx)
     }
 
     updatePersonWithPropertiesDiffForUpdate(
@@ -306,6 +324,7 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
             propertiesToUnset,
             otherUpdates,
             distinctId,
+            this.batchId,
             forceUpdate,
             tx
         )

@@ -61,6 +61,7 @@ export interface PersonsStore extends BatchWritingStore {
         person: InternalPerson,
         update: Partial<InternalPerson>,
         distinctId: string,
+        batchId: number,
         tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
 
@@ -73,6 +74,7 @@ export interface PersonsStore extends BatchWritingStore {
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
         distinctId: string,
+        batchId: number,
         forceUpdate?: boolean,
         tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]>

@@ -410,23 +410,23 @@ describe('BatchWritingGroupStore', () => {
             await groupStore.flush()
             ;(groupRepository.updateGroupOptimistically as jest.Mock).mockClear()
 
-            // Re-dirty via a second update with new properties; this triggers a
-            // fresh DB fetch (cache was evicted by evictClean() after the first flush).
+            // Re-dirty via a second update with new properties. The cache is
+            // still referenced by batch 0 until releaseBatch() runs, so the
+            // second update merges with the first batch's cached properties.
             await groupStore.upsertGroup(teamId, projectId, 1, 'test', { b: '2' }, DateTime.now())
             const dirtyAfter = Array.from(groupStore.getGroupCache().entries()).filter(([_, u]) => u && u.needsWrite)
             expect(dirtyAfter.length).toBeGreaterThan(0)
 
             await groupStore.flush()
 
-            // Second flush wrote the updated properties — merged onto the freshly
-            // fetched server-side properties since evictClean() dropped the cache.
+            // Second flush wrote the updated properties merged onto the still-referenced cache.
             expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
             expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledWith(
                 teamId,
                 1,
                 'test',
                 1,
-                { test: 'test', b: '2' },
+                { test: 'test', a: '1', b: '2' },
                 group.created_at,
                 {},
                 {}
@@ -434,11 +434,17 @@ describe('BatchWritingGroupStore', () => {
         })
     })
 
-    describe('evictClean()', () => {
-        it('removes clean entries from cache after flush', async () => {
+    describe('releaseBatch()', () => {
+        it('is a no-op for an unknown batchId', () => {
+            expect(() => groupStore.releaseBatch(999)).not.toThrow()
+        })
+
+        it('removes clean entries from cache after flush and release', async () => {
             await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
 
             await groupStore.flush()
+            expect(groupStore.getGroupCache().getSize()).toBe(1)
+            groupStore.releaseBatch(0)
 
             expect(groupStore.getGroupCache().getSize()).toBe(0)
         })
@@ -446,8 +452,7 @@ describe('BatchWritingGroupStore', () => {
         it('keeps entries that were re-dirtied during the DB write', async () => {
             await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
 
-            // Re-dirty the entry during the async DB write (after the linearization point
-            // clears needsWrite but before evictClean() runs).
+            // Re-dirty the entry during the async DB write after the linearization point.
             jest.spyOn(groupRepository, 'updateGroupOptimistically').mockImplementationOnce(() => {
                 const entry = groupStore.getGroupCache().get(teamId, 'test')
                 if (entry) {
@@ -460,6 +465,30 @@ describe('BatchWritingGroupStore', () => {
 
             expect(groupStore.getGroupCache().getSize()).toBe(1)
             expect(groupStore.getGroupCache().get(teamId, 'test')?.needsWrite).toBe(true)
+        })
+
+        it('defers eviction of dirty entries until after flush', async () => {
+            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
+
+            groupStore.releaseBatch(0)
+            expect(groupStore.getGroupCache().getSize()).toBe(1)
+
+            await groupStore.flush()
+
+            expect(groupStore.getGroupCache().getSize()).toBe(0)
+        })
+
+        it('keeps overlapping batch entries until the last release', async () => {
+            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now(), 0)
+            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { b: '2' }, DateTime.now(), 1)
+
+            await groupStore.flush()
+
+            groupStore.releaseBatch(0)
+            expect(groupStore.getGroupCache().getSize()).toBe(1)
+
+            groupStore.releaseBatch(1)
+            expect(groupStore.getGroupCache().getSize()).toBe(0)
         })
     })
 

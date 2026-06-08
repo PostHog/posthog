@@ -50,9 +50,10 @@ export class PersonsStoreTransaction {
     async updatePersonForMerge(
         person: InternalPerson,
         update: Partial<InternalPerson>,
-        distinctId: string
+        distinctId: string,
+        batchId: number
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
-        return await this.store.updatePersonForMerge(person, update, distinctId, this.tx)
+        return await this.store.updatePersonForMerge(person, update, distinctId, batchId, this.tx)
     }
 
     async updatePersonWithPropertiesDiffForUpdate(
@@ -61,6 +62,7 @@ export class PersonsStoreTransaction {
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
         distinctId: string,
+        batchId: number,
         forceUpdate?: boolean
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         return await this.store.updatePersonWithPropertiesDiffForUpdate(
@@ -69,6 +71,7 @@ export class PersonsStoreTransaction {
             propertiesToUnset,
             otherUpdates,
             distinctId,
+            batchId,
             forceUpdate,
             this.tx
         )
