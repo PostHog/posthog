@@ -69,6 +69,7 @@ import { listNativeTools } from '@posthog/agent-tools'
 import { mountMemoryRoutes } from './api/memory'
 import { mountTableRoutes } from './api/tables'
 import { buildApprovalDecidedMarker } from './approval-marker'
+import { compileCustomToolsIntoBundle } from './compile-custom-tools'
 import { fireCronManually } from './cron-tick'
 import { asyncHandler, errorHandler } from './http-utils'
 import { SweepDeps, sweepOnce } from './sweep'
@@ -805,6 +806,16 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             const report = await validateRevisionBundle(ok.rev!, opts.bundles!)
             if (!report.ok) {
                 res.status(422).json({ error: 'validation_failed', report })
+                return
+            }
+            // Compile every kind:"custom" tool's source.ts → compiled.js.
+            // Authors don't ship compiled.js anymore — it's a build artifact
+            // owned by the platform. The runner / sandbox still loads
+            // compiled.js exactly as before. If any tool fails to compile,
+            // abort the freeze before the bundle is sealed.
+            const compileResult = await compileCustomToolsIntoBundle(ok.rev!, opts.bundles!)
+            if (compileResult.errors.length > 0) {
+                res.status(422).json({ error: 'compile_failed', compile: compileResult })
                 return
             }
             const sha = await opts.bundles!.freeze(req.params.id)

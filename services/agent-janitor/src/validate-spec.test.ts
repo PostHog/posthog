@@ -103,20 +103,21 @@ describe('validateRevisionBundle', () => {
         ])
     })
 
-    it('catches missing compiled.js / schema.json on a custom tool', async () => {
+    it("catches missing source.ts on a custom tool (compiled.js is no longer the author's job)", async () => {
         const bundles = makeBundles()
         await bundles.write('rev1', 'agent.md', 'hi')
         await bundles.write('rev1', 'tools/wc/schema.json', '{}')
-        // compiled.js intentionally missing.
+        // source.ts intentionally missing. Authors write source.ts; the
+        // janitor produces compiled.js at freeze.
         const report = await validateRevisionBundle(
             mkRev({ tools: [{ kind: 'custom', id: 'wc', path: 'tools/wc/' }] }),
             bundles
         )
         const codes = report.errors.map((e) => e.code).sort()
-        expect(codes).toEqual(['missing_custom_tool_compiled'])
+        expect(codes).toEqual(['missing_custom_tool_source'])
     })
 
-    it('catches a custom tool that has neither compiled.js nor schema.json', async () => {
+    it('catches a custom tool that has neither source.ts nor schema.json', async () => {
         const bundles = makeBundles()
         await bundles.write('rev1', 'agent.md', 'hi')
         const report = await validateRevisionBundle(
@@ -124,7 +125,47 @@ describe('validateRevisionBundle', () => {
             bundles
         )
         const codes = report.errors.map((e) => e.code).sort()
-        expect(codes).toEqual(['missing_custom_tool_compiled', 'missing_custom_tool_schema'])
+        expect(codes).toEqual(['missing_custom_tool_schema', 'missing_custom_tool_source'])
+    })
+
+    it('passes a custom tool that only has source.ts + schema.json (no compiled.js needed)', async () => {
+        const bundles = makeBundles()
+        await bundles.write('rev1', 'agent.md', 'hi')
+        await bundles.write('rev1', 'tools/wc/schema.json', '{}')
+        await bundles.write(
+            'rev1',
+            'tools/wc/source.ts',
+            'export default async function run(args: Record<string, unknown>) { return { ok: true } }'
+        )
+        const report = await validateRevisionBundle(
+            mkRev({ tools: [{ kind: 'custom', id: 'wc', path: 'tools/wc/' }] }),
+            bundles
+        )
+        expect(report.errors).toEqual([])
+        expect(report.warnings).toEqual([])
+    })
+
+    it('catches a syntax error in source.ts via esbuild parse', async () => {
+        // The whole point of validating source.ts at validate time — give
+        // the concierge an actionable error before freeze instead of a
+        // session-start failure.
+        const bundles = makeBundles()
+        await bundles.write('rev1', 'agent.md', 'hi')
+        await bundles.write('rev1', 'tools/broken/schema.json', '{}')
+        await bundles.write(
+            'rev1',
+            'tools/broken/source.ts',
+            'export default async function run(args { return { ok: true } }' // missing colon, missing colon
+        )
+        const report = await validateRevisionBundle(
+            mkRev({ tools: [{ kind: 'custom', id: 'broken', path: 'tools/broken/' }] }),
+            bundles
+        )
+        const codes = report.errors.map((e) => e.code)
+        expect(codes).toContain('invalid_custom_tool_source')
+        const invalid = report.errors.find((e) => e.code === 'invalid_custom_tool_source')!
+        expect(invalid.message).toContain('source.ts failed to parse')
+        expect(invalid.pointer).toBe('spec.tools[0].path')
     })
 
     it('catches missing skill files', async () => {
@@ -176,8 +217,10 @@ describe('validateRevisionBundle', () => {
             const bundles = makeBundles()
             await bundles.write('rev1', 'agent.md', 'hi')
             await bundles.write('rev1', 'tools/my-tool/schema.json', '{}')
-            await bundles.write('rev1', 'tools/my-tool/source.ts', 'export default ...')
-            await bundles.write('rev1', 'tools/my-tool/compiled.js', 'module.exports = ...')
+            // Valid TS so the source check passes. compiled.js gets written
+            // by the freeze step, not by the author — so we don't write it
+            // here.
+            await bundles.write('rev1', 'tools/my-tool/source.ts', 'export default async function run() { return {} }')
             const report = await validateRevisionBundle(
                 mkRev({
                     tools: [{ kind: 'custom', id: 'my-tool', path: 'tools/my-tool' }],

@@ -15,6 +15,7 @@
  */
 
 import cronParser from 'cron-parser'
+import { transform as esbuildTransform } from 'esbuild'
 
 import { AgentRevision, BundleStore } from '@posthog/agent-shared'
 import { hasNativeTool } from '@posthog/agent-tools'
@@ -23,8 +24,9 @@ export type ValidationCode =
     | 'no_triggers'
     | 'missing_entrypoint'
     | 'unknown_native_tool'
-    | 'missing_custom_tool_compiled'
+    | 'missing_custom_tool_source'
     | 'missing_custom_tool_schema'
+    | 'invalid_custom_tool_source'
     | 'missing_skill'
     | 'invalid_cron_schedule'
     | 'cron_schedule_too_frequent'
@@ -145,14 +147,35 @@ export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleS
             continue
         }
         const base = tool.path.replace(/\/$/, '')
-        const compiled = `${base}/compiled.js`
+        const source = `${base}/source.ts`
         const schema = `${base}/schema.json`
-        if (!(await bundle.exists(rev.id, compiled))) {
+        if (!(await bundle.exists(rev.id, source))) {
             errors.push({
-                code: 'missing_custom_tool_compiled',
-                message: `custom tool "${tool.id}" is missing "${compiled}"`,
+                code: 'missing_custom_tool_source',
+                message: `custom tool "${tool.id}" is missing "${source}"`,
                 pointer: `spec.tools[${i}].path`,
             })
+        } else {
+            // Syntax-check the source via esbuild's TS loader without emitting.
+            // Catches authoring mistakes (typos, missing braces, bad imports the
+            // sandbox can't satisfy) at validate time so the concierge can fix
+            // before freeze. The freeze step does the actual transpile to
+            // compiled.js — validate is pure (no bundle writes).
+            try {
+                const text = await bundle.readText(rev.id, source)
+                await esbuildTransform(text, {
+                    loader: 'ts',
+                    format: 'cjs',
+                    // No `write` here — we just want the parse + check.
+                })
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err)
+                errors.push({
+                    code: 'invalid_custom_tool_source',
+                    message: `custom tool "${tool.id}" source.ts failed to parse: ${message.split('\n')[0]}`,
+                    pointer: `spec.tools[${i}].path`,
+                })
+            }
         }
         if (!(await bundle.exists(rev.id, schema))) {
             errors.push({

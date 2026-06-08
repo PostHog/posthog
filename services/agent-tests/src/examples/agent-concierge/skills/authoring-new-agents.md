@@ -218,9 +218,15 @@ registry** — `agent-skill-templates-list` /
 template fits, pin it via `spec.skills[].from_template` instead of
 re-authoring. Load `skills/using-the-registry` for the full pattern.
 
-For custom tools, write `tools/<id>/source.ts` and
-`tools/<id>/schema.json` declaring args + required secrets. The
-runner sandboxes the source at session start.
+For custom tools, write **`tools/<id>/source.ts`** and
+**`tools/<id>/schema.json`** (declaring args + required secrets).
+That's it — DO NOT write `compiled.js`. The janitor compiles
+`source.ts` to `compiled.js` at freeze time using esbuild; the
+runner then sandboxes the compiled output at session start. If you
+hand-compile (e.g. by stripping type annotations and writing
+`compiled.js` yourself) you'll either ship the wrong thing or
+collide with the freeze-step output. Write `source.ts` as readable
+TypeScript and trust the build.
 
 Use `agent-applications-revisions-file-update` for each file.
 Don't use `bundle-update` mode=replace until you have a sense for
