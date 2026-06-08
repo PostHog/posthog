@@ -31,7 +31,8 @@ import { DEFAULT_Y_AXIS_ID } from '../../core/types'
 import { BarTooltip } from './BarTooltip'
 import { computeWrapperMinHeight, HORIZONTAL_MIN_BAND_SIZE_DEFAULT } from './utils/bar-config'
 import { groupedBandSlotAtCursor } from './utils/bars-under-cursor'
-import { drawBarChartStatic, drawBarHoverItems, resolveBarHoverItems } from './utils/draw-bar-chart'
+import { drawBarChartStatic, drawBarHoverItems } from './utils/draw-bar-chart'
+import { resolveBarHoverItems } from './utils/resolve-bar-hover'
 import { resolveClickedBarSeries } from './utils/resolve-clicked-bar-series'
 
 export interface BarChartProps<Meta = unknown> {

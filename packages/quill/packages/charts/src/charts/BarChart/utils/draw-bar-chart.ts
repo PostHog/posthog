@@ -4,7 +4,6 @@ import { bandCenter, type BarChartPrivate, computeBarTrackRect, computeSeriesBar
 import {
     BAR_TRACK_HOVER_ALPHA,
     type BarRect,
-    type BarRoundedCorners,
     type BarShadow,
     clipToRoundedRects,
     drawBarHighlight,
@@ -15,56 +14,13 @@ import {
 } from '../../../core/canvas-renderer'
 import { barColorAt } from '../../../core/color-utils'
 import type { BarScaleSet, StackedBand } from '../../../core/scales'
-import type {
-    BarChartConfig,
-    BarFillStyle,
-    BarsConfig,
-    ChartDimensions,
-    ChartDrawArgs,
-    ResolvedSeries,
-} from '../../../core/types'
+import type { BarChartConfig, BarFillStyle, BarsConfig, ChartDimensions, ChartDrawArgs } from '../../../core/types'
 import { DEFAULT_Y_AXIS_ID } from '../../../core/types'
 import { computeVisibleXLabels } from '../../../overlays/AxisLabels'
 import { resolveBarShadow } from './bar-config'
-import {
-    type BarLayout,
-    barContainsPointOnBandAxis,
-    cursorOutsideBarFillExtent,
-    findVisibleStackedSegment,
-    isStackedLayout,
-    iterBarsAtCursor,
-} from './bars-under-cursor'
-
-const ALL_CORNERS: BarRoundedCorners = { topLeft: true, topRight: true, bottomLeft: true, bottomRight: true }
-
-/** One fully-rounded rect per band, spanning the union of that band's stacked segments — the
- *  pill the bar layer is clipped to for `roundStackEnds`. Bars in the same band share a band-axis
- *  slot (same `dataIndex`), so we group by it and extend along the value axis. */
-function stackPillRects(bars: BarRect[], isHorizontal: boolean): BarRect[] {
-    const byBand = new Map<number, BarRect>()
-    for (const bar of bars) {
-        if (bar.width <= 0 || bar.height <= 0) {
-            continue
-        }
-        const existing = byBand.get(bar.dataIndex)
-        if (!existing) {
-            byBand.set(bar.dataIndex, { ...bar, corners: ALL_CORNERS })
-            continue
-        }
-        if (isHorizontal) {
-            const left = Math.min(existing.x, bar.x)
-            const right = Math.max(existing.x + existing.width, bar.x + bar.width)
-            existing.x = left
-            existing.width = right - left
-        } else {
-            const top = Math.min(existing.y, bar.y)
-            const bottom = Math.max(existing.y + existing.height, bar.y + bar.height)
-            existing.y = top
-            existing.height = bottom - top
-        }
-    }
-    return [...byBand.values()]
-}
+import { type BarLayout } from './bars-under-cursor'
+import type { ResolvedBarHover } from './resolve-bar-hover'
+import { stackPillRects } from './stack-pills'
 
 /** Category-axis grid ticks aligned to the visible labels rather than every band: all band
  *  centers for horizontal charts, the de-duplicated visible x-labels for vertical ones so a
@@ -222,117 +178,6 @@ export function drawBarChartStatic(
     })
 }
 
-export interface BarHoverItem {
-    series: ResolvedSeries
-    bar: BarRect
-    isTrackHighlight: boolean
-}
-
-export interface ResolvedBarHover {
-    items: BarHoverItem[]
-    /** Per-series bar-vs-track composition string. The caller keys its fade restart on this so a
-     *  bar → track move at the same `hoverIndex` still restarts the fade. */
-    composition: string
-    /** Rounded pills to clip the highlight to (matches the resting bars under `roundStackEnds`),
-     *  or empty when not rounding stack ends. */
-    hoveredBandPills: BarRect[]
-}
-
-export interface ResolveBarHoverArgs {
-    barLayout: BarLayout
-    isHorizontal: boolean
-    stackedData: Map<string, StackedBand> | undefined
-    topStackedKeyByAxis: Map<string, string>
-    roundStackEnds: boolean
-    barTrack: boolean
-}
-
-/** Resolve which bars (or tracks) the hovered band should highlight, plus the pill clip and a
- *  composition key. Pure — the stateful fade bookkeeping stays in the caller, which owns the
- *  alpha and then hands the result to {@link drawBarHoverItems}. Returns `null` when nothing is
- *  under the cursor. */
-export function resolveBarHoverItems(
-    { series: coloredSeries, labels: drawLabels, hoverIndex, hoverPosition }: ChartDrawArgs,
-    d3Scales: BarScaleSet,
-    { barLayout, isHorizontal, stackedData, topStackedKeyByAxis, roundStackEnds, barTrack }: ResolveBarHoverArgs
-): ResolvedBarHover | null {
-    const hoveredLabel = drawLabels[hoverIndex]
-    const items: BarHoverItem[] = []
-    let composition = ''
-    // Stacked: clip the highlight to the visible slice so hover only changes shade,
-    // never z-order. Grouped keeps band-axis containment for cursor-above-bar.
-    const stackedHighlight = isStackedLayout(barLayout)
-    if (stackedHighlight && hoverPosition) {
-        const visible = findVisibleStackedSegment({
-            series: coloredSeries,
-            labels: drawLabels,
-            hoveredLabel,
-            cursor: hoverPosition,
-            scales: d3Scales,
-            layout: barLayout,
-            isHorizontal,
-            stackedData,
-            topStackedKeyByAxis,
-        })
-        if (visible) {
-            const visibleExtent = isHorizontal ? visible.bar.width : visible.bar.height
-            const { nextSmallerExtent } = visible
-            const baselinePx = isHorizontal ? visible.bar.x : visible.bar.y + visible.bar.height
-            const clippedExtent = Math.max(0, visibleExtent - nextSmallerExtent)
-            const clipped: BarRect = isHorizontal
-                ? { ...visible.bar, x: baselinePx + nextSmallerExtent, width: clippedExtent }
-                : { ...visible.bar, y: baselinePx - visibleExtent, height: clippedExtent }
-            items.push({ series: visible.series, bar: clipped, isTrackHighlight: false })
-            composition += 'b'
-        }
-    } else {
-        for (const { series: s, bar } of iterBarsAtCursor<ResolvedSeries>({
-            series: coloredSeries,
-            label: hoveredLabel,
-            dataIndex: hoverIndex,
-            scales: d3Scales,
-            layout: barLayout,
-            isHorizontal,
-            stackedData,
-            topStackedKeyByAxis,
-        })) {
-            if (hoverPosition && !barContainsPointOnBandAxis(bar, hoverPosition, isHorizontal)) {
-                continue
-            }
-            const isTrackHighlight =
-                barTrack === true &&
-                barLayout === 'grouped' &&
-                hoverPosition != null &&
-                cursorOutsideBarFillExtent(bar, hoverPosition, isHorizontal)
-            items.push({ series: s, bar, isTrackHighlight })
-            composition += isTrackHighlight ? 't' : 'b'
-        }
-    }
-    if (items.length === 0) {
-        return null
-    }
-    // Match the resting bar's pill clip so the darker highlight rounds at the stack's outer
-    // ends instead of poking square corners past them.
-    const hoveredBandPills = roundStackEnds
-        ? stackPillRects(
-              [
-                  ...iterBarsAtCursor<ResolvedSeries>({
-                      series: coloredSeries,
-                      label: hoveredLabel,
-                      dataIndex: hoverIndex,
-                      scales: d3Scales,
-                      layout: barLayout,
-                      isHorizontal,
-                      stackedData,
-                      topStackedKeyByAxis,
-                  }),
-              ].map(({ bar }) => bar),
-              isHorizontal
-          )
-        : []
-    return { items, composition, hoveredBandPills }
-}
-
 export interface DrawBarHoverArgs {
     alpha: number
     barCornerRadius: number
@@ -342,7 +187,7 @@ export interface DrawBarHoverArgs {
 
 /** Paint the resolved hover highlight. Track highlights draw a translucent full-extent rect; bar
  *  highlights draw a darker shade of the bar color. Clips to the pills from
- *  {@link resolveBarHoverItems} when rounding stack ends. */
+ *  `resolveBarHoverItems` when rounding stack ends. */
 export function drawBarHoverItems(
     ctx: CanvasRenderingContext2D,
     d3Scales: BarScaleSet,
