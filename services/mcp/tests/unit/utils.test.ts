@@ -1,8 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { env } from '@/lib/env'
 import { extractBearerToken, formatPrompt, redactToken, sanitizeHeaderValue } from '@/lib/utils'
 import { omitResponseFields, pickResponseFields, withPostHogUrl } from '@/tools/tool-utils'
 import type { Context } from '@/tools/types'
+
+// Mock the env proxy that the production code reads through, rather than poking
+// process.env — so the test exercises the same abstraction as extractBearerToken.
+vi.mock('@/lib/env', () => ({ env: { NODE_ENV: undefined as string | undefined } }))
 
 describe('utils', () => {
     describe('redactToken', () => {
@@ -21,14 +26,8 @@ describe('utils', () => {
     })
 
     describe('extractBearerToken', () => {
-        const originalNodeEnv = process.env.NODE_ENV
-
         beforeEach(() => {
-            process.env.NODE_ENV = 'development'
-        })
-
-        afterEach(() => {
-            process.env.NODE_ENV = originalNodeEnv
+            env.NODE_ENV = 'development'
         })
 
         const req = (opts: { header?: string; url?: string }): Request =>
@@ -42,17 +41,29 @@ describe('utils', () => {
             )
         })
 
-        it('falls back to the ?token query param outside production', () => {
+        it('falls back to the ?token query param in development', () => {
+            expect(extractBearerToken(req({ url: 'https://x/?token=phx_query' }))).toBe('phx_query')
+        })
+
+        it('falls back to the ?token query param in test', () => {
+            env.NODE_ENV = 'test'
             expect(extractBearerToken(req({ url: 'https://x/?token=phx_query' }))).toBe('phx_query')
         })
 
         it('ignores the ?token query param in production', () => {
-            process.env.NODE_ENV = 'production'
+            env.NODE_ENV = 'production'
+            expect(extractBearerToken(req({ url: 'https://x/?token=phx_query' }))).toBeUndefined()
+        })
+
+        // Fail closed: an unset NODE_ENV (e.g. no Cloudflare Workers binding) must
+        // not enable the query-param path.
+        it('ignores the ?token query param when NODE_ENV is unset', () => {
+            env.NODE_ENV = undefined
             expect(extractBearerToken(req({ url: 'https://x/?token=phx_query' }))).toBeUndefined()
         })
 
         it('still reads the header in production', () => {
-            process.env.NODE_ENV = 'production'
+            env.NODE_ENV = 'production'
             expect(extractBearerToken(req({ header: 'Bearer phx_header' }))).toBe('phx_header')
         })
 
