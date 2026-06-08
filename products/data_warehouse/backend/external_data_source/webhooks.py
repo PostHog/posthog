@@ -8,6 +8,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSource,
+    WebhookSyncResult,
 )
 from posthog.temporal.data_imports.sources.common.config import Config
 
@@ -165,16 +166,9 @@ def reconcile_webhook_events(
     hog_fn_result: WebhookHogFunctionCreateResult,
     team_id: int,
     eligible_schema_names: list[str],
-) -> WebhookSetupResult:
+) -> WebhookSyncResult:
     """Reconcile a registered webhook's events with the selected schemas (no-op by default)."""
-    result: WebhookCreationResult = source.sync_webhook_events(
-        config, hog_fn_result.webhook_url, team_id, eligible_schema_names
-    )
-    return WebhookSetupResult(
-        success=result.success,
-        webhook_url=hog_fn_result.webhook_url,
-        error=result.error,
-    )
+    return source.sync_webhook_events(config, hog_fn_result.webhook_url, team_id, eligible_schema_names)
 
 
 @dataclasses.dataclass

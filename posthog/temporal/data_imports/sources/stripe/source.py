@@ -26,6 +26,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSource,
+    WebhookSyncResult,
 )
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -379,7 +380,7 @@ If automatic creation failed due to a permissions error and you're using a restr
         webhook_url: str,
         team_id: int,
         eligible_schema_names: list[str],
-    ) -> WebhookCreationResult:
+    ) -> WebhookSyncResult:
         api_key = self._get_api_key(config, team_id)
         desired_events = self.get_desired_webhook_events(config, eligible_schema_names) or []
         return update_webhook_events(api_key, config.stripe_account_id, webhook_url, desired_events)

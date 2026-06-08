@@ -22,7 +22,7 @@ from posthog.api.test.test_user import create_user
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.schedule import describe_schedule
-from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult
+from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult, WebhookSyncResult
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 
@@ -865,7 +865,7 @@ class TestExternalDataSchema(APIBaseTest):
                 StripeSource, "create_webhook", return_value=WebhookCreationResult(success=True)
             ) as mock_create_webhook,
             mock.patch.object(
-                StripeSource, "sync_webhook_events", return_value=WebhookCreationResult(success=True)
+                StripeSource, "sync_webhook_events", return_value=WebhookSyncResult(success=True)
             ) as mock_sync_events,
             mock.patch.object(StripeSource, "get_schemas", return_value=mock_webhook_schemas),
         ):
@@ -916,7 +916,7 @@ class TestExternalDataSchema(APIBaseTest):
             mock.patch.object(
                 StripeSource,
                 "sync_webhook_events",
-                return_value=WebhookCreationResult(success=False, error="add Write permission"),
+                return_value=WebhookSyncResult(success=False, error="add Write permission"),
             ),
             mock.patch.object(StripeSource, "get_schemas", return_value=mock_webhook_schemas),
         ):

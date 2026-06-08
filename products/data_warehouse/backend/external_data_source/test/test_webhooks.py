@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.models import Organization, Team
-from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult
+from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult, WebhookSyncResult
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.data_warehouse.backend.external_data_source.webhooks import (
@@ -387,13 +387,12 @@ class TestReconcileWebhookEvents:
         schemas = _create_schemas(team, ext_source, ["Customers"])
 
         hog_fn_result = get_or_create_webhook_hog_function(team, webhook_source, "source-123", schemas)
-        webhook_source.sync_webhook_events.return_value = WebhookCreationResult(success=True)
+        webhook_source.sync_webhook_events.return_value = WebhookSyncResult(success=True)
 
         config = MagicMock()
         result = reconcile_webhook_events(webhook_source, config, hog_fn_result, team.id, ["Customers"])
 
         assert result.success is True
-        assert result.webhook_url == hog_fn_result.webhook_url
         webhook_source.sync_webhook_events.assert_called_once_with(
             config, hog_fn_result.webhook_url, team.id, ["Customers"]
         )
@@ -406,9 +405,7 @@ class TestReconcileWebhookEvents:
         schemas = _create_schemas(team, ext_source, ["Customers"])
 
         hog_fn_result = get_or_create_webhook_hog_function(team, webhook_source, "source-123", schemas)
-        webhook_source.sync_webhook_events.return_value = WebhookCreationResult(
-            success=False, error="add Write permission"
-        )
+        webhook_source.sync_webhook_events.return_value = WebhookSyncResult(success=False, error="add Write permission")
 
         config = MagicMock()
         result = reconcile_webhook_events(webhook_source, config, hog_fn_result, team.id, ["Customers"])

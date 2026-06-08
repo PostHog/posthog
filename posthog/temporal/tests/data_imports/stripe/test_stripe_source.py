@@ -5,6 +5,7 @@ import pytest
 from unittest import mock
 
 import stripe as stripe_lib
+from parameterized import parameterized
 
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -687,6 +688,8 @@ class TestGetEndpointPermissions:
 class TestUpdateWebhookEvents:
     """`update_webhook_events` reconciles a Stripe endpoint's enabled_events with the desired set."""
 
+    WEBHOOK_URL = "https://webhooks.us.posthog.com/public/webhooks/dwh/123"
+
     def _mock_client_with_endpoint(self, *, url, enabled_events):
         endpoint = mock.MagicMock()
         endpoint.id = "we_123"
@@ -700,11 +703,12 @@ class TestUpdateWebhookEvents:
     def test_drift_calls_update_with_merged_set(self):
         from posthog.temporal.data_imports.sources.stripe.stripe import update_webhook_events
 
-        url = "https://webhooks.us.posthog.com/public/webhooks/dwh/123"
-        mock_client, endpoint = self._mock_client_with_endpoint(url=url, enabled_events=["charge.captured"])
+        mock_client, endpoint = self._mock_client_with_endpoint(
+            url=self.WEBHOOK_URL, enabled_events=["charge.captured"]
+        )
 
         with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
-            result = update_webhook_events("rk_test", None, url, ["charge.captured", "customer.created"])
+            result = update_webhook_events("rk_test", None, self.WEBHOOK_URL, ["charge.captured", "customer.created"])
 
         assert result.success
         mock_client.webhook_endpoints.update.assert_called_once()
@@ -718,43 +722,23 @@ class TestUpdateWebhookEvents:
         # Pre-existing events the user had are preserved.
         assert "charge.captured" in enabled
 
-    def test_in_sync_does_not_call_update(self):
+    @parameterized.expand(
+        [
+            # endpoint already carries everything desired
+            ("already in sync", WEBHOOK_URL, ["charge.captured", "customer.created"]),
+            # endpoint listens to all events
+            ("wildcard endpoint", WEBHOOK_URL, ["*"]),
+            # no endpoint matches our url
+            ("no matching endpoint", "https://other.example.com", ["charge.captured"]),
+        ]
+    )
+    def test_does_not_write_when_no_drift(self, _name, endpoint_url, enabled_events):
         from posthog.temporal.data_imports.sources.stripe.stripe import update_webhook_events
 
-        url = "https://webhooks.us.posthog.com/public/webhooks/dwh/123"
-        mock_client, _ = self._mock_client_with_endpoint(
-            url=url, enabled_events=["charge.captured", "customer.created"]
-        )
+        mock_client, _ = self._mock_client_with_endpoint(url=endpoint_url, enabled_events=enabled_events)
 
         with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
-            result = update_webhook_events("rk_test", None, url, ["charge.captured", "customer.created"])
-
-        assert result.success
-        mock_client.webhook_endpoints.update.assert_not_called()
-
-    def test_wildcard_endpoint_is_never_missing(self):
-        from posthog.temporal.data_imports.sources.stripe.stripe import update_webhook_events
-
-        url = "https://webhooks.us.posthog.com/public/webhooks/dwh/123"
-        mock_client, _ = self._mock_client_with_endpoint(url=url, enabled_events=["*"])
-
-        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
-            result = update_webhook_events("rk_test", None, url, ["charge.captured", "customer.created"])
-
-        assert result.success
-        mock_client.webhook_endpoints.update.assert_not_called()
-
-    def test_no_matching_endpoint_is_noop(self):
-        from posthog.temporal.data_imports.sources.stripe.stripe import update_webhook_events
-
-        mock_client, _ = self._mock_client_with_endpoint(
-            url="https://other.example.com", enabled_events=["charge.captured"]
-        )
-
-        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
-            result = update_webhook_events(
-                "rk_test", None, "https://webhooks.us.posthog.com/public/webhooks/dwh/123", ["customer.created"]
-            )
+            result = update_webhook_events("rk_test", None, self.WEBHOOK_URL, ["charge.captured", "customer.created"])
 
         assert result.success
         mock_client.webhook_endpoints.update.assert_not_called()
@@ -762,12 +746,11 @@ class TestUpdateWebhookEvents:
     def test_permission_error_returns_actionable_failure_without_raising(self):
         from posthog.temporal.data_imports.sources.stripe.stripe import update_webhook_events
 
-        url = "https://webhooks.us.posthog.com/public/webhooks/dwh/123"
-        mock_client, _ = self._mock_client_with_endpoint(url=url, enabled_events=["charge.captured"])
-        mock_client.webhook_endpoints.update.side_effect = Exception("403 Forbidden: missing permission")
+        mock_client, _ = self._mock_client_with_endpoint(url=self.WEBHOOK_URL, enabled_events=["charge.captured"])
+        mock_client.webhook_endpoints.update.side_effect = stripe_lib.PermissionError(message="Forbidden")
 
         with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
-            result = update_webhook_events("rk_test", None, url, ["customer.created"])
+            result = update_webhook_events("rk_test", None, self.WEBHOOK_URL, ["customer.created"])
 
         assert result.success is False
         assert result.error is not None

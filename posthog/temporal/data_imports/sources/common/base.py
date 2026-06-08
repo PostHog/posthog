@@ -156,6 +156,15 @@ class WebhookCreationResult:
 
 
 @dataclasses.dataclass
+class WebhookSyncResult:
+    """Outcome of reconciling an existing webhook's events — success plus an optional actionable
+    message. Distinct from WebhookCreationResult, which also carries create-only fields."""
+
+    success: bool
+    error: str | None = None
+
+
+@dataclasses.dataclass
 class WebhookDeletionResult:
     success: bool
     error: str | None = None
@@ -205,10 +214,10 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         webhook_url: str,
         team_id: int,
         eligible_schema_names: list[str],
-    ) -> WebhookCreationResult:
+    ) -> WebhookSyncResult:
         """Reconcile the provider's subscribed events with the selected schemas. No-op default
         for sources without a provider-side subscription; override where one exists (Stripe)."""
-        return WebhookCreationResult(success=True)
+        return WebhookSyncResult(success=True)
 
     def webhook_inputs_updated(
         self, config: ConfigType, webhook_url: str, team_id: int, inputs: dict[str, Any]
