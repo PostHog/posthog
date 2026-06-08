@@ -15,7 +15,6 @@ class Feature(StrEnum):
     DASHBOARD = "dashboard"
     DEBUG_QUERY = "debug_query"
     INSIGHT = "insight"
-    LLM_ANALYTICS = "llm_analytics"
     QUERY = "query"
 
 
