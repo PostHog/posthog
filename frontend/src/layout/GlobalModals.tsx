@@ -10,7 +10,7 @@ import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAu
 import { GlobalCustomUnitModal } from 'lib/components/UnitPicker/GlobalCustomUnitModal'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
 import { bindModalToUrl } from 'lib/logic/bindModalToUrl'
-import { TwoFactorSetupModal } from 'scenes/authentication/TwoFactorSetupModal'
+import { TwoFactorSetupModal } from 'scenes/authentication/two-factor-setup/TwoFactorSetupModal'
 import { PaymentEntryModal } from 'scenes/billing/PaymentEntryModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
@@ -29,7 +29,6 @@ import type { globalModalsLogicType } from './GlobalModalsType'
 import { navigationLogic } from './navigation/navigationLogic'
 import { ConfigureHomeModal } from './scenes/ConfigureHomeModal'
 import { ConfigurePromotedProductModal } from './scenes/ConfigurePromotedProductModal'
-import { GoodbyeTabsModal } from './scenes/GoodbyeTabsModal'
 
 export const globalModalsLogic = kea<globalModalsLogicType>([
     path(['layout', 'navigation', 'globalModalsLogic']),
@@ -97,7 +96,6 @@ export function GlobalModals(): JSX.Element {
                 isOpen={isConfigurePromotedProductModalOpen}
                 onClose={hideConfigurePromotedProductModal}
             />
-            <GoodbyeTabsModal />
             <MaybeWelcomeDialog />
             <ComposeTicketModal />
         </>

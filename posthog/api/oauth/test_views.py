@@ -1,6 +1,9 @@
+import os
 import base64
 import hashlib
+import importlib
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Optional, cast
 from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
@@ -11,16 +14,18 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.db import OperationalError
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from oauth2_provider.utils import jwk_from_pem
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.oauth import OAuthAuthorizationSerializer
+from posthog.api.oauth.views import OAuthValidator
 from posthog.models.oauth import (
     OAuthAccessToken,
     OAuthApplication,
@@ -45,6 +50,26 @@ def generate_rsa_key() -> str:
     )
 
     return pem.decode("utf-8")
+
+
+def jwks_entry_to_public_key(key_data: dict):
+    # Rebuild an RSA public key from a JWKS entry's modulus (n) and exponent (e).
+    public_numbers = rsa.RSAPublicNumbers(
+        e=int.from_bytes(base64.urlsafe_b64decode(key_data["e"] + "=="), "big"),
+        n=int.from_bytes(base64.urlsafe_b64decode(key_data["n"] + "=="), "big"),
+    )
+    return public_numbers.public_key()
+
+
+def public_pem(public_key) -> str:
+    return public_key.public_bytes(
+        encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo
+    ).decode("utf-8")
+
+
+def private_pem_to_public_pem(private_key_pem: str) -> str:
+    private_key = serialization.load_pem_private_key(private_key_pem.encode(), password=None)
+    return public_pem(private_key.public_key())
 
 
 @override_settings(
@@ -337,6 +362,48 @@ class TestOAuthAPI(APIBaseTest):
 
         redirect_to = response.json()["redirect_to"]
         self.assertEqual(redirect_to, "https://example.com/callback?error=access_denied")
+
+    def test_authorize_with_prompt_none_openid_is_rejected_not_500(self):
+        # PostHog does not support OIDC silent authentication: `prompt=none` is always rejected
+        # with a spec-compliant error, never a token and never a 500. On the GET validate path
+        # oauthlib hasn't attached the user yet, so it rejects at the first gate with
+        # `login_required` (a missing validate_silent_login override used to crash here instead).
+        url = f"{self.base_authorization_url}&scope=openid&prompt=none"
+
+        response = self.client.get(url)
+
+        self.assertLess(response.status_code, 500)
+        self.assertIn("error=login_required", response.headers["Location"])
+
+    # The @login_required decorator on OAuthAuthorizationView intercepts unauthenticated
+    # requests before validate_silent_login runs, so the validator's False branch can't
+    # be exercised through the HTTP flow — call it directly instead.
+    @parameterized.expand(
+        [
+            ("authenticated_user", lambda self: SimpleNamespace(user=self.user), True),
+            ("unauthenticated_user", lambda self: SimpleNamespace(user=SimpleNamespace(is_authenticated=False)), False),
+            ("no_user_attr", lambda self: SimpleNamespace(), False),
+            ("none_user", lambda self: SimpleNamespace(user=None), False),
+        ]
+    )
+    def test_validate_silent_login(self, _name, make_request, expected):
+        self.assertEqual(OAuthValidator().validate_silent_login(make_request(self)), expected)
+
+    def test_validate_silent_authorization_always_false(self):
+        # PostHog never authorizes silently; prompt=none must fall back to interactive consent.
+        self.assertFalse(OAuthValidator().validate_silent_authorization(SimpleNamespace(user=self.user)))
+
+    def test_authorize_post_allow_with_prompt_none_returns_consent_required(self):
+        # The authorization-completion path (unlike the GET validate path) attaches the
+        # authenticated user, so oauthlib runs validate_silent_authorization here. We reject
+        # silent authorization with a spec-compliant consent_required error rather than a 500.
+        response = self.client.post(
+            "/oauth/authorize/?scope=openid&prompt=none",
+            {**self.base_authorization_post_body, "allow": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("error=consent_required", response.json()["redirect_to"])
 
     def test_cannot_get_token_with_invalid_code(self):
         data = {
@@ -833,23 +900,81 @@ class TestOAuthAPI(APIBaseTest):
         jwks = response.json()
         self.assertIn("keys", jwks)
 
-        jwks = response.json()
+        self.assertEqual(public_pem(jwks_entry_to_public_key(jwks["keys"][0])), self.public_key)
 
-        key_data = jwks["keys"][0]
-        public_numbers = rsa.RSAPublicNumbers(
-            e=int.from_bytes(base64.urlsafe_b64decode(key_data["e"] + "=="), "big"),
-            n=int.from_bytes(base64.urlsafe_b64decode(key_data["n"] + "=="), "big"),
+    def test_jwks_endpoint_publishes_active_and_inactive_keys(self):
+        inactive_key_1 = generate_rsa_key()
+        inactive_key_2 = generate_rsa_key()
+
+        with override_settings(
+            OAUTH2_PROVIDER={
+                **settings.OAUTH2_PROVIDER,
+                "OIDC_RSA_PRIVATE_KEYS_INACTIVE": [inactive_key_1, inactive_key_2],
+            }
+        ):
+            response = self.client.get("/.well-known/jwks.json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        keys = response.json()["keys"]
+
+        # Active key plus both inactive keys, each published under a distinct kid
+        self.assertEqual(len(keys), 3)
+        self.assertEqual(len({key["kid"] for key in keys}), 3)
+
+        published_public_pems = {public_pem(jwks_entry_to_public_key(key)) for key in keys}
+        expected_public_pems = {
+            private_pem_to_public_pem(pem) for pem in (self.private_key, inactive_key_1, inactive_key_2)
+        }
+        self.assertEqual(published_public_pems, expected_public_pems)
+
+    def test_jwks_endpoint_publishes_only_active_key_when_no_inactive_keys(self):
+        with override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEYS_INACTIVE": []}):
+            response = self.client.get("/.well-known/jwks.json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        keys = response.json()["keys"]
+        self.assertEqual(len(keys), 1)
+        self.assertEqual(public_pem(jwks_entry_to_public_key(keys[0])), self.public_key)
+
+    def test_token_signed_with_inactive_key_still_verifies_via_jwks(self):
+        # Simulates a rotation: a token signed by the previous active key keeps verifying
+        # because that key is still published as an inactive key in the JWKS.
+        previous_key = generate_rsa_key()
+        previous_kid = jwk_from_pem(previous_key).thumbprint()
+
+        token = jwt.encode(
+            {"sub": "user-123", "aud": "test_confidential_client_id"},
+            previous_key,
+            algorithm="RS256",
+            headers={"kid": previous_kid},
         )
 
-        public_key = public_numbers.public_key()
+        with override_settings(
+            OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEYS_INACTIVE": [previous_key]}
+        ):
+            response = self.client.get("/.well-known/jwks.json")
 
-        public_key_pem_bytes = public_key.public_bytes(
-            encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        matching_entry = next(key for key in response.json()["keys"] if key["kid"] == previous_kid)
+
+        decoded = jwt.decode(
+            token,
+            jwks_entry_to_public_key(matching_entry),
+            algorithms=["RS256"],
+            audience="test_confidential_client_id",
         )
+        self.assertEqual(decoded["sub"], "user-123")
 
-        public_key_pem_str = public_key_pem_bytes.decode("utf-8")
+    def test_jwks_endpoint_errors_when_an_inactive_key_is_empty(self):
+        # An empty PEM raises in the JWKS view — this is why settings filters empties out
+        # before they ever reach OIDC_RSA_PRIVATE_KEYS_INACTIVE.
+        with override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEYS_INACTIVE": [""]}):
+            with self.assertRaises(ValueError):
+                self.client.get("/.well-known/jwks.json")
 
-        self.assertEqual(public_key_pem_str, self.public_key)
+    def test_configured_inactive_keys_never_contain_empty_strings(self):
+        inactive_keys = cast(list[str], settings.OAUTH2_PROVIDER["OIDC_RSA_PRIVATE_KEYS_INACTIVE"])
+        self.assertNotIn("", inactive_keys)
 
     def test_id_token_not_returned_without_openid_scope(self):
         data_without_openid = {
@@ -2332,6 +2457,35 @@ class TestOAuthAPI(APIBaseTest):
         self.assertNotIn("error=invalid_scope", redirect_to)
         self.assertIn("code=", redirect_to)
 
+    @parameterized.expand(
+        [
+            ("ceiling_excludes_requested", ["experiment:read"], "experiment:write"),
+            ("empty_ceiling_rejects_privileged", [], "llm_gateway:read"),
+        ]
+    )
+    def test_authorize_rejection_captures_invalid_scope_event(self, _name, ceiling, requested_scope):
+        self._set_ceiling(*ceiling)
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.client.get(f"{self.base_authorization_url}&scope={requested_scope}")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("error=invalid_scope", response.get("Location") or "")
+        rejected = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_authorization_rejected"]
+        self.assertEqual(len(rejected), 1)
+        props = rejected[0].kwargs["properties"]
+        self.assertEqual(props["reason"], "invalid_scope")
+        self.assertEqual(props["app_id"], str(self.confidential_application.pk))
+        self.assertEqual(props["client_name"], self.confidential_application.name)
+        self.assertEqual(props["registration_type"], "manual")
+        self.assertEqual(props["is_verified"], self.confidential_application.is_verified)
+        self.assertEqual(props["is_first_party"], self.confidential_application.is_first_party)
+
+    def test_authorize_success_does_not_capture_invalid_scope_event(self):
+        self._set_ceiling("experiment:read")
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            self._authorize_post("experiment:read")
+        rejected = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_authorization_rejected"]
+        self.assertEqual(rejected, [])
+
     @freeze_time("2025-01-01 00:00:00")
     def test_token_endpoint_with_json_payload(self):
         grant = OAuthGrant.objects.create(
@@ -3286,3 +3440,44 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         response = self.client.get("/.well-known/oauth-authorization-server")
         metadata = response.json()
         self.assertNotIn("posthog_region", metadata)
+
+
+class TestOIDCInactiveKeysSetting(SimpleTestCase):
+    """OIDC_RSA_PRIVATE_KEYS_INACTIVE is assembled from two env vars so multi-line PEMs
+    don't need delimiter parsing. Only keys that are actually set may be included — an
+    empty entry would break the JWKS endpoint (see test_jwks_endpoint_errors_when_an_inactive_key_is_empty).
+
+    Reloading posthog.settings.web only rebinds names in that module; django.conf.settings
+    is populated from the posthog.settings package and is unaffected, so this stays isolated.
+    """
+
+    @parameterized.expand(
+        [
+            ("both_unset", None, None, []),
+            ("both_blank", "", "", []),
+            ("only_first_set", "key-1", None, ["key-1"]),
+            ("only_second_set", None, "key-2", ["key-2"]),
+            ("first_blank_second_set", "", "key-2", ["key-2"]),
+            ("both_set", "key-1", "key-2", ["key-1", "key-2"]),
+        ]
+    )
+    def test_inactive_keys_built_from_env_vars(self, _name, env_1, env_2, expected):
+        env_vars = {
+            "OIDC_RSA_PRIVATE_KEY_INACTIVE_1": env_1,
+            "OIDC_RSA_PRIVATE_KEY_INACTIVE_2": env_2,
+        }
+        overrides = {var: value for var, value in env_vars.items() if value is not None}
+
+        web_settings = importlib.import_module("posthog.settings.web")
+        try:
+            with patch.dict(os.environ, overrides, clear=False):
+                for var, value in env_vars.items():
+                    if value is None:
+                        os.environ.pop(var, None)
+                importlib.reload(web_settings)
+                self.assertEqual(web_settings.OIDC_RSA_PRIVATE_KEYS_INACTIVE, expected)
+                self.assertNotIn("", web_settings.OIDC_RSA_PRIVATE_KEYS_INACTIVE)
+        finally:
+            # Restore module attributes to the real environment (patch.dict has already
+            # restored os.environ by this point, so this reload sees the original vars).
+            importlib.reload(web_settings)

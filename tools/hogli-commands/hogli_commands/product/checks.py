@@ -62,13 +62,22 @@ def _iter_module_blocks(tach_content: str) -> Iterator[tuple[str, list[str]]]:
 
 
 def _pattern_targets_public_surface(pattern: str) -> bool:
-    """True if a tach expose pattern targets backend.facade or backend.presentation.
+    """True if a tach expose pattern targets a product's public surface.
+
+    Public surface is backend.facade, backend.presentation, or backend.routes —
+    the last being the product-local route registration entry point that core
+    imports to assemble the API router. It is a public composition hook, not an
+    internal leak, so it does not mark a product as un-isolatable.
 
     Strips backslashes first so it works on both the on-disk TOML form (`\\.`,
     two literal backslashes) and Python-string fixtures (single backslash).
     """
     normalized = pattern.replace("\\", "")
-    return normalized.startswith("backend.facade") or normalized.startswith("backend.presentation")
+    return (
+        normalized.startswith("backend.facade")
+        or normalized.startswith("backend.presentation")
+        or normalized.startswith("backend.routes")
+    )
 
 
 def has_legacy_interface_leaks(tach_content: str, module_path: str) -> bool:
@@ -98,11 +107,30 @@ def is_isolated_product(backend_dir: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _targets_facade_or_presentation(pattern: str) -> bool:
+    """True if a pattern targets backend.facade or backend.presentation specifically.
+
+    Narrower than `_pattern_targets_public_surface`, which also accepts
+    backend.routes. A routes-only block is a registration hook, not a canonical
+    facade surface, so it must not be treated as one (it would otherwise demand
+    facade/contracts.py isolation scaffolding the product may not have).
+    """
+    normalized = pattern.replace("\\", "")
+    return normalized.startswith("backend.facade") or normalized.startswith("backend.presentation")
+
+
 def _is_canonical_facade_expose(expose_patterns: list[str]) -> bool:
-    """Canonical = every expose pattern targets backend.facade or backend.presentation."""
+    """Canonical = a public-surface block that actually exposes facade/presentation.
+
+    Every pattern must be public surface (facade/presentation/routes) and at
+    least one must be facade/presentation — so a routes-only registration block
+    does not get treated as a canonical facade alternation entry.
+    """
     if not expose_patterns:
         return False
-    return all(_pattern_targets_public_surface(p) for p in expose_patterns)
+    if not all(_pattern_targets_public_surface(p) for p in expose_patterns):
+        return False
+    return any(_targets_facade_or_presentation(p) for p in expose_patterns)
 
 
 def _names_from_pattern(pattern: str) -> set[str]:
@@ -479,6 +507,9 @@ class MisplacedFilesCheck(ProductCheck):
     # the admin module at <app>.admin — and that module can be a flat `admin.py`
     # or an `admin/` package (both resolve to the same import). The file form is
     # already accepted, so the package form has to be too.
+    # `hogql_queries` is the established home for HogQL query runners across
+    # products (web_analytics, revenue_analytics, product_analytics), so it is
+    # allowed in isolated products too rather than forcing query code into logic/.
     _KNOWN_DIRS = {
         "facade",
         "presentation",
@@ -489,6 +520,7 @@ class MisplacedFilesCheck(ProductCheck):
         "management",
         "models",
         "logic",
+        "hogql_queries",
         "templates",
         "admin",
         "__pycache__",
