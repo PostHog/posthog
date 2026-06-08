@@ -23,10 +23,10 @@ export default defineConfig({
         globals: true,
         environment: 'node',
         testTimeout: 30000,
-        // The Hono/CF harness boots inside `beforeAll`: real listener, Redis, and a
-        // cold-cache fetch of the context-mill resource bundle from GitHub releases.
-        // Vitest's default 10s hook budget is too tight for that network-bound boot,
-        // so the harness `beforeAll` was timing out when GitHub was slow.
+        // The Hono/CF harness boots inside `beforeAll` (workerd spin-up for CF, Redis,
+        // a real listener, and resource warmup). Vitest's default 10s hook budget is
+        // too tight for that, so give the boot room. The context-mill download — the
+        // worst offender — is stubbed in the Hono suite (see context-mill-fixture.ts).
         hookTimeout: 60000,
         retry: 1, // Retry failed tests once to handle flaky integration tests
         setupFiles: ['tests/setup.ts'],
