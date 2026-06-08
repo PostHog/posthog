@@ -3832,7 +3832,7 @@ importers:
         version: 0.577.0(react@18.3.1)
       next:
         specifier: ^15.5.4
-        version: 15.5.18(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.60.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(sass@1.56.0)
+        version: 15.5.18(@opentelemetry/api@1.9.0)(@playwright/test@1.60.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(sass@1.56.0)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3946,9 +3946,6 @@ importers:
       '@posthog/agent-ingress':
         specifier: workspace:*
         version: link:../agent-ingress
-      '@posthog/agent-migrations':
-        specifier: workspace:*
-        version: link:../agent-migrations
       '@posthog/agent-shared':
         specifier: workspace:*
         version: link:../agent-shared
@@ -3971,6 +3968,9 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@posthog/agent-migrations':
+        specifier: workspace:*
+        version: link:../agent-migrations
       '@types/express':
         specifier: ^4.17.21
         version: 4.17.25
@@ -4032,9 +4032,6 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
-      '@posthog/agent-migrations':
-        specifier: workspace:*
-        version: link:../agent-migrations
       '@posthog/agent-shared':
         specifier: workspace:*
         version: link:../agent-shared
@@ -4054,6 +4051,9 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@posthog/agent-migrations':
+        specifier: workspace:*
+        version: link:../agent-migrations
       '@types/node':
         specifier: 'catalog:'
         version: 22.18.8
@@ -43547,7 +43547,7 @@ snapshots:
 
   netmask@2.0.2: {}
 
-  next@15.5.18(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.60.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(sass@1.56.0):
+  next@15.5.18(@opentelemetry/api@1.9.0)(@playwright/test@1.60.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(sass@1.56.0):
     dependencies:
       '@next/env': 15.5.18
       '@swc/helpers': 0.5.15
@@ -43555,7 +43555,7 @@ snapshots:
       postcss: 8.4.31
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
-      styled-jsx: 5.1.6(@babel/core@7.29.0)(react@18.3.1)
+      styled-jsx: 5.1.6(react@18.3.1)
     optionalDependencies:
       '@next/swc-darwin-arm64': 15.5.18
       '@next/swc-darwin-x64': 15.5.18
@@ -47119,12 +47119,10 @@ snapshots:
     dependencies:
       inline-style-parser: 0.2.7
 
-  styled-jsx@5.1.6(@babel/core@7.29.0)(react@18.3.1):
+  styled-jsx@5.1.6(react@18.3.1):
     dependencies:
       client-only: 0.0.1
       react: 18.3.1
-    optionalDependencies:
-      '@babel/core': 7.29.0
 
   stylehacks@7.0.4(postcss@8.5.15):
     dependencies:

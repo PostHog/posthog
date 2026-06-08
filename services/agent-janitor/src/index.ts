@@ -18,7 +18,6 @@
 
 import { S3Client } from '@aws-sdk/client-s3'
 
-import { migrate } from '@posthog/agent-migrations'
 import {
     createAgentPool,
     createLogger,
@@ -77,10 +76,9 @@ async function main(): Promise<void> {
 
     const posthogDb = createAgentPool(config.posthogDbUrl)
     const agentDb = createAgentPool(config.agentDbUrl)
-    // Belt-and-braces in dev; in prod this is also run as a one-shot
-    // job before the service starts (bin/migrate --scope=agent_runtime).
-    // Idempotent — no-op when everything is already applied.
-    await migrate({ databaseUrl: config.agentDbUrl })
+    // Schema is owned by `agent-migrator`; the chart runs a one-shot Job
+    // (`charts/agent-migrator/`) on every sync. Runtime no longer calls
+    // migrate() — runtime roles don't have DDL anyway.
 
     const queue = new PgSessionQueue(agentDb)
     const revisions = new PgRevisionStore(posthogDb)

@@ -19,7 +19,6 @@
 
 import { S3Client } from '@aws-sdk/client-s3'
 
-import { migrate } from '@posthog/agent-migrations'
 import {
     AnalyticsSink,
     analyticsDistinctId,
@@ -116,9 +115,10 @@ async function main(): Promise<void> {
 
     const posthogDb = createAgentPool(config.posthogDbUrl)
     const agentDb = createAgentPool(config.agentDbUrl)
-    // Belt-and-braces in dev; prod also runs `bin/migrate --scope=agent_runtime`
-    // as a one-shot job before the service starts. Idempotent.
-    await migrate({ databaseUrl: config.agentDbUrl })
+    // Schema is owned by `agent-migrator`; the chart runs a one-shot Job
+    // (`charts/agent-migrator/`) on every sync. Runtime no longer calls
+    // migrate() — runtime roles don't have DDL anyway, and racing N pods
+    // to migrate was the source of today's pgmigrations CrashLoopBackOff.
 
     const defaultApiKey = defaultApiKeyFromConfig(config)
     const revisions = new PgRevisionStore(posthogDb)

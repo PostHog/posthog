@@ -25,7 +25,6 @@
         "@earendil-works/pi-agent-core": "^0.75.5",
         "@earendil-works/pi-ai": "^0.75.5",
         "@modelcontextprotocol/sdk": "^1.29.0",
-        "@posthog/agent-migrations": "workspace:*",
         "@posthog/agent-shared": "workspace:*",
         "@posthog/agent-tools": "workspace:*",
         "pg": "^8.6.0",
@@ -34,6 +33,7 @@
         "zod": "^4.3.6"
     },
     "devDependencies": {
+        "@posthog/agent-migrations": "workspace:*",
         "@types/node": "catalog:",
         "@types/pg": "^8.6.0",
         "typescript": "catalog:",

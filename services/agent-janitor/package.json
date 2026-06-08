@@ -22,7 +22,6 @@
     "dependencies": {
         "@aws-sdk/client-s3": "^3.723.0",
         "@posthog/agent-ingress": "workspace:*",
-        "@posthog/agent-migrations": "workspace:*",
         "@posthog/agent-shared": "workspace:*",
         "@posthog/agent-tools": "workspace:*",
         "cron-parser": "^4.9.0",
@@ -32,6 +31,7 @@
         "zod": "^4.3.6"
     },
     "devDependencies": {
+        "@posthog/agent-migrations": "workspace:*",
         "@types/express": "^4.17.21",
         "@types/node": "catalog:",
         "@types/pg": "^8.6.0",
