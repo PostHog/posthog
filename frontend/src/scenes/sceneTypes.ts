@@ -347,6 +347,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.Survey]: AccessControlResourceType.Survey,
     [Scene.Surveys]: AccessControlResourceType.Survey,
 
+    // Endpoints
+    [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,
+
     // Product Tours
     [Scene.ProductTour]: AccessControlResourceType.ProductTour,
     [Scene.ProductTours]: AccessControlResourceType.ProductTour,

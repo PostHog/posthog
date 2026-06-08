@@ -19,7 +19,8 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
 from pydantic import BaseModel
 from rest_framework import serializers, status, viewsets
-from rest_framework.exceptions import Throttled, ValidationError
+from rest_framework.exceptions import PermissionDenied, Throttled, ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -73,6 +74,9 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
+from posthog.permissions import APIScopePermission, TeamMemberAccessPermission
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import access_level_satisfied_for_resource
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
 
@@ -386,7 +390,13 @@ class MaterializationPreviewRequestSerializer(serializers.Serializer):
         description="Update an existing endpoint.",
     ),
 )
-class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemViewSetMixin, viewsets.ModelViewSet):
+class EndpointViewSet(
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    PydanticModelMixin,
+    TaggedItemViewSetMixin,
+    viewsets.ModelViewSet,
+):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "endpoint"
     # Special case for query - these are all essentially read actions
@@ -419,6 +429,38 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
 
     def get_throttles(self):
         return [EndpointBurstThrottle(), EndpointSustainedThrottle()]
+
+    def dangerously_get_permissions(self):
+        # `run` is the public-facing execution API. It still requires authentication, the
+        # `endpoint:read` API scope, and project membership, but intentionally skips
+        # resource-level access control (AccessControlPermission) — a restrictive resource-level
+        # default must not break execution for API consumers. Explicit per-endpoint
+        # (object-level) denials are still enforced in run() via _enforce_object_level_access.
+        if self.action == "run":
+            return [permission() for permission in (IsAuthenticated, APIScopePermission, TeamMemberAccessPermission)]
+        raise NotImplementedError()
+
+    def _get_endpoint_with_object_access(self, name: str | None) -> Endpoint:
+        """Fetch a team-scoped endpoint by name and enforce object-level access controls.
+
+        The custom retrieve/destroy/versions/materialization actions fetch endpoints directly via
+        get_object_or_404, which bypasses get_object()'s built-in check_object_permissions. Routing
+        through here restores that check so per-endpoint resource access controls (RBAC) are honored,
+        not just the resource-level defaults.
+        """
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
+        self.check_object_permissions(self.request, endpoint)
+        return endpoint
+
+    def _enforce_object_level_access(self, endpoint: Endpoint) -> None:
+        """Block execution only when the user is explicitly denied this specific endpoint via an
+        object-level access control. Unlike check_object_permissions, this ignores resource-level
+        defaults so a restrictive project default doesn't break the public execution API. Creators
+        and org admins always pass (specific_access_level_for_object returns the highest level).
+        """
+        specific_level = self.user_access_control.specific_access_level_for_object(endpoint)
+        if specific_level is not None and not access_level_satisfied_for_resource("endpoint", specific_level, "viewer"):
+            raise PermissionDenied("You do not have access to this endpoint.")
 
     def _parse_version_param(self, request: Request) -> int | None:
         """Parse version number from request body or query params.
@@ -573,7 +615,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
     )
     def retrieve(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Retrieve an endpoint, or a specific endpoint version."""
-        endpoint = get_object_or_404(Endpoint.objects.all(), team=self.team, name=name, deleted=False)
+        endpoint = self._get_endpoint_with_object_access(name)
 
         version_number = self._parse_version_param(request)
         try:
@@ -877,10 +919,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
         If version is specified, updates target that specific version.
         Otherwise, the current version is used.
         """
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
         # Enforce object-level RBAC: a user with global editor scope can still be restricted
         # from a specific endpoint via per-object access controls.
-        self.check_object_permissions(request, endpoint)
+        endpoint = self._get_endpoint_with_object_access(name)
         endpoint_before_update = Endpoint.objects.get(pk=endpoint.id)
 
         upgraded_query = upgrade(request.data)
@@ -1268,7 +1309,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
 
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Delete an endpoint and clean up materialized query."""
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
+        endpoint = self._get_endpoint_with_object_access(name)
         endpoint_id = str(endpoint.id)
         endpoint_name = endpoint.name
 
@@ -2203,6 +2244,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
     def run(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Execute endpoint with optional parameters."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True, deleted=False)
+        self._enforce_object_level_access(endpoint)
         data = self.get_model(request.data, EndpointRunRequest)
 
         # Track endpoint execution for deprecation monitoring
@@ -2512,7 +2554,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
 
         Returns versions in descending order (latest first).
         """
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
+        endpoint = self._get_endpoint_with_object_access(name)
         versions_qs = endpoint.versions.all()
         page = self.paginate_queryset(versions_qs)
         if page is not None:
@@ -2531,7 +2573,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
 
         Supports ?version=N query param to get status for a specific version.
         """
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
+        endpoint = self._get_endpoint_with_object_access(name)
 
         version_number = self._parse_version_param(request)
         if version_number is not None:
@@ -2554,7 +2596,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
 
         Returns the transformed query, range pair info, and aggregate re-aggregation info.
         """
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
+        endpoint = self._get_endpoint_with_object_access(name)
 
         version_number = request.validated_data.get("version")
         if version_number is not None:
@@ -2708,7 +2750,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
 
         Supports ?version=N query param to generate spec for a specific version.
         """
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
+        endpoint = self._get_endpoint_with_object_access(name)
 
         version = None
         version_number = self._parse_version_param(request)

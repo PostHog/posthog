@@ -283,6 +283,7 @@ export enum AccessControlResourceType {
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
+    Endpoint = 'endpoint',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentSavedMetric = 'experiment_saved_metric',
