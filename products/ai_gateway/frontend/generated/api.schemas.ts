@@ -106,27 +106,6 @@ export interface AssignCredentialApi {
     credential_id: string
 }
 
-/**
- * * `personal_api_key` - personal_api_key
- * `oauth_application` - oauth_application
- */
-export type CredentialTypeEnumApi = (typeof CredentialTypeEnumApi)[keyof typeof CredentialTypeEnumApi]
-
-export const CredentialTypeEnumApi = {
-    PersonalApiKey: 'personal_api_key',
-    OauthApplication: 'oauth_application',
-} as const
-
-export interface BindCredentialApi {
-    /** Which kind of credential to reassign.
-
-  * `personal_api_key` - personal_api_key
-  * `oauth_application` - oauth_application */
-    credential_type: CredentialTypeEnumApi
-    /** Id of the credential to reassign to this gateway. */
-    credential_id: string
-}
-
 export interface BoundPersonalAPIKeyApi {
     /** Personal API key id. */
     readonly id: string
@@ -155,6 +134,27 @@ export interface GatewayBoundCredentialsApi {
     readonly personal_api_keys: readonly BoundPersonalAPIKeyApi[]
     /** OAuth applications bound to this gateway. */
     readonly oauth_applications: readonly BoundOAuthApplicationApi[]
+}
+
+/**
+ * * `personal_api_key` - personal_api_key
+ * `oauth_application` - oauth_application
+ */
+export type CredentialTypeEnumApi = (typeof CredentialTypeEnumApi)[keyof typeof CredentialTypeEnumApi]
+
+export const CredentialTypeEnumApi = {
+    PersonalApiKey: 'personal_api_key',
+    OauthApplication: 'oauth_application',
+} as const
+
+export interface BindCredentialApi {
+    /** Which kind of credential to reassign.
+
+  * `personal_api_key` - personal_api_key
+  * `oauth_application` - oauth_application */
+    credential_type: CredentialTypeEnumApi
+    /** Id of the credential to reassign to this gateway. */
+    credential_id: string
 }
 
 export interface AssignableCredentialApi {

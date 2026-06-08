@@ -11,7 +11,6 @@ import { fetchGatewayUsage, GatewayUsage } from './gatewayUsage'
 import {
     gatewaysAssignableCredentialsList,
     gatewaysAssignCredentialCreate,
-    gatewaysBindCredentialCreate,
     gatewaysCreate,
     gatewaysCredentialsRetrieve,
     gatewaysDestroy,
@@ -41,12 +40,6 @@ export const aiGatewayLogic = kea<aiGatewayLogicType>([
         openEditGateway: (gateway: GatewayApi) => ({ gateway }),
         closeModal: true,
         deleteGateway: (gateway: GatewayApi) => ({ gateway }),
-        moveCredential: (payload: {
-            credentialType: CredentialType
-            credentialId: string
-            fromGatewayId: string
-            toGatewayId: string
-        }) => payload,
         assignCredential: (payload: { credentialId: string; gatewayId: string }) => payload,
         unassignCredential: (payload: { credentialType: CredentialType; credentialId: string; gatewayId: string }) =>
             payload,
@@ -141,21 +134,6 @@ export const aiGatewayLogic = kea<aiGatewayLogicType>([
             } catch {
                 lemonToast.error('Could not delete gateway')
             }
-        },
-        moveCredential: async ({ credentialType, credentialId, fromGatewayId, toGatewayId }) => {
-            try {
-                await gatewaysBindCredentialCreate(String(values.currentTeamId), toGatewayId, {
-                    credential_type: credentialType,
-                    credential_id: credentialId,
-                })
-            } catch {
-                lemonToast.error('Could not move credential')
-                return
-            }
-            actions.loadGateways()
-            actions.loadCredentials({ gatewayId: toGatewayId })
-            actions.loadCredentials({ gatewayId: fromGatewayId })
-            lemonToast.success('Credential moved')
         },
         assignCredential: async ({ credentialId, gatewayId }) => {
             try {

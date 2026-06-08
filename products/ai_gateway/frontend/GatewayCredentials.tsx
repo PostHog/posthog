@@ -24,9 +24,6 @@ export const profileUser = (
 // with the llm_gateway:read scope (the `preset` param is read by personalAPIKeysLogic).
 export const CREATE_KEY_URL = combineUrl(urls.settings('user-api-keys'), { preset: 'llm_gateway' }).url
 
-// Lists the personal API keys and OAuth apps that attribute usage to a gateway,
-// each with a menu to reassign it to another of the team's gateways. Reads the
-// credentials lazily — callers must trigger loadCredentials({ gatewayId }) first.
 // Buttons to attribute a key to this gateway: assign one of your existing
 // unassigned keys, or create a new one pre-scoped for the gateway.
 function AddKeyActions({ gateway }: { gateway: GatewayApi }): JSX.Element {
@@ -61,11 +58,10 @@ function AddKeyActions({ gateway }: { gateway: GatewayApi }): JSX.Element {
 }
 
 export function GatewayCredentials({ gateway }: { gateway: GatewayApi }): JSX.Element {
-    const { gateways, credentialsByGateway, credentialsByGatewayLoading } = useValues(aiGatewayLogic)
-    const { moveCredential, unassignCredential } = useActions(aiGatewayLogic)
+    const { credentialsByGateway, credentialsByGatewayLoading } = useValues(aiGatewayLogic)
+    const { unassignCredential } = useActions(aiGatewayLogic)
 
     const credentials = credentialsByGateway[gateway.id]
-    const otherGateways = gateways.filter((g) => g.id !== gateway.id)
 
     if (!credentials) {
         return (
@@ -75,31 +71,14 @@ export function GatewayCredentials({ gateway }: { gateway: GatewayApi }): JSX.El
         )
     }
 
-    const rowActions = (credentialType: CredentialType, credentialId: string): JSX.Element => (
-        <div className="flex items-center gap-1">
-            <LemonMenu
-                items={otherGateways.map((g) => ({
-                    label: g.slug,
-                    onClick: () =>
-                        moveCredential({ credentialType, credentialId, fromGatewayId: gateway.id, toGatewayId: g.id }),
-                }))}
-            >
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    disabledReason={!otherGateways.length ? 'No other gateways' : undefined}
-                >
-                    Move to…
-                </LemonButton>
-            </LemonMenu>
-            <LemonButton
-                size="small"
-                status="danger"
-                icon={<IconTrash />}
-                tooltip="Remove from gateway (the key stays, just stops attributing here)"
-                onClick={() => unassignCredential({ credentialType, credentialId, gatewayId: gateway.id })}
-            />
-        </div>
+    const removeButton = (credentialType: CredentialType, credentialId: string): JSX.Element => (
+        <LemonButton
+            size="small"
+            status="danger"
+            icon={<IconTrash />}
+            tooltip="Remove from gateway (the key stays, just stops attributing here)"
+            onClick={() => unassignCredential({ credentialType, credentialId, gatewayId: gateway.id })}
+        />
     )
 
     if (!credentials.personal_api_keys.length && !credentials.oauth_applications.length) {
@@ -120,7 +99,7 @@ export function GatewayCredentials({ gateway }: { gateway: GatewayApi }): JSX.El
                         <span>{key.label}</span>
                         <span className="text-secondary">personal API key</span>
                     </div>
-                    {rowActions('personal_api_key', key.id)}
+                    {removeButton('personal_api_key', key.id)}
                 </div>
             ))}
             {credentials.oauth_applications.map((app) => (
@@ -129,7 +108,7 @@ export function GatewayCredentials({ gateway }: { gateway: GatewayApi }): JSX.El
                         <span>{app.name}</span>
                         <span className="text-secondary">OAuth app · {app.client_id}</span>
                     </div>
-                    {rowActions('oauth_application', app.id)}
+                    {removeButton('oauth_application', app.id)}
                 </div>
             ))}
             {credentialsByGatewayLoading && <Spinner />}

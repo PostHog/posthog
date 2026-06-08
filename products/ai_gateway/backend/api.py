@@ -213,52 +213,6 @@ class GatewayViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         }
         return Response(GatewayBoundCredentialsSerializer(payload).data)
 
-    @extend_schema(request=BindCredentialSerializer, responses=GatewaySerializer)
-    @action(detail=True, methods=["post"], url_path="bind_credential")
-    def bind_credential(self, request: Request, **kwargs: object) -> Response:
-        """Reassign a credential to this gateway.
-
-        Only credentials already bound to one of this team's gateways can be moved —
-        this manages attribution across the team's own gateways, not arbitrary keys."""
-        gateway = self.get_object()
-        serializer = BindCredentialSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        credential_type = serializer.validated_data["credential_type"]
-        credential_id = serializer.validated_data["credential_id"]
-
-        # Tenant isolation here is by gateway, not user: this is an admin-gated action
-        # (TeamMemberStrictManagementPermission) that manages which of the team's gateways a
-        # credential attributes to, so it must reach credentials owned by any team member.
-        # gateway_id__in restricts the lookup to credentials already bound to THIS team's
-        # gateways, which is the authorization boundary — a user filter would be wrong here.
-        team_gateway_ids = list(Gateway.objects.for_team(self.team_id).values_list("id", flat=True))
-        if credential_type == _CREDENTIAL_TYPE_PERSONAL_API_KEY:
-            credential = PersonalAPIKey.objects.filter(  # nosemgrep: idor-lookup-without-user
-                pk=credential_id,  # nosemgrep: idor-taint-user-input-to-user-model
-                gateway_id__in=team_gateway_ids,
-            ).first()
-        else:
-            credential = OAuthApplication.objects.filter(  # nosemgrep: idor-lookup-without-user
-                pk=credential_id,  # nosemgrep: idor-taint-user-input-to-user-model
-                gateway_id__in=team_gateway_ids,
-            ).first()
-
-        if credential is None:
-            raise ValidationError(
-                {"credential_id": "Credential not found, or not bound to one of this team's gateways."}
-            )
-
-        credential.gateway = gateway
-        credential.save(update_fields=["gateway"])
-        report_user_action(
-            self.request.user,
-            "gateway credential bound",
-            {"gateway_id": str(gateway.id), "slug": gateway.slug, "credential_type": credential_type},
-            team=self.team,
-        )
-        # Re-fetch through the annotated queryset so bound_credentials_count is fresh.
-        return Response(self.get_serializer(self.get_queryset().get(pk=gateway.pk)).data)
-
     def _is_project_admin(self) -> bool:
         level = self.user_permissions.team(_canonical_team(self.team)).effective_membership_level
         return level is not None and level >= OrganizationMembership.Level.ADMIN

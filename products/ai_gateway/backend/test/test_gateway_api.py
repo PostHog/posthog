@@ -162,43 +162,6 @@ class TestGatewayAPI(APIBaseTest):
         self.assertEqual(body["personal_api_keys"][0]["label"], "reports-bot")
         self.assertEqual(body["oauth_applications"], [])
 
-    def test_bind_credential_reassigns_between_gateways(self):
-        source = self._gateway()
-        key = self._bind_key(source, "movable")
-        self.client.post(self._url(), {"slug": "target"})
-        target = self._gateway("target")
-
-        response = self.client.post(
-            self._url(f"{target.id}/bind_credential/"),
-            {"credential_type": "personal_api_key", "credential_id": str(key.id)},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        key.refresh_from_db()
-        self.assertEqual(key.gateway_id, target.id)
-        self.assertEqual(response.json()["bound_credentials_count"], 1)
-
-    def test_bind_credential_rejects_credential_not_bound_to_team(self):
-        gateway = self._gateway()
-        other_team = Team.objects.create(organization=self.organization, name="other")
-        foreign_key = self._bind_key(Gateway.objects.for_team(other_team.id).get(slug=DEFAULT_GATEWAY_SLUG))
-
-        response = self.client.post(
-            self._url(f"{gateway.id}/bind_credential/"),
-            {"credential_type": "personal_api_key", "credential_id": str(foreign_key.id)},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_member_cannot_bind_credential(self):
-        gateway = self._gateway()
-        key = self._bind_key(gateway)
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        response = self.client.post(
-            self._url(f"{gateway.id}/bind_credential/"),
-            {"credential_type": "personal_api_key", "credential_id": str(key.id)},
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
     def test_assignable_credentials_lists_only_own_unbound_scoped_keys(self):
         mine = self._unbound_key("mine")
         self._unbound_key("no-scope", scopes=["feature_flag:read"])  # excluded: wrong scope

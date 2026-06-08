@@ -162,30 +162,6 @@ export const gatewaysAssignCredentialCreate = async (
     })
 }
 
-export const getGatewaysBindCredentialCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/gateways/${id}/bind_credential/`
-}
-
-/**
- * Reassign a credential to this gateway.
-
-Only credentials already bound to one of this team's gateways can be moved —
-this manages attribution across the team's own gateways, not arbitrary keys.
- */
-export const gatewaysBindCredentialCreate = async (
-    projectId: string,
-    id: string,
-    bindCredentialApi: BindCredentialApi,
-    options?: RequestInit
-): Promise<GatewayApi> => {
-    return apiMutator<GatewayApi>(getGatewaysBindCredentialCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(bindCredentialApi),
-    })
-}
-
 export const getGatewaysCredentialsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/gateways/${id}/credentials/`
 }
