@@ -839,4 +839,10 @@ AGENT_JANITOR_BASE_URL = os.getenv("AGENT_JANITOR_BASE_URL", "http://localhost:3
 # (draft previews, when that lands); each receiving service verifies signature
 # + aud against this same key. See posthog/jwt.py:AgentInternalAudience and
 # services/agent-shared/src/runtime/internal-jwt.ts.
-AGENT_INTERNAL_SIGNING_KEY = os.getenv("AGENT_INTERNAL_SIGNING_KEY", "dev-internal-signing-key-do-not-use-in-prod")
+#
+# Default is empty so missing config fails safe: janitor_client._headers()
+# skips the JWT mint when the key is unset, the janitor 401s on the missing
+# header, and the misconfiguration surfaces fast — far better than minting
+# tokens signed by a baked-in dev string that ends up dispatched to a real
+# upstream service.
+AGENT_INTERNAL_SIGNING_KEY = os.getenv("AGENT_INTERNAL_SIGNING_KEY", "")
