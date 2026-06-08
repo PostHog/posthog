@@ -19,7 +19,6 @@ from posthog.models.data_deletion_request import (
     RequestStatus,
     RequestType,
     compile_hogql_predicate,
-    count_remaining_matching_events,
     event_removal_where,
     jsonhas_expr,
     verify_queued_request,
@@ -1185,36 +1184,14 @@ def verify_queued_deletion_requests_job():
 @dagster.run_status_sensor(
     run_status=dagster.DagsterRunStatus.SUCCESS,
     monitored_jobs=[deletes_job],
+    request_job=verify_queued_deletion_requests_job,
     default_status=dagster.DefaultSensorStatus.STOPPED,
     minimum_interval_seconds=60,
 )
 def verify_queued_deletion_requests(context: dagster.RunStatusSensorContext):
-    """Promote QUEUED deletion requests to COMPLETED once their events are gone.
+    """Launch the verify-queued sweep after each deletes_job SUCCESS (the weekend drain).
 
-    Fires after each deletes_job SUCCESS.
+    deletes_job runs after the Saturday-night squash, so this fires once the adhoc-event
+    deletion drain has completed. The sweep logic lives in verify_queued_deletion_requests_job.
     """
-    from django.utils import timezone
-
-    queued = DataDeletionRequest.objects.filter(status=RequestStatus.QUEUED)
-    promoted = 0
-    for request in queued:
-        try:
-            remaining = count_remaining_matching_events(request)
-        except Exception as exc:
-            context.log.warning(f"Could not verify deletion request {request.pk}: {exc}")
-            continue
-
-        if remaining > 0:
-            context.log.info(
-                f"Deletion request {request.pk}: {remaining} matching events remain, keeping status QUEUED."
-            )
-            continue
-
-        updated = DataDeletionRequest.objects.filter(pk=request.pk, status=RequestStatus.QUEUED).update(
-            status=RequestStatus.COMPLETED, updated_at=timezone.now()
-        )
-        if updated:
-            promoted += 1
-            context.log.info(f"Deletion request {request.pk} promoted QUEUED → COMPLETED.")
-
-    context.log.info(f"verify_queued_deletion_requests: {promoted} request(s) promoted this cycle.")
+    return dagster.RunRequest(run_key=context.dagster_run.run_id)
