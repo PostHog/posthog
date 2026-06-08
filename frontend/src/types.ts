@@ -528,6 +528,10 @@ export interface OrganizationDomainType {
     scim_enabled?: boolean
     scim_base_url?: string
     scim_bearer_token?: string
+    has_id_jag?: boolean
+    id_jag_issuer_url?: string | null
+    id_jag_jwks_url?: string | null
+    id_jag_allowed_clients?: string[]
 }
 
 export interface SCIMRequestLogType {
@@ -5925,6 +5929,8 @@ export interface WebhookInfo {
     schema_mapping?: Record<string, string>
     inputs?: Record<string, WebhookInputValue>
     external_status?: WebhookExternalStatus | null
+    // Desired provider events not yet on the webhook (manual setup, or created before a new table).
+    missing_events?: string[]
 }
 
 export interface DataModelingJob {
