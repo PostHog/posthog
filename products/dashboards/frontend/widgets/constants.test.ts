@@ -1,7 +1,4 @@
-import {
-    formatWidgetListCountFooter,
-    WIDGET_LIST_COUNT_RECORDINGS,
-} from '../components/WidgetCard/WidgetCardBody'
+import { formatWidgetListCountFooter, WIDGET_LIST_COUNT_RECORDINGS } from '../components/WidgetCard/WidgetCardBody'
 
 describe('formatWidgetListCountFooter', () => {
     it('formats exact totals for issues', () => {
