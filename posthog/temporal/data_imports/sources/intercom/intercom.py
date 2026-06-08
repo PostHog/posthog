@@ -171,16 +171,19 @@ def get_resource(
     }
 
 
+def _resolve_intercom_url(path_or_url: str) -> str:
+    """Accept either an API path or a full URL (e.g. a `pages.next` link)."""
+    return path_or_url if path_or_url.startswith("http") else f"{INTERCOM_API_BASE}{path_or_url}"
+
+
 def _intercom_get(session: Session, path_or_url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    url = path_or_url if path_or_url.startswith("http") else f"{INTERCOM_API_BASE}{path_or_url}"
-    response = session.get(url, params=params, timeout=30)
+    response = session.get(_resolve_intercom_url(path_or_url), params=params, timeout=30)
     response.raise_for_status()
     return response.json()
 
 
 def _intercom_post(session: Session, path_or_url: str, body: dict[str, Any]) -> dict[str, Any]:
-    url = path_or_url if path_or_url.startswith("http") else f"{INTERCOM_API_BASE}{path_or_url}"
-    response = session.post(url, json=body, timeout=30)
+    response = session.post(_resolve_intercom_url(path_or_url), json=body, timeout=30)
     response.raise_for_status()
     return response.json()
 
