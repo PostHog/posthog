@@ -30,9 +30,9 @@ describe('insightSceneLogic', () => {
             },
             post: {
                 '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
-                '/api/environments/:team_id/insights/': (req) => [
+                '/api/environments/:team_id/insights/': async ({ request }) => [
                     200,
-                    { id: 12, short_id: Insight12, ...(req.body as any) },
+                    { id: 12, short_id: Insight12, ...((await request.json()) as any) },
                 ],
                 '/api/environments/:team_id/query/upgrade/': { query: {} },
             },
@@ -185,8 +185,8 @@ describe('insightSceneLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/insights/trend/': { result: ['result from api'] },
-                '/api/environments/:team_id/insights/': (req) => {
-                    const shortId = req.url.searchParams.get('short_id') || ''
+                '/api/environments/:team_id/insights/': ({ request }) => {
+                    const shortId = new URL(request.url).searchParams.get('short_id') || ''
                     const id = shortId === '12' ? 12 : 42
                     const sid = (shortId === '12' ? Insight12 : Insight42) as InsightShortId
                     return [
@@ -206,9 +206,9 @@ describe('insightSceneLogic', () => {
             },
             post: {
                 '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
-                '/api/environments/:team_id/insights/': (req) => [
+                '/api/environments/:team_id/insights/': async ({ request }) => [
                     200,
-                    { id: 12, short_id: Insight12, ...(req.body as any) },
+                    { id: 12, short_id: Insight12, ...((await request.json()) as any) },
                 ],
                 '/api/environments/:team_id/query/upgrade/': { query: {} },
             },

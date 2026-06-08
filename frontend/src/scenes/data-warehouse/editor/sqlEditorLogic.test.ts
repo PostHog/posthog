@@ -170,8 +170,8 @@ describe('sqlEditorLogic', () => {
         queryEndpointMock = jest.fn(() => [200, { tables: {}, joins: [] }])
         useMocks({
             get: {
-                '/api/environments/:team_id/insights/': (req) => {
-                    const shortId = req.url.searchParams.get('short_id')
+                '/api/environments/:team_id/insights/': ({ request }) => {
+                    const shortId = new URL(request.url).searchParams.get('short_id')
                     if (shortId === MOCK_INSIGHT_SHORT_ID) {
                         return [200, { results: [MOCK_INSIGHT] }]
                     }
@@ -181,8 +181,8 @@ describe('sqlEditorLogic', () => {
                     return [200, { results: [] }]
                 },
                 '/api/environments/:team_id/warehouse_saved_queries/': { results: [MOCK_VIEW] },
-                '/api/environments/:team_id/warehouse_saved_queries/:id/': (req) => {
-                    if (req.params.id === MOCK_VIEW.id) {
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': ({ params }) => {
+                    if (params.id === MOCK_VIEW.id) {
                         return [200, MOCK_VIEW]
                     }
                     return [404]

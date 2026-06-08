@@ -72,8 +72,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
                 'api/projects/:team/property_definitions/seen_together': { $pageview: true },
 
-                '/api/environments/:team_id/session_recordings': (req) => {
-                    const { searchParams } = req.url
+                '/api/environments/:team_id/session_recordings': ({ request }) => {
+                    const { searchParams } = new URL(request.url)
                     if (
                         (searchParams.get('events')?.length || 0) > 0 &&
                         JSON.parse(searchParams.get('events') || '[]')[0]?.['id'] === '$autocapture'

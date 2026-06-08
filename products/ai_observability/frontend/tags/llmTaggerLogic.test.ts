@@ -560,15 +560,15 @@ describe('llmTaggerLogic', () => {
                     [`/api/environments/:team_id/taggers/${taggerId}/`]: mockTagger,
                 },
                 post: {
-                    '/api/environments/:team_id/query/:kind': async (req, res, ctx) => {
-                        const body = (await req.json()) as { query?: { query?: string; values?: unknown } }
+                    '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                        const body = (await request.json()) as { query?: { query?: string; values?: unknown } }
                         if (body.query?.query?.includes('$ai_tagger_id')) {
                             capturedQueries.push({
                                 query: body.query.query,
                                 values: body.query.values,
                             })
                         }
-                        return res(ctx.json({ results: [] }))
+                        return [200, { results: [] }]
                     },
                 },
             })

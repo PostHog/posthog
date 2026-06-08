@@ -5,6 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { BatchExportConfiguration } from '~/types'
 
@@ -286,11 +287,11 @@ describe('batchExportConfigFormLogic', () => {
         // Register a GET + PATCH mock for every fixture so any round-trip test can load its
         // own fixture by id and look up the captured request body via patchBodiesById[fx.id].
         const getMocks: Record<string, BatchExportConfiguration> = {}
-        const patchMocks: Record<string, (req: any) => Promise<[number, BatchExportConfiguration]>> = {}
+        const patchMocks: Record<string, (info: MockResolverInfo) => Promise<[number, BatchExportConfiguration]>> = {}
         for (const fx of ALL_BATCH_EXPORTS) {
             getMocks[`/api/environments/:team_id/batch_exports/${fx.id}`] = fx
-            patchMocks[`/api/environments/:team_id/batch_exports/${fx.id}/`] = async (req) => {
-                const body = await req.json()
+            patchMocks[`/api/environments/:team_id/batch_exports/${fx.id}/`] = async ({ request }) => {
+                const body = (await request.json()) as Record<string, any>
                 lastPatchBody = body
                 patchBodiesById[fx.id] = body
                 return [200, fx]
@@ -302,8 +303,8 @@ describe('batchExportConfigFormLogic', () => {
                 '/api/environments/:team_id/batch_exports/test': { steps: [] },
             },
             post: {
-                '/api/environments/:team_id/batch_exports/': async (req) => {
-                    lastPostBody = await req.json()
+                '/api/environments/:team_id/batch_exports/': async ({ request }) => {
+                    lastPostBody = (await request.json()) as Record<string, any>
                     return [200, { ...S3_BATCH_EXPORT, id: 'new-export-id' }]
                 },
             },

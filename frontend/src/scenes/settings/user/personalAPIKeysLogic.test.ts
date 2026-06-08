@@ -22,8 +22,8 @@ describe('personalAPIKeysLogic', () => {
                 '/api/projects/': { results: [], count: 0, next: null, previous: null },
             },
             post: {
-                '/api/personal_api_keys/': async (req) => {
-                    capturedCreatePayload = await req.json()
+                '/api/personal_api_keys/': async ({ request }) => {
+                    capturedCreatePayload = await request.json()
                     return [
                         200,
                         {

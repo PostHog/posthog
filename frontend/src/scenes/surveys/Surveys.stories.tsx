@@ -237,12 +237,12 @@ const meta: Meta = {
                 }`]: toPaginatedResponse([MOCK_SURVEY_WITH_RELEASE_CONS.targeting_flag]),
             },
             post: {
-                '/api/environments/:team_id/query/:kind/': async (req, res, ctx) => {
-                    const body = await req.json()
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const body = (await request.json()) as any
                     if (body.kind == 'EventsQuery') {
-                        return res(ctx.json(MOCK_SURVEY_RESULTS))
+                        return [200, MOCK_SURVEY_RESULTS]
                     }
-                    return res(ctx.json(MOCK_SURVEY_SHOWN))
+                    return [200, MOCK_SURVEY_SHOWN]
                 },
                 // flag targeting has loaders, make sure they don't keep loading
                 '/api/projects/:team_id/feature_flags/user_blast_radius/': () => [200, { affected: 120, total: 2000 }],

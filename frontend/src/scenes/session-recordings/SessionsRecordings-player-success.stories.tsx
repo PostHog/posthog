@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
 import { combineUrl, router } from 'kea-router'
+import { HttpResponse } from 'msw'
 
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
@@ -102,8 +103,8 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/stats': () => [200, { users_on_product: 42, active_recordings: 7 }],
-                '/api/environments/:team_id/session_recordings': (req) => {
-                    const version = req.url.searchParams.get('version')
+                '/api/environments/:team_id/session_recordings': ({ request }) => {
+                    const version = new URL(request.url).searchParams.get('version')
                     return [
                         200,
                         {
@@ -114,20 +115,20 @@ const meta: Meta = {
                     ]
                 },
                 '/api/projects/:team_id/session_recording_playlists': recordingPlaylists,
-                '/api/projects/:team_id/session_recording_playlists/:playlist_id': (req) => {
-                    const playlistId = req.params.playlist_id as string
+                '/api/projects/:team_id/session_recording_playlists/:playlist_id': ({ params }) => {
+                    const playlistId = params.playlist_id as string
 
                     return [200, playlist(playlistId)]
                 },
-                '/api/projects/:team_id/session_recording_playlists/:playlist_id/recordings': (req) => {
-                    const playlistId = req.params.playlist_id
+                '/api/projects/:team_id/session_recording_playlists/:playlist_id/recordings': ({ params }) => {
+                    const playlistId = params.playlist_id
                     const response = playlistId === '1234567' ? recordings : []
                     return [200, { has_next: false, results: response, version: 1 }]
                 },
-                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
+                '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
                     // with no sources, returns sources...
-                    if (req.url.searchParams.get('source') === 'blob_v2') {
-                        return res(ctx.text(snapshotsAsJSONLines()))
+                    if (new URL(request.url).searchParams.get('source') === 'blob_v2') {
+                        return new HttpResponse(snapshotsAsJSONLines())
                     }
                     // with no source requested should return sources
                     return [
@@ -153,9 +154,9 @@ const meta: Meta = {
                 },
             },
             patch: {
-                '/api/projects/:team_id/session_recording_playlists/:playlist_id': (req) => {
-                    const playlistId = req.params.playlist_id as string
-                    const body = req.body as Partial<SessionRecordingPlaylistType>
+                '/api/projects/:team_id/session_recording_playlists/:playlist_id': async ({ request, params }) => {
+                    const playlistId = params.playlist_id as string
+                    const body = (await request.json()) as Partial<SessionRecordingPlaylistType>
                     return [200, { ...playlist(playlistId), ...body }]
                 },
             },
@@ -168,34 +169,32 @@ const meta: Meta = {
                     200,
                     { success: true },
                 ],
-                '/api/environments/:team_id/query/:kind': (req, res, ctx) => {
-                    const body = req.body as Record<string, any>
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
 
                     if (body.query.kind === 'HogQLQuery' && body.query.query.includes('$session_id as session_id')) {
-                        return res(
-                            ctx.json({
-                                results: recordings.map((r) => [
-                                    r.id,
-                                    'NG',
-                                    'Chrome',
-                                    'Desktop',
-                                    'Mac OS X',
-                                    'Mac OS X',
-                                    'google.com',
-                                    null,
-                                    null,
-                                    'https://example.com',
-                                ]),
-                            })
-                        )
+                        return HttpResponse.json({
+                            results: recordings.map((r) => [
+                                r.id,
+                                'NG',
+                                'Chrome',
+                                'Desktop',
+                                'Mac OS X',
+                                'Mac OS X',
+                                'google.com',
+                                null,
+                                null,
+                                'https://example.com',
+                            ]),
+                        })
                     }
 
                     if (body.query.kind === 'EventsQuery' && body.query.properties.length === 1) {
-                        return res(ctx.json(recordingEventsJson))
+                        return HttpResponse.json(recordingEventsJson)
                     }
 
                     // default to an empty response or we duplicate information
-                    return res(ctx.json({ results: [] }))
+                    return HttpResponse.json({ results: [] })
                 },
             },
         }),
@@ -271,8 +270,8 @@ const userSeenReplayIntroMock = (): MockSignature => [
     },
 ]
 
-const manyRecordingsMock: MockSignature = (req) => {
-    const version = req.url.searchParams.get('version')
+const manyRecordingsMock: MockSignature = ({ request }) => {
+    const version = new URL(request.url).searchParams.get('version')
     return [200, { has_next: false, results: generateManyRecordings(25), version }]
 }
 

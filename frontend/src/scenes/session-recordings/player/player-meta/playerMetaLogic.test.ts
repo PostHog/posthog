@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import { HttpResponse } from 'msw'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
@@ -24,8 +25,8 @@ describe('playerMetaLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
-                '/api/environments/:team_id/session_recordings/:id/snapshots/': (_, res, ctx) =>
-                    res(ctx.text(snapshotsAsJSONLines())),
+                '/api/environments/:team_id/session_recordings/:id/snapshots/': () =>
+                    new HttpResponse(snapshotsAsJSONLines()),
             },
             post: {
                 '/api/environments/:team_id/query/:kind': recordingEventsJson,

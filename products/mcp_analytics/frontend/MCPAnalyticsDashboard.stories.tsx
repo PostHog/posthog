@@ -74,22 +74,22 @@ const meta: Meta = {
                 '/api/environments/:team_id/mcp_analytics/intent_clusters/': CLUSTER_SNAPSHOT,
             },
             post: {
-                '/api/environments/:team_id/query/:kind': (req, res, ctx) => {
-                    const body = req.body as Record<string, any>
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
                     const query: string = body?.query?.query ?? ''
                     if (query.includes('$mcp_client_name')) {
-                        return res(ctx.json({ results: HARNESS_RESULTS }))
+                        return [200, { results: HARNESS_RESULTS }]
                     }
                     if (query.includes('AS session_id')) {
-                        return res(ctx.json({ results: SESSION_RESULTS }))
+                        return [200, { results: SESSION_RESULTS }]
                     }
                     if (query.includes('p95_duration_ms')) {
-                        return res(ctx.json({ results: TOOL_RESULTS }))
+                        return [200, { results: TOOL_RESULTS }]
                     }
                     if (query.includes('AS bucket')) {
-                        return res(ctx.json({ results: KPI_RESULTS }))
+                        return [200, { results: KPI_RESULTS }]
                     }
-                    return res(ctx.json({ results: [] }))
+                    return [200, { results: [] }]
                 },
             },
         }),
