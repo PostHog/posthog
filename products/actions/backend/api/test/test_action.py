@@ -1,7 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
-from parameterized import parameterized
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -11,6 +10,7 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY, patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Cohort, Tag, User
