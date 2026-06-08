@@ -8,7 +8,13 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
 
 import { Hub, Team } from '../../../types'
-import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
+import {
+    EmailService,
+    computeSesThrottleBackoffMs,
+    isSesThrottleError,
+    parseAddressList,
+    sanitizeEmailSubject,
+} from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 
 describe('sanitizeEmailSubject', () => {
@@ -32,6 +38,39 @@ describe('sanitizeEmailSubject', () => {
         ['preserves email-typical special chars', 'Re: Your order #1234 — 50% off!', 'Re: Your order #1234 — 50% off!'],
     ])('%s', (_name, input, expected) => {
         expect(sanitizeEmailSubject(input)).toEqual(expected)
+    })
+})
+
+describe('isSesThrottleError', () => {
+    it.each([
+        ['TooManyRequestsException by name', { name: 'TooManyRequestsException' }, true],
+        ['ThrottlingException by name', { name: 'ThrottlingException' }, true],
+        ['429 via $metadata', { name: 'SomeOther', $metadata: { httpStatusCode: 429 } }, true],
+        ['SendingPausedException is not retryable', { name: 'SendingPausedException' }, false],
+        ['AccountSuspendedException is not retryable', { name: 'AccountSuspendedException' }, false],
+        ['plain Error is not retryable', new Error('boom'), false],
+        ['null is not retryable', null, false],
+        ['undefined is not retryable', undefined, false],
+        ['string is not retryable', 'TooManyRequestsException', false],
+    ])('%s', (_name, input, expected) => {
+        expect(isSesThrottleError(input)).toBe(expected)
+    })
+})
+
+describe('computeSesThrottleBackoffMs', () => {
+    it('grows exponentially and caps at 60s', () => {
+        // attempt 0: ~1s, attempt 1: ~2s, ... attempt 6: capped at 60s
+        // We can't assert exact values because of jitter; assert bounds.
+        const samples = [0, 1, 2, 3, 4, 5, 6, 10].map((n) => computeSesThrottleBackoffMs(n))
+        expect(samples[0]).toBeGreaterThanOrEqual(1000)
+        expect(samples[0]).toBeLessThan(1000 + 500)
+        expect(samples[1]).toBeGreaterThanOrEqual(2000)
+        expect(samples[1]).toBeLessThan(2000 + 500)
+        expect(samples[2]).toBeGreaterThanOrEqual(4000)
+        expect(samples[2]).toBeLessThan(4000 + 500)
+        // Cap kicks in well before attempt 10
+        expect(samples[7]).toBeGreaterThanOrEqual(60_000)
+        expect(samples[7]).toBeLessThan(60_000 + 500)
     })
 })
 
@@ -539,6 +578,98 @@ describe('EmailService', () => {
             sendEmailSpy.mockResolvedValue({})
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toMatchInlineSnapshot(`"Failed to send email via SES: No messageId returned from SES"`)
+        })
+
+        describe('SES throttle retry', () => {
+            const makeSesError = (name: string, httpStatusCode: number, message = 'SES error'): Error => {
+                const err = new Error(message) as Error & {
+                    name: string
+                    $metadata: { httpStatusCode: number }
+                }
+                err.name = name
+                err.$metadata = { httpStatusCode }
+                return err
+            }
+            const makeThrottleError = (name = 'TooManyRequestsException'): Error =>
+                makeSesError(name, 429, 'Too many requests')
+
+            it('reschedules instead of failing on the first throttle', async () => {
+                sendEmailSpy.mockRejectedValue(makeThrottleError())
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.finished).toBe(false)
+                expect(result.invocation.queue).toBe('email')
+                expect(result.invocation.queueScheduledAt).toBeDefined()
+                expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
+                expect((result.invocation.queueMetadata as { sesThrottleAttempts?: number })?.sesThrottleAttempts).toBe(
+                    1
+                )
+                // Does not emit email_sent / email_failed — only email_rate_limited
+                expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_rate_limited'])
+            })
+
+            it('preserves existing queueMetadata fields on the reschedule', async () => {
+                sendEmailSpy.mockRejectedValue(makeThrottleError())
+                invocation.queueMetadata = { originQueue: 'hogflow', sesThrottleAttempts: 1 }
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.invocation.queueMetadata).toEqual({
+                    originQueue: 'hogflow',
+                    sesThrottleAttempts: 2,
+                })
+            })
+
+            it('reschedules with a future queueScheduledAt', async () => {
+                sendEmailSpy.mockRejectedValue(makeThrottleError())
+                const before = Date.now()
+                const result = await service.executeSendEmail(invocation)
+                const scheduled = result.invocation.queueScheduledAt?.toMillis() ?? 0
+                expect(scheduled).toBeGreaterThanOrEqual(before + 1000) // base delay 1s
+                expect(scheduled).toBeLessThanOrEqual(before + 1000 + 500 + 1000) // base + jitter + slack
+            })
+
+            it('does not push to vmState stack while retrying', async () => {
+                sendEmailSpy.mockRejectedValue(makeThrottleError())
+                invocation.state.vmState = { stack: [] } as any
+                await service.executeSendEmail(invocation)
+                expect((invocation.state.vmState as any).stack).toEqual([])
+            })
+
+            it('also retries on ThrottlingException', async () => {
+                sendEmailSpy.mockRejectedValue(makeThrottleError('ThrottlingException'))
+                const result = await service.executeSendEmail(invocation)
+                expect(result.finished).toBe(false)
+                expect(result.error).toBeUndefined()
+            })
+
+            it('does not retry on non-throttle errors (eg domain not verified)', async () => {
+                const err = new Error('Email address not verified') as Error & { name: string }
+                err.name = 'MailFromDomainNotVerifiedException'
+                sendEmailSpy.mockRejectedValue(err)
+                const result = await service.executeSendEmail(invocation)
+                expect(result.finished).toBe(true)
+                expect(result.error).toContain('Failed to send email via SES')
+                expect(result.invocation.queueScheduledAt).toBeUndefined()
+            })
+
+            it('does not retry on SendingPausedException', async () => {
+                // SES paused emails for the account/identity — sustained problem,
+                // not a transient TPS overshoot. SES returns 400 for these (not 429).
+                sendEmailSpy.mockRejectedValue(makeSesError('SendingPausedException', 400, 'Sending is paused'))
+                const result = await service.executeSendEmail(invocation)
+                expect(result.finished).toBe(true)
+                expect(result.error).toContain('Failed to send email via SES')
+            })
+
+            it('gives up after SES_THROTTLE_MAX_ATTEMPTS', async () => {
+                sendEmailSpy.mockRejectedValue(makeThrottleError())
+                invocation.queueMetadata = { sesThrottleAttempts: 5 } // already at max
+                const result = await service.executeSendEmail(invocation)
+                expect(result.finished).toBe(true)
+                expect(result.error).toBe('Too many requests')
+                expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_failed'])
+            })
         })
     })
 })

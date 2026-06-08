@@ -1,5 +1,7 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
+import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
+import { Counter } from 'prom-client'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
@@ -13,6 +15,43 @@ import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { generateEmailTrackingCode } from './helpers/tracking-code'
 import { RecipientTokensService } from './recipient-tokens.service'
+
+// SES throttle error names we treat as retryable. SDK v3 throws these as named
+// exception classes; we match by `.name` so we don't need a typed import for
+// every error class. SendingPausedException / AccountSuspendedException are
+// intentionally excluded — those signal a sustained problem with the sender,
+// not a transient TPS overshoot, so they must surface as terminal failures.
+const SES_THROTTLE_ERROR_NAMES = new Set(['TooManyRequestsException', 'ThrottlingException'])
+
+// Cap on app-layer retries _on top of_ the SDK's built-in retries. SES SDK v3
+// already retries 3 times with adaptive backoff; we add a second tier so a
+// genuine multi-second backlog can still drain without dropping mail.
+const SES_THROTTLE_MAX_ATTEMPTS = 5
+const SES_THROTTLE_BASE_DELAY_MS = 1_000
+const SES_THROTTLE_MAX_DELAY_MS = 60_000
+const SES_THROTTLE_JITTER_MS = 500
+
+const sesThrottleRetriesCounter = new Counter({
+    name: 'cdp_email_ses_throttle_retries_total',
+    help: 'Email sends rescheduled because SES returned a throttling exception',
+    labelNames: ['outcome'],
+})
+
+export function isSesThrottleError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+        return false
+    }
+    const e = error as { name?: string; $metadata?: { httpStatusCode?: number } }
+    if (e.name && SES_THROTTLE_ERROR_NAMES.has(e.name)) {
+        return true
+    }
+    return e.$metadata?.httpStatusCode === 429
+}
+
+export function computeSesThrottleBackoffMs(previousAttempts: number): number {
+    const exp = Math.min(SES_THROTTLE_BASE_DELAY_MS * 2 ** previousAttempts, SES_THROTTLE_MAX_DELAY_MS)
+    return exp + Math.floor(Math.random() * SES_THROTTLE_JITTER_MS)
+}
 
 export interface EmailServiceConfig {
     sesAccessKeyId: string
@@ -107,7 +146,48 @@ export class EmailService {
             addLog('info', `Email sent to ${params.to.email}`)
             success = true
         } catch (error) {
-            addLog('error', error.message)
+            if (isSesThrottleError(error)) {
+                const previousAttempts = Number(
+                    (invocation.queueMetadata as { sesThrottleAttempts?: number } | undefined)?.sesThrottleAttempts ?? 0
+                )
+                if (previousAttempts < SES_THROTTLE_MAX_ATTEMPTS) {
+                    const backoffMs = computeSesThrottleBackoffMs(previousAttempts)
+                    const nextAttempt = previousAttempts + 1
+                    addLog(
+                        'warn',
+                        `SES rate-limited; rescheduling email in ${backoffMs}ms (attempt ${nextAttempt}/${SES_THROTTLE_MAX_ATTEMPTS})`
+                    )
+                    // Preserve queueParameters so the next dequeue knows what to send;
+                    // createInvocationResult clears them by default.
+                    result.finished = false
+                    result.error = undefined
+                    result.invocation.queue = 'email'
+                    result.invocation.queueParameters = invocation.queueParameters
+                    result.invocation.queueScheduledAt = DateTime.now().plus({ milliseconds: backoffMs })
+                    result.invocation.queueMetadata = {
+                        ...(invocation.queueMetadata ?? {}),
+                        sesThrottleAttempts: nextAttempt,
+                    }
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.parentRunId ?? invocation.functionId,
+                        instance_id: invocation.state.actionId || invocation.id,
+                        metric_kind: 'email',
+                        metric_name: 'email_rate_limited',
+                        count: 1,
+                    })
+                    sesThrottleRetriesCounter.inc({ outcome: 'rescheduled' })
+                    // Skip the vmState push + email_failed metric — we're not done yet.
+                    return result
+                }
+                sesThrottleRetriesCounter.inc({ outcome: 'exhausted' })
+                addLog(
+                    'error',
+                    `SES rate-limited; giving up after ${SES_THROTTLE_MAX_ATTEMPTS} retry attempts: ${error.message}`
+                )
+            } else {
+                addLog('error', error.message)
+            }
             result.error = error.message
             result.finished = true
         }
@@ -251,6 +331,11 @@ export class EmailService {
                 throw new Error('No messageId returned from SES')
             }
         } catch (error: unknown) {
+            // Re-throw throttle errors unwrapped so executeSendEmail can detect
+            // them by name / $metadata.httpStatusCode and reschedule the invocation.
+            if (isSesThrottleError(error)) {
+                throw error
+            }
             const message = error instanceof Error ? error.message : String(error)
             throw new Error(`Failed to send email via SES: ${message}`)
         }
