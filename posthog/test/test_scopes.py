@@ -19,6 +19,7 @@ from posthog.scopes import (
     UNPRIVILEGED_SCOPES,
     downgrade_scopes_to_read_only,
     effective_ceiling,
+    filter_to_unprivileged_scopes,
     get_oauth_scopes_supported,
     get_scope_descriptions,
     narrow_scopes_to_ceiling,
@@ -298,3 +299,29 @@ class TestNarrowScopesToCeiling(SimpleTestCase):
         self, _name: str, requested: list[str], app_scopes: list[str], expected: list[str] | None
     ) -> None:
         assert narrow_scopes_to_ceiling(requested, app_scopes) == expected
+
+
+class TestFilterToUnprivilegedScopes(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("keeps_unprivileged", ["insight:read", "dashboard:write"], ["insight:read", "dashboard:write"]),
+            ("drops_privileged", ["llm_gateway:read", "insight:read"], ["insight:read"]),
+            ("drops_unknown_string", ["not_a_real_scope:write", "query:read"], ["query:read"]),
+            (
+                "dedupes_preserving_order",
+                ["insight:read", "query:read", "insight:read"],
+                ["insight:read", "query:read"],
+            ),
+            ("empty_in_empty_out", [], []),
+            ("all_dropped_yields_empty", ["llm_gateway:read", "garbage"], []),
+        ]
+    )
+    def test_resolution(self, _name: str, given: list[str], expected: list[str]) -> None:
+        assert filter_to_unprivileged_scopes(given) == expected
+
+    def test_non_string_entries_dropped(self) -> None:
+        # Callers pass raw partner JSON (CIMD `com.posthog.scopes`), which may hold non-strings.
+        assert filter_to_unprivileged_scopes(["insight:read", 123, None, {"x": 1}, "query:read"]) == [
+            "insight:read",
+            "query:read",
+        ]
