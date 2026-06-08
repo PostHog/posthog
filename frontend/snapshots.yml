@@ -3838,6 +3838,12 @@ snapshots:
         hash: v1.k794b7964.d74c2774a1e3a73e7d34e0332ef1bcbb3b61a5442b89797447e23f5d56b033c2.qta1-W4_vRyunnAG5t1wzZKyzWUqS54HvnKvfvznYnA
     mcp-apps-surveys--stats--light:
         hash: v1.k794b7964.da67b48f277665016d143ea09d4471ca6f01f3b8a6d22e7fe0f3dc51b075e92a.l81wzNlVna0bTrWF2HHg1RkJaB7vXRpAIdMbNylhzCw
+    mcp-apps-trends--area-chart--light:
+        hash: v1.k794b7964.6ed37783ed84b48f2d648749ffc298bfd71075de834aae5d71f1a3b57dceb307.CP-Rjuy-9M_y2GO4qu462L0uVUqNr5EjDcW5v81BryE
+    mcp-apps-trends--multi-series--light:
+        hash: v1.k794b7964.466f26e9748bf36e37c3b01368ede6314529acc9de022545d2d7732fd27b9876.UBFF_lMm5lyhQHZ67NejD1gwBIUG40R24So4yyXge2I
+    mcp-apps-trends--single-series--light:
+        hash: v1.k794b7964.6a55c4fe9baa6788afe66f17d1a51caca5fa214e78d69e59f0992df68cd4895b.PHWgg1x5WWU8CDiukV2HjALQjNF5op7TM-mF7vIgEDM
     mcp-apps-workflows--active--light:
         hash: v1.k794b7964.ad71858e2dc5a45e3d81bb38d46ad3bbe2dea9c152b625fbbf93117a27e624ca.Z4AVu3aic8bdKuv98SD1V1ZqQXsxPwGX2mZl3cL31bs
     mcp-apps-workflows--archived--light:
