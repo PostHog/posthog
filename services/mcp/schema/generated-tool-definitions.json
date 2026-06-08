@@ -6513,7 +6513,7 @@
         }
     },
     "workflows-update": {
-        "description": "Update a workflow by ID. Draft only — active workflows are read-only via MCP for now (editing risks breaking already-scheduled runs); create a new draft for changes instead. Status changes go through workflows-enable / workflows-disable / workflows-archive. A batch audience is config.filters.properties — person-property conditions and/or cohort references. Prefer person properties or a dynamic (filter-based) cohort, which re-evaluate, over a static frozen-list cohort; behavioral (event-based) cohorts are rejected.",
+        "description": "Update a workflow by ID. Draft only — active workflows are read-only via MCP for now (editing risks breaking already-scheduled runs); create a new draft for changes instead. Status changes go through workflows-enable / workflows-archive. A batch audience is config.filters.properties — person-property conditions and/or cohort references. Prefer person properties or a dynamic (filter-based) cohort, which re-evaluate, over a static frozen-list cohort; behavioral (event-based) cohorts are rejected.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",
