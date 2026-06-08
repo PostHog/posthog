@@ -59,15 +59,14 @@ describe('google template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"conversions":[{"gclid":"google-id","conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00","conversion_value":"100","currency_code":"USD","order_id":"1234567890"}],"partialFailure":true}",
+              "body": "{"destinations":[{"operatingAccount":{"accountType":"GOOGLE_ADS","accountId":"1231231234"},"loginAccount":{"accountType":"GOOGLE_ADS","accountId":"5675675678"},"productDestinationId":"123456789"}],"events":[{"eventTimestamp":"2025-01-01T00:00:00+00:00","adIdentifiers":{"gclid":"google-id"},"conversionValue":100,"currency":"USD","transactionId":"1234567890"}]}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
-                "login-customer-id": "5675675678",
               },
               "method": "POST",
               "type": "fetch",
-              "url": "https://googleads.googleapis.com/v21/customers/1231231234:uploadClickConversions",
+              "url": "https://datamanager.googleapis.com/v1/events:ingest",
             }
         `)
 
@@ -97,15 +96,14 @@ describe('google template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"conversions":[{"gclid":"google-id","conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00"}],"partialFailure":true}",
+              "body": "{"destinations":[{"operatingAccount":{"accountType":"GOOGLE_ADS","accountId":"1231231234"},"loginAccount":{"accountType":"GOOGLE_ADS","accountId":"5675675678"},"productDestinationId":"123456789"}],"events":[{"eventTimestamp":"2025-01-01T00:00:00+00:00","adIdentifiers":{"gclid":"google-id"}}]}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
-                "login-customer-id": "5675675678",
               },
               "method": "POST",
               "type": "fetch",
-              "url": "https://googleads.googleapis.com/v21/customers/1231231234:uploadClickConversions",
+              "url": "https://datamanager.googleapis.com/v1/events:ingest",
             }
         `)
 
@@ -136,15 +134,14 @@ describe('google template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"conversions":[{"gclid":"google-id","conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00"}],"partialFailure":true}",
+              "body": "{"destinations":[{"operatingAccount":{"accountType":"GOOGLE_ADS","accountId":"1231231234"},"loginAccount":{"accountType":"GOOGLE_ADS","accountId":"5675675678"},"productDestinationId":"123456789"}],"events":[{"eventTimestamp":"2025-01-01T00:00:00+00:00","adIdentifiers":{"gclid":"google-id"}}]}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
-                "login-customer-id": "5675675678",
               },
               "method": "POST",
               "type": "fetch",
-              "url": "https://googleads.googleapis.com/v21/customers/1231231234:uploadClickConversions",
+              "url": "https://datamanager.googleapis.com/v1/events:ingest",
             }
         `)
 
@@ -155,7 +152,7 @@ describe('google template', () => {
 
         expect(fetchResponse.finished).toBe(true)
         expect(fetchResponse.error).toMatchInlineSnapshot(
-            `"Error from googleads.googleapis.com (status 400): {'status': 'Something went wrong', 'message': 'Invalid event properties'}"`
+            `"Error from datamanager.googleapis.com (status 400): {'status': 'Something went wrong', 'message': 'Invalid event properties'}"`
         )
     })
 

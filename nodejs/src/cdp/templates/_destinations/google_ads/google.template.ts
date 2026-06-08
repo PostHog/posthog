@@ -1,7 +1,9 @@
 import { HogFunctionInputSchemaType } from '~/cdp/types'
 import { HogFunctionTemplate } from '~/cdp/types'
 
-// Based on https://developers.google.com/google-ads/api/reference/rpc/v21/ClickConversion
+// Based on https://developers.google.com/data-manager/api/reference/rest/v1/events/ingest
+// Google blocks new developer tokens on the Google Ads API uploadClickConversions endpoint
+// from June 15, 2026; this template targets the replacement Data Manager API.
 
 const build_inputs = (): HogFunctionInputSchemaType[] => {
     return [
@@ -31,7 +33,7 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             label: 'Conversion Date Time',
             description:
                 'The date time at which the conversion occurred. Must be after the click time. The timezone must be specified. The format is "yyyy-mm-dd hh:mm:ss+|-hh:mm", e.g. "2019-01-01 12:32:45-08:00".',
-            default: "{formatDateTime(toDateTime(event.timestamp), '%Y-%m-%d %H:%i:%S')}+00:00",
+            default: "{formatDateTime(toDateTime(event.timestamp), '%Y-%m-%dT%H:%i:%S')}+00:00",
             secret: false,
             required: true,
         },
@@ -84,40 +86,50 @@ if (empty(inputs.gclid)) {
 }
 
 let body := {
-    'conversions': [
+    'destinations': [
         {
-            'gclid': inputs.gclid,
-            'conversion_action': f'customers/{splitByString('/', inputs.customerId)[1]}/conversionActions/{inputs.conversionActionId}',
-            'conversion_date_time': inputs.conversionDateTime
+            'operatingAccount': {
+                'accountType': 'GOOGLE_ADS',
+                'accountId': splitByString('/', inputs.customerId)[1]
+            },
+            'loginAccount': {
+                'accountType': 'GOOGLE_ADS',
+                'accountId': splitByString('/', inputs.customerId)[2]
+            },
+            'productDestinationId': inputs.conversionActionId
         }
     ],
-    'partialFailure': true
+    'events': [
+        {
+            'eventTimestamp': inputs.conversionDateTime,
+            'adIdentifiers': {
+                'gclid': inputs.gclid
+            }
+        }
+    ]
 }
 
 if (not empty(inputs.conversionValue)) {
-    body.conversions[1].conversion_value := inputs.conversionValue
+    body.events[1].conversionValue := toFloat(inputs.conversionValue)
 }
 if (not empty(inputs.currencyCode)) {
-    body.conversions[1].currency_code := inputs.currencyCode
+    body.events[1].currency := inputs.currencyCode
 }
 if (not empty(inputs.orderId)) {
-    body.conversions[1].order_id := inputs.orderId
+    body.events[1].transactionId := inputs.orderId
 }
 
-let res := fetch(f'https://googleads.googleapis.com/v21/customers/{splitByString('/', inputs.customerId)[1]}:uploadClickConversions', {
+let res := fetch('https://datamanager.googleapis.com/v1/events:ingest', {
     'method': 'POST',
     'headers': {
         'Authorization': f'Bearer {inputs.oauth.access_token}',
-        'Content-Type': 'application/json',
-        'login-customer-id': splitByString('/', inputs.customerId)[2]
+        'Content-Type': 'application/json'
     },
     'body': body
 })
 
 if (res.status >= 400) {
-    throw Error(f'Error from googleads.googleapis.com (status {res.status}): {res.body}')
-} else if (not empty(res.body.partialFailureError)) {
-    throw Error(f'Error from googleads.googleapis.com (status {res.status}): {res.body.partialFailureError.message}')
+    throw Error(f'Error from datamanager.googleapis.com (status {res.status}): {res.body}')
 }
 `,
     inputs_schema: [
@@ -126,7 +138,8 @@ if (res.status >= 400) {
             type: 'integration',
             integration: 'google-ads',
             label: 'Google Ads account',
-            requiredScopes: 'https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email',
+            requiredScopes:
+                'https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/datamanager https://www.googleapis.com/auth/userinfo.email',
             secret: false,
             required: true,
         },

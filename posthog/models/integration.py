@@ -401,7 +401,7 @@ class OauthIntegration:
                 token_url="https://oauth2.googleapis.com/token",
                 client_id=settings.GOOGLE_ADS_APP_CLIENT_ID,
                 client_secret=settings.GOOGLE_ADS_APP_CLIENT_SECRET,
-                scope="https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
+                scope="https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/datamanager https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
