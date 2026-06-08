@@ -8,6 +8,7 @@ from typing import Any
 import grpc
 from prometheus_client import Counter, Histogram
 
+from posthog.personhog_client.metrics import PERSONHOG_ERRORS_TOTAL
 from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG
 
 _ClientCallDetails = namedtuple(
@@ -31,12 +32,6 @@ PERSONHOG_DJANGO_REQUEST_COUNT = Counter(
     "personhog_django_grpc_requests_total",
     "Total gRPC requests from a Django personhog client to the personhog service",
     labelnames=["method", "status", "client_name"],
-)
-
-PERSONHOG_DJANGO_TIMEOUT_TOTAL = Counter(
-    "personhog_django_grpc_timeouts_total",
-    "gRPC requests that exceeded their deadline (DEADLINE_EXCEEDED)",
-    labelnames=["method", "client_name"],
 )
 
 
@@ -116,15 +111,14 @@ class MetricsInterceptor(grpc.UnaryUnaryClientInterceptor):
             code = response.code()
             status = code.name if code else "OK"
             PERSONHOG_DJANGO_REQUEST_COUNT.labels(method=method, status=status, client_name=self._client_name).inc()
-            if code == grpc.StatusCode.DEADLINE_EXCEEDED:
-                PERSONHOG_DJANGO_TIMEOUT_TOTAL.labels(method=method, client_name=self._client_name).inc()
+            if code is not None and code != grpc.StatusCode.OK:
+                PERSONHOG_ERRORS_TOTAL.labels(method=method, client=self._client_name, error_type=status).inc()
             return response
         except grpc.RpcError as exc:
             code = exc.code()
             status = code.name if code else "UNKNOWN"
             PERSONHOG_DJANGO_REQUEST_COUNT.labels(method=method, status=status, client_name=self._client_name).inc()
-            if code == grpc.StatusCode.DEADLINE_EXCEEDED:
-                PERSONHOG_DJANGO_TIMEOUT_TOTAL.labels(method=method, client_name=self._client_name).inc()
+            PERSONHOG_ERRORS_TOTAL.labels(method=method, client=self._client_name, error_type=status).inc()
             raise
         finally:
             PERSONHOG_DJANGO_REQUEST_DURATION.labels(method=method, client_name=self._client_name).observe(
