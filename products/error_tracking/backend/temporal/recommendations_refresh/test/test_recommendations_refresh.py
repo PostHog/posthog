@@ -40,10 +40,12 @@ _LONG_RUNNING_COMPUTE = (
     "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute"
 )
 _SOURCE_MAPS_COMPUTE = "products.error_tracking.backend.recommendations.source_maps.SourceMapsRecommendation.compute"
+_RATE_LIMITS_COMPUTE = "products.error_tracking.backend.recommendations.rate_limits.RateLimitsRecommendation.compute"
 
 _ALERTS_META = {"alerts": [{"key": "error-tracking-issue-created", "enabled": False}]}
 _LONG_RUNNING_META: dict = {"issues": []}
 _SOURCE_MAPS_META = {"total_frames": 0, "unresolved_frames": 0, "unresolved_pct": 0.0}
+_RATE_LIMITS_META = {"rate_limits": [{"key": "project", "enabled": False}, {"key": "per_issue", "enabled": False}]}
 
 
 class TestGetTeamsWithRecentExceptionsActivity(ClickhouseTestMixin, APIBaseTest):
@@ -75,10 +77,11 @@ class TestRefreshRecommendationsBatchActivity(NonAtomicBaseTest):
     # connection, so the data must be committed (not wrapped in TestCase's atomic block).
     CLASS_DATA_LEVEL_SETUP = False
 
+    @patch(_RATE_LIMITS_COMPUTE, return_value=_RATE_LIMITS_META)
     @patch(_SOURCE_MAPS_COMPUTE, return_value=_SOURCE_MAPS_META)
     @patch(_LONG_RUNNING_COMPUTE, return_value=_LONG_RUNNING_META)
     @patch(_ALERTS_COMPUTE, return_value=_ALERTS_META)
-    def test_computes_recommendations_inline_for_all_teams(self, _alerts, _long, _source):
+    def test_computes_recommendations_inline_for_all_teams(self, _alerts, _long, _source, _rate_limits):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
 
         result = asyncio.run(
@@ -88,28 +91,29 @@ class TestRefreshRecommendationsBatchActivity(NonAtomicBaseTest):
         )
 
         assert result.teams_processed == 2
-        assert result.recommendations_kicked == 6
+        assert result.recommendations_kicked == 8
         for team_id in (self.team.id, team_b.id):
             recs = ErrorTrackingRecommendation.objects.filter(team_id=team_id)
-            assert recs.count() == 3
+            assert recs.count() == 4
             for rec in recs:
                 assert rec.status == ErrorTrackingRecommendation.Status.READY
                 assert rec.computed_at is not None
 
+    @patch(_RATE_LIMITS_COMPUTE, return_value=_RATE_LIMITS_META)
     @patch(_SOURCE_MAPS_COMPUTE, return_value=_SOURCE_MAPS_META)
     @patch(_LONG_RUNNING_COMPUTE, return_value=_LONG_RUNNING_META)
     @patch(_ALERTS_COMPUTE, return_value=_ALERTS_META)
-    def test_rerun_only_recomputes_stale_recommendations(self, _alerts, _long, _source):
+    def test_rerun_only_recomputes_stale_recommendations(self, _alerts, _long, _source, _rate_limits):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
         batch = RefreshBatchInputs(team_ids=[self.team.id, team_b.id])
 
         first = asyncio.run(ActivityEnvironment().run(refresh_recommendations_batch_activity, batch))
-        assert first.recommendations_kicked == 6
+        assert first.recommendations_kicked == 8
 
         second = asyncio.run(ActivityEnvironment().run(refresh_recommendations_batch_activity, batch))
-        # Only `alerts` has no refresh_interval, so it recomputes for both teams; long_running_issues
-        # and source_maps (both 6h) are still fresh and are skipped.
-        assert second.recommendations_kicked == 2
+        # `alerts` and `rate_limits` have no refresh_interval, so they recompute for both teams;
+        # long_running_issues and source_maps (both 6h) are still fresh and are skipped.
+        assert second.recommendations_kicked == 4
 
 
 async def _run_refresh_workflow(
