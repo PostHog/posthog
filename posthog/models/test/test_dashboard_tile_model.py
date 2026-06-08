@@ -1,4 +1,5 @@
 import datetime
+from typing import Optional, cast
 
 from posthog.test.base import APIBaseTest
 
@@ -51,7 +52,7 @@ class TestDashboardTileModel(APIBaseTest):
         insight = Insight.objects.create(team=self.team, short_id="autoderive", name="autoderive")
         tile = DashboardTile(dashboard=self.dashboard, insight=insight)
         # team is unset before save
-        assert tile.team_id is None
+        assert cast(Optional[int], tile.team_id) is None
         tile.save()
         # save() copies dashboard.team_id onto the tile so HogQL queries scoped
         # by `WHERE team_id = X` find this row.

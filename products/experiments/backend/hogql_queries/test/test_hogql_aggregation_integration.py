@@ -25,7 +25,7 @@ class TestHogQLAggregationIntegration(BaseTest):
 
         # Should return the inner expression (ArithmeticOperation), not the full sum() call
         assert isinstance(result, ast.ArithmeticOperation)
-        assert result.op == ast.ArithmeticOperationOp.Sub  # type: ignore[attr-defined]
+        assert result.op == ast.ArithmeticOperationOp.Sub
 
         # Test without aggregation function
         metric_without_agg = ExperimentMeanMetric(
@@ -38,7 +38,7 @@ class TestHogQLAggregationIntegration(BaseTest):
 
         # Should return the field expression directly
         assert isinstance(result_no_agg, ast.Field)
-        assert result_no_agg.chain == ["properties", "revenue"]  # type: ignore[attr-defined]
+        assert result_no_agg.chain == ["properties", "revenue"]
 
     def test_hogql_aggregation_examples(self):
         """Test various HogQL aggregation examples that users might input."""

@@ -1188,7 +1188,7 @@ class TestSavedQuery(APIBaseTest):
 
             assert response.status_code == 200, response.content
 
-            db_saved_query.refresh_from_db()
+            db_saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
             assert db_saved_query.sync_frequency_interval is None
             assert db_saved_query.last_run_at is None
             assert db_saved_query.latest_error is None

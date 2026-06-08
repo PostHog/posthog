@@ -6707,7 +6707,7 @@ class TestSurveyLifecycleActions(APIBaseTest):
         assert self.survey.start_date is None
         response = self.client.post(f"/api/projects/{self.team.id}/surveys/{self.survey.id}/launch/")
         assert response.status_code == status.HTTP_200_OK
-        self.survey.refresh_from_db()
+        self.survey = Survey.objects.get(pk=self.survey.pk)
         assert self.survey.start_date is not None
         # Verify the response includes the updated start_date
         assert response.json()["start_date"] is not None

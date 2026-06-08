@@ -566,7 +566,8 @@ class TestRunnerSubagentBehavior(BaseTest):
             assert self.conversation.status == Conversation.Status.IN_PROGRESS
 
         await self.conversation.arefresh_from_db()
-        assert self.conversation.status == Conversation.Status.IDLE
+        # cast resets the type narrowed to IN_PROGRESS above; arefresh_from_db reloads it to IDLE
+        assert cast(Conversation.Status, self.conversation.status) == Conversation.Status.IDLE
 
     @parameterized.expand(
         [

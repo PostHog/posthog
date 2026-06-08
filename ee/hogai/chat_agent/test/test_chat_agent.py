@@ -229,9 +229,9 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
 
         with patch("langgraph.pregel.Pregel.astream", side_effect=FakeStream):
             output, assistant = await self._run_assistant_graph(conversation=self.conversation)
-            assert output[0][0] == "message"
+            assert output[0][0] == AssistantEventType.MESSAGE
             assert cast(HumanMessage, output[0][1]).content == "Hello"
-            assert output[1][0] == "message"
+            assert output[1][0] == AssistantEventType.MESSAGE
             assert isinstance(output[1][1], AssistantMessage)
             assert (
                 cast(AssistantMessage, output[1][1]).content
@@ -319,7 +319,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
             conversation=self.conversation,
             is_new_conversation=False,
         )
-        assert output[0][0] != "conversation"
+        assert output[0][0] != AssistantEventType.CONVERSATION
 
     async def test_async_stream(self):
         class TestNode(AssistantNode):
@@ -943,7 +943,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
 
         # Verify the last message doesn't contain any tool calls and has our expected content
         last_message = cast(AssistantMessage, output[-1][1])
-        assert "tool_calls" not in last_message, "The final message should not contain any tool calls"
+        assert not last_message.tool_calls, "The final message should not contain any tool calls"
         assert last_message.content == "No more tool calls after 4th attempt", (
             "Final message should indicate no more tool calls"
         )
@@ -1028,7 +1028,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         initial_updated_at = self.conversation.updated_at
         initial_created_at = self.conversation.created_at
 
-        assert self.conversation.title is None
+        assert cast(Optional[str], self.conversation.title) is None
 
         # Mock the title generator to return "Generated Conversation Title"
         title_generator_model_mock.return_value = FakeChatOpenAI(
@@ -1275,19 +1275,19 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         assert output[0] == ("conversation", self.conversation)
 
         # Check human message
-        assert output[1][0] == "message"
+        assert output[1][0] == AssistantEventType.MESSAGE
         assert isinstance(output[1][1], HumanMessage)
         assert output[1][1].content == "Hello"
 
         # Check assistant message with tool calls
-        assert output[2][0] == "message"
+        assert output[2][0] == AssistantEventType.MESSAGE
         assert isinstance(output[2][1], AssistantMessage)
         assert isinstance(output[2][1], AssistantMessage)
         assert output[2][1].tool_calls is not None
         assert output[2][1].tool_calls[0].name == "create_insight"
 
         # Check artifact message - enriched from ArtifactRefMessage
-        assert output[3][0] == "message"
+        assert output[3][0] == AssistantEventType.MESSAGE
         artifact_msg = output[3][1]
         assert isinstance(artifact_msg, ArtifactMessage)
         assert isinstance(artifact_msg, ArtifactMessage)
@@ -1296,13 +1296,13 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         assert artifact_msg.content.query == query
 
         # Check tool call message
-        assert output[4][0] == "message"
+        assert output[4][0] == AssistantEventType.MESSAGE
         assert isinstance(output[4][1], AssistantToolCallMessage)
         assert isinstance(output[4][1], AssistantToolCallMessage)
         assert output[4][1].tool_call_id == "xyz"
 
         # Check final assistant message
-        assert output[5][0] == "message"
+        assert output[5][0] == AssistantEventType.MESSAGE
         assert isinstance(output[5][1], AssistantMessage)
         assert output[5][1].content == "Everything is fine"
 

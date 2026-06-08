@@ -84,7 +84,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
             assert view.query is not None
             assert view.columns is not None
             assert view.external_tables is not None
-            assert "HogQLQuery" in view.query.get("kind", "")  # type: ignore
+            assert "HogQLQuery" in view.query.get("kind", "")
 
         expected_view_names = sorted(
             [

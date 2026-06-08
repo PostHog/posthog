@@ -1,7 +1,7 @@
 import uuid
 import datetime
 from datetime import timedelta
-from typing import cast
+from typing import Optional, cast
 from urllib.parse import quote, unquote
 
 from freezegun.api import freeze_time
@@ -104,7 +104,7 @@ class TestUserAPI(APIBaseTest):
         )  # Ensure we're not returning the full `Team`
         assert "event_names" not in response_data["organization"]["teams"][0]
 
-        assert sorted(response_data["organizations"], key=lambda org: org["id"]) == sorted(
+        assert sorted(response_data["organizations"], key=lambda org: str(org["id"])) == sorted(
             [
                 {
                     "id": str(self.organization.id),
@@ -129,7 +129,7 @@ class TestUserAPI(APIBaseTest):
                     "is_pending_deletion": False,
                 },
             ],
-            key=lambda org: org["id"],
+            key=lambda org: str(org["id"]),
         )
 
     def test_current_user_includes_pending_invites(self):
@@ -646,7 +646,7 @@ class TestUserAPI(APIBaseTest):
 
             self.user.refresh_from_db()
             assert self.user.email == "beta@example.com"
-            assert self.user.pending_email is None
+            assert cast(Optional[str], self.user.pending_email) is None
             mock_is_email_available.assert_called_once()
             mock_send_email_change_emails.assert_called_once_with(
                 "2020-01-01T21:37:00+00:00",
@@ -708,7 +708,7 @@ class TestUserAPI(APIBaseTest):
 
             self.user.refresh_from_db()
             assert self.user.email == "beta@example.com"
-            assert self.user.pending_email is None
+            assert cast(Optional[str], self.user.pending_email) is None
             for social_auth_id in social_auth_ids:
                 assert not UserSocialAuth.objects.filter(id=social_auth_id).exists()
             assert UserSocialAuth.objects.filter(id=other_user_social_auth_id).exists()
@@ -749,7 +749,7 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["code"] == expected_code
         self.user.refresh_from_db()
         assert self.user.email == "alpha@example.com"
-        assert self.user.pending_email is None
+        assert cast(Optional[str], self.user.pending_email) is None
         mock_send_email_change_emails.assert_not_called()
 
     @patch("posthog.tasks.email.send_email_change_emails.delay")
@@ -2041,7 +2041,7 @@ class TestStaffUserAPI(APIBaseTest):
         response_data = response.json()
         assert response_data["is_staff"]
         user.refresh_from_db()
-        assert user.is_staff
+        assert cast(bool, user.is_staff)
 
         # User is no longer staff
         response = self.client.patch(f"/api/users/{user.uuid}/", {"is_staff": False})
@@ -2296,7 +2296,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
         assert self.user.email == "new@posthog.com"
-        assert self.user.pending_email is None
+        assert cast(Optional[str], self.user.pending_email) is None
 
     def test_email_verification_does_not_log_in_user_with_2fa_totp(self):
         # If the user has a TOTP device configured, verifying their email must

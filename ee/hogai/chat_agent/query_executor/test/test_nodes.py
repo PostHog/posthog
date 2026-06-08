@@ -305,7 +305,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
             )
             new_state = cast(PartialAssistantState, new_state)
             mock_process_query_dict.assert_called_once()  # Query processing started
-            msg = cast(AssistantMessage, new_state.messages[0])
+            msg = cast(AssistantToolCallMessage, new_state.messages[0])
             assert "Here is the results table of the TrendsQuery insight:" in msg.content
             assert msg.type == "tool"
             assert msg.id is not None

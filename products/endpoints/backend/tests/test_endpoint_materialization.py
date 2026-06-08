@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Optional, cast
 
 import pytest
 from freezegun import freeze_time
@@ -102,8 +103,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         # Verify SavedQuery was created on version
         version.refresh_from_db()
-        assert version.saved_query is not None
-        saved_query = version.saved_query
+        saved_query = cast(Optional[DataWarehouseSavedQuery], version.saved_query)
         assert saved_query is not None
         # Per-version naming: {endpoint_name}_v{version}
         assert saved_query.name == f"{endpoint.name}_v{version.version}"

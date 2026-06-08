@@ -1,5 +1,6 @@
 import random
-from datetime import timedelta
+from datetime import datetime, timedelta
+from typing import Optional, cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
@@ -1595,7 +1596,7 @@ class TestOnboardingDelegationInviteAPI(APIBaseTest):
         response = self.client.post(self._delegate_url(), {"target_email": "engineer@example.com"})
         assert response.status_code == status.HTTP_201_CREATED, response.content
         self.user.refresh_from_db()
-        assert self.user.onboarding_delegation_accepted_at is None
+        assert cast(Optional[datetime], self.user.onboarding_delegation_accepted_at) is None
         assert self.user.onboarding_delegated_to_invite.target_email == "engineer@example.com"
 
 
@@ -1661,7 +1662,7 @@ class TestOnboardingSkipAPI(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK, response.content
             self.user.refresh_from_db()
             assert self.user.onboarding_skipped_reason is None
-            assert self.user.onboarding_skipped_at is None
+            assert cast(Optional[datetime], self.user.onboarding_skipped_at) is None
 
     def test_skip_does_not_delete_cross_org_stale_invite_pointer(self):
         other_org = Organization.objects.create(name="Other Org")
@@ -1707,8 +1708,8 @@ class TestDelegationCancellationUnsuppressesRedirect(APIBaseTest):
         # Full redirect condition: both the FK *and* the skip timestamp/reason must be cleared
         # so the frontend's sceneLogic suppression stops firing and onboarding re-engages.
         self.user.refresh_from_db()
-        assert self.user.onboarding_delegated_to_invite_id is None
-        assert self.user.onboarding_skipped_at is None
+        assert cast(Optional[int], self.user.onboarding_delegated_to_invite_id) is None
+        assert cast(Optional[datetime], self.user.onboarding_skipped_at) is None
         assert self.user.onboarding_skipped_reason is None
 
 

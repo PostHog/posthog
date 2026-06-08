@@ -3,6 +3,7 @@ from posthog.test.base import NonAtomicBaseTest
 from posthog.schema import ChartDisplayType, DataVisualizationNode, HogQLQuery
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.chat_agent.sql.mixins import HogQLGeneratorMixin, SQLSchemaGeneratorOutput
 
 
@@ -48,7 +49,7 @@ class TestSQLMixins(NonAtomicBaseTest):
         test_output = {"query": "SELECT count() FROM events", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
-        assert isinstance(result, SQLSchemaGeneratorOutput)
+        assert isinstance(result, SchemaGeneratorOutput)
         assert result == SQLSchemaGeneratorOutput(
             query=DataVisualizationNode(source=HogQLQuery(query="SELECT count() FROM events"))
         )
@@ -126,7 +127,7 @@ class TestSQLMixins(NonAtomicBaseTest):
         test_output = {"query": "", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
-        assert isinstance(result, SQLSchemaGeneratorOutput)
+        assert isinstance(result, SchemaGeneratorOutput)
         assert result.query.source.query == ""
 
     def test_parse_output_removes_semicolon(self):
@@ -136,7 +137,7 @@ class TestSQLMixins(NonAtomicBaseTest):
         test_output = {"query": "SELECT count() FROM events;", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
-        assert isinstance(result, SQLSchemaGeneratorOutput)
+        assert isinstance(result, SchemaGeneratorOutput)
         assert result.query.source.query == "SELECT count() FROM events"
 
     def test_parse_output_removes_multiple_semicolons(self):
@@ -146,7 +147,7 @@ class TestSQLMixins(NonAtomicBaseTest):
         test_output = {"query": "SELECT count() FROM events;;;", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
-        assert isinstance(result, SQLSchemaGeneratorOutput)
+        assert isinstance(result, SchemaGeneratorOutput)
         assert result.query.source.query == "SELECT count() FROM events"
 
     def test_parse_output_preserves_semicolons_in_middle(self):
@@ -156,7 +157,7 @@ class TestSQLMixins(NonAtomicBaseTest):
         test_output = {"query": "SELECT 'hello;world' FROM events;", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
-        assert isinstance(result, SQLSchemaGeneratorOutput)
+        assert isinstance(result, SchemaGeneratorOutput)
         assert result.query.source.query == "SELECT 'hello;world' FROM events"
 
     async def test_quality_check_output_success_simple_query(self):

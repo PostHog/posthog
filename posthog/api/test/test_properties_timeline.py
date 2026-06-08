@@ -1,7 +1,7 @@
 import json
 import uuid
 import random
-from typing import Optional
+from typing import Optional, cast
 
 from freezegun.api import freeze_time
 from posthog.test.base import (
@@ -128,7 +128,7 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             date_to="2020-01-05",
         )
 
-        assert timeline == {
+        assert cast(dict, timeline) == {
             "points": [],  # No relevant events in range
             "crucial_property_keys": ["bar"],
             "effective_date_from": "2020-01-01T00:00:00+00:00",

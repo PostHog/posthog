@@ -4524,7 +4524,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         artifact = run.find_artifact_in_resume_chain(storage_path)
         assert artifact is not None
-        assert artifact["storage_path"] == storage_path  # type: ignore
+        assert artifact["storage_path"] == storage_path
 
     def test_find_artifact_in_resume_chain_miss(self):
         task = self.create_task()

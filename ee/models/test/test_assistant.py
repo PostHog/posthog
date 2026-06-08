@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
@@ -26,12 +27,12 @@ class TestCoreMemory(BaseTest):
     async def test_scraping_status_properties(self):
         # Test pending status within time window
         await self.core_memory.achange_status_to_pending()
-        assert self.core_memory.is_scraping_pending
+        assert cast(bool, self.core_memory.is_scraping_pending)
 
         # Test pending status outside time window
         self.core_memory.scraping_started_at = timezone.now() - timedelta(minutes=11)
         await self.core_memory.asave()
-        assert not self.core_memory.is_scraping_pending
+        assert not cast(bool, self.core_memory.is_scraping_pending)
 
         # Test finished status
         self.core_memory.scraping_status = CoreMemory.ScrapingStatus.COMPLETED
@@ -50,15 +51,15 @@ class TestCoreMemory(BaseTest):
 
         # Test 3 minutes after (should be true)
         with freeze_time(initial_time + timedelta(minutes=3)):
-            assert self.core_memory.is_scraping_pending
+            assert cast(bool, self.core_memory.is_scraping_pending)
 
         # Test exactly 5 minutes after (should be false)
         with freeze_time(initial_time + timedelta(minutes=10)):
-            assert not self.core_memory.is_scraping_pending
+            assert not cast(bool, self.core_memory.is_scraping_pending)
 
         # Test 6 minutes after (should be false)
         with freeze_time(initial_time + timedelta(minutes=11)):
-            assert not self.core_memory.is_scraping_pending
+            assert not cast(bool, self.core_memory.is_scraping_pending)
 
     async def test_core_memory_operations(self):
         # Test setting core memory

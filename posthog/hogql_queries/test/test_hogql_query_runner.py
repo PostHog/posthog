@@ -82,7 +82,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
         assert response.results is not None
         assert len(response.results) == 5
-        assert "hasMore" not in response
+        assert "hasMore" not in response.model_fields_set
 
     def test_hogql_query_filters(self):
         runner = self._create_runner(

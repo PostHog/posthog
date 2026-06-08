@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from io import StringIO
+from typing import Optional, cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -20,7 +21,7 @@ class TestLLMGatewayTeamCommand(BaseTest):
         assert self.team.llm_gateway_enabled_at is None
         out = self._run("enable", str(self.team.id))
         self.team.refresh_from_db()
-        assert self.team.llm_gateway_enabled_at is not None
+        assert cast(Optional[datetime], self.team.llm_gateway_enabled_at) is not None
         assert "enable ok" in out
 
     def test_enable_by_api_token(self) -> None:

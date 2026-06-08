@@ -129,7 +129,7 @@ class TestLicenseAPI(APILicensedTest):
             first_valid = License.objects.first_valid()
 
             assert isinstance(first_valid, License)
-            assert first_valid.plan == "enterprise"  # type: ignore
+            assert first_valid.plan == "enterprise"
 
     @pytest.mark.skip_on_multitenancy
     def test_highest_activated_license_is_used_after_renewal_to_lower(self):
@@ -150,7 +150,7 @@ class TestLicenseAPI(APILicensedTest):
             first_valid = License.objects.first_valid()
 
             assert isinstance(first_valid, License)
-            assert first_valid.plan == "enterprise"  # type: ignore
+            assert first_valid.plan == "enterprise"
 
     @pytest.mark.skip_on_multitenancy
     @patch("ee.api.license.requests.post")

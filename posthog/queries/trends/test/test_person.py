@@ -165,7 +165,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         _, serialized_actors, _ = TrendsActors(self.team, entity, filter).get_actors()
 
-        assert sorted(serialized_actors[0].get("matched_recordings", []), key=lambda r: r["session_id"]) == sorted(
+        assert sorted(serialized_actors[0].get("matched_recordings", []), key=lambda r: str(r["session_id"])) == sorted(
             [
                 {
                     "session_id": "s1",
@@ -178,5 +178,5 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     ],
                 }
             ],
-            key=lambda r: r["session_id"],
+            key=lambda r: str(r["session_id"]),
         )

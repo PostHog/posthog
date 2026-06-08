@@ -523,7 +523,7 @@ class TestRedisStream(BaseTest):
 
         bytes_data = {bytes(k, "utf-8"): v for k, v in serialized.items()}
         deserialized = serializer.deserialize(bytes_data)
-        assert deserialized.event.type == AssistantEventType.CONVERSATION
+        assert deserialized.event.type == "conversation"
         assert deserialized.event.payload == conversation.id
 
     def test_serializer_status_serialization(self):

@@ -54,7 +54,7 @@ class TestHogQLAggregationUtils(BaseTest):
         aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr("count()")
         assert aggregation == "count"
         assert isinstance(inner_expr, ast.Constant)
-        assert inner_expr.value == 1  # type: ignore[attr-defined]
+        assert inner_expr.value == 1
         assert params is None
 
         # Test min with field

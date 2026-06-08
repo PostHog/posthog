@@ -1723,7 +1723,7 @@ class TestDashboardTemplateConversion(BaseTest):
 
         query = cast(TrendsQuery, filter_to_query(filter, allow_variables=True))
 
-        assert query.series == ["{VARIABLE}"]
+        assert cast(list, query.series) == ["{VARIABLE}"]
 
     def test_funnel_series_with_variables(self):
         filter: dict[str, Any] = {
@@ -1733,7 +1733,7 @@ class TestDashboardTemplateConversion(BaseTest):
 
         query = cast(FunnelsQuery, filter_to_query(filter, allow_variables=True))
 
-        assert query.series == ["{VARIABLE1}", "{VARIABLE2}"]
+        assert cast(list, query.series) == ["{VARIABLE1}", "{VARIABLE2}"]
 
     def test_retention_entities_with_variables(self):
         filter: dict[str, Any] = {
@@ -1744,5 +1744,5 @@ class TestDashboardTemplateConversion(BaseTest):
 
         query = cast(RetentionQuery, filter_to_query(filter, allow_variables=True))
 
-        assert query.retentionFilter.targetEntity == "{VARIABLE1}"
-        assert query.retentionFilter.returningEntity == "{VARIABLE2}"
+        assert cast(Any, query.retentionFilter.targetEntity) == "{VARIABLE1}"
+        assert cast(Any, query.retentionFilter.returningEntity) == "{VARIABLE2}"

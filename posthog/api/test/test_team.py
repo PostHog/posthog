@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context
@@ -828,7 +828,7 @@ def team_api_test_factory():
             new_secret_api_token = self.team.secret_api_token or ""
             assert new_secret_api_token.startswith("phs_")
             assert response_data["secret_api_token"] == new_secret_api_token
-            assert self.team.secret_api_token_backup is None
+            assert cast(Optional[str], self.team.secret_api_token_backup) is None
             self._assert_activity_log(
                 [
                     {
@@ -1003,7 +1003,7 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_200_OK
             assert response_data["secret_api_token"] == "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
             assert response_data["secret_api_token_backup"] is None
-            assert self.team.secret_api_token_backup is None
+            assert cast(Optional[str], self.team.secret_api_token_backup) is None
             self._assert_activity_log(
                 [
                     {
@@ -1045,7 +1045,7 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_403_FORBIDDEN
             # Make sure it's unchanged
             assert self.team.secret_api_token == "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
-            assert self.team.secret_api_token_backup is None
+            assert cast(Optional[str], self.team.secret_api_token_backup) is None
 
         def test_delete_secret_token_backup_insufficient_privileges(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER

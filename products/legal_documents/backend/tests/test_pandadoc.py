@@ -1,5 +1,6 @@
 import hmac
 import hashlib
+from typing import cast
 
 from unittest.mock import MagicMock, patch
 
@@ -101,7 +102,7 @@ class TestPandaDocClient(TestCase):
         assert kwargs["headers"]["Authorization"] == "API-Key key"
         assert kwargs["stream"]
         # Transparent decompression so gzip'd responses look like raw bytes.
-        assert fake_response.raw.decode_content
+        assert cast(MagicMock, fake_response.raw).decode_content
 
     @override_settings(PANDADOC_API_KEY="key")
     def test_stream_document_non_2xx_raises(self) -> None:

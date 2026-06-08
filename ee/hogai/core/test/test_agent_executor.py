@@ -72,14 +72,14 @@ class TestAgentExecutor(BaseTest):
             )
 
             # Call the method
-            results = []
+            results: list[tuple] = []
             async for chunk in self.manager.astream(ChatAgentWorkflow, workflow_inputs):
                 results.append(chunk)
 
             # Verify results
             assert len(results) == 2
-            assert results[0] == ("message", {"content": "chunk1"})
-            assert results[1] == ("message", {"content": "chunk2"})
+            assert results[0] == (AssistantEventType.MESSAGE, {"content": "chunk1"})
+            assert results[1] == (AssistantEventType.MESSAGE, {"content": "chunk2"})
 
             # Verify client.start_workflow was called with correct parameters
             mock_client.start_workflow.assert_called_once()
@@ -115,7 +115,7 @@ class TestAgentExecutor(BaseTest):
         # Verify failure message is returned
         assert len(results) == 1
         event_type, message = results[0]
-        assert event_type == "message"
+        assert event_type == AssistantEventType.MESSAGE
         message = cast(AssistantMessage, message)
         assert message.content == "Oops! Something went wrong. Please try again."
 
@@ -146,14 +146,14 @@ class TestAgentExecutor(BaseTest):
             ]
 
             # Call the method
-            results = []
+            results: list[tuple] = []
             async for chunk in self.manager.stream_conversation():
                 results.append(chunk)
 
             # Verify results
             assert len(results) == 2
-            assert results[0] == ("message", {"content": "chunk1"})
-            assert results[1] == ("message", {"content": "chunk2"})
+            assert results[0] == (AssistantEventType.MESSAGE, {"content": "chunk1"})
+            assert results[1] == (AssistantEventType.MESSAGE, {"content": "chunk2"})
 
             # Verify method calls
             mock_wait.assert_called_once()
@@ -172,7 +172,7 @@ class TestAgentExecutor(BaseTest):
             # Verify failure message is returned
             assert len(results) == 1
             event_type, message = results[0]
-            assert event_type == "message"
+            assert event_type == AssistantEventType.MESSAGE
             message = cast(AssistantMessage, message)
             assert message.content == "Oops! Something went wrong. Please try again."
 
@@ -199,7 +199,7 @@ class TestAgentExecutor(BaseTest):
             # Verify failure message
             assert len(results) == 1
             event_type, message = results[0]
-            assert event_type == "message"
+            assert event_type == AssistantEventType.MESSAGE
             message = cast(AssistantMessage, message)
             assert message.content == "Oops! Something went wrong. Please try again."
 
@@ -221,7 +221,7 @@ class TestAgentExecutor(BaseTest):
             # Verify failure message
             assert len(results) == 1
             event_type, message = results[0]
-            assert event_type == "message"
+            assert event_type == AssistantEventType.MESSAGE
             message = cast(AssistantMessage, message)
             assert message.content == "Oops! Something went wrong. Please try again."
 
@@ -242,7 +242,7 @@ class TestAgentExecutor(BaseTest):
         result = await self.manager._redis_stream_to_assistant_output(event)
 
         result = cast(AssistantOutput, result)
-        assert cast(AssistantOutput, result[0]) == AssistantEventType.MESSAGE
+        assert result[0] == AssistantEventType.MESSAGE
         assert cast(AssistantMessage, result[1]).content == "test message"
 
     async def test_redis_stream_to_assistant_output_conversation(self):

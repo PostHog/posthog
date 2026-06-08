@@ -9,6 +9,7 @@ from langchain_core.runnables import RunnableLambda
 
 from posthog.schema import (
     ArtifactMessage,
+    AssistantEventType,
     AssistantFunnelsEventsNode,
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
@@ -129,9 +130,9 @@ class TestChatAgent(BaseAssistantTest):
 
         # Check conversation output
         assert actual_output[0] == ("conversation", self.conversation)
-        assert actual_output[1][0] == "message"
+        assert actual_output[1][0] == AssistantEventType.MESSAGE
         assert isinstance(actual_output[1][1], VisualizationMessage)
-        assert actual_output[2][0] == "message"
+        assert actual_output[2][0] == AssistantEventType.MESSAGE
         assert isinstance(actual_output[2][1], ArtifactMessage)
 
     @query_executor_mock
@@ -191,9 +192,9 @@ class TestChatAgent(BaseAssistantTest):
 
         # Check conversation output
         assert actual_output[0] == ("conversation", self.conversation)
-        assert actual_output[1][0] == "message"
+        assert actual_output[1][0] == AssistantEventType.MESSAGE
         assert isinstance(actual_output[1][1], VisualizationMessage)
-        assert actual_output[2][0] == "message"
+        assert actual_output[2][0] == AssistantEventType.MESSAGE
         assert isinstance(actual_output[2][1], ArtifactMessage)
 
     @query_executor_mock
@@ -255,9 +256,9 @@ class TestChatAgent(BaseAssistantTest):
 
         # Check conversation output
         assert actual_output[0] == ("conversation", self.conversation)
-        assert actual_output[1][0] == "message"
+        assert actual_output[1][0] == AssistantEventType.MESSAGE
         assert isinstance(actual_output[1][1], VisualizationMessage)
-        assert actual_output[2][0] == "message"
+        assert actual_output[2][0] == AssistantEventType.MESSAGE
         assert isinstance(actual_output[2][1], ArtifactMessage)
 
     @query_executor_mock
@@ -310,9 +311,9 @@ class TestChatAgent(BaseAssistantTest):
 
         # Check conversation output
         assert actual_output[0] == ("conversation", self.conversation)
-        assert actual_output[1][0] == "message"
+        assert actual_output[1][0] == AssistantEventType.MESSAGE
         assert isinstance(actual_output[1][1], VisualizationMessage)
-        assert actual_output[2][0] == "message"
+        assert actual_output[2][0] == AssistantEventType.MESSAGE
         assert isinstance(actual_output[2][1], ArtifactMessage)
 
     @query_executor_mock
@@ -356,10 +357,10 @@ class TestChatAgent(BaseAssistantTest):
         )
         # Check artifact message (VisualizationMessage + ArtifactMessage + AssistantToolCallMessage)
         assert len(output) == 3
-        assert output[0][0] == "message"
+        assert output[0][0] == AssistantEventType.MESSAGE
         viz_msg = output[0][1]
         assert isinstance(viz_msg, VisualizationMessage)
         assert viz_msg.answer == query
         assert isinstance(output[1][1], ArtifactMessage)
-        assert output[2][0] == "message"
+        assert output[2][0] == AssistantEventType.MESSAGE
         assert isinstance(output[2][1], AssistantToolCallMessage)

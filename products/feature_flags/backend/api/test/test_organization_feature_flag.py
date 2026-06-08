@@ -79,8 +79,8 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
             }
             for flag in [self.feature_flag_1, self.feature_flag_2]
         ]
-        assert sorted(response.json(), key=lambda item: item["flag_id"]) == sorted(
-            expected_data, key=lambda item: item["flag_id"]
+        assert sorted(response.json(), key=lambda item: str(item["flag_id"])) == sorted(
+            expected_data, key=lambda item: str(item["flag_id"])
         )
 
     def test_get_feature_flag_not_found(self):

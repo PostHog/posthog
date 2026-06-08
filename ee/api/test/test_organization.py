@@ -239,7 +239,9 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
             # New available_product_features field value that was updated in DB on license creation is known after refresh
             self.organization.refresh_from_db()
-            assert {"key": "whatever", "name": "Whatever"} == self.organization.get_available_feature("whatever")
+            available_feature = self.organization.get_available_feature("whatever")
+            assert available_feature is not None
+            assert dict(available_feature) == {"key": "whatever", "name": "Whatever"}
             assert self.organization.is_feature_available("whatever")
             assert not self.organization.get_available_feature("feature-doesnt-exist")
             assert not self.organization.is_feature_available("feature-doesnt-exist")

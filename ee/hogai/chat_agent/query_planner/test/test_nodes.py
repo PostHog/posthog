@@ -7,7 +7,7 @@ from langchain_core.messages import (
     AIMessage,
     ToolMessage as LangchainToolMessage,
 )
-from langchain_core.prompts import AIMessagePromptTemplate, HumanMessagePromptTemplate
+from langchain_core.prompts import AIMessagePromptTemplate, HumanMessagePromptTemplate, PromptTemplate
 
 from posthog.schema import (
     ArtifactContentType,
@@ -52,6 +52,7 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         )
         assert len(history) == 2
         assert isinstance(history[1], HumanMessagePromptTemplate)
+        assert isinstance(history[1].prompt, PromptTemplate)
         assert "Text" in history[1].prompt.template
         assert f"{{question}}" not in history[1].prompt.template
 
@@ -69,6 +70,7 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         )
         assert len(history) == 2
         assert isinstance(history[1], HumanMessagePromptTemplate)
+        assert isinstance(history[1].prompt, PromptTemplate)
         assert "Question" in history[1].prompt.template
         assert "{{question}}" not in history[1].prompt.template
 
@@ -86,6 +88,7 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         )
         assert len(history) == 2
         assert isinstance(history[1], HumanMessagePromptTemplate)
+        assert isinstance(history[1].prompt, PromptTemplate)
         assert "Question" in history[1].prompt.template
         assert "{{question}}" not in history[1].prompt.template
 
@@ -140,14 +143,19 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         )
         assert len(history) == 6, history
         assert isinstance(history[1], HumanMessagePromptTemplate)
+        assert isinstance(history[1].prompt, PromptTemplate)
         assert "Question 1" in history[1].prompt.template
         assert isinstance(history[2], AIMessagePromptTemplate)
+        assert isinstance(history[2].prompt, PromptTemplate)
         assert history[2].prompt.template == "Plan 1"
         assert isinstance(history[3], HumanMessagePromptTemplate)
+        assert isinstance(history[3].prompt, PromptTemplate)
         assert "Question 2" in history[3].prompt.template
         assert isinstance(history[4], AIMessagePromptTemplate)
+        assert isinstance(history[4].prompt, PromptTemplate)
         assert history[4].prompt.template == "Plan 2"
         assert isinstance(history[5], HumanMessagePromptTemplate)
+        assert isinstance(history[5].prompt, PromptTemplate)
         assert "Question 3" in history[5].prompt.template
 
     # Removed test_agent_handles_output_without_tool_call as this functionality
@@ -182,6 +190,7 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         )
         assert len(history) == 2  # system prompts + human message
         assert isinstance(history[1], HumanMessagePromptTemplate)
+        assert isinstance(history[1].prompt, PromptTemplate)
         assert "Foobar" in history[1].prompt.template
         assert "{{question}}" not in history[1].prompt.template
 
@@ -221,16 +230,19 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
             # The human messages should contain the questions from the last 10 visualization messages
             human_msg = history[i * 2 - 1]
             assert isinstance(human_msg, HumanMessagePromptTemplate)
+            assert isinstance(human_msg.prompt, PromptTemplate)
             assert f"Question {i + 4}" in human_msg.prompt.template
 
             # The AI messages should contain the plans from the last 10 visualization messages
             ai_msg = history[i * 2]
             assert isinstance(ai_msg, AIMessagePromptTemplate)
+            assert isinstance(ai_msg.prompt, PromptTemplate)
             assert ai_msg.prompt.template == f"Plan {i + 4}"
 
         # Check the final message contains the root_tool_insight_plan
         final_msg = history[-1]
         assert isinstance(final_msg, HumanMessagePromptTemplate)
+        assert isinstance(final_msg.prompt, PromptTemplate)
         assert "Final Question" in final_msg.prompt.template
 
     def test_construct_messages_appends_query_planner_intermediate_messages(self):

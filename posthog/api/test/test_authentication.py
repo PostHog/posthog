@@ -2,7 +2,7 @@ import json
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import Optional, cast
 
 import pytest
 from freezegun import freeze_time
@@ -1372,7 +1372,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.check_password(VALID_TEST_PASSWORD)
         assert not self.user.check_password(self.CONFIG_PASSWORD)  # type: ignore
-        assert self.user.requested_password_reset_at is None
+        assert cast(Optional[datetime], self.user.requested_password_reset_at) is None
 
         # old password is gone
         self.client.logout()

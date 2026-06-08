@@ -321,6 +321,7 @@ class TestEvaluationStatusCoercion(BaseTest):
 
         evaluation.enabled = True
         evaluation.save()
+        evaluation = Evaluation.objects.get(pk=evaluation.pk)
         assert evaluation.status == EvaluationStatus.ACTIVE
         assert evaluation.enabled
         assert evaluation.status_reason is None

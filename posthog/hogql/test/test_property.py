@@ -782,6 +782,7 @@ class TestProperty(BaseTest):
         assert isinstance(compare_op_1, ast.CompareOperation)
         assert isinstance(compare_op_1.left, ast.Field)
         assert compare_op_1.left.chain == ["foobars", "properties", "$feature/test"]
+        assert isinstance(compare_op_1.right, ast.Constant)
         assert compare_op_1.right.value == "control"
 
         # Second expression
@@ -789,6 +790,7 @@ class TestProperty(BaseTest):
         assert isinstance(compare_op_2, ast.CompareOperation)
         assert isinstance(compare_op_2.left, ast.Field)
         assert compare_op_2.left.chain == ["foobars", "properties", "$feature/test"]
+        assert isinstance(compare_op_2.right, ast.Constant)
         assert compare_op_2.right.value == "test"
 
     def test_revenue_analytics_property(self):

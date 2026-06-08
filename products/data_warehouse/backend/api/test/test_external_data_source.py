@@ -1942,7 +1942,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         assert second_response.status_code == status.HTTP_200_OK
-        schema.refresh_from_db()
+        schema = ExternalDataSchema.objects.get(pk=schema.pk)
         assert not schema.deleted
         assert not schema.should_sync
         assert schema.table is None

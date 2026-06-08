@@ -1,3 +1,4 @@
+from typing import cast
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -131,7 +132,7 @@ class TestDatasetsApi(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
         dataset.refresh_from_db()
-        assert not dataset.deleted
+        assert not cast(bool, dataset.deleted)
 
         # Verify it's back in the list
         list_response = self.client.get(f"/api/environments/{self.team.id}/datasets/")
@@ -620,7 +621,7 @@ class TestDatasetItemsApi(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
         item.refresh_from_db()
-        assert not item.deleted
+        assert not cast(bool, item.deleted)
 
         # Verify it's back in the list
         list_response = self.client.get(f"/api/environments/{self.team.id}/dataset_items/")

@@ -337,6 +337,7 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, NonAtomicBaseTest)
         assert isinstance(interrupt_message, AssistantMessage)
         assert interrupt_message.content == prompts.SCRAPING_VERIFICATION_MESSAGE
         assert interrupt_message.meta is not None
+        assert interrupt_message.meta.form is not None
         assert len(interrupt_message.meta.form.options) == 2
         assert interrupt_message.meta.form.options[0].value == prompts.SCRAPING_CONFIRMATION_MESSAGE
         assert interrupt_message.meta.form.options[1].value == prompts.SCRAPING_REJECTION_MESSAGE

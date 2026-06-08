@@ -306,7 +306,7 @@ class TestTask(TestCase):
 
         task.soft_delete()
 
-        task.refresh_from_db()
+        task = Task.objects.get(pk=task.pk)
         assert task.deleted
         assert task.deleted_at is not None
 

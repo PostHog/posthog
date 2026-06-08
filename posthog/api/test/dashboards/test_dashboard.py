@@ -2,6 +2,7 @@ import re
 import json
 import datetime
 from collections import Counter
+from typing import Optional, cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
@@ -827,7 +828,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.dashboard_api.soft_delete(dashboard.id, "dashboards", {"delete_insights": True})
         group_type.refresh_from_db()
-        assert group_type.detail_dashboard_id is None
+        assert cast(Optional[int], group_type.detail_dashboard_id) is None
         assert cache.get(cache_key) is None
         assert cache.get(stale_cache_key) is None
 
@@ -2990,7 +2991,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 break
 
         assert metadata_line is not None, f"Could not find metadata in SSE response. Content: {repr(sse_content)}"
-        sse_data = json.loads(metadata_line)  # type: ignore
+        sse_data = json.loads(metadata_line)
         sse_dashboard = sse_data["dashboard"]
 
         assert regular_response.get("persisted_filters") == sse_dashboard.get("persisted_filters"), (

@@ -3589,7 +3589,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             placeholder = ast.Placeholder(expr=ast.Field(chain=["foo"]))
             for query in ("{foo} offset 1", "{foo} limit 2", "{foo} limit 2 offset 3"):
                 with self.subTest(query=query):
-                    assert self._select(query) == placeholder
+                    assert cast(ast.Expr, self._select(query)) == placeholder
 
         @parameterized.expand(
             [

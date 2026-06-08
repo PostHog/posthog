@@ -170,6 +170,7 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         assert "ReferenceError" in result_text
         assert "SyntaxError" not in result_text
         assert isinstance(artifact, MaxErrorTrackingSearchResponse)
+        assert artifact.issues is not None
         assert len(artifact.issues) == 2
 
     async def test_returns_resolved_issues_when_filtered(self):
@@ -182,6 +183,7 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         assert "SyntaxError" in result_text
         assert "TypeError" not in result_text
         assert isinstance(artifact, MaxErrorTrackingSearchResponse)
+        assert artifact.issues is not None
         assert len(artifact.issues) == 1
 
     async def test_returns_all_issues_when_status_all(self):
@@ -195,6 +197,7 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         assert "ReferenceError" in result_text
         assert "SyntaxError" in result_text
         assert isinstance(artifact, MaxErrorTrackingSearchResponse)
+        assert artifact.issues is not None
         assert len(artifact.issues) == 3
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -220,6 +223,7 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         assert "Found 1 issue" in result_text
         assert "TypeError" in result_text
         assert isinstance(artifact, MaxErrorTrackingSearchResponse)
+        assert artifact.issues is not None
         assert len(artifact.issues) == 1
         assert artifact.search_query == "TypeError"
         call_args = mock_process_query.call_args
@@ -256,6 +260,7 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         assert "Found 2 issues" in result_text
         assert isinstance(artifact, MaxErrorTrackingSearchResponse)
+        assert artifact.issues is not None
         assert len(artifact.issues) == 2
         assert artifact.limit == 2
         call_args = mock_process_query.call_args
@@ -273,6 +278,7 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         assert "Users:" in result_text
         assert "Sessions:" in result_text
         assert isinstance(artifact, MaxErrorTrackingSearchResponse)
+        assert artifact.issues is not None
         assert len(artifact.issues) == 2
 
     async def test_limits_excessive_limit_to_100(self):

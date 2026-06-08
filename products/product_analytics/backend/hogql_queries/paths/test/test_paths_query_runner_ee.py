@@ -499,7 +499,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         }
         funnel_filter: dict = {}
         path_filter: dict = {}
-        response: dict = {}
+        response: list = []
         assert response == [
             {"source": "1_step one", "target": "2_between_step_1_a", "value": 15, "average_conversion_time": 60000.0},
             {
@@ -2659,8 +2659,8 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                     ],
                 },
             ],
-            key=lambda r: r["session_id"],
-        ) == sorted(matched_recordings[0], key=lambda r: r["session_id"])
+            key=lambda r: str(r["session_id"]),
+        ) == sorted(matched_recordings[0], key=lambda r: str(r["session_id"]))
         assert [] == matched_recordings[1]
 
     @snapshot_clickhouse_queries

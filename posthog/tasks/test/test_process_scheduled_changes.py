@@ -331,8 +331,8 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
                 break
 
         assert active_change is not None
-        assert not active_change["before"]  # type: ignore
-        assert active_change["after"]  # type: ignore
+        assert not active_change["before"]
+        assert active_change["after"]
 
     @freeze_time("2023-12-21T09:00:00Z")
     def test_updated_at_field_tracks_processing_time(self) -> None:
