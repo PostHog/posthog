@@ -141,6 +141,15 @@ jobs:
                   DEBUG: 1
               run: ./bin/hogli build:skills
 
+            - name: Upload skills artifact
+              if: github.ref == 'refs/heads/master'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: skills-zip
+                  path: products/posthog_ai/dist/skills.zip
+                  retention-days: 1
+                  if-no-files-found: error
+
     release-skills:
         name: Release agent skills
         runs-on: ubuntu-latest
@@ -153,82 +162,11 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - name: Log in to Docker Hub
-              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+            - name: Download skills artifact
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-            - name: Start Docker services
-              env:
-                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-              run: |
-                  bin/ci-wait-for-docker launch --down
-
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version-file: 'pyproject.toml'
-                  token: ${{ github.token }}
-
-            - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: false
-
-            - name: Install python dependencies
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-
-            - name: Install Rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: stable
-                  components: cargo
-
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-skills'
-                  workspaces: rust
-                  save-if: false
-
-            - name: Install sqlx-cli
-              uses: ./.github/actions/setup-sqlx-cli
-
-            - name: Wait for Docker services
-              env:
-                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-              run: bin/ci-wait-for-docker wait
-
-            - name: Run migrations and create test data
-              env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-                  REDIS_URL: 'redis://localhost'
-                  OBJECT_STORAGE_ENABLED: 'False'
-                  TEST: 1
-                  DEBUG: 1
-              run: |
-                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
-                    sqlx database create
-                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
-                    sqlx migrate run --source rust/persons_migrations/
-                  python manage.py migrate --noinput
-                  python manage.py setup_dev --no-data
-
-            - name: Build skills ZIP
-              env:
-                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-                  REDIS_URL: 'redis://localhost'
-                  OBJECT_STORAGE_ENABLED: 'False'
-                  TEST: 1
-                  DEBUG: 1
-              run: ./bin/hogli build:skills
+                  name: skills-zip
+                  path: products/posthog_ai/dist/
 
             - name: Determine next version
               id: version
