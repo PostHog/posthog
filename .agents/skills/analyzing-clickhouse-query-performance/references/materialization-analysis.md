@@ -65,9 +65,15 @@ GROUP BY name ORDER BY sum(data_compressed_bytes) DESC
 SELECT
     countIf(mat_<col> != '') AS nonempty_<col>,
     uniqExactIf(team_id, mat_<col> != '') AS teams_<col>
-FROM clusterAllReplicas(posthog, sharded_events)
+FROM events
 WHERE timestamp > now() - INTERVAL 7 DAY
 ```
+
+Read data presence from the Distributed `events` table, not `clusterAllReplicas(...)` over the local
+`sharded_events`. The Distributed table fans out to one replica per shard, so each row is counted once;
+`clusterAllReplicas` hits every replica and multiplies the counts by the replication factor. Use
+`clusterAllReplicas` only for non-Distributed system tables (as the disk-size query above does with
+`system.columns`).
 
 - Zero queries + zero data → safe to drop.
 - Zero queries + active data → risky. Dropping does not lose data (it stays in the JSON blob) but
