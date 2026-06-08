@@ -35,7 +35,7 @@ import { ThreadAutoScroller } from './components/ThreadAutoScroller'
 import { ConversationHistory } from './ConversationHistory'
 import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
-import { maxLogic } from './maxLogic'
+import { MaxLogicProps, maxLogic } from './maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
 import { Thread } from './Thread'
 
@@ -79,6 +79,11 @@ export interface MaxInstanceProps {
 }
 
 export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }: MaxInstanceProps): JSX.Element {
+    // `sidePanel` here is presentational (side panel chrome/layout) and is independent of which
+    // logic instance we bind: a tabId identifies a scene tab (or a Storybook instance rendered with
+    // side panel chrome), and only the real side panel — which has no tabId — uses the sidePanel
+    // logic identity. Folding the presentational flag into the key would hijack tabbed instances.
+    const logicProps: MaxLogicProps = tabId ? { tabId } : { sidePanel: true }
     const {
         threadVisible,
         conversationHistoryVisible,
@@ -87,13 +92,12 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
         threadLogicKey,
         conversation,
         conversationId,
-    } = useValues(maxLogic({ tabId, sidePanel }))
-    const { startNewConversation, goBack } = useActions(maxLogic({ tabId, sidePanel }))
+    } = useValues(maxLogic(logicProps))
+    const { startNewConversation, goBack } = useActions(maxLogic(logicProps))
     const { openSidePanelMax } = useActions(maxGlobalLogic)
 
     const threadProps: MaxThreadLogicProps = {
-        tabId,
-        sidePanel,
+        ...logicProps,
         conversationId: threadLogicKey,
         conversation,
     }
@@ -101,7 +105,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     const { closeSidePanel } = useActions(sidePanelLogic)
 
     const content = (
-        <BindLogic logic={maxLogic} props={{ tabId, sidePanel }}>
+        <BindLogic logic={maxLogic} props={logicProps}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
                 {conversationHistoryVisible ? (
                     <ConversationHistory sidePanel={sidePanel} />

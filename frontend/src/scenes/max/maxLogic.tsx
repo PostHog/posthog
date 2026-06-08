@@ -133,16 +133,16 @@ function updateInactiveTab(tabId: string, props: Partial<SceneTab>): void {
     }
 }
 
+export interface MaxLogicProps {
+    tabId?: string
+    // Marks the instance that backs the floating side panel chat. It isn't a scene tab:
+    // it stays mounted across navigation and must never own or rewrite the scene route.
+    sidePanel?: boolean
+    onAcceptSessionFilters?: (filters: RecordingUniversalFilters) => void
+}
+
 export const maxLogic = kea<maxLogicType>([
-    props(
-        {} as {
-            tabId?: string
-            // Marks the instance that backs the floating side panel chat. It isn't a scene tab:
-            // it stays mounted across navigation and must never own or rewrite the scene route.
-            sidePanel?: boolean
-            onAcceptSessionFilters?: (filters: RecordingUniversalFilters) => void
-        }
-    ),
+    props({} as MaxLogicProps),
     key((props) => (props.sidePanel ? 'sidepanel' : props.tabId || 'scene')),
     path((key) => ['scenes', 'max', 'maxLogic', key]),
 
