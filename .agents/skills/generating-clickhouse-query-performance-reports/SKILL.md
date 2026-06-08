@@ -18,9 +18,15 @@ performance report. It pairs with [`query-clickhouse-via-metabase`](../query-cli
 which is the _mechanism_ (SSO-gated auth and `hogli metabase:query`). Run every query in this skill
 through that one.
 
-Reports themselves are not public. Write finished analyses to the private
-`PostHog/query-performance-analysis` repo (`analysis/<date>-<topic>.md`), which holds the historical
-reports and example query IDs. This repo holds only the tooling and methodology.
+Reports themselves are not public. They live in the private `PostHog/query-performance-analysis` repo,
+which holds the historical reports and example query IDs; this repo holds only the tooling and
+methodology. That repo is usually checked out as a **sibling folder** to the posthog checkout (e.g.
+`../query-performance-analysis` relative to the repo root, or alongside it under the same parent
+directory). Locate it before writing up: look for a sibling directory named `query-performance-analysis`
+containing an `analysis/` folder of dated reports. **New reports are added there as a new markdown file**
+under `analysis/`, named `<YYYY-MM-DD>-<topic>.md` (match the existing naming, e.g.
+`2026-05-27-slow-queries-14d.md`). If you cannot find the sibling repo, ask the user for its path rather
+than writing the report into the public posthog repo.
 
 ## Data source: `posthog.query_log_archive` (not `system.query_log`)
 
@@ -78,6 +84,11 @@ so that filter silently drops every failure. The duration/exception predicate al
 The standard workflow, building from coarse to specific. Each step's SQL is in
 `references/query-patterns.md`.
 
+**Do not read previous reports until step 9.** Steps 1-8 should run against the raw data with fresh eyes,
+so the analysis captures the largest surface area rather than re-walking last report's findings. Reading
+the prior report early anchors you to its categories and makes it easy to miss a new problem it never
+mentioned. Diff against history only after the independent pass is done.
+
 1. **Confirm the window.** Per-day `count()` over the intended range to verify the archive actually
    covers it (retention can be shorter than you expect).
 2. **Headline summary.** Total slow queries, total cluster query-hours, bytes read, teams touched,
@@ -111,6 +122,14 @@ The standard workflow, building from coarse to specific. Each step's SQL is in
    resolved from `query_log_archive` (`WHERE query_id = '…' AND event_date = '…'`), not the old Metabase
    lookup card. Link each example to a shareable self-contained Metabase URL (the `query_link` recipe in
    `references/query-patterns.md`) so a reader clicks straight through to the query.
+9. **Diff against the previous report (do this last).** Only now, after the independent pass above, read
+   the most recent dated report in the sibling `query-performance-analysis` repo's `analysis/` folder
+   (sort by filename date). Add a short **delta** section to the new report covering: what moved since
+   last time (new incidents, findings that grew or resolved, headline numbers up or down), and a
+   **follow-up check** on anything the previous report flagged as needing action (a materialization that
+   was recommended, a team to watch, a pipeline to make incremental). For each prior follow-up, state
+   whether it is resolved, still open, or regressed, with the current numbers as evidence. Doing this
+   last is deliberate: it keeps the fresh analysis unbiased while still closing the loop on history.
 
 ## Interpreting the results
 
@@ -144,6 +163,11 @@ A report should contain, in order:
    materialization candidates.
 6. Concrete recommendations tied to each finding (materialize property X, cap memory per API key,
    make pipeline Y incremental, ...).
+7. A **delta vs the previous report** (step 9): what changed since last time, plus a follow-up check on
+   each action the previous report recommended (resolved / still open / regressed, with numbers).
+
+Save the finished report as `analysis/<YYYY-MM-DD>-<topic>.md` in the sibling
+`query-performance-analysis` repo, not in the public posthog repo.
 
 ## References
 
