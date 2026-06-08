@@ -43,23 +43,24 @@ describe('utils', () => {
             expect(challenge).not.toMatch(/[+/=]/)
         })
 
-        it('throws CryptoUnsupportedError in a non-secure context', async () => {
-            setSecureContext(false)
-            setCrypto(webcrypto)
-            await expect(generatePKCE()).rejects.toBeInstanceOf(CryptoUnsupportedError)
-        })
-
-        it('throws CryptoUnsupportedError when crypto.subtle is undefined (non-secure context shape)', async () => {
-            setSecureContext(true)
+        const unsupportedCases: Array<{ name: string; secureContext: boolean; crypto: unknown }> = [
+            { name: 'non-secure context', secureContext: false, crypto: webcrypto },
             // Secure contexts gate `crypto.subtle`; some runtimes expose `crypto` without it.
-            setCrypto({ getRandomValues: webcrypto.getRandomValues.bind(webcrypto) })
-            await expect(generatePKCE()).rejects.toBeInstanceOf(CryptoUnsupportedError)
-        })
-
-        it('throws CryptoUnsupportedError when SubtleCrypto.digest is not callable', async () => {
-            setSecureContext(true)
-            // Simulate a partial WebCrypto shim (e.g. React Native Web) where digest is missing.
-            setCrypto({ getRandomValues: webcrypto.getRandomValues.bind(webcrypto), subtle: {} })
+            {
+                name: 'crypto.subtle is undefined',
+                secureContext: true,
+                crypto: { getRandomValues: webcrypto.getRandomValues.bind(webcrypto) },
+            },
+            // A partial WebCrypto shim (e.g. React Native Web) where digest is missing.
+            {
+                name: 'SubtleCrypto.digest is not callable',
+                secureContext: true,
+                crypto: { getRandomValues: webcrypto.getRandomValues.bind(webcrypto), subtle: {} },
+            },
+        ]
+        it.each(unsupportedCases)('throws CryptoUnsupportedError when $name', async ({ secureContext, crypto }) => {
+            setSecureContext(secureContext)
+            setCrypto(crypto)
             await expect(generatePKCE()).rejects.toBeInstanceOf(CryptoUnsupportedError)
         })
     })
