@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
 from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed
 from copy import copy
 from dataclasses import dataclass, field
-from typing import Any, Generic, Literal, NamedTuple, Optional, TypeVar
+from typing import Any, ClassVar, Generic, Literal, NamedTuple, Optional, TypeVar
 
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
@@ -29,9 +29,9 @@ class _LazyDagsterLogger:
     that never log from here.
     """
 
-    _logger = None
+    _logger: ClassVar[logging.Logger | None] = None
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         if _LazyDagsterLogger._logger is None:
             import dagster  # noqa: PLC0415
 
