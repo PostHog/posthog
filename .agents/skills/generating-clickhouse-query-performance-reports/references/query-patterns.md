@@ -51,6 +51,34 @@ WHERE event_time > now() - INTERVAL 14 DAY
 Quantiles (p90/p99) over the full set are expensive and can hit the Metabase ~60s cutoff. If the query
 is cancelled, drop the quantiles or shorten the window.
 
+## 1b. Cluster-wide totals (all queries, the honest denominator)
+
+The headline above is the slow set only, which is a biased subset (~0.2% of queries but a large share of
+bytes and query-time). Capture the totals across **all** `is_initial_query` queries too, so the report
+records the real denominator and a baseline future reports can diff against. Record total query-seconds,
+total CPU-seconds, total bytes read, and total OOMs.
+
+Use the **typed flattened** `ProfileEvents_OSCPUVirtualTimeMicroseconds` column for CPU time. Do **not**
+use `ProfileEvents['OSCPUVirtualTimeMicroseconds']` (the `Map` form): a map lookup over the full
+~180M-row window times out even at a 300s client timeout, while the typed Int64 column sums in seconds.
+
+```sql
+SELECT
+    count() AS all_queries,
+    round(sum(query_duration_ms)/1000, 0)                          AS total_query_seconds,
+    round(sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/1e6, 0)  AS total_cpu_seconds,
+    formatReadableSize(sum(read_bytes))                            AS total_read_all,
+    countIf(exception_code = 241)                                  AS total_ooms
+FROM posthog.query_log_archive
+WHERE event_time > now() - INTERVAL 14 DAY AND is_initial_query
+```
+
+CPU-seconds exceed wall query-seconds because queries run multi-threaded; the ratio is rough average
+parallelism. `total_ooms` here equals the slow-set OOM count (every OOM is in the slow set by
+definition), so it is directly comparable across reports even when the all-query totals are not yet
+available historically. These all-query totals cannot be backfilled for an old report once its window
+ages past the archive's ~3-week retention.
+
 ## 2. Daily distribution
 
 ```sql

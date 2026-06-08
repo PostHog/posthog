@@ -96,7 +96,12 @@ mentioned. Diff against history only after the independent pass is done.
 1. **Confirm the window.** Per-day `count()` over the intended range to verify the archive actually
    covers it (retention can be shorter than you expect).
 2. **Headline summary.** Total slow queries, total cluster query-hours, bytes read, teams touched,
-   and the split across succeeded-but-slow / timeouts / OOMs / other.
+   and the split across succeeded-but-slow / timeouts / OOMs / other. Also capture the **cluster-wide
+   totals across all queries** (not just the slow set): total query-seconds, total CPU-seconds (typed
+   `ProfileEvents_OSCPUVirtualTimeMicroseconds` column, not the `Map` lookup), total bytes read, and
+   total OOMs (`references/query-patterns.md` §1b). The slow-set sums are a biased subset; the all-query
+   totals are the honest "busier / reading more this period?" denominator and the baseline future reports
+   diff against. They cannot be backfilled once a window ages past retention, so record them every run.
 3. **Date distribution.** Slow count, timeouts, and OOMs per day. This is where incidents announce
    themselves: a multi-day OOM or timeout surge against a flat baseline.
 4. **Categorize.** Group by `lc_kind` × `lc_product` × `lc_access_method`. This separates background
@@ -165,7 +170,8 @@ mentioned. Diff against history only after the independent pass is done.
 A report should contain, in order:
 
 1. One-line scope: region, window, and the slow definition / exclusions used.
-2. Headline numbers table + the two-populations caveat.
+2. Headline numbers table + the **cluster-wide totals (all queries)** table (total query-seconds,
+   CPU-seconds, bytes read, OOMs) + the two-populations caveat.
 3. Daily distribution table (flag any incident window).
 4. Findings, worst first. **Every finding needs at least one concrete `query_id` + `event_date`,
    linked via the shareable `query_link` URL** (see `references/query-patterns.md`) so a reader clicks
