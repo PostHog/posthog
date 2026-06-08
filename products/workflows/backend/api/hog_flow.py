@@ -724,6 +724,12 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         # able to enumerate who a workflow ran for.
         if self.action in ("invocation_results", "invocation_result"):
             return ["hog_flow:read", "person:read"]
+        # A test invocation resolves the event's $groups into real group properties server-side, so a
+        # hog_flow:write-only token could branch on group_0.properties and read the returned logs/variables
+        # as a group-property oracle. Require group:read on top. The web builder uses session auth, so
+        # running tests while editing is unaffected.
+        if self.action == "invocations":
+            return ["hog_flow:write", "group:read"]
         return None
 
     def get_serializer_class(self) -> type[BaseSerializer]:

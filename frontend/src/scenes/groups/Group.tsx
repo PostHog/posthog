@@ -60,10 +60,7 @@ export const scene: SceneExport<GroupLogicProps> = {
     }),
 }
 
-export function Group({ tabId }: { tabId?: string }): JSX.Element {
-    if (!tabId) {
-        throw new Error('GroupScene rendered with no tabId')
-    }
+export function Group(): JSX.Element {
     const mountedGroupLogic = useMountedLogic(groupLogic)
     const {
         logicProps,
@@ -129,13 +126,7 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                               {
                                   key: GroupsTabType.PROFILE,
                                   label: <span data-attr="groups-profile-tab">Profile</span>,
-                                  content: (
-                                      <GroupProfileCanvas
-                                          group={groupData}
-                                          tabId={tabId}
-                                          attachTo={mountedGroupLogic}
-                                      />
-                                  ),
+                                  content: <GroupProfileCanvas group={groupData} attachTo={mountedGroupLogic} />,
                               },
                           ]
                         : []),

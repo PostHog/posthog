@@ -25,7 +25,7 @@ class AlertContent:
 
     title: str
     summary: str
-    # Relative path inside the PostHog app (e.g. "/health/sdk-doctor").
+    # Relative path inside the PostHog app (e.g. "/health/sdk-health").
     # HogFunction templates concatenate this onto {project.url}.
     link: str
 
