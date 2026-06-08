@@ -133,8 +133,10 @@ export function DockHeader({
     // Playground mode gets a strongly-tinted bar so it's impossible to
     // confuse "talking *to* the agent" with the ambient concierge chat.
     const containerClass = isPlayground
-        ? 'flex flex-col gap-1.5 border-b-2 border-primary bg-primary/10 px-3 py-2'
-        : 'flex flex-col gap-1.5 border-b border-border px-3 py-2'
+        ? 'flex flex-col border-b-2 border-primary bg-primary/10 px-3 py-2'
+        : 'flex flex-col border-b border-border px-3 py-2'
+    // Thin divider between Row 1 (mode + config) and Row 2 (session + actions).
+    const rowDividerClass = isPlayground ? 'border-b border-primary/30' : 'border-b border-border/60'
 
     return (
         // `data-dock-drag-handle` lets a host frame (e.g. the floating
@@ -143,7 +145,7 @@ export function DockHeader({
         // ignores clicks that bubble from interactive descendants.
         <div className={containerClass} data-dock-drag-handle="">
             {/* ── Row 1: mode pill (left) · config controls (right) ── */}
-            <div className="flex items-center gap-2">
+            <div className={'flex items-center gap-2 pb-1.5 ' + rowDividerClass}>
                 {/* Mode pill — same shape for both modes; colour + label tells
                     you which one you're in. Dot is animated in playground
                     (high-stakes mode) and quiet-green in concierge. */}
@@ -214,7 +216,7 @@ export function DockHeader({
             </div>
 
             {/* ── Row 2: session label (left) · history + new / exit (right) ── */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 pt-1.5">
                 <div className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={sessionLabel}>
                     {sessionLabel}
                 </div>
