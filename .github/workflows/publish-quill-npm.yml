@@ -44,18 +44,21 @@ jobs:
             - name: Ensure modern npm (OIDC trusted publishing support)
               run: npm install -g npm@11.6.4
 
-            - name: Bump prerelease versions
+            - name: Bump versions
+              env:
+                  NPM_TAG: ${{ inputs.tag }}
               run: |
                   git config user.name "github-actions[bot]"
                   git config user.email "github-actions[bot]@users.noreply.github.com"
+                  BUMP_TYPE=$( [ "$NPM_TAG" = "latest" ] && echo "patch" || echo "prerelease" )
                   cd packages/quill/packages/tokens
-                  npm version prerelease --no-git-tag-version
+                  npm version "$BUMP_TYPE" --no-git-tag-version
                   TOKENS_V=$(node -p "require('./package.json').version")
-                  echo "Bumped @posthog/quill-tokens to $TOKENS_V"
+                  echo "Bumped @posthog/quill-tokens to $TOKENS_V ($BUMP_TYPE)"
                   cd ../quill
-                  npm version prerelease --no-git-tag-version
+                  npm version "$BUMP_TYPE" --no-git-tag-version
                   QUILL_V=$(node -p "require('./package.json').version")
-                  echo "Bumped @posthog/quill to $QUILL_V"
+                  echo "Bumped @posthog/quill to $QUILL_V ($BUMP_TYPE)"
 
             - name: Install dependencies
               run: pnpm install --frozen-lockfile --filter "@posthog/quill..." --filter "@posthog/quill-tokens"
@@ -117,7 +120,9 @@ jobs:
                   TOKENS_V=$(node -p "require('./packages/quill/packages/tokens/package.json').version")
                   QUILL_V=$(node -p "require('./packages/quill/packages/quill/package.json').version")
                   git commit -m "chore(quill): bump quill-tokens to $TOKENS_V, quill to $QUILL_V [skip ci]"
-                  git push
+                  if ! git push; then
+                    echo "::warning::git push failed (likely branch protection). Versions were published successfully but package.json not updated in repo. A manual bump or PR may be needed."
+                  fi
 
             - name: Notify Slack
               if: ${{ !cancelled() }}
