@@ -3483,17 +3483,17 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         token_after = get_or_mint_live_events_token(self.team, second_user_id)
         assert token_before != token_after
 
-    def test_secret_key_rotation_partitions_the_cache_namespace(self) -> None:
-        # SECRET_KEY rotation must invalidate cached tokens automatically — otherwise
+    def test_signing_key_rotation_partitions_the_cache_namespace(self) -> None:
+        # JWT signing-key rotation must invalidate cached tokens automatically — otherwise
         # the livestream service would reject the cached old-key signatures for up
-        # to the cache TTL. We embed a fingerprint of SECRET_KEY in the cache key so
+        # to the cache TTL. We embed a fingerprint of JWT_SIGNING_KEY in the cache key so
         # the namespace partitions cleanly on rotation.
         from posthog.api.team import get_or_mint_live_events_token
 
-        token_old_secret = get_or_mint_live_events_token(self.team, self.user.id)
-        with override_settings(SECRET_KEY="completely-different-rotated-secret"):
-            token_new_secret = get_or_mint_live_events_token(self.team, self.user.id)
-        assert token_old_secret != token_new_secret
+        token_old_key = get_or_mint_live_events_token(self.team, self.user.id)
+        with override_settings(JWT_SIGNING_KEY="completely-different-rotated-secret"):
+            token_new_key = get_or_mint_live_events_token(self.team, self.user.id)
+        assert token_old_key != token_new_key
 
 
 # Sensitive Team/Project settings the frontend gates behind

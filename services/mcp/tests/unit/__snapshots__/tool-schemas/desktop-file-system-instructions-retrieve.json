@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "ID of the channel (desktop folder) whose instructions to fetch.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

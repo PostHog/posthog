@@ -31,7 +31,7 @@ from posthog.temporal.alerts.types import CheckAlertWorkflowInputs, SkipReason
 from posthog.temporal.alerts.workflows import CheckAlertWorkflow
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.models.insight import Insight
 
 CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [prepare_alert, evaluate_alert, notify_alert]
@@ -59,6 +59,11 @@ def _build_alert(
     config: dict | None = None,
 ) -> AlertConfiguration:
     insight = Insight.objects.create(team=ateam, name="insight", query=_valid_trends_query(), deleted=insight_deleted)
+    threshold = Threshold.objects.create(
+        team=ateam,
+        insight=insight,
+        configuration={"type": "absolute", "bounds": {"upper": 100.0}},
+    )
     return AlertConfiguration.objects.create(
         team=ateam,
         insight=insight,
@@ -67,6 +72,7 @@ def _build_alert(
         calculation_interval=AlertCalculationInterval.DAILY.value,
         config=config if config is not None else {"type": "TrendsAlertConfig", "series_index": 0},
         condition={"type": "absolute_value"},
+        threshold=threshold,
     )
 
 

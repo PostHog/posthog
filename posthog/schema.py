@@ -964,6 +964,8 @@ class BillingUsageResponseBreakdownType(StrEnum):
 class BingAdsDefaultSources(StrEnum):
     BING = "bing"
     MICROSOFT = "microsoft"
+    MSADS = "msads"
+    BING_VIDEO = "bing_video"
 
 
 class BingAdsTableExclusions(StrEnum):
@@ -2394,7 +2396,7 @@ class FileSystemIconType(StrEnum):
     SETTINGS = "settings"
     HEALTH = "health"
     INBOX = "inbox"
-    SDK_DOCTOR = "sdk_doctor"
+    SDK_HEALTH = "sdk_health"
     PIPELINE_STATUS = "pipeline_status"
     LLM_EVALUATIONS = "llm_evaluations"
     LLM_TAGS = "llm_tags"
@@ -3271,7 +3273,7 @@ class MarketingIntegrationConfig6(BaseModel):
     adsetStatsTableName: Literal["ad_group_performance_report"] = "ad_group_performance_report"
     adsetTableName: Literal["ad_group_performance_report"] = "ad_group_performance_report"
     campaignTableName: Literal["campaigns"] = "campaigns"
-    defaultSources: list[str] = Field(..., max_length=2, min_length=2)
+    defaultSources: list[str] = Field(..., max_length=4, min_length=4)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
     primarySource: Literal["bing"] = "bing"
@@ -4787,6 +4789,14 @@ class SignalsScoutSignalExtra(BaseModel):
     severity: Severity | None = None
     skill_name: str
     skill_version: float
+    task_run_id: str = Field(
+        ...,
+        description=(
+            "The `tasks.TaskRun` id the scout span ran inside. Join key into the"
+            " `signals_scouts_runs` LLM-analytics view, which is keyed on `task_run_id`"
+            " (the `scout_run_id` bridge row is not)."
+        ),
+    )
     time_range: TimeRange | None = Field(default=None, description="Optional time window the finding refers to.")
 
 
@@ -4967,6 +4977,10 @@ class SubagentUpdateEvent(BaseModel):
     content: AssistantToolCall
     id: str
     tool_call_id: str
+
+
+class SubscriptionAIPromptMaxLength(RootModel[Literal[4000]]):
+    root: Literal[4000] = Field(4000, description="Maximum length, in characters, of an AI subscription prompt.")
 
 
 class SubscriptionDropoffMode(StrEnum):
@@ -25331,6 +25345,12 @@ class LogsQuery(BaseModel):
     )
     after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     dateRange: DateRange
+    excludeAttributes: bool | None = Field(
+        default=None,
+        description=(
+            "Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact"
+        ),
+    )
     filterGroup: PropertyGroupFilter
     kind: Literal["LogsQuery"] = "LogsQuery"
     limit: int | None = None

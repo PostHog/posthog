@@ -37,3 +37,14 @@ class TestOAuthApplicationAdmin(BaseTest):
         form = OAuthApplicationForm()
 
         assert "Only used for HMAC provisioning partners" in form.fields["provisioning_signing_secret"].help_text
+
+    @parameterized.expand(
+        [
+            ("cimd_app", True, True),
+            ("regular_app", False, False),
+        ]
+    )
+    def test_scopes_readonly_only_for_cimd_apps(self, _name, is_cimd, expected_readonly):
+        app = OAuthApplication(is_cimd_client=is_cimd)
+        readonly = self.admin.get_readonly_fields(request=None, obj=app)
+        assert ("scopes" in readonly) is expected_readonly

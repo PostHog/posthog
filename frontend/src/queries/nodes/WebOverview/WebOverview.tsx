@@ -7,7 +7,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 
-import { OverviewGrid, OverviewItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
+import { OverviewGrid } from '~/queries/nodes/OverviewGrid/OverviewGrid'
+import { OverviewMetricCardGrid, OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
 import { AnyResponseType, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -54,7 +55,7 @@ export function WebOverview(props: {
     // Convert WebOverviewItem to OverviewItem
     // Handle both `results` (from direct query response) and `result` (from cached insight)
     const resultsArray = webOverviewQueryResponse?.results ?? (response as any)?.result
-    const overviewItems: OverviewItem[] =
+    const overviewItems: OverviewMetricCardItem[] =
         resultsArray?.map((item: any) => ({
             key: item.key,
             value: item.value,
@@ -67,6 +68,20 @@ export function WebOverview(props: {
                 : undefined,
             warningLink: showWarning ? 'https://posthog.com/docs/advanced/proxy' : undefined,
         })) || []
+
+    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_METRIC_CARDS]) {
+        return (
+            <OverviewMetricCardGrid
+                items={overviewItems}
+                loading={responseLoading}
+                numSkeletons={numSkeletons}
+                samplingRate={samplingRate}
+                usedPreAggregatedTables={usedWebAnalyticsPreAggregatedTables}
+                usedLazyPrecompute={usedWebAnalyticsLazyPrecompute}
+                labelFromKey={labelFromKey}
+            />
+        )
+    }
 
     return (
         <OverviewGrid
@@ -81,7 +96,7 @@ export function WebOverview(props: {
     )
 }
 
-const labelFromKey = (key: string): string => {
+export const labelFromKey = (key: string): string => {
     switch (key) {
         case 'visitors':
             return 'Visitors'

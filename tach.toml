@@ -77,6 +77,7 @@ depends_on = [
     "products.desktop_recordings",
     "products.early_access_features",
     "products.endpoints",
+    "products.engineering_analytics",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
@@ -87,6 +88,7 @@ depends_on = [
     "products.live_debugger",
     "products.ai_observability",
     "products.logs",
+    "products.managed_migrations",
     "products.marketing_analytics",
     "products.mcp_store",
     "products.messaging",
@@ -273,6 +275,9 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.ai_observability",
+    "products.analytics_platform",
+    "products.data_tools",
+    "products.data_warehouse",
     "products.event_definitions",
     "products.feature_flags",
     "products.notifications",
@@ -348,7 +353,10 @@ layer = "modules"
 
 [[modules]]
 path = "products.managed_migrations"
-depends_on = []
+depends_on = [
+    "posthog",
+    "products.batch_exports",
+]
 layer = "modules"
 
 [[modules]]
@@ -510,6 +518,7 @@ depends_on = [
     "posthog",
     "products.dashboards",
     "products.product_analytics",
+    "products.signals",
 ]
 layer = "modules"
 
@@ -660,6 +669,7 @@ expose = [
     "backend\\.analysis_health.*",
     "backend\\.experiment_saved_metric_service.*",
     "backend\\.experiment_service.*",
+    "backend\\.hogql_queries.*",
     "backend\\.llm_metric_templates.*",
     "backend\\.max_tools.*",
     "backend\\.metric_utils.*",
