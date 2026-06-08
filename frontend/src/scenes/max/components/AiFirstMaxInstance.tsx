@@ -89,18 +89,18 @@ interface AiFirstMaxInstanceProps {
 }
 
 export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Element {
-    const { threadVisible, threadLogicKey, conversation, conversationId } = useValues(maxLogic({ tabId }))
-    const { startNewConversation } = useActions(maxLogic({ tabId }))
+    const { threadVisible, threadLogicKey, conversation, conversationId } = useValues(maxLogic({ panelId: tabId }))
+    const { startNewConversation } = useActions(maxLogic({ panelId: tabId }))
 
     const threadProps: MaxThreadLogicProps = {
-        tabId,
+        panelId: tabId,
         conversationId: threadLogicKey,
         conversation,
     }
 
     return (
         <div className="flex grow overflow-hidden h-full">
-            <BindLogic logic={maxLogic} props={{ tabId }}>
+            <BindLogic logic={maxLogic} props={{ panelId: tabId }}>
                 <BindLogic logic={maxThreadLogic} props={threadProps}>
                     <div className="flex flex-col grow overflow-hidden">
                         <ChatHeader conversationId={conversationId} tabId={tabId} />
