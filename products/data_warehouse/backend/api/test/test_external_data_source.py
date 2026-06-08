@@ -5742,49 +5742,6 @@ class TestExternalDataSource(APIBaseTest):
         else:
             assert response.json()["message"] != limit_message
 
-    def test_create_custom_source_quota_enforced_under_race(self):
-        # Simulate a concurrent insert landing between the fast-path check and the
-        # authoritative locked recount: the fast-path sees the team under the cap, but
-        # by the time we hold the lock the count has crossed it. The locked guard must
-        # still reject, and no source row may be created.
-        fake_source = MagicMock()
-        fake_source.validate_config.return_value = (True, [])
-        fake_source.validate_credentials.return_value = (True, None)
-        fake_source.parse_config.return_value = MagicMock()
-
-        with (
-            patch(
-                "products.data_warehouse.backend.api.external_data_source.is_custom_source_available_for_team",
-                return_value=True,
-            ),
-            patch(
-                "products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source",
-                return_value=fake_source,
-            ),
-            patch(
-                "products.data_warehouse.backend.api.external_data_source.count_active_custom_sources",
-                side_effect=[0, MAX_CUSTOM_SOURCES_PER_TEAM],
-            ),
-        ):
-            response = self.client.post(
-                f"/api/environments/{self.team.pk}/external_data_sources/",
-                data={
-                    "source_type": "Custom",
-                    "prefix": "custom_race_",
-                    "payload": {"manifest_json": "{}"},
-                },
-            )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert (
-            response.json()["message"]
-            == f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
-        )
-        assert (
-            ExternalDataSource.objects.filter(team_id=self.team.pk, source_type="Custom").exclude(deleted=True).count()
-            == 0
-        )
-
     def test_revenue_analytics_config_created_automatically(self):
         """Test that revenue analytics config is created automatically when external data source is created."""
         source = self._create_external_data_source()
