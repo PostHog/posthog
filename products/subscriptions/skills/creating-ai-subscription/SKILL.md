@@ -9,17 +9,40 @@ description: >
 
 # Creating a prompt subscription
 
-Use this skill when the user wants a **recurring** AI-generated report delivered on
-a schedule.
+## When to use this
+
+A **subscription** delivers a PostHog report to email or Slack on a recurring
+schedule. There are three kinds, distinguished by which field you set — the kind is
+derived and returned as the read-only `resource_type`:
+
+- **`insight`** — periodic snapshots of one existing insight (`resource_type: "insight"`)
+- **`dashboard`** — periodic snapshots of a dashboard's tiles (`resource_type: "dashboard"`)
+- **`prompt`** — a recurring **AI-generated** report from a free-text prompt: an LLM
+  plans and runs HogQL over the project's data and synthesizes a fresh markdown report
+  each tick (`resource_type: "ai_prompt"`)
+
+Use **this** skill for the **prompt** kind — i.e. when the user wants something like
+"send me a weekly AI summary of X" rather than a recurring snapshot of one existing
+insight/dashboard, or a single one-off report. Pick a prompt subscription when the
+value is the _analysis itself_ (the LLM deciding what to query and writing it up),
+not a fixed chart they already built. For an insight/dashboard subscription, set
+`insight`/`dashboard` instead of `prompt` and the AI gates below don't apply.
+
+This skill covers **creating** the subscription. Once it exists you manage its
+lifecycle with the same `subscriptions-*` tools (see below): list it, edit/disable/
+re-enable it, send a test delivery, or delete it.
 
 ## Tools
 
-| Tool                                     | Purpose                                             |
-| ---------------------------------------- | --------------------------------------------------- |
-| `posthog:subscriptions-create`           | Create the recurring prompt subscription            |
-| `posthog:subscriptions-list`             | Confirm it landed; inspect existing subscriptions   |
-| `posthog:integrations-list`              | Find a Slack `integration_id` (filter `kind=slack`) |
-| `posthog:integrations-channels-retrieve` | List a Slack integration's channels (id + name)     |
+| Tool                                         | Purpose                                             |
+| -------------------------------------------- | --------------------------------------------------- |
+| `posthog:subscriptions-create`               | Create the recurring prompt subscription            |
+| `posthog:subscriptions-list`                 | Confirm it landed; inspect existing subscriptions   |
+| `posthog:subscriptions-partial-update`       | Edit, disable (`enabled: false`), or re-enable it   |
+| `posthog:subscriptions-test-delivery-create` | Send an immediate test delivery to its target(s)    |
+| `posthog:subscriptions-delete`               | Soft-delete it (stops all future deliveries)        |
+| `posthog:integrations-list`                  | Find a Slack `integration_id` (filter `kind=slack`) |
+| `posthog:integrations-channels-retrieve`     | List a Slack integration's channels (id + name)     |
 
 ## What you need before calling
 
