@@ -1,7 +1,19 @@
+from datetime import UTC, datetime
+from typing import Any
+
 from django.contrib import admin
 from django.http import HttpRequest
 
-from products.replay_vision.backend.models import ReplayObservation, ReplayScanner
+from dateutil.relativedelta import relativedelta
+
+from posthog.date_util import start_of_month
+
+from products.replay_vision.backend.models import ReplayObservation, ReplayQuotaGrant, ReplayScanner
+
+
+def _default_grant_expiry() -> datetime:
+    """First moment of next month (UTC) — matches `compute_quota_snapshot`'s period boundary."""
+    return start_of_month(datetime.now(UTC)) + relativedelta(months=1)
 
 
 @admin.register(ReplayScanner)
@@ -37,3 +49,19 @@ class ReplayObservationAdmin(admin.ModelAdmin):
     def has_add_permission(self, request: HttpRequest) -> bool:
         # Created by workflow/consumer, never via admin.
         return False
+
+
+@admin.register(ReplayQuotaGrant)
+class ReplayQuotaGrantAdmin(admin.ModelAdmin):
+    list_display = ("organization", "amount", "granted_at", "expires_at", "granted_by", "reason")
+    list_filter = ("granted_at", "expires_at")
+    search_fields = ("organization__name", "reason")
+    raw_id_fields = ("organization", "granted_by")
+    readonly_fields = ("id", "granted_at")
+
+    def get_changeform_initial_data(self, request: HttpRequest) -> dict[str, Any]:
+        initial = super().get_changeform_initial_data(request)
+        # Pre-fill but don't force — admins can clear either field on the add form.
+        initial.setdefault("expires_at", _default_grant_expiry())
+        initial.setdefault("granted_by", request.user.pk)
+        return initial
