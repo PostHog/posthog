@@ -9,7 +9,10 @@ use tracing::{info, warn};
 
 use crate::{
     config::Config,
-    metrics_consts::{GROUP_TYPE_CACHE, PERSONHOG_ERRORS_TOTAL, PERSONHOG_RESOLVE_DURATION, PERSONHOG_RESOLVE_ERRORS},
+    metrics_consts::{
+        GROUP_TYPE_CACHE, PERSONHOG_ERRORS_TOTAL, PERSONHOG_RESOLVE_DURATION,
+        PERSONHOG_RESOLVE_ERRORS,
+    },
     types::{GroupType, Update},
 };
 
