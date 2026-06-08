@@ -604,6 +604,20 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/my_flags")
         assert response.status_code == status.HTTP_200_OK
 
+    def test_feature_flag_list_with_no_current_team(self):
+        # LegacyFeatureFlagViewSet resolves the project from the token when the user
+        # has no current_team (param_derived_from_user_current_team), so the list route
+        # must still work in that case.
+        original_team = self.user.current_team
+        try:
+            self.user.current_team = None
+            self.user.save()
+            response = self._do_request(f"/api/feature_flag/?token={self.team.api_token}")
+            assert response.status_code == status.HTTP_200_OK
+        finally:
+            self.user.current_team = original_team
+            self.user.save()
+
     def test_allows_custom_error_tracking_read_action(self):
         self.key.scopes = ["error_tracking:read"]
         self.key.save()
