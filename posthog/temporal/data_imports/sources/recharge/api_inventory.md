@@ -30,7 +30,7 @@ Source: Recharge Payments — subscription management for e-commerce.
 | `addresses`       | `/addresses`       | `id`        | `created_at`  | ✅          |                                                                                   |
 | `discounts`       | `/discounts`       | `id`        | `created_at`  | ✅          |                                                                                   |
 | `onetimes`        | `/onetimes`        | `id`        | `created_at`  | ✅          |                                                                                   |
-| `products`        | `/products`        | `id`        | `created_at`  | ✅          |                                                                                   |
+| `products`        | `/products`        | `id`        | `created_at`  | ➖ full     | 2021-11 list endpoint takes only cursor + `limit`/`ids` — no `sort_by` or `*_min`. |
 | `payment_methods` | `/payment_methods` | `id`        | `created_at`  | ✅          | Requires Recharge Pro / Custom plan.                                              |
 | `collections`     | `/collections`     | `id`        | `created_at`  | ➖ full     | Server-side timestamp filter not reliably documented — full refresh.              |
 
