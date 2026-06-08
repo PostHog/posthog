@@ -999,7 +999,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.validation_error_response("required", "This field is required.", "properties"),
         )
 
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_new_update_single_person_property(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1022,7 +1022,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             process_person_profile=True,
         )
 
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_new_delete_person_properties(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1045,7 +1045,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             process_person_profile=True,
         )
 
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_update_person_property_by_numeric_id(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1068,7 +1068,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             process_person_profile=True,
         )
 
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_delete_person_property_by_numeric_id(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
@@ -1091,7 +1091,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             process_person_profile=True,
         )
 
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_update_person_property_with_null_value(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,

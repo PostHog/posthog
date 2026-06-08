@@ -76,7 +76,7 @@ class TestRetrievePerson(PersonhogTestMixin, APIBaseTest):
 
 @parameterized_class(("personhog",), [(False,), (True,)])
 class TestUpdatePerson(PersonhogTestMixin, APIBaseTest):
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_update_properties_by_uuid(self, mock_capture):
         mock_capture.return_value = mock.MagicMock(status_code=200)
         person = self._seed_person(
@@ -98,7 +98,7 @@ class TestUpdatePerson(PersonhogTestMixin, APIBaseTest):
         assert call_kwargs["properties"] == {"$set": {"new_key": "new_value"}}
         self._assert_personhog_called("get_person_by_uuid")
 
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_update_properties_by_pk(self, mock_capture):
         mock_capture.return_value = mock.MagicMock(status_code=200)
         person = self._seed_person(
@@ -182,7 +182,7 @@ class TestCohortsByPerson(PersonhogTestMixin, APIBaseTest):
 
 @parameterized_class(("personhog",), [(False,), (True,)])
 class TestDeleteProperty(PersonhogTestMixin, APIBaseTest):
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_uuid_lookup(self, mock_capture):
         mock_capture.return_value = mock.MagicMock(status_code=200)
         person = self._seed_person(
@@ -209,7 +209,7 @@ class TestDeleteProperty(PersonhogTestMixin, APIBaseTest):
         self._assert_personhog_called("get_person_by_uuid")
         self._assert_personhog_called("get_distinct_ids_for_person")
 
-    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.capture_internal_routed")
     def test_integer_pk_lookup(self, mock_capture):
         mock_capture.return_value = mock.MagicMock(status_code=200)
         person = self._seed_person(
