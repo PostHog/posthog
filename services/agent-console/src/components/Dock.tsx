@@ -17,7 +17,7 @@
 import { ArrowRightIcon } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { AgentChat, type ClientToolHandler, type TransportError } from '@posthog/agent-chat'
 import type {
@@ -528,39 +528,48 @@ function ConciergeDock(): React.ReactElement {
     const slug = conciergeAgent?.slug ?? null
     const [resolution, setResolution] = useState<ConciergeResolution>({ kind: 'pending' })
 
+    // Tracks the slug+team pair we've already resolved so we don't refetch
+    // on route transitions where the slug temporarily clears and reverts.
+    const resolvedKeyRef = useRef<string | null>(null)
+
     useEffect(() => {
+        // Route transitions trigger setConciergeAgent(null) on the outgoing
+        // layout's cleanup followed by the incoming layout setting the slug
+        // back. Ignore the transient null so we don't unmount the dock and
+        // restart a fresh fetch every navigation.
         if (!slug || teamId == null) {
-            setResolution({ kind: 'pending' })
+            return
+        }
+        const key = `${teamId}:${slug}`
+        if (resolvedKeyRef.current === key) {
             return
         }
         let cancelled = false
-        setResolution({ kind: 'pending' })
+        setResolution((prev) => (prev.kind === 'resolved' && prev.agent.slug === slug ? prev : { kind: 'pending' }))
         getAgent(teamId, slug).then(
             (agent) => {
-                if (!cancelled) {
-                    setResolution({
-                        kind: 'resolved',
-                        agent: { id: agent.id, slug: agent.slug, name: agent.name },
-                    })
+                if (cancelled) {
+                    return
                 }
+                resolvedKeyRef.current = key
+                setResolution({
+                    kind: 'resolved',
+                    agent: { id: agent.id, slug: agent.slug, name: agent.name },
+                })
             },
             (err) => {
                 if (cancelled) {
                     return
                 }
-                // 404 is intentional ("billing-bot" not shipped yet, etc.)
-                // — fall through to the fixture dock. Any other error
-                // (network, 5xx, auth) keeps the dock in `pending` so the
-                // user doesn't get the mock fallback masquerading as a
-                // real reply; the next mount or auth refresh retries.
-                const is404 = err instanceof ApiError && err.status === 404
-                if (is404) {
+                if (err instanceof ApiError && err.status === 404) {
+                    resolvedKeyRef.current = key
                     setResolution({ kind: 'not_deployed' })
                     return
                 }
+                // Transient (network, 5xx, auth refresh): leave whatever
+                // state we had so the dock isn't stuck on a spinner.
                 // eslint-disable-next-line no-console
                 console.warn('[concierge] failed to resolve agent', slug, err)
-                setResolution({ kind: 'pending' })
             }
         )
         return () => {
