@@ -1,10 +1,7 @@
 //! [`DispatchSweeper`]: the real [`Sweeper`] that drives one eviction cycle over the dispatcher.
 //!
-//! Each tick it computes the cutoff `due_before_ms = now − safety_margin` **once** and routes a
-//! [`ShuffleMessage::Sweep`](crate::partitions::ShuffleMessage::Sweep) carrying it to every owned
-//! partition's worker (via [`EventDispatcher::route_sweep`]), so each worker drains its own
-//! [`EvictionQueue`](super::EvictionQueue) against the same clock reading. The cutoff is the queue's
-//! only clock input, keeping the per-worker queues arithmetic- and clock-free.
+//! Computes `due_before_ms = now − safety_margin` once per tick and routes a `Sweep` message
+//! carrying it to every owned partition's worker.
 
 use std::sync::Arc;
 
@@ -27,8 +24,7 @@ pub struct DispatchSweeper {
 }
 
 impl DispatchSweeper {
-    /// Build a sweeper over `dispatcher`, subtracting `safety_margin_ms` from wall-clock `now` to get
-    /// each cycle's cutoff. Uses the system clock; [`with_clock`](Self::with_clock) injects a test one.
+    /// Uses the system clock; `with_clock` injects a test clock.
     pub fn new(dispatcher: Arc<EventDispatcher>, safety_margin_ms: i64) -> Self {
         Self::with_clock(
             dispatcher,
@@ -92,7 +88,7 @@ mod tests {
     #[tokio::test]
     async fn run_once_routes_to_owned_partitions_without_panicking() {
         // Owned partitions with no spawned worker: each `Sweep` is a benign dropped RouteError, so
-        // run_once must complete cleanly. Exercises the clock seam + route path end to end.
+        // run_once must complete cleanly.
         let (_dir, dispatcher) = dispatcher();
         dispatcher.assign_partition(0);
         dispatcher.assign_partition(1);

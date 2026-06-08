@@ -8,10 +8,6 @@
 //! - [`run_sweep_loop`] — the periodic timer that, each tick, asks a [`Sweeper`] to drain due keys.
 //! - [`due_before_ms`] — the `now − safety_margin` cutoff the worker feeds to
 //!   [`EvictionQueue::pop_due`].
-//!
-//! PR 2.3 wires these together: it implements [`Sweeper`] over the dispatcher (route a
-//! `ShuffleMessage::Sweep` to each owned worker, which pops its due keys, drops the bucket,
-//! recomputes the predicate, and emits any `left`) and spawns [`run_sweep_loop`] in `main.rs`.
 
 pub mod dispatch;
 pub mod eviction_queue;

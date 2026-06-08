@@ -1,23 +1,18 @@
 //! [`EvictionQueue`]: the deadline-ordered queue the sweep drains soonest-first.
 //!
-//! Each behavioral leaf state carries an `earliest_eviction_at_ms` the event path computes but never
-//! reads (`stage1/state.rs`). The sweep is the time-driven half: a worker schedules each live key
-//! into its own queue, and on each tick drains the keys whose deadline has passed (minus the safety
-//! margin), dropping the bucket and emitting any resulting `left`. This file is just the data
-//! structure; the timer is in [`super::scheduler`] and the worker wiring is PR 2.3.
+//! A worker schedules each live behavioral key; the sweep drains keys whose deadline has passed.
+//! The timer is in [`super::scheduler`].
 //!
 //! # Why a `BTreeMap` + reverse index, not `BinaryHeap` + epoch map
 //!
-//! The TDD originally specced a per-worker `BinaryHeap<Reverse<(deadline_ms, Stage1Key)>>` plus an
-//! epoch map to lazily discard stale entries. A PR 2.2 investigation found that a key's deadline can
-//! move *earlier*, not just later: `daily_eviction_deadline` (`stage1/daily.rs`)
-//! returns the boundary of the **oldest non-zero bucket**, so a late event landing in a bucket older
-//! than the current oldest pulls the deadline backward. With a lazily-deleted heap, an
-//! earlier-reschedule leaves the superseded, far-future entry in the heap until its stale deadline
-//! eventually surfaces — up to the window length (≤180 days). Between 30 s sweeps those accumulate
-//! and `heap.len()` grows with total reschedules while the live-key count stays flat: an
-//! unbounded-between-sweeps leak unless you add compaction, and the natural compaction (store the
-//! live coordinate so you can find and remove the old one) *is* this shape.
+//! A key's deadline can move *earlier*, not just later: `daily_eviction_deadline`
+//! (`stage1/daily.rs`) returns the boundary of the **oldest non-zero bucket**, so a late event
+//! landing in a bucket older than the current oldest pulls the deadline backward. With a
+//! lazily-deleted heap, an earlier-reschedule leaves the superseded, far-future entry in the heap
+//! until its stale deadline eventually surfaces — up to the window length (≤180 days). Those
+//! accumulate and `heap.len()` grows with total reschedules while the live-key count stays flat: an
+//! unbounded leak unless you add compaction, and the natural compaction (store the live coordinate
+//! so you can find and remove the old one) *is* this shape.
 //!
 //! A `BTreeMap<(deadline_ms, seq), K>` keyed by `(deadline, seq)` is ordered, so the soonest-due key
 //! is `first_key_value`; a `HashMap<K, (deadline_ms, seq)>` reverse index lets a reschedule remove
@@ -35,9 +30,9 @@ type Coord = (i64, u64);
 
 /// A deadline-ordered queue of keys, drained soonest-first by [`pop_due`](Self::pop_due).
 ///
-/// Single-threaded by design: in PR 2.3 each partition worker owns one `EvictionQueue<Stage1Key>`
-/// and is the only mutator, so no internal synchronization is needed (the worker-affinity invariant,
-/// §2.5). Generic over `K` purely so the structure can be unit-tested in isolation from `Stage1Key`.
+/// Single-threaded by design: each partition worker owns one `EvictionQueue<Stage1Key>` and is the
+/// only mutator, so no internal synchronization is needed. Generic over `K` purely so the structure
+/// can be unit-tested in isolation from `Stage1Key`.
 ///
 /// Invariant, upheld by every method: `by_deadline` and `index` hold exactly the same set of keys,
 /// so `by_deadline.len() == index.len() == ` the live-key count, and each key maps to exactly one
@@ -87,7 +82,7 @@ where
     ///
     /// The cutoff is `due_before_ms = now_ms − safety_margin_ms`, computed by the caller (see
     /// [`due_before_ms`](super::scheduler::due_before_ms)) so the queue stays clock- and
-    /// arithmetic-free. Strict `<` matches the TDD rule "evict once `deadline + safety_margin < now`".
+    /// arithmetic-free.
     pub fn pop_due(&mut self, due_before_ms: i64) -> Option<(K, i64)> {
         // Copy the soonest coordinate out, dropping the immutable borrow before the mutating remove.
         let (&coord, _) = self.by_deadline.first_key_value()?;
@@ -103,17 +98,14 @@ where
         Some((key, deadline_ms))
     }
 
-    /// Remove `key` from the queue entirely, if present, so its pending eviction never fires. For a
-    /// future external state delete / cross-partition merge (PR 3.x): once a key's state is gone, a
-    /// scheduled eviction for it would be spurious.
+    /// Remove `key` from the queue, if present, so its pending eviction never fires.
     pub fn cancel(&mut self, key: &K) {
         if let Some(coord) = self.index.remove(key) {
             self.by_deadline.remove(&coord);
         }
     }
 
-    /// The soonest live deadline, or [`None`] when empty. For observability and a future adaptive
-    /// timer that could sleep until the next deadline instead of a fixed interval.
+    /// The soonest live deadline, or [`None`] when empty. For observability.
     pub fn peek_next_deadline(&self) -> Option<i64> {
         self.by_deadline
             .keys()
@@ -144,7 +136,6 @@ where
 mod tests {
     use super::*;
 
-    /// Drain every currently-due key at `due_before_ms`, in pop order.
     fn drain<K: Hash + Eq + Clone>(
         queue: &mut EvictionQueue<K>,
         due_before_ms: i64,
@@ -246,7 +237,6 @@ mod tests {
         assert_eq!(queue.pop_due(101), Some(("k", 100)));
         assert_eq!(queue.len(), 0);
 
-        // A new matching event re-creates the state, re-scheduling the same key.
         queue.schedule("k", 900);
         assert_eq!(queue.len(), 1);
         assert_eq!(queue.pop_due(200), None, "not due at the old deadline");

@@ -1,29 +1,15 @@
-//! Sparse run-length daily-count operations for windows over 180 days, shared by the event path and
-//! the sweep — the compressed analog of [`super::daily`].
+//! Sparse run-length daily-count operations for `performed_event_multiple` windows over 180 days.
 //!
-//! A `performed_event_multiple` leaf with a window over 180 days stores its counts as sparse
-//! `(day_idx, count)` entries (sorted ascending, no zero-count entries) plus a `window_start_day`
-//! anchor, instead of a dense `[u32; window_days + 1]` array. The windowing semantics are otherwise
-//! identical to daily — slide forward, prune out-of-window days, sum in-window, deadline = the oldest
-//! in-window day's leave boundary — so this module mirrors [`super::daily`] arm for arm, only over a
-//! sparse vector. Both the per-event fold ([`super::super::workers::event_path`]) and the
-//! time-driven eviction ([`super::super::workers::sweep_callback`]) advance the window through it, so
-//! it is the one tested source of truth for the boundary math.
-//!
-//! Everything here is pure and clock-free: a caller supplies the target "now" day (the event's own
-//! day on the fold path, `day_idx_in_tz(due_before_ms)` on the sweep path), and the window slides to
-//! cover it. The only timezone-aware primitive is [`compressed_eviction_deadline`], which converts a
-//! day index back to its local-midnight instant.
+//! Entries are `(day_idx, count)` pairs sorted ascending, no zero-count entries. Windowing semantics
+//! mirror [`super::daily`]: slide forward, prune out-of-window days, sum in-window. Clock-free;
+//! callers supply the "now" day index.
 
 use chrono_tz::Tz;
 
 use crate::stage1::bucket_tz::start_of_day_ms_in_tz;
 
-/// Count one matching event on `day` into the sparse entries: increment the existing day's count
-/// (saturating) or insert a fresh `(day, 1)` at its sorted position. Keeps `entries` sorted ascending
-/// by day with no zero-count entries (the storage invariant), the sparse analog of daily's
-/// `buckets[idx] += 1`. The caller positions `day` inside the window first (sliding on the AHEAD
-/// path); a `day` already out of the window must not reach here.
+/// Insert or increment `day`'s count (saturating), keeping entries sorted with no zero-count entries.
+/// The caller must slide the window before calling; `day` must be within the current window.
 pub(crate) fn insert_event(entries: &mut Vec<(i32, u32)>, day: i32) {
     match entries.binary_search_by_key(&day, |&(entry_day, _)| entry_day) {
         Ok(idx) => entries[idx].1 = entries[idx].1.saturating_add(1),
@@ -31,16 +17,8 @@ pub(crate) fn insert_event(entries: &mut Vec<(i32, u32)>, day: i32) {
     }
 }
 
-/// Slide the sparse window forward so its "now" day is `target_now_day`, dropping the entries that
-/// fall below the new lower bound. A no-op when the window already covers `target_now_day` (i.e.
-/// `target_now_day <= window_start_day + window_days`): the window only ever moves forward, never
-/// back.
-///
-/// This is the AHEAD slide the event path performs per matching event
-/// ([`mutate_behavioral_compressed`](crate::workers::event_path)) **before** counting the event in;
-/// the sweep performs the same slide with no insert to age stale days out at a wall-clock deadline.
-/// The sparse analog of daily's dense `copy_within` + tail-zero: since entries are sorted, the
-/// out-of-window days are a contiguous prefix, removed in one drain.
+/// Slide the sparse window forward to `target_now_day`, dropping entries below the new lower bound.
+/// No-op when the window already covers `target_now_day`; the window only moves forward, never back.
 pub(crate) fn slide_window_forward(
     entries: &mut Vec<(i32, u32)>,
     window_start_day: &mut i32,
@@ -49,19 +27,15 @@ pub(crate) fn slide_window_forward(
 ) {
     let cur_now_day = *window_start_day + window_days as i32;
     if target_now_day <= cur_now_day {
-        // The window already reaches `target_now_day`; nothing has aged out.
         return;
     }
-    // The new inclusive lower bound after sliding the now-day to `target_now_day`.
     let new_window_start_day = target_now_day - window_days as i32;
     let dropped = entries.partition_point(|&(day, _)| day < new_window_start_day);
     entries.drain(..dropped);
     *window_start_day = new_window_start_day;
 }
 
-/// The window's matching-event count: the saturating sum of the retained entries' counts. Clock-free
-/// — every retained entry is in-window by the slide invariant, so this is the analog of summing the
-/// dense bucket array.
+/// Saturating sum of all entries' counts.
 pub(crate) fn compressed_sum(entries: &[(i32, u32)]) -> u32 {
     entries
         .iter()
@@ -69,11 +43,8 @@ pub(crate) fn compressed_sum(entries: &[(i32, u32)]) -> u32 {
         .fold(0, u32::saturating_add)
 }
 
-/// The day-boundary (epoch ms, team tz) at which the oldest entry leaves the window — its eviction
-/// deadline. A day-`d` entry is in-window while `now_day ≤ d + window_days`, so it leaves at the start
-/// of day `d + window_days + 1`. Entries are sorted, so `entries[0]` is the oldest; an empty set never
-/// evicts → [`i64::MAX`]. Unlike [`daily_eviction_deadline`](super::daily::daily_eviction_deadline)
-/// no `window_start_day` is needed — each entry already carries its absolute day.
+/// Deadline (epoch ms, team tz) at which the oldest entry leaves the window. A day-`d` entry
+/// leaves at the start of day `d + window_days + 1`. Returns [`i64::MAX`] when empty.
 pub(crate) fn compressed_eviction_deadline(
     entries: &[(i32, u32)],
     window_days: u32,
@@ -93,8 +64,6 @@ mod tests {
 
     use crate::stage1::bucket_tz::{day_idx_in_tz, start_of_day_ms_in_tz};
 
-    /// Run the slide and return the mutated `(entries, window_start_day)` so a case table reads as
-    /// data, not procedure.
     fn slide(
         mut entries: Vec<(i32, u32)>,
         mut window_start_day: i32,
@@ -126,7 +95,6 @@ mod tests {
 
     #[test]
     fn insert_keeps_entries_sorted_by_day() {
-        // Insert out of order; the binary-search insert keeps the vector ascending.
         let mut entries = Vec::new();
         for day in [105, 100, 110, 102] {
             insert_event(&mut entries, day);
@@ -152,7 +120,6 @@ mod tests {
 
     #[test]
     fn slide_to_a_past_now_day_never_moves_backward() {
-        // A target before the window's current now-day is ignored (the window only moves forward).
         let entries = vec![(100, 9), (300, 2)];
         let (after, start) = slide(entries.clone(), 100, 365, 400);
         assert_eq!(after, entries, "no slide for a past target");

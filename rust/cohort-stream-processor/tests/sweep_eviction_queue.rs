@@ -5,8 +5,7 @@
 //! key's *live* (post-reschedule) deadline. Stepping a fake `now` in 30 s increments and draining
 //! `pop_due(now − margin)` each step, we assert every key evicts **exactly once**, at the **first**
 //! step where `live_deadline + safety_margin < now`, never earlier, with the queue length equal to
-//! the not-yet-evicted count throughout. That is precisely the contract PR 2.3 (worker wiring) and
-//! the PR 2.5 `left`-within-±5-min gate rest on.
+//! the not-yet-evicted count throughout.
 
 use std::collections::HashMap;
 

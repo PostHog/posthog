@@ -520,7 +520,7 @@ fn snapshot_state(store: &CohortStore, filters: &TeamFilters, persons: &[Uuid]) 
 // ── Cross-source-partition replay dedup (L11) ────────────────────────────────────
 // The shuffler re-keys by `hash(team_id, person_id)`, so one person's events span multiple source
 // partitions. These exercise the per-source-partition `AppliedOffsets` map — the cases a single
-// local source partition (M1) could not reach.
+// local source partition could not reach.
 
 #[test]
 fn cross_partition_low_offset_is_not_masked_by_a_high_offset_elsewhere() {
@@ -1111,7 +1111,7 @@ async fn worker_keeps_processing_after_a_produce_failure() {
     assert_eq!(changes[0].person_id, person(2).to_string());
 }
 
-// ── performed_event_multiple daily buckets (M2) ──────────────────────────────────
+// ── performed_event_multiple daily buckets ───────────────────────────────────────
 // These exercise the `BehavioralDailyBuckets` fold: a counter (not a bit), a window slide that can
 // emit an event-driven `Left`, the count>=1 parity guard, and replay-safety of the non-idempotent
 // `buckets[i] += 1` across source partitions.
@@ -1467,7 +1467,7 @@ async fn daily_multiple_single_leaf_cohort_emits_entered_then_left_to_the_sink()
     );
 }
 
-// ── performed_event_multiple compressed history (>180-day windows, M2) ────────────
+// ── performed_event_multiple compressed history (>180-day windows) ────────────────
 // These exercise the `BehavioralCompressedHistory` fold — the sparse run-length analog of the daily
 // buckets — over a 365-day window: enter on threshold, event-driven `Left` from a window slide, sparse
 // multi-day accumulation, the late-BEHIND ignore, replay-safety, and the end-to-end

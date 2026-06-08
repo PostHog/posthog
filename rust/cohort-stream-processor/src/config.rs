@@ -197,13 +197,13 @@ pub struct Config {
     pub offset_commit_interval_ms: u64,
 
     // ── Sweep (time-driven eviction) ───────────────────────────────────────
-    /// How often the sweep fires to evict state whose eviction deadline has passed (D11; TDD §2.6).
+    /// How often the sweep fires to evict state whose eviction deadline has passed.
     #[envconfig(default = "30000")]
     pub sweep_interval_ms: u64,
 
     /// Grace period added to every eviction deadline before the sweep acts. Set high enough to
     /// absorb consumer-lag spikes during deploys/rebalances, so a late event still lands in its
-    /// bucket before the bucket is evicted (TDD §2.6). The sweep evicts a key only once its
+    /// bucket before the bucket is evicted. The sweep evicts a key only once its
     /// `deadline + safety_margin < now` — i.e. the deadline is strictly before `now − safety_margin`.
     #[envconfig(default = "300000")]
     pub sweep_safety_margin_ms: u64,

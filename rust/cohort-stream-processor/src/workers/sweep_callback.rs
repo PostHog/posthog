@@ -1,4 +1,4 @@
-//! The per-key time-driven eviction — the sweep's "brain", mirroring [`process_event`]'s shape.
+//! The per-key time-driven eviction, mirroring [`process_event`]'s shape.
 //!
 //! [`sweep_evict`] is a pure read-and-compute pass: for each due key it reads the stored state,
 //! drops the aged-out bucket(s), recomputes the predicate, and returns what *would* change — the
@@ -34,7 +34,7 @@ use crate::store::{CohortStore, StoreError};
 /// `Left`s are durably produced. The key lives on the [`EvictionResult`], so this is just the verb.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum EvictionAction {
-    /// Persist the advanced state (a daily window with surviving buckets), encoded.
+    /// Persist the advanced state (surviving entries/buckets), encoded.
     Write(Vec<u8>),
     /// Remove the fully-expired state. A late event re-creates it from its own timestamp.
     Delete,
@@ -64,7 +64,7 @@ pub(crate) enum SweepDropReason {
     TeamDrift,
     /// The leaf left the catalog mid-tenure (its `LeafStateKey` is no longer in the reverse index).
     LeafDrift,
-    /// No `cf_stage1` row for the key — already deleted (a prior eviction / merge) or never written.
+    /// No stored state for the key.
     MissingState,
     /// The stored record failed to decode, or its value disagreed with the variant the `LeafStateKey`
     /// pins (corruption / format desync). Also counted on `stage1_state_decode_error_total`.
@@ -102,10 +102,8 @@ pub(crate) struct SweepEvictions {
 /// Compute the eviction for each due key against one team's frozen filters, **without writing**.
 /// Returns a [`SweepEvictions`] with one [`EvictionResult`] per key that has a supported, decodable
 /// state still in the catalog, plus a [`SweepDropReason`] for each key that was popped but not evicted
-/// (a missing/corrupt row, a leaf that left the catalog, or a person-property key). The worker counts
-/// the drops on [`SWEEP_KEYS_DROPPED_TOTAL`](crate::observability::metrics::SWEEP_KEYS_DROPPED_TOTAL)
-/// and reschedules neither. A RocksDB read error fails the whole call so the worker can reschedule and
-/// retry the tick.
+/// (a missing/corrupt row, a leaf that left the catalog, or a person-property key). A RocksDB read
+/// error fails the whole call so the worker can reschedule and retry the tick.
 ///
 /// All `due_keys` must belong to `filters`' team (the worker groups by team before calling).
 pub(crate) fn sweep_evict(
@@ -119,8 +117,7 @@ pub(crate) fn sweep_evict(
         drops: Vec::new(),
     };
     for &key in due_keys {
-        // A backend read error fails the whole call (the worker reschedules for retry); a missing or
-        // corrupt row drops just this key.
+        // Read errors propagate (?); missing/corrupt rows drop the key and continue.
         let record = match store.get_stage1(&key)? {
             None => {
                 out.drops.push(SweepDropReason::MissingState);
@@ -174,9 +171,7 @@ fn evict_single(
         counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
         return Err(SweepDropReason::Decode);
     }
-    // A stored single is written only on a match, so the predicate is `true`; gate the `Left` on it
-    // defensively so a (impossible) non-member single deletes without a spurious emit. A single is
-    // monotonic — `has_match` is set on a match and never cleared — so it can only ever leave.
+    // Defensive: a stored single is always a member; gate the Left to avoid a spurious emit.
     let transition =
         predicate(&record.state, None).then(|| transition_for(key, meta, TransitionKind::Left));
     Ok(EvictionResult {
@@ -188,16 +183,10 @@ fn evict_single(
     })
 }
 
-/// Evict a `performed_event_multiple` daily window: slide it forward to `day_idx(due_before_ms)`
-/// (the same AHEAD slide the event path does, minus the per-event increment), recompute the count
-/// predicate, and emit the membership flip the slide implies — `Left` on true→false, or `Entered` on
-/// false→true (a falling count can enter an `Eq`/`Lte`/`Lt` range, mirroring the event path). Rewrites
-/// the advanced state with its new deadline while any bucket survives; deletes once every bucket has
-/// drained.
-///
-/// Across a multi-boundary slide only the *net* flip is emitted, not the intermediate crossings — the
-/// same discrete recompute the old pipeline and the event path do (`mutate_behavioral_daily`); emitting
-/// each crossed boundary would diverge from the old pipeline and inflate the output.
+/// Slide the daily window to `day_idx(due_before_ms)`, recompute the predicate, and return the net
+/// membership flip: `Left` on true→false, or `Entered` on false→true (a falling count can enter an
+/// `Eq`/`Lte`/`Lt` range). Only the net flip across a multi-boundary slide is emitted. Rewrites the
+/// advanced state while any bucket survives; deletes when every bucket drains.
 fn evict_daily(
     key: Stage1Key,
     meta: &LeafStateMeta,
@@ -242,9 +231,7 @@ fn evict_daily(
         target_now_day,
     );
     let predicate_after = daily_predicate(&buckets, op);
-    // A drain only lowers the count, but the comparator is not monotonic: Gte/Gt can only flip
-    // true→false (Left), while Eq/Lte/Lt can flip false→true as the count falls (Entered). Mirror the
-    // event path's bidirectional detection so the sweep stays consistent with it.
+    // Eq/Lte/Lt can flip false→true as the count falls (Entered), not only true→false (Left).
     let kind = match (predicate_before, predicate_after) {
         (false, true) => Some(TransitionKind::Entered),
         (true, false) => Some(TransitionKind::Left),
@@ -269,9 +256,7 @@ fn evict_daily(
         };
         (EvictionAction::Write(advanced.encode()), Some(new_deadline))
     };
-    // A still-member eviction (an `Entered` or a `Left` that leaves the count ≥ 1) must rewrite and
-    // reschedule, never delete: `predicate_after` ⟹ `count >= 1` ⟹ a non-zero bucket ⟹ a finite
-    // deadline ⟹ the `Write` branch. This pins the invariant the `Entered` arm above relies on.
+    // predicate_after ⟹ count ≥ 1 ⟹ finite deadline ⟹ Write branch, never Delete.
     debug_assert!(
         !predicate_after || matches!(action, EvictionAction::Write(_)),
         "a still-member eviction must rewrite + reschedule, not delete (relies on daily_predicate's count>=1 floor)",
@@ -285,16 +270,8 @@ fn evict_daily(
     })
 }
 
-/// Evict a `performed_event_multiple` compressed (>180-day) window — the sparse analog of
-/// [`evict_daily`], identical in shape but over run-length entries. Slide forward to
-/// `day_idx(due_before_ms)` (the same AHEAD slide the event path does, minus the per-event insert),
-/// recompute the count predicate, and emit the membership flip the slide implies — `Left` on
-/// true→false, or `Entered` on false→true (a falling count can enter an `Eq`/`Lte`/`Lt` range,
-/// mirroring the event path). Rewrites the advanced state with its new deadline while any entry
-/// survives; deletes once every entry has drained.
-///
-/// As with daily, only the *net* flip across a multi-boundary slide is emitted, not each intermediate
-/// crossing — the same discrete recompute the old pipeline and the event path do.
+/// Slide the compressed window to `day_idx(due_before_ms)` and return the net membership flip —
+/// identical in shape to [`evict_daily`] but over sparse run-length entries.
 fn evict_compressed(
     key: Stage1Key,
     meta: &LeafStateMeta,
@@ -333,9 +310,7 @@ fn evict_compressed(
         target_now_day,
     );
     let predicate_after = compressed_predicate(&entries, op);
-    // A drain only lowers the count, but the comparator is not monotonic: Gte/Gt can only flip
-    // true→false (Left), while Eq/Lte/Lt can flip false→true as the count falls (Entered). Mirror the
-    // event path's bidirectional detection so the sweep stays consistent with it.
+    // Eq/Lte/Lt can flip false→true as the count falls (Entered), not only true→false (Left).
     let kind = match (predicate_before, predicate_after) {
         (false, true) => Some(TransitionKind::Entered),
         (true, false) => Some(TransitionKind::Left),
@@ -361,8 +336,7 @@ fn evict_compressed(
         };
         (EvictionAction::Write(advanced.encode()), Some(new_deadline))
     };
-    // Same still-member invariant as daily: `predicate_after` ⟹ `count >= 1` ⟹ a surviving entry ⟹ a
-    // finite deadline ⟹ the `Write` branch, so an `Entered`/still-member `Left` never deletes.
+    // predicate_after ⟹ count ≥ 1 ⟹ finite deadline ⟹ Write branch, never Delete.
     debug_assert!(
         !predicate_after || matches!(action, EvictionAction::Write(_)),
         "a still-member eviction must rewrite + reschedule, not delete (relies on compressed_predicate's count>=1 floor)",
@@ -377,9 +351,7 @@ fn evict_compressed(
 }
 
 /// Build the membership transition for an evicted key. The sweep starts from a [`Stage1Key`] +
-/// catalog meta rather than an event, so `condition_hash` comes from [`LeafStateMeta`]. `kind` is
-/// always `Left` for a single (its `has_match` is never cleared, so it only ever expires) and either
-/// direction for a daily or compressed slide.
+/// catalog meta rather than an event, so `condition_hash` comes from [`LeafStateMeta`].
 fn transition_for(key: Stage1Key, meta: &LeafStateMeta, kind: TransitionKind) -> LeafTransition {
     LeafTransition {
         team_id: TeamId(key.team_id as i32),

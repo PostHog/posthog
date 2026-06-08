@@ -2,7 +2,7 @@
 //!
 //! Pure, zone-agnostic, and total: every function takes time as an `i64` (epoch ms) plus a
 //! [`Tz`] and returns without a `Result` and without reading a wall-clock "now". The bucket
-//! variants (PR 2.1) and the sweep (PR 2.2) consume it; nothing here yet changes the event path.
+//! variants and the sweep consume it.
 //!
 //! ## Window boundary (the highest-risk decision)
 //!
@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn year_and_day_windows_agree_on_three_hundred_sixty_five() {
-        // D8: a 365-day window and a 1-year window (year.to_days() == 365) start on the same day.
+        // A 365-day window and a 1-year window (year.to_days() == 365) start on the same day.
         let now_ms = utc_ms(2026, 5, 26, 9, 0);
         assert_eq!(
             window_start_day(now_ms, 365, UTC),

@@ -255,7 +255,6 @@ mod tests {
         assert_eq!(TimeInterval::Week.to_days(), 7);
         assert_eq!(TimeInterval::Month.to_days(), 30);
         assert_eq!(TimeInterval::Year.to_days(), 365);
-        // D8: 365 days ≡ 1 year.
         assert_eq!(
             TimeInterval::Year.to_days(),
             365 * TimeInterval::Day.to_days()
@@ -330,7 +329,7 @@ mod tests {
                 Some(1),
                 "year",
                 compressed,
-                "D8: year,1 = 365 days → compressed",
+                "year,1 = 365 days → compressed",
             ),
             (
                 Some(365),

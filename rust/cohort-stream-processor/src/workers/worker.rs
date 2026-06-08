@@ -89,14 +89,13 @@ impl Stage1Worker {
     }
 }
 
-/// The drain loop. Messages are processed in arrival order — the per-partition ordering guarantee
-/// the affinity model rests on. An `Event` folds through the state machine and (re)schedules its
-/// behavioral writes into `queue`; a `Sweep` drains `queue` for the keys past the cutoff and evicts
-/// them. Each event sub-batch is produced and acked before its offset is marked.
+/// The drain loop. Messages are processed in arrival order — the per-partition ordering guarantee.
+/// An `Event` folds through the state machine and (re)schedules its behavioral writes into `queue`;
+/// a `Sweep` drains `queue` for the keys past the cutoff and evicts them. Each event sub-batch is
+/// produced and acked before its offset is marked.
 ///
 /// `queue` lives across the loop as a single-mutator `let mut` (no sync): the worker is the only one
-/// to touch its own `EvictionQueue`, the worker-affinity invariant that makes the in-memory queue
-/// lock-free. It is rebuilt from events per tenure and dropped when the worker exits on revoke.
+/// to touch its own `EvictionQueue`, making the in-memory queue lock-free.
 async fn run_worker(
     partition_id: u16,
     mut receiver: mpsc::Receiver<Vec<ShuffleMessage>>,
@@ -132,8 +131,7 @@ async fn run_worker(
                         queue.schedule(key, deadline);
                     }
                 }
-                // Self-contained: the sweep produces its own membership changes and applies its own
-                // state mutation, bypassing the event buffer and offset (it carries no Kafka offset).
+                // The sweep is self-contained: produces and writes its own results, carries no Kafka offset.
                 ShuffleMessage::Sweep { due_before_ms } => {
                     handle_sweep(
                         partition_id,
@@ -268,7 +266,7 @@ fn handle_event(
 /// entry. On any produce error it reschedules every popped key at its original deadline and writes
 /// nothing — next tick re-derives the same changes against the still-present state and retries. A
 /// crash strictly between the ack and the state-write is at-most-once (the state stays, but the
-/// change was emitted), the same posture as the event path's shadow output (closed by PR 3.5).
+/// change was emitted), the same posture as the event path's shadow output.
 async fn handle_sweep(
     partition_id: u16,
     store: &CohortStore,
@@ -338,7 +336,7 @@ async fn handle_sweep(
 
     // Produce the membership changes (a daily eq/lte/lt slide can Enter, not only Leave) and await all
     // acks before mutating any state (produce before write). Split the counter before `produce` moves
-    // `changes`, then increment once the flush is durable — mirroring the event-path flush.
+    // `changes`, then increment once the flush is durable.
     if !changes.is_empty() {
         let (entered, left) = count_by_status(&changes);
         let acks = sink.produce(changes).await;
@@ -386,7 +384,7 @@ async fn handle_sweep(
             return;
         }
 
-        // Reschedule the survivors (daily windows still holding buckets) at their next deadline.
+        // Reschedule survivors at their next deadline.
         for result in &results {
             if let Some(deadline) = result.reschedule {
                 queue.schedule(result.key, deadline);
@@ -395,17 +393,15 @@ async fn handle_sweep(
         }
     }
 
-    // Commit point reached (every eviction is durable, or there was nothing to evict): count the
-    // dropped keys now — the same point as `SWEEP_KEYS_EVICTED_TOTAL` — so a produce/write failure
-    // above (which returned early) re-derives and counts each drop exactly once on its eventual
-    // success, keeping `popped == evicted + dropped` exact in steady state.
+    // Count drops here at the commit point so a produce/write failure (which returned early)
+    // re-derives them, keeping popped == evicted + dropped exact.
     for reason in &drops {
         counter!(SWEEP_KEYS_DROPPED_TOTAL, "reason" => reason.as_str()).increment(1);
     }
 }
 
 /// Reschedule every popped key at its original deadline (still `< due_before_ms`, so it re-pops next
-/// tick) — the produce/write-failure retry path.
+/// tick).
 fn reschedule_all(queue: &mut EvictionQueue<Stage1Key>, popped: &[(Stage1Key, i64)]) {
     for &(key, deadline) in popped {
         queue.schedule(key, deadline);
@@ -425,12 +421,8 @@ fn reschedule_team(
     }
 }
 
-/// Map a transition to its `stage1_transitions_total{kind}` label. An unknown LSK maps to no metric.
-/// A `BehavioralSingle` `Left` is only ever produced by the sweep (the event path never clears a
-/// match), so it carries the `behavioral_left` label to keep the sweep's conservation story uniform.
-/// A daily slide emits either direction — `behavioral_daily_left`, or `behavioral_daily_entered` when
-/// a falling count enters an `eq`/`lte`/`lt` range; the compressed (>180-day) variant mirrors it with
-/// `behavioral_compressed_left` / `behavioral_compressed_entered`.
+/// Map a transition to its `stage1_transitions_total{kind}` label. An unknown LSK returns `None`.
+/// A `BehavioralSingle` `Left` is only emitted by the sweep (the event path never clears a match).
 fn transition_metric_label(
     filters: &TeamFilters,
     transition: &LeafTransition,

@@ -1,10 +1,7 @@
 //! The periodic sweep timer and its [`Sweeper`] seam, plus the safety-margin → cutoff bridge.
 //!
 //! The eviction queue is per-worker (one [`EvictionQueue`](super::EvictionQueue) per partition
-//! worker; §2.5 worker-affinity), so the timer itself owns no state. Each tick it asks a [`Sweeper`]
-//! to run one pass; PR 2.3 supplies the real impl — enumerate the owned partitions and route a
-//! `ShuffleMessage::Sweep` to each worker, which then drains its own queue. PR 2.2 ships the timer
-//! and the seam, decoupled and exhaustively testable on their own.
+//! worker), so the timer itself owns no state. Each tick it asks a [`Sweeper`] to run one pass.
 
 use std::time::{Duration, Instant};
 
@@ -16,8 +13,7 @@ use tracing::{debug, info};
 
 use crate::observability::metrics::{SWEEP_CYCLES_TOTAL, SWEEP_CYCLE_DURATION_SECONDS};
 
-/// One sweep pass. Behind a trait so [`run_sweep_loop`] is testable with an in-process fake and
-/// PR 2.3 can supply the real routing impl (over `Arc<EventDispatcher>`) without touching the timer.
+/// One sweep pass. Behind a trait so [`run_sweep_loop`] is testable with an in-process fake.
 ///
 /// Implementations must not panic: a panic in `run_once` would abort the timer task and stop all
 /// future sweeps. Any per-partition failure should be handled and counted inside the impl.
@@ -46,9 +42,6 @@ pub fn due_before_ms(now_ms: i64, safety_margin_ms: i64) -> i64 {
 /// - **`biased` select, cancel first**: a shutdown requested mid-interval is honored before the next
 ///   tick. An in-flight `run_once` is never interrupted — `select!` only races the two *futures*, so
 ///   once `run_once` is being polled it runs to completion before the loop re-checks `cancel`.
-///
-/// Mirrors [`run_rebalance_worker`](crate::partitions::run_rebalance_worker)'s [`CancellationToken`]
-/// contract; PR 2.3 spawns this in `main.rs` with `consumer_handle.shutdown_token()`.
 pub async fn run_sweep_loop<S: Sweeper>(sweeper: S, interval: Duration, cancel: CancellationToken) {
     let mut ticker = tokio::time::interval(interval);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -79,7 +72,6 @@ mod tests {
 
     use super::*;
 
-    /// A [`Sweeper`] that counts its invocations; the run-loop tests assert on the count.
     #[derive(Clone, Default)]
     struct CountingSweeper {
         count: Arc<AtomicUsize>,

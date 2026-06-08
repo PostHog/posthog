@@ -1,30 +1,14 @@
-//! Dense daily-bucket array operations, shared by the event path (PR 2.1) and the sweep (PR 2.3).
+//! Dense daily-bucket operations for `performed_event_multiple` windows ≤ 180 days.
 //!
-//! A `performed_event_multiple` leaf stores its window as a dense `[u32; window_days + 1]` count
-//! array plus a `window_start_day` anchor. Both the per-event fold ([`super::super::workers::event_path`])
-//! and the time-driven eviction ([`super::super::workers::sweep_callback`]) advance that window
-//! forward as calendar time passes; this module is the one tested source of truth for the subtle
-//! boundary math so the two can never drift.
-//!
-//! Everything here is pure and clock-free: a caller supplies the target "now" day (the event's own
-//! day on the fold path, `day_idx_in_tz(due_before_ms)` on the sweep path), and the window slides to
-//! cover it. The only timezone-aware primitive is [`daily_eviction_deadline`], which converts a day
-//! index back to its local-midnight instant.
+//! Pure and clock-free: callers supply the target "now" day index. The only timezone-aware call is
+//! [`daily_eviction_deadline`], which converts a day index to a local-midnight instant.
 
 use chrono_tz::Tz;
 
 use crate::stage1::bucket_tz::start_of_day_ms_in_tz;
 
-/// Slide the dense window forward so its "now" day is `target_now_day`, dropping the buckets that
-/// fall out of the lower bound and zeroing the vacated tail. A no-op when the window already covers
-/// `target_now_day` (i.e. `target_now_day <= window_start_day + window_days`): the window only ever
-/// moves forward, never back.
-///
-/// This is the AHEAD slide the event path performs per matching event
-/// ([`mutate_behavioral_daily`](crate::workers::event_path)) **without** the trailing
-/// `buckets[last] += 1`; the sweep performs the same slide with no increment to age stale buckets out
-/// at a wall-clock deadline. Operates on a `&mut [u32]` because the slide never changes the array
-/// length (`buckets.len() == window_days + 1`, the caller's invariant).
+/// Slide the dense window forward to `target_now_day`, zeroing the vacated tail. No-op when the
+/// window already covers `target_now_day`; the window only moves forward, never back.
 pub(crate) fn slide_window_forward(
     buckets: &mut [u32],
     window_start_day: &mut i32,
@@ -32,9 +16,8 @@ pub(crate) fn slide_window_forward(
     target_now_day: i32,
 ) {
     let len = buckets.len();
-    let cur_now_day = *window_start_day + window_days as i32; // = window_start_day + (len − 1)
+    let cur_now_day = *window_start_day + window_days as i32;
     if target_now_day <= cur_now_day {
-        // The window already reaches `target_now_day`; nothing has aged out.
         return;
     }
 
@@ -77,8 +60,6 @@ mod tests {
 
     use crate::stage1::bucket_tz::{day_idx_in_tz, start_of_day_ms_in_tz};
 
-    /// Run the slide and return the mutated `(buckets, window_start_day)` so a case table reads as
-    /// data, not procedure.
     fn slide(
         mut buckets: Vec<u32>,
         mut window_start_day: i32,
@@ -105,7 +86,6 @@ mod tests {
 
     #[test]
     fn slide_to_a_past_now_day_never_moves_backward() {
-        // A target before the window's current now-day is ignored (the window only moves forward).
         let buckets = vec![1, 2, 3, 4, 5, 6, 7, 8];
         let (after, start) = slide(buckets.clone(), 100, 7, 105);
         assert_eq!(after, buckets, "no slide for a past target");
