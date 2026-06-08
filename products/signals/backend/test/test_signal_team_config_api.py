@@ -22,10 +22,29 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert data["default_slack_notification_channel"] is None
         assert data["default_autostart_priority"] == "P0"
 
-    def test_get_config_returns_404_when_no_config_exists(self):
+    def test_get_config_lazily_creates_when_no_config_exists(self):
         self.config.delete()
+        assert not SignalTeamConfig.objects.filter(team=self.team).exists()
         response = self.client.get(self._url())
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["default_autostart_priority"] == "P0"
+        assert data["default_slack_notification_channel"] is None
+        assert SignalTeamConfig.objects.filter(team=self.team).exists()
+
+    def test_post_config_lazily_creates_when_no_config_exists(self):
+        self.config.delete()
+        assert not SignalTeamConfig.objects.filter(team=self.team).exists()
+        response = self.client.post(
+            self._url(),
+            data={"default_slack_notification_channel": "C123|#posthog-signals"},
+            format="json",
+        )
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["default_slack_notification_channel"] == "C123|#posthog-signals"
+        config = SignalTeamConfig.objects.get(team=self.team)
+        assert config.default_slack_notification_channel == "C123|#posthog-signals"
 
     @parameterized.expand(
         [
