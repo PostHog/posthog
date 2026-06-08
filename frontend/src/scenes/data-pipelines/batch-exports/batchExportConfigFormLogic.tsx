@@ -6,6 +6,7 @@ import { beforeUnload, router } from 'kea-router'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -545,6 +546,8 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
             ['timezone as teamTimezone', 'weekStartDay as teamWeekStartDay'],
             batchExportDataLogic({ id: props.id }),
             ['batchExportConfig', 'batchExportConfigLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             batchExportDataLogic({ id: props.id }),
@@ -724,8 +727,8 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 !!service && ['Postgres', 'Redshift', 'Snowflake', 'Databricks', 'BigQuery'].includes(service),
         ],
         requiredFields: [
-            (s) => [s.service, s.isNew, s.configuration],
-            (service, isNew, config): string[] => {
+            (s) => [s.service, s.isNew, s.configuration, s.featureFlags],
+            (service, isNew, config, featureFlags): string[] => {
                 const generalRequiredFields = ['interval', 'name', 'model']
                 if (!service) {
                     return generalRequiredFields
@@ -734,7 +737,10 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 if (!definition) {
                     return generalRequiredFields
                 }
-                return [...generalRequiredFields, ...definition.requiredFields({ isNew, formValues: config })]
+                return [
+                    ...generalRequiredFields,
+                    ...definition.requiredFields({ isNew, formValues: config, featureFlags }),
+                ]
             },
         ],
     })),

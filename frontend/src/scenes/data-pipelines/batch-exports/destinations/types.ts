@@ -1,5 +1,7 @@
 import type React from 'react'
 
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+
 import type { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import type { BatchExportService } from '~/types'
 
@@ -8,6 +10,7 @@ export type BatchExportServiceType = BatchExportService['type']
 export interface DestinationContext {
     isNew: boolean
     formValues: Record<string, any>
+    featureFlags: FeatureFlagsSet
 }
 
 // Overrides applied to the events table preview shown in the HogQL model picker.
