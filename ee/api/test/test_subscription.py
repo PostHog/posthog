@@ -2180,6 +2180,39 @@ class TestAISubscriptionAPI(APILicensedTest):
 
     @parameterized.expand(
         [
+            # A query:read SCOPE on a personal key is a capability flag, not proof of query RBAC — a
+            # restricted member can freely mint one. The RBAC gate must fire for token auth too, not
+            # just session auth, so AI writes are blocked; insight writes carry no prompt and stay allowed.
+            ("create_ai", "ai_prompt", "create", status.HTTP_403_FORBIDDEN),
+            ("deliver_ai", "ai_prompt", "test_delivery", status.HTTP_403_FORBIDDEN),
+            ("create_insight", "insight", "create", status.HTTP_201_CREATED),
+            ("deliver_insight", "insight", "test_delivery", status.HTTP_202_ACCEPTED),
+        ]
+    )
+    def test_scoped_key_query_restricted_member(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, resource_kind, flow, expected_status
+    ):
+        self._mock_temporal(mock_sync)
+        cache.clear()  # avoid test-delivery throttle state leaking across parameterized cases
+        headers = self._scoped_key_headers(["subscription:write", "query:read"])
+        if flow == "create":
+            if resource_kind == "ai_prompt":
+                self._enable_ai()
+                payload = self._make_ai_payload()
+            else:
+                payload = self._insight_payload()
+            self._restrict_query_access()
+            response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload, headers=headers)
+        else:
+            sub_id = self._create_subscription_for(resource_kind)
+            self._restrict_query_access()
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/", headers=headers
+            )
+        assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
             # The owner bypasses access controls; a plain member with no explicit query row keeps
             # the default "editor" level. Both clear the read gate, so the create path must not regress.
             ("owner", False),

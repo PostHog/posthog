@@ -27,7 +27,6 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import SessionAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import (
     SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
@@ -793,9 +792,11 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     ordering = ["-created_at"]
 
     # Writing an AI prompt subscription also requires query-read access: it runs LLM-generated
-    # HogQL and delivers the results, so subscription:write alone could exfiltrate analytics. Both
-    # gates below decide this off _write_touches_ai_subscription — tokens via a required scope,
-    # session users (which bypass scopes) via an RBAC check.
+    # HogQL and delivers the results, so subscription:write alone could exfiltrate analytics.
+    # Two layers gate this off _write_touches_ai_subscription: a required query:read scope keeps a
+    # token least-privileged, and the RBAC check in check_permissions enforces actual query access
+    # for every write — a scope is only a capability flag, not proof of RBAC (personal keys can
+    # carry query:read without it), and session auth has no scopes at all.
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return None
@@ -806,10 +807,11 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
 
     def check_permissions(self, request) -> None:
         super().check_permissions(request)
-        # Session auth bypasses the query:read scope above, so enforce query access here instead.
+        # Enforce query-viewer RBAC for every AI-prompt write, regardless of auth: the query:read
+        # scope above gates tokens but does not prove the owner has query access, and session auth
+        # bypasses scopes entirely.
         if (
             request.method not in ("GET", "HEAD", "OPTIONS")
-            and isinstance(request.successful_authenticator, SessionAuthentication)
             and self._write_touches_ai_subscription(request, self)
             and not self.user_access_control.check_access_level_for_resource("query", "viewer")
         ):
