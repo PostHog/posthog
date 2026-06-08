@@ -127,117 +127,74 @@ function GatewayEndpoint({ gateway }: { gateway: GatewayApi }): JSX.Element {
     const gatewayBase = `${preflight.ai_gateway_url.replace(/\/$/, '')}/g/${gateway.slug}`
     const key = '<phx_ personal API key assigned to this gateway>'
 
-    // Each language shows both supported shapes (OpenAI and Anthropic SDKs); cURL last.
-    const tabs: Record<EndpointTab, JSX.Element> = {
-        typescript: (
-            <SdkExamples
-                language={Language.TypeScript}
-                openai={`import OpenAI from 'openai'
+    // OpenAI-shaped examples (the broadest compatibility); cURL last. Anthropic SDKs
+    // work too — see the note below. The slug rides the path, so it's a base-URL change.
+    const tabs: { key: EndpointTab; label: string; language: Language; code: string }[] = [
+        {
+            key: 'typescript',
+            label: 'TypeScript',
+            language: Language.TypeScript,
+            code: `import OpenAI from 'openai'
 
 const client = new OpenAI({
-    baseURL: '${gatewayBase}/v1', // SDK appends "chat/completions"
+    baseURL: '${gatewayBase}/v1',
     apiKey: '${key}',
 })
-await client.chat.completions.create({
+const response = await client.chat.completions.create({
     model: 'gpt-4o',
     messages: [{ role: 'user', content: 'Hello' }],
-})`}
-                anthropic={`import Anthropic from '@anthropic-ai/sdk'
-
-const client = new Anthropic({
-    baseURL: '${gatewayBase}', // SDK appends "/v1/messages"
-    authToken: '${key}', // sets the Bearer header
-})
-await client.messages.create({
-    model: 'claude-sonnet-4.6',
-    max_tokens: 512,
-    messages: [{ role: 'user', content: 'Hello' }],
-})`}
-            />
-        ),
-        python: (
-            <SdkExamples
-                language={Language.Python}
-                openai={`from openai import OpenAI
+})`,
+        },
+        {
+            key: 'python',
+            label: 'Python',
+            language: Language.Python,
+            code: `from openai import OpenAI
 
 client = OpenAI(
-    base_url="${gatewayBase}/v1",  # SDK appends "chat/completions"
+    base_url="${gatewayBase}/v1",
     api_key="${key}",
 )
 client.chat.completions.create(
     model="gpt-4o",
     messages=[{"role": "user", "content": "Hello"}],
-)`}
-                anthropic={`from anthropic import Anthropic
-
-client = Anthropic(
-    base_url="${gatewayBase}",  # SDK appends "/v1/messages"
-    auth_token="${key}",  # sets the Bearer header
-)
-client.messages.create(
-    model="claude-sonnet-4.6",
-    max_tokens=512,
-    messages=[{"role": "user", "content": "Hello"}],
-)`}
-            />
-        ),
-        curl: (
-            <CodeSnippet language={Language.Bash}>
-                {`curl ${gatewayBase}/v1/messages \\
+)`,
+        },
+        {
+            key: 'curl',
+            label: 'cURL',
+            language: Language.Bash,
+            code: `curl ${gatewayBase}/v1/chat/completions \\
   -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "claude-sonnet-4.6",
-    "max_tokens": 512,
+    "model": "gpt-4o",
     "messages": [{"role": "user", "content": "Hello"}]
-  }'`}
-            </CodeSnippet>
-        ),
-    }
+  }'`,
+        },
+    ]
 
     return (
         <section className="flex flex-col gap-2">
             <p className="text-secondary m-0">
-                Point any OpenAI- or Anthropic-shaped client at this gateway's base URL and authenticate with a key
-                assigned to it. The slug rides the path, so each SDK reaches the gateway with only a base-URL change.
+                Point any OpenAI- or Anthropic-compatible client at this gateway's base URL and authenticate with a key
+                assigned to it.
             </p>
             <CodeSnippet language={Language.Bash}>{gatewayBase}</CodeSnippet>
             <LemonTabs
                 activeKey={endpointTab}
                 onChange={setEndpointTab}
-                tabs={[
-                    { key: 'typescript', label: 'TypeScript' },
-                    { key: 'python', label: 'Python' },
-                    { key: 'curl', label: 'cURL' },
-                ]}
+                tabs={tabs.map(({ key, label, language, code }) => ({
+                    key,
+                    label,
+                    content: <CodeSnippet language={language}>{code}</CodeSnippet>,
+                }))}
             />
-            {tabs[endpointTab]}
+            <p className="text-secondary text-xs m-0">
+                Using the Anthropic SDK? Point its base URL at <code>{gatewayBase}</code> (it appends{' '}
+                <code>/v1/messages</code> itself).
+            </p>
         </section>
-    )
-}
-
-// Both supported request shapes for one language: the OpenAI SDK (base + /v1) and
-// the Anthropic SDK (base only — it appends /v1/messages itself).
-function SdkExamples({
-    language,
-    openai,
-    anthropic,
-}: {
-    language: Language
-    openai: string
-    anthropic: string
-}): JSX.Element {
-    return (
-        <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1">
-                <span className="text-secondary text-xs font-semibold uppercase">OpenAI SDK</span>
-                <CodeSnippet language={language}>{openai}</CodeSnippet>
-            </div>
-            <div className="flex flex-col gap-1">
-                <span className="text-secondary text-xs font-semibold uppercase">Anthropic SDK</span>
-                <CodeSnippet language={language}>{anthropic}</CodeSnippet>
-            </div>
-        </div>
     )
 }
 
