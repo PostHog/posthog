@@ -4,6 +4,7 @@ import datetime as dt
 from typing import Any
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import QuerySet
 
 import structlog
@@ -22,6 +23,7 @@ from posthog.permissions import AccessControlPermission
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
+from products.ai_observability.backend.models.evaluations import Evaluation
 from products.workflows.backend.utils.rrule_utils import validate_rrule
 
 logger = structlog.get_logger(__name__)
@@ -322,8 +324,29 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         return super().partial_update(request, *args, **kwargs)
 
-    def perform_create(self, serializer):
-        instance = serializer.save()
+    def _validate_single_non_deleted_config(
+        self, evaluation: Evaluation, exclude_report: EvaluationReport | None = None
+    ) -> None:
+        Evaluation.objects.select_for_update().get(id=evaluation.id, team_id=self.team_id)
+        existing_reports = EvaluationReport.objects.filter(
+            team_id=self.team_id,
+            evaluation=evaluation,
+            deleted=False,
+        )
+        if exclude_report is not None:
+            existing_reports = existing_reports.exclude(id=exclude_report.id)
+        if existing_reports.exists():
+            raise serializers.ValidationError(
+                {"evaluation": "An evaluation can only have one non-deleted report config."}
+            )
+
+    def perform_create(self, serializer: EvaluationReportSerializer) -> None:
+        with transaction.atomic():
+            evaluation = serializer.validated_data["evaluation"]
+            if serializer.validated_data.get("deleted") is not True:
+                self._validate_single_non_deleted_config(evaluation)
+            instance = serializer.save()
+
         report_user_action(
             self.request.user,
             "llma evaluation report created",
@@ -345,7 +368,22 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
             request=self.request,
         )
 
-    def perform_update(self, serializer):
+    def perform_update(self, serializer: EvaluationReportSerializer) -> None:
+        target_evaluation = serializer.validated_data.get("evaluation", serializer.instance.evaluation)
+        target_deleted = serializer.validated_data.get("deleted", serializer.instance.deleted)
+        is_becoming_non_deleted = serializer.instance.deleted and target_deleted is False
+        is_moving_while_non_deleted = (
+            target_deleted is False and target_evaluation.id != serializer.instance.evaluation_id
+        )
+        if is_becoming_non_deleted or is_moving_while_non_deleted:
+            with transaction.atomic():
+                self._validate_single_non_deleted_config(target_evaluation, exclude_report=serializer.instance)
+                self._perform_update_and_track(serializer)
+            return
+
+        self._perform_update_and_track(serializer)
+
+    def _perform_update_and_track(self, serializer: EvaluationReportSerializer) -> None:
         tracked_fields = [
             "frequency",
             "rrule",

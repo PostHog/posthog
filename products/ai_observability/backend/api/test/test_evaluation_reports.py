@@ -139,6 +139,23 @@ class TestEvaluationReportApi(APIBaseTest):
         response = self.client.post(self.base_url, self._scheduled_payload(delivery_targets=[]), format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_create_rejects_second_non_deleted_report_for_evaluation(self):
+        self._create_report()
+
+        response = self.client.post(self.base_url, self._scheduled_payload(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "evaluation")
+        self.assertEqual(EvaluationReport.objects.filter(evaluation=self.evaluation, deleted=False).count(), 1)
+
+    def test_create_allows_report_when_existing_config_is_deleted(self):
+        self._create_report(deleted=True)
+
+        response = self.client.post(self.base_url, self._scheduled_payload(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(EvaluationReport.objects.filter(evaluation=self.evaluation, deleted=False).count(), 1)
+
     def test_create_scheduled_requires_rrule(self):
         response = self.client.post(self.base_url, self._scheduled_payload(rrule=""), format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -337,6 +354,51 @@ class TestEvaluationReportApi(APIBaseTest):
         report.refresh_from_db()
         self.assertEqual(report.frequency, "scheduled")
         self.assertEqual(report.rrule, "FREQ=WEEKLY;BYDAY=MO")
+
+    def test_update_allows_editing_existing_historical_duplicate_reports(self):
+        self._create_report()
+        duplicate = self._create_report(delivery_targets=[{"type": "email", "value": "duplicate@example.com"}])
+
+        response = self.client.patch(f"{self.base_url}{duplicate.id}/", {"enabled": False}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        duplicate.refresh_from_db()
+        self.assertFalse(duplicate.enabled)
+
+    def test_update_rejects_undeleting_report_when_non_deleted_config_exists(self):
+        self._create_report()
+        deleted_report = self._create_report(deleted=True)
+
+        response = self.client.patch(f"{self.base_url}{deleted_report.id}/", {"deleted": False}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "evaluation")
+        deleted_report.refresh_from_db()
+        self.assertTrue(deleted_report.deleted)
+
+    def test_update_rejects_moving_report_to_evaluation_with_non_deleted_config(self):
+        self._create_report()
+        other_evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Other Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "other"},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+        report = self._create_report(evaluation=other_evaluation)
+
+        response = self.client.patch(
+            f"{self.base_url}{report.id}/", {"evaluation": str(self.evaluation.id)}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "evaluation")
+        report.refresh_from_db()
+        self.assertEqual(report.evaluation_id, other_evaluation.id)
 
     def test_delete_returns_405(self):
         report = self._create_report()

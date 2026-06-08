@@ -112,4 +112,19 @@ describe('evaluationReportLogic', () => {
         expect(patchBodies).toEqual([{ enabled: false }, { enabled: false }])
         expect(logic.values.reports.filter((r) => !r.deleted).every((r) => !r.enabled)).toBe(true)
     })
+
+    it('re-enables only the visible report so historical duplicates stay paused', async () => {
+        reports = [makeReport({ id: 'report-1', enabled: false }), makeReport({ id: 'report-2', enabled: false })]
+        logic.actions.loadReports()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setReportsEnabled(true)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(patchBodies).toEqual([{ enabled: true }])
+        expect(logic.values.reports).toEqual([
+            expect.objectContaining({ id: 'report-1', enabled: true }),
+            expect.objectContaining({ id: 'report-2', enabled: false }),
+        ])
+    })
 })

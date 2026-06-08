@@ -332,12 +332,14 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     )
                     return values.reports.filter((r) => r.id !== reportId)
                 },
-                // Pause/resume the report without deleting its config. The scheduler only
-                // delivers reports with enabled=True, so this is a true pause. We flip every
-                // non-deleted config for the evaluation — historically an evaluation could end
-                // up with more than one, and leaving any enabled would keep delivering.
+                // Pause/resume the report without deleting its config. Pausing flips every
+                // non-deleted config for the evaluation because historical duplicates can
+                // otherwise keep delivering. Resuming only flips the canonical visible config.
                 setReportsEnabled: async (enabled: boolean) => {
-                    const targets = values.reports.filter((r) => !r.deleted)
+                    const targets =
+                        enabled && values.activeReport
+                            ? [values.activeReport]
+                            : values.reports.filter((r) => !r.deleted)
                     const updated = await Promise.all(
                         targets.map((r) =>
                             // nosemgrep: prefer-codegen-api
