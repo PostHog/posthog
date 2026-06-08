@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import ANY, MagicMock, patch
@@ -2166,9 +2167,8 @@ class TestExperimentCRUD(APILicensedTest):
 
             assert result["count"] == 2
 
-            self.assertCountEqual(
-                [(res["key"], res["experiment_set"]) for res in result["results"]],
-                [("flag_0", []), (ff_key, [created_experiment])],
+            assert sorted([(res["key"], res["experiment_set"]) for res in result["results"]]) == sorted(
+                [("flag_0", []), (ff_key, [created_experiment])]
             )
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
@@ -5081,8 +5081,8 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
 
         assert response.status_code == status.HTTP_201_CREATED
         stats_config = response.json()["stats_config"]
-        self.assertAlmostEqual(stats_config["bayesian"]["ci_level"], 0.90)
-        self.assertAlmostEqual(stats_config["frequentist"]["alpha"], 0.10)
+        assert stats_config["bayesian"]["ci_level"] == pytest.approx(0.90)
+        assert stats_config["frequentist"]["alpha"] == pytest.approx(0.10)
 
     def test_experiment_activity_logging_shows_correct_user_for_updates(self):
         """Test that experiment activity logs show the correct user for both creation and updates."""

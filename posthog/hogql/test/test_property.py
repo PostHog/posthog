@@ -172,20 +172,11 @@ class TestProperty(BaseTest):
         assert self._property_to_expr(
             {"type": "event", "key": "a", "value": [], "operator": "exact"}
         ) == self._parse_expr("true")
-        self.assertEqual(
-            self._parse_expr("1"),
-            self._property_to_expr(
-                {"type": "event", "key": "a", "operator": "icontains"}, strict=False
-            ),  # value missing
-        )
-        self.assertEqual(
-            self._parse_expr("1"),
-            self._property_to_expr({}, strict=False),  # incomplete event
-        )
-        self.assertEqual(
-            self._parse_expr("1"),
-            self._property_to_expr(EmptyPropertyFilter()),  # type: ignore
-        )
+        assert self._parse_expr("1") == self._property_to_expr(
+            {"type": "event", "key": "a", "operator": "icontains"}, strict=False
+        )  # value missing
+        assert self._parse_expr("1") == self._property_to_expr({}, strict=False)  # incomplete event
+        assert self._parse_expr("1") == self._property_to_expr(EmptyPropertyFilter())  # type: ignore
 
     def test_property_to_expr_boolean(self):
         PropertyDefinition.objects.create(
@@ -209,14 +200,11 @@ class TestProperty(BaseTest):
         assert self._property_to_expr(
             {"type": "event", "key": "boolean_prop", "value": "false"}, team=self.team
         ) == self._parse_expr("properties.boolean_prop = false")
-        self.assertEqual(
-            self._property_to_expr(
-                {"type": "event", "key": "unknown_prop", "value": "true"},
-                team=self.team,
-            ),
-            self._parse_expr(
-                "properties.unknown_prop = 'true'"  # We don't have a type for unknown_prop, so string comparison it is
-            ),
+        assert self._property_to_expr(
+            {"type": "event", "key": "unknown_prop", "value": "true"},
+            team=self.team,
+        ) == self._parse_expr(
+            "properties.unknown_prop = 'true'"  # We don't have a type for unknown_prop, so string comparison it is
         )
         # Python boolean True (not string "true") should also work
         assert self._property_to_expr(

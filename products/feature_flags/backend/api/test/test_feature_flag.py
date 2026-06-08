@@ -3246,11 +3246,19 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert first_page_response.status_code == status.HTTP_200_OK
         first_page_json = first_page_response.json()
 
-        self.assertEqual(
-            # feature flag activity writes the flag key to the detail name
-            [log_item["detail"]["name"] for log_item in first_page_json["results"]],
-            ["14", "13", "12", "11", "10", "9", "8", "7", "6", "5"],
-        )
+        # feature flag activity writes the flag key to the detail name
+        assert [log_item["detail"]["name"] for log_item in first_page_json["results"]] == [
+            "14",
+            "13",
+            "12",
+            "11",
+            "10",
+            "9",
+            "8",
+            "7",
+            "6",
+            "5",
+        ]
         assert (
             first_page_json["next"]
             == f"http://testserver/api/projects/{self.team.id}/feature_flags/{flag_id}/activity?page=2&limit=10"
@@ -3262,11 +3270,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert second_page_response.status_code == status.HTTP_200_OK
         second_page_json = second_page_response.json()
 
-        self.assertEqual(
-            # feature flag activity writes the flag key to the detail name
-            [log_item["detail"]["name"] for log_item in second_page_json["results"]],
-            ["4", "3", "2", "1", "0"],
-        )
+        # feature flag activity writes the flag key to the detail name
+        assert [log_item["detail"]["name"] for log_item in second_page_json["results"]] == ["4", "3", "2", "1", "0"]
         assert second_page_json["next"] is None
         assert (
             second_page_json["previous"]

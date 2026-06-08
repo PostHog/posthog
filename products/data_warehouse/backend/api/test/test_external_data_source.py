@@ -1,6 +1,7 @@
 import json
 import uuid
 import typing as t
+from collections import Counter
 from typing import cast
 
 from freezegun import freeze_time
@@ -1246,29 +1247,26 @@ class TestExternalDataSource(APIBaseTest):
         payload = response.json()
 
         assert response.status_code == 200
-        self.assertListEqual(
-            list(payload.keys()),
-            [
-                "id",
-                "created_at",
-                "created_by",
-                "created_via",
-                "status",
-                "source_type",
-                "latest_error",
-                "prefix",
-                "description",
-                "access_method",
-                "engine",
-                "last_run_at",
-                "schemas",
-                "job_inputs",
-                "revenue_analytics_config",
-                "user_access_level",
-                "supports_webhooks",
-                "supports_column_selection",
-            ],
-        )
+        assert list(payload.keys()) == [
+            "id",
+            "created_at",
+            "created_by",
+            "created_via",
+            "status",
+            "source_type",
+            "latest_error",
+            "prefix",
+            "description",
+            "access_method",
+            "engine",
+            "last_run_at",
+            "schemas",
+            "job_inputs",
+            "revenue_analytics_config",
+            "user_access_level",
+            "supports_webhooks",
+            "supports_column_selection",
+        ]
         assert payload["engine"] is None
         assert payload["schemas"] == [
             {
@@ -1453,7 +1451,7 @@ class TestExternalDataSource(APIBaseTest):
                 "name", flat=True
             )
         )
-        self.assertCountEqual(names, ["table_a", "table_b"])
+        assert Counter(names) == Counter(["table_a", "table_b"])
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_creates_new_schemas_and_deletes_missing_schemas(self, mock_get_source):
@@ -1479,7 +1477,7 @@ class TestExternalDataSource(APIBaseTest):
                 "name", flat=True
             )
         )
-        self.assertCountEqual(names, ["new_table"])
+        assert Counter(names) == Counter(["new_table"])
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_adds_only_new_schemas(self, mock_get_source):

@@ -1981,10 +1981,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
         # User is now a member of the organization
         assert user.organization_memberships.count() == 1
-        self.assertEqual(
-            user.organization_memberships.first().organization,  # type: ignore
-            self.organization,
-        )
+        assert user.organization_memberships.first().organization == self.organization  # type: ignore
 
         # Defaults are set correctly
         assert user.organization == self.organization
@@ -2180,7 +2177,7 @@ class TestInviteSignupAPI(APIBaseTest):
         assert len(member_join_emails) == 0
         # Verify invite signup still sends verification email to the new user.
         assert len(mail.outbox) == 1
-        self.assertListEqual(mail.outbox[0].to, ['"Alice" <test+100@posthog.com>'])
+        assert mail.outbox[0].to == ['"Alice" <test+100@posthog.com>']
 
     def test_api_invite_sign_up_member_joined_email_is_sent_for_next_members(self):
         with override_instance_config("EMAIL_HOST", "localhost"):
@@ -2203,9 +2200,9 @@ class TestInviteSignupAPI(APIBaseTest):
 
             assert len(mail.outbox) == 2
             # Someone joined email is sent to the initial user
-            self.assertListEqual(mail.outbox[0].to, [initial_user.email])
+            assert mail.outbox[0].to == [initial_user.email]
             # Verify email is sent to the new user (formatted with name)
-            self.assertListEqual(mail.outbox[1].to, ['"Alice" <test+100@posthog.com>'])
+            assert mail.outbox[1].to == ['"Alice" <test+100@posthog.com>']
 
     def test_api_invite_sign_up_member_joined_email_is_not_sent_if_disabled(self):
         initial_user = User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
@@ -2341,21 +2338,18 @@ class TestInviteSignupAPI(APIBaseTest):
             {"first_name": "Bob", "password": VALID_TEST_PASSWORD + "_new"},
         )
         assert response.status_code == status.HTTP_201_CREATED
-        self.assertEqual(
-            response.json(),
-            {
-                "id": user.pk,
-                "uuid": str(user.uuid),
-                "distinct_id": user.distinct_id,
-                "last_name": "",
-                "first_name": "",
-                "email": "test+189@posthog.com",
-                "redirect_url": "/",
-                "is_email_verified": None,
-                "hedgehog_config": None,
-                "role_at_organization": None,
-            },  # note the unchanged attributes
-        )
+        assert response.json() == {
+            "id": user.pk,
+            "uuid": str(user.uuid),
+            "distinct_id": user.distinct_id,
+            "last_name": "",
+            "first_name": "",
+            "email": "test+189@posthog.com",
+            "redirect_url": "/",
+            "is_email_verified": None,
+            "hedgehog_config": None,
+            "role_at_organization": None,
+        }  # note the unchanged attributes
 
         # User is subscribed to the new organization
         user.refresh_from_db()

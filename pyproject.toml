@@ -336,7 +336,7 @@ select = [
     "E",
     "F",
     "I",
-    # "PT009",  # disabled for now: enforce pytest-style asserts over unittest assertEqual/assertTrue/etc. — re-enable once remaining test files are migrated
+    "PT009",  # enforce pytest-style asserts over unittest assertEqual/assertTrue/etc.
     "PLC0415",
     "RUF005",
     "RUF013",

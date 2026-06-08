@@ -104,8 +104,7 @@ class TestUserAPI(APIBaseTest):
         )  # Ensure we're not returning the full `Team`
         assert "event_names" not in response_data["organization"]["teams"][0]
 
-        self.assertCountEqual(
-            response_data["organizations"],
+        assert sorted(response_data["organizations"], key=lambda org: org["id"]) == sorted(
             [
                 {
                     "id": str(self.organization.id),
@@ -130,6 +129,7 @@ class TestUserAPI(APIBaseTest):
                     "is_pending_deletion": False,
                 },
             ],
+            key=lambda org: org["id"],
         )
 
     def test_current_user_includes_pending_invites(self):
@@ -1651,24 +1651,21 @@ class TestUserAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(
-            response_data["notification_settings"],
-            {
-                "plugin_disabled": False,
-                "discussions_mentioned": False,
-                "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
-                "all_weekly_digest_disabled": True,
-                "error_tracking_issue_assigned": False,
-                "error_tracking_weekly_digest": True,
-                "data_pipeline_error_threshold": 0.1,
-                "project_api_key_exposed": True,
-                "materialized_view_sync_failed": True,
-                "web_analytics_weekly_digest": True,
-                "organization_member_join_email_disabled": {},
-                "realtime_notifications_disabled": {},
-                "pipeline_notifications_disabled": {},
-            },
-        )
+        assert response_data["notification_settings"] == {
+            "plugin_disabled": False,
+            "discussions_mentioned": False,
+            "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
+            "all_weekly_digest_disabled": True,
+            "error_tracking_issue_assigned": False,
+            "error_tracking_weekly_digest": True,
+            "data_pipeline_error_threshold": 0.1,
+            "project_api_key_exposed": True,
+            "materialized_view_sync_failed": True,
+            "web_analytics_weekly_digest": True,
+            "organization_member_join_email_disabled": {},
+            "realtime_notifications_disabled": {},
+            "pipeline_notifications_disabled": {},
+        }
 
         self.user.refresh_from_db()
         assert self.user.partial_notification_settings == {
@@ -1925,24 +1922,21 @@ class TestUserAPI(APIBaseTest):
         response = self.client.patch("/api/users/@me/", {"notification_settings": {"all_weekly_digest_disabled": True}})
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        self.assertEqual(
-            response_data["notification_settings"],
-            {
-                "plugin_disabled": True,  # Default value
-                "discussions_mentioned": True,  # Default value
-                "project_weekly_digest_disabled": {},  # Default value
-                "all_weekly_digest_disabled": True,
-                "error_tracking_issue_assigned": True,  # Default value
-                "error_tracking_weekly_digest": True,  # Default value
-                "data_pipeline_error_threshold": 0.01,  # Default value
-                "project_api_key_exposed": True,  # Default value
-                "materialized_view_sync_failed": False,  # Default value
-                "web_analytics_weekly_digest": True,  # Default value
-                "organization_member_join_email_disabled": {},  # Default value
-                "realtime_notifications_disabled": {},  # Default value
-                "pipeline_notifications_disabled": {},  # Default value
-            },
-        )
+        assert response_data["notification_settings"] == {
+            "plugin_disabled": True,  # Default value
+            "discussions_mentioned": True,  # Default value
+            "project_weekly_digest_disabled": {},  # Default value
+            "all_weekly_digest_disabled": True,
+            "error_tracking_issue_assigned": True,  # Default value
+            "error_tracking_weekly_digest": True,  # Default value
+            "data_pipeline_error_threshold": 0.01,  # Default value
+            "project_api_key_exposed": True,  # Default value
+            "materialized_view_sync_failed": False,  # Default value
+            "web_analytics_weekly_digest": True,  # Default value
+            "organization_member_join_email_disabled": {},  # Default value
+            "realtime_notifications_disabled": {},  # Default value
+            "pipeline_notifications_disabled": {},  # Default value
+        }
 
 
 class TestSessionAuthEndpoints(APIBaseTest):
@@ -2100,7 +2094,7 @@ class TestEmailVerificationAPI(APIBaseTest):
             response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
         assert response.status_code == status.HTTP_200_OK
         assert response.content.decode() == '{"success":true}'
-        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
+        assert {",".join(outmail.to) for outmail in mail.outbox} == {self.CONFIG_EMAIL}
 
         assert mail.outbox[0].subject == "Verify your email address"
         assert mail.outbox[0].body == ""  # no plain-text version support yet

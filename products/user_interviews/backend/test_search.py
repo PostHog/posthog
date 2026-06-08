@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -81,7 +82,7 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         assert len(body) == 3
         assert body[0]["interview_id"] == str(self.interview_a.id)
         assert body[0]["document_type"] == "transcript"
-        self.assertAlmostEqual(body[0]["similarity"], 0.88, places=5)
+        assert body[0]["similarity"] == pytest.approx(0.88, abs=1e-5)
         assert body[0]["content_snippet"] == "alex talked about session replay buffering"
         assert body[0]["interviewee_identifier"] == "alex@example.com"
         assert body[0]["topic_id"] == str(self.topic.id)

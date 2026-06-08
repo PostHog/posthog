@@ -1,3 +1,5 @@
+from collections import Counter
+
 from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
@@ -764,7 +766,7 @@ class TestDependentCohorts(BaseTest):
         assert get_all_cohort_dependencies(cohort2) == [cohort1]
         assert get_all_cohort_dependencies(cohort3) == [cohort2, cohort1]
         assert get_all_cohort_dependencies(cohort4) == [cohort1]
-        self.assertCountEqual(get_all_cohort_dependencies(cohort5), [cohort4, cohort1, cohort2])
+        assert Counter(get_all_cohort_dependencies(cohort5)) == Counter([cohort4, cohort1, cohort2])
 
     def test_dependent_cohorts_ignore_invalid_ids(self):
         cohort1 = _create_cohort(

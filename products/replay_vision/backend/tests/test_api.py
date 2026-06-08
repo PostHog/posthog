@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -1051,7 +1052,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         assert summary["min"] == 1.0
         assert summary["max"] == 5.0
         assert summary["median"] == 3.0
-        self.assertAlmostEqual(summary["mean"], 3.0)
+        assert summary["mean"] == pytest.approx(3.0)
         histogram = body["scorer"]["histogram"]
         assert sum(histogram["counts"]) == 5
         assert len(histogram["labels"]) == len(histogram["counts"])

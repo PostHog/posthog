@@ -1158,10 +1158,8 @@ class TestPrinter(BaseTest):
             "avg(avg(properties.bla))",
             "Aggregation 'avg' cannot be nested inside another aggregation 'avg'.",
         )
-        self.assertEqual(  # does not error through subqueries
-            "avg((select avg(properties.bla) from events))",
-            "avg((select avg(properties.bla) from events))",
-        )
+        # does not error through subqueries
+        assert "avg((select avg(properties.bla) from events))" == "avg((select avg(properties.bla) from events))"
         self._assert_expr_error("person.chipotle", "Field not found: chipotle")
         self._assert_expr_error("properties.0", "SQL indexes start from one, not from zero. E.g: array.1")
         self._assert_expr_error(
@@ -2085,13 +2083,13 @@ class TestPrinter(BaseTest):
         sunday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, WeekStartDay.SUNDAY))
         monday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, WeekStartDay.MONDAY))
 
-        self.assertEqual(
-            self._expr("toStartOfWeek(timestamp)", default_week_context),  # Sunday is the default
-            f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 0)",
+        assert (
+            self._expr("toStartOfWeek(timestamp)", default_week_context)  # Sunday is the default
+            == f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 0)"
         )
-        self.assertEqual(
-            self._expr("toStartOfWeek(timestamp)"),  # Sunday is the default
-            f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 0)",
+        assert (
+            self._expr("toStartOfWeek(timestamp)")  # Sunday is the default
+            == f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 0)"
         )
         assert (
             self._expr("toStartOfWeek(timestamp)", sunday_week_context)
@@ -2779,12 +2777,11 @@ class TestPrinter(BaseTest):
             "select * from (SELECT properties.$browser, properties.$browser FROM events)",
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
-        self.assertEqual(
-            printed,
+        assert printed == (
             f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null'), "
             f"nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "  # only the second one gets the alias
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
-            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
         )
 
     def test_lookup_domain_type(self):

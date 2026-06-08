@@ -1,3 +1,4 @@
+from collections import Counter
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -451,9 +452,8 @@ class TestNotebookSharingGrantsInsightAccess(APIBaseTest):
 
         # Re-fetch the config so the cached `self.config.notebook` doesn't mask the edit
         config = SharingConfiguration.objects.select_related("notebook").get(pk=self.config.pk)
-        self.assertCountEqual(
-            config.get_connected_insight_ids(),
-            [self.referenced_insight.id, self.unreferenced_insight.id],
+        assert Counter(config.get_connected_insight_ids()) == Counter(
+            [self.referenced_insight.id, self.unreferenced_insight.id]
         )
 
     def test_anonymous_request_with_share_token_can_load_referenced_insight(self) -> None:

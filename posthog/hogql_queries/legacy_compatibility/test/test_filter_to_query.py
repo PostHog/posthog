@@ -1396,35 +1396,32 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         assert isinstance(query, FunnelsQuery)
-        self.assertEqual(
-            query.funnelsFilter,
-            FunnelsFilter(
-                funnelVizType=FunnelVizType.STEPS,
-                funnelFromStep=1,
-                funnelToStep=2,
-                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.HOUR,
-                funnelWindowInterval=13,
-                breakdownAttributionType=BreakdownAttributionType.STEP,
-                breakdownAttributionValue=2,
-                funnelOrderType=StepOrderValue.STRICT,
-                exclusions=[
-                    FunnelExclusionEventsNode(
-                        event="$pageview",
-                        name="$pageview",
-                        funnelFromStep=1,
-                        funnelToStep=2,
-                    ),
-                    FunnelExclusionActionsNode(
-                        id=3,
-                        name="Some action",
-                        funnelFromStep=1,
-                        funnelToStep=2,
-                    ),
-                ],
-                binCount=15,
-                funnelAggregateByHogQL="person_id",
-                # funnel_step_reference=FunnelStepReference.previous,
-            ),
+        assert query.funnelsFilter == FunnelsFilter(
+            funnelVizType=FunnelVizType.STEPS,
+            funnelFromStep=1,
+            funnelToStep=2,
+            funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.HOUR,
+            funnelWindowInterval=13,
+            breakdownAttributionType=BreakdownAttributionType.STEP,
+            breakdownAttributionValue=2,
+            funnelOrderType=StepOrderValue.STRICT,
+            exclusions=[
+                FunnelExclusionEventsNode(
+                    event="$pageview",
+                    name="$pageview",
+                    funnelFromStep=1,
+                    funnelToStep=2,
+                ),
+                FunnelExclusionActionsNode(
+                    id=3,
+                    name="Some action",
+                    funnelFromStep=1,
+                    funnelToStep=2,
+                ),
+            ],
+            binCount=15,
+            funnelAggregateByHogQL="person_id",
+            # funnel_step_reference=FunnelStepReference.previous,
         )
 
     def test_retention_filter(self):

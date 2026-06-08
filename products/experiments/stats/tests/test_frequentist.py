@@ -1,6 +1,7 @@
 import math
 from typing import Any, cast
 
+import pytest
 from unittest import TestCase
 
 from parameterized import parameterized
@@ -75,15 +76,15 @@ class TestTwoSidedTTest(TestCase):
         }
 
         # Compare the key values
-        self.assertAlmostEqual(result_dict["expected"], expected_dict["expected"], places=4)
-        self.assertAlmostEqual(result_dict["p_value"], expected_dict["p_value"], places=4)
+        assert result_dict["expected"] == pytest.approx(expected_dict["expected"], abs=1e-4)
+        assert result_dict["p_value"] == pytest.approx(expected_dict["p_value"], abs=1e-4)
         ci = get_ci(result_dict)
-        self.assertAlmostEqual(ci[0], expected_dict["ci"][0], places=4)
-        self.assertAlmostEqual(ci[1], expected_dict["ci"][1], places=4)
+        assert ci[0] == pytest.approx(expected_dict["ci"][0], abs=1e-4)
+        assert ci[1] == pytest.approx(expected_dict["ci"][1], abs=1e-4)
         uplift = self._uplift(result_dict)
         expected_uplift = get_expected_uplift(expected_dict)
-        self.assertAlmostEqual(uplift["mean"], expected_uplift["mean"], places=4)
-        self.assertAlmostEqual(uplift["stddev"], expected_uplift["stddev"], places=4)
+        assert uplift["mean"] == pytest.approx(expected_uplift["mean"], abs=1e-4)
+        assert uplift["stddev"] == pytest.approx(expected_uplift["stddev"], abs=1e-4)
 
     def test_two_sided_ttest_with_sample_proportion(self):
         """Test basic two-sided t-test with sample proportion statistics."""
@@ -108,15 +109,15 @@ class TestTwoSidedTTest(TestCase):
         }
 
         # Compare the key values
-        self.assertAlmostEqual(result_dict["expected"], expected_dict["expected"], places=4)
-        self.assertAlmostEqual(result_dict["p_value"], expected_dict["p_value"], places=4)
+        assert result_dict["expected"] == pytest.approx(expected_dict["expected"], abs=1e-4)
+        assert result_dict["p_value"] == pytest.approx(expected_dict["p_value"], abs=1e-4)
         ci = get_ci(result_dict)
-        self.assertAlmostEqual(ci[0], expected_dict["ci"][0], places=4)
-        self.assertAlmostEqual(ci[1], expected_dict["ci"][1], places=4)
+        assert ci[0] == pytest.approx(expected_dict["ci"][0], abs=1e-4)
+        assert ci[1] == pytest.approx(expected_dict["ci"][1], abs=1e-4)
         uplift = self._uplift(result_dict)
         expected_uplift = get_expected_uplift(expected_dict)
-        self.assertAlmostEqual(uplift["mean"], expected_uplift["mean"], places=4)
-        self.assertAlmostEqual(uplift["stddev"], expected_uplift["stddev"], places=4)
+        assert uplift["mean"] == pytest.approx(expected_uplift["mean"], abs=1e-4)
+        assert uplift["stddev"] == pytest.approx(expected_uplift["stddev"], abs=1e-4)
 
     def test_two_sided_ttest_with_ratio_statistic(self):
         """Test basic two-sided t-test with ratio statistics."""
@@ -155,15 +156,15 @@ class TestTwoSidedTTest(TestCase):
         }
 
         # Compare the key values
-        self.assertAlmostEqual(result_dict["expected"], expected_dict["expected"], places=4)
-        self.assertAlmostEqual(result_dict["p_value"], expected_dict["p_value"], places=4)
+        assert result_dict["expected"] == pytest.approx(expected_dict["expected"], abs=1e-4)
+        assert result_dict["p_value"] == pytest.approx(expected_dict["p_value"], abs=1e-4)
         ci = get_ci(result_dict)
-        self.assertAlmostEqual(ci[0], expected_dict["ci"][0], places=4)
-        self.assertAlmostEqual(ci[1], expected_dict["ci"][1], places=4)
+        assert ci[0] == pytest.approx(expected_dict["ci"][0], abs=1e-4)
+        assert ci[1] == pytest.approx(expected_dict["ci"][1], abs=1e-4)
         uplift = self._uplift(result_dict)
         expected_uplift = get_expected_uplift(expected_dict)
-        self.assertAlmostEqual(uplift["mean"], expected_uplift["mean"], places=4)
-        self.assertAlmostEqual(uplift["stddev"], expected_uplift["stddev"], places=4)
+        assert uplift["mean"] == pytest.approx(expected_uplift["mean"], abs=1e-4)
+        assert uplift["stddev"] == pytest.approx(expected_uplift["stddev"], abs=1e-4)
 
 
 class TestSequentialMath(TestCase):
@@ -175,7 +176,7 @@ class TestSequentialMath(TestCase):
         rho = sequential_rho(alpha, n_tuning)
         log_alpha = math.log(alpha)
         expected = math.sqrt((-2 * log_alpha + math.log(-2 * log_alpha + 1)) / n_tuning)
-        self.assertAlmostEqual(rho, expected, places=10)
+        assert rho == pytest.approx(expected, abs=1e-10)
 
     def test_sequential_rho_rejects_invalid_alpha(self):
         with self.assertRaises(StatisticError):
@@ -250,7 +251,7 @@ class TestSequentialTwoSidedTTest(TestCase):
         seq_width = seq_result.confidence_interval[1] - seq_result.confidence_interval[0]
 
         assert seq_width > fixed_width
-        self.assertAlmostEqual(seq_result.point_estimate, fixed_result.point_estimate, places=6)
+        assert seq_result.point_estimate == pytest.approx(fixed_result.point_estimate, abs=1e-6)
         assert seq_result.test_type == "sequential_two_sided"
         assert math.isnan(seq_result.degrees_of_freedom)
         assert math.isnan(seq_result.test_statistic)
@@ -319,15 +320,15 @@ class TestSequentialTwoSidedTTestGoldenValues(TestCase):
             treatment, control, DifferenceType.RELATIVE
         )
 
-        self.assertAlmostEqual(result.point_estimate, expected, places=5)
-        self.assertAlmostEqual(result.confidence_interval[0], ci[0], places=5)
-        self.assertAlmostEqual(result.confidence_interval[1], ci[1], places=5)
-        self.assertAlmostEqual(result.p_value, p_value, places=5)
+        assert result.point_estimate == pytest.approx(expected, abs=1e-5)
+        assert result.confidence_interval[0] == pytest.approx(ci[0], abs=1e-5)
+        assert result.confidence_interval[1] == pytest.approx(ci[1], abs=1e-5)
+        assert result.p_value == pytest.approx(p_value, abs=1e-5)
 
         # Assert the standard error directly (the SE the sequential CI is built from) so a
         # variance regression is pinpointed, not just inferred from a shifted CI.
         standard_error = math.sqrt(calculate_variance_pooled(treatment, control, DifferenceType.RELATIVE))
-        self.assertAlmostEqual(standard_error, stddev, places=5)
+        assert standard_error == pytest.approx(stddev, abs=1e-5)
 
     def test_interval_narrowest_near_true_sample_size(self):
         # Same stats as the sample-mean fixture; true total n = 3500 + 3000 = 6500. The

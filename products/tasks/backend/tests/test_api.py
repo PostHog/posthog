@@ -8,6 +8,7 @@ from datetime import timedelta
 from typing import ClassVar, cast
 from urllib.parse import quote
 
+import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
@@ -4777,7 +4778,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         now = time.time()
         expected_expiry = now + (24 * 60 * 60)
-        self.assertAlmostEqual(decoded["exp"], expected_expiry, delta=60)
+        assert decoded["exp"] == pytest.approx(expected_expiry, abs=60)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_connection_token_includes_distinct_id(self):

@@ -194,25 +194,22 @@ class TestExports(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
-        self.assertEqual(
-            data,
-            {
-                "id": data["id"],
-                "created_at": data["created_at"],
-                "insight": self.insight.id,
-                "export_format": "image/png",
-                "filename": "export-example-insight-2021-08-25-220914.png",
-                "has_content": False,
-                "dashboard": None,
-                "exception": None,
-                "export_context": None,
-                # PNG format gets 180 days (6 months) expiry
-                "expires_after": (now() + timedelta(days=180))
-                .replace(hour=0, minute=0, second=0, microsecond=0)
-                .isoformat()
-                .replace("+00:00", "Z"),
-            },
-        )
+        assert data == {
+            "id": data["id"],
+            "created_at": data["created_at"],
+            "insight": self.insight.id,
+            "export_format": "image/png",
+            "filename": "export-example-insight-2021-08-25-220914.png",
+            "has_content": False,
+            "dashboard": None,
+            "exception": None,
+            "export_context": None,
+            # PNG format gets 180 days (6 months) expiry
+            "expires_after": (now() + timedelta(days=180))
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z"),
+        }
 
         self._assert_logs_the_activity(
             insight_id=self.insight.id,

@@ -988,7 +988,7 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     def assertEntityResponseEqual(self, response1, response2, remove=("action", "label", "persons_urls", "filter")):
         stripped_response1 = stripResponse(response1, remove=remove)
         stripped_response2 = stripResponse(response2, remove=remove)
-        self.assertDictEqual(stripped_response1[0], stripped_response2[0])
+        assert stripped_response1[0] == stripped_response2[0]
 
     @contextmanager
     def assertFasterThan(self, duration_ms: float):

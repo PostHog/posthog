@@ -6837,7 +6837,7 @@ class TestSurveyStatsPerQuestion(ClickhouseTestMixin, APIBaseTest):
         # Rating: 4 responses, distribution by value
         assert per_q[self.rating_qid]["response_count"] == 4
         assert per_q[self.rating_qid]["question_type"] == "rating"
-        self.assertAlmostEqual(per_q[self.rating_qid]["average"], (9 + 7 + 3 + 5) / 4, places=2)
+        assert per_q[self.rating_qid]["average"] == pytest.approx((9 + 7 + 3 + 5) / 4, abs=1e-2)
         assert per_q[self.rating_qid]["distribution"] == {"9": 1, "7": 1, "3": 1, "5": 1}
 
         # Choice: 4 responses. Configured choices ("yes"/"no") shown by value; the free-text

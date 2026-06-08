@@ -1,5 +1,6 @@
 import os
 import json
+from collections import Counter
 from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any, Optional, Union
@@ -616,8 +617,8 @@ class TestStreamSessionSummariesAPI(APIBaseTest):
 
         done_event = next(e for e in events if e["event"] == "done")
         done_data = json.loads(done_event["data"])
-        self.assertCountEqual(done_data["completed"], expected_completed)
-        self.assertCountEqual(done_data["failed"], expected_failed)
+        assert Counter(done_data["completed"]) == Counter(expected_completed)
+        assert Counter(done_data["failed"]) == Counter(expected_failed)
 
         # Failed sessions surface as classified, sanitized error events
         if expected_failed:

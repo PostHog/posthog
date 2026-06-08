@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
@@ -3169,7 +3170,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         ids_in_response = [r["id"] for r in response_data["results"]]
         # insight 3 is not included in response
-        self.assertCountEqual(ids_in_response, [insight.id, insight2.id])
+        assert Counter(ids_in_response) == Counter([insight.id, insight2.id])
 
     def test_get_recent_insights_with_feature_flag_query_based(self) -> None:
         """Query-based insights store breakdown config in the query JSON field, not filters."""
@@ -3212,7 +3213,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_200_OK
         ids_in_response = [r["id"] for r in response_data["results"]]
-        self.assertCountEqual(ids_in_response, [insight_with_flag.id])
+        assert Counter(ids_in_response) == Counter([insight_with_flag.id])
 
     def test_cannot_create_insight_with_dashboards_relation_from_another_team(
         self,

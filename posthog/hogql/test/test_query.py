@@ -923,18 +923,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 query,
                 team=self.team,
             )
-            self.assertEqual(
-                response.results,
-                [
-                    (
-                        "",  # empty string
-                        None,  # null
-                        None,  # undefined
-                        "0",  # zero string
-                        "0",  # zero number (not typecast)
-                    )
-                ],
-            )
+            assert response.results == [
+                (
+                    "",  # empty string
+                    None,  # null
+                    None,  # undefined
+                    "0",  # zero string
+                    "0",  # zero number (not typecast)
+                )
+            ]
 
     def test_window_functions_simple(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"

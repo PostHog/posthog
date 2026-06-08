@@ -1,3 +1,5 @@
+from collections import Counter
+
 from unittest.mock import patch
 
 from parameterized import parameterized
@@ -320,7 +322,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         )
 
         assert update_response.status_code == status.HTTP_200_OK
-        self.assertCountEqual(update_response.json()["tags"], ["tag2", "tag3"])
+        assert Counter(update_response.json()["tags"]) == Counter(["tag2", "tag3"])
 
     def test_create_saved_metric_with_experiment_metric(self):
         response = self.client.post(

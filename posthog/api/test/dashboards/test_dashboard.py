@@ -1,6 +1,7 @@
 import re
 import json
 import datetime
+from collections import Counter
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
@@ -464,11 +465,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.dashboard_api.get_dashboard(dashboard.pk, query_params={"refresh": False, "use_cache": True})
         last_accessed_at = Dashboard.objects.get().last_accessed_at
         assert last_accessed_at is not None
-        self.assertAlmostEqual(
-            last_accessed_at,
-            now(),
-            delta=datetime.timedelta(seconds=5),
-        )
+        assert abs(last_accessed_at - now()) <= datetime.timedelta(seconds=5)
         assert response["tiles"][0]["insight"]["result"][0]["count"] == 0
 
     # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
@@ -658,16 +655,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             assert isoparse(response_data["tiles"][0]["last_refresh"]) == item_default.caching_state.last_refresh
             assert isoparse(response_data["tiles"][1]["last_refresh"]) == item_default.caching_state.last_refresh
 
-            self.assertAlmostEqual(
-                item_default.caching_state.last_refresh,
-                now(),
-                delta=datetime.timedelta(seconds=5),
-            )
-            self.assertAlmostEqual(
-                item_trends.caching_state.last_refresh,
-                now(),
-                delta=datetime.timedelta(seconds=5),
-            )
+            assert abs(item_default.caching_state.last_refresh - now()) <= datetime.timedelta(seconds=5)
+            assert abs(item_trends.caching_state.last_refresh - now()) <= datetime.timedelta(seconds=5)
 
     def test_dashboard_endpoints(self):
         # create
@@ -1846,10 +1835,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/?properties={properties}")
 
         assert response.status_code == 400, response.content
-        self.assertDictEqual(
-            response.json(),
-            self.validation_error_response("Properties are unparsable!", "invalid_input"),
-            response.content,
+        assert response.json() == self.validation_error_response("Properties are unparsable!", "invalid_input"), (
+            response.content
         )
 
     def test_insights_with_no_insight_set(self):
@@ -3600,7 +3587,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_200_OK
-        self.assertCountEqual(response.json()["dashboards"], [dashboard1.pk, dashboard2.pk])
+        assert Counter(response.json()["dashboards"]) == Counter([dashboard1.pk, dashboard2.pk])
         assert DashboardTile.objects.filter(dashboard=dashboard1, insight=insight).exists()
         assert DashboardTile.objects.filter(dashboard=dashboard2, insight=insight).exists()
 

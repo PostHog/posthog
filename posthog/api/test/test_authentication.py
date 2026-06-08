@@ -1179,7 +1179,7 @@ class TestPasswordResetAPI(APIBaseTest):
         user: User = User.objects.get(email=self.CONFIG_EMAIL)
         assert user.requested_password_reset_at == datetime(2021, 10, 5, 12, 0, 0, tzinfo=UTC)
 
-        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
+        assert {",".join(outmail.to) for outmail in mail.outbox} == {self.CONFIG_EMAIL}
 
         assert mail.outbox[0].subject == "Reset your PostHog password"
         assert mail.outbox[0].body == ""  # no plain-text version support yet
@@ -1209,7 +1209,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
         # Email should still be sent
         assert len(mail.outbox) == 1
-        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
+        assert {",".join(outmail.to) for outmail in mail.outbox} == {self.CONFIG_EMAIL}
 
     def test_reset_with_sso_available(self):
         """
@@ -1235,7 +1235,7 @@ class TestPasswordResetAPI(APIBaseTest):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
-        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
+        assert {",".join(outmail.to) for outmail in mail.outbox} == {self.CONFIG_EMAIL}
 
         html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
         self.validate_basic_html(
