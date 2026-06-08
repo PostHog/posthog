@@ -351,7 +351,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         s3_table_func = build_function_call(
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
-            format=self.format,
+            # Read evolved Delta tables via deltaLake() (transaction-log aware) instead of a
+            # bare s3() glob over the query folder, which fails with ClickHouse Code: 48 when
+            # schema evolution leaves the parquet files with differing column counts. Mirrors
+            # get_columns(); user queries already pass an explicit structure for the same reason.
+            format="Delta" if self.format == "DeltaS3Wrapper" else self.format,
             access_key=self.credential.access_key if self.credential else None,
             access_secret=self.credential.access_secret if self.credential else None,
             context=placeholder_context,

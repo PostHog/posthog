@@ -367,6 +367,34 @@ class TestTable(BaseTest):
             f"Expected single quote to be escaped as \\' in chdb query: {rendered_query}"
         )
 
+    @parameterized.expand(
+        [
+            ("delta_s3_wrapper", "DeltaS3Wrapper", "deltaLake(", "__query"),
+            ("parquet", "Parquet", "s3(", "deltaLake("),
+        ]
+    )
+    def test_get_count_delta_s3_wrapper_reads_via_deltalake(
+        self, _name: str, table_format: str, expected_in_query: str, not_expected_in_query: str
+    ):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            url_pattern="s3://bucket/team_2_postgres/posthog_batchexportrun",
+            queryable_folder="posthog_batchexportrun__query_123",
+            credential=credential,
+            format=table_format,
+            team=self.team,
+        )
+
+        with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results:
+            sync_execute_results.return_value = [[42]]
+            count = table.get_count()
+
+        assert count == 42
+        rendered_query: str = sync_execute_results.call_args.args[0]
+        assert expected_in_query in rendered_query, rendered_query
+        assert not_expected_in_query not in rendered_query, rendered_query
+
     def test_hogql_definition_old_style(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
