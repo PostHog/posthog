@@ -12,6 +12,7 @@ from typing import Any, Literal, Optional, TypedDict, Union
 from django.conf import settings
 from django.db import connection
 from django.db.models import Count, F, Q, Sum
+from django.db.models.functions import Coalesce
 
 import requests
 import structlog
@@ -44,7 +45,12 @@ from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+from products.batch_exports.backend.models.batch_export import (
+    BatchExport,
+    BatchExportDestination,
+    BatchExportOnDemand,
+    BatchExportRun,
+)
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -1414,15 +1420,21 @@ def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> li
             finished_at__gte=begin,
             finished_at__lte=end,
             status=BatchExportRun.Status.COMPLETED,
-            batch_export__deleted=False,
         )
+        .filter(Q(batch_export__deleted=False) | Q(batch_export_on_demand__deleted=False))
         .exclude(
             batch_export__destination__type__in=[
                 BatchExportDestination.Destination.HTTP,
                 BatchExportDestination.Destination.WORKFLOWS,
             ]
         )
-        .values(team_id=F("batch_export__team_id"))
+        .exclude(
+            batch_export_on_demand__destination__type__in=[
+                BatchExportDestination.Destination.HTTP,
+                BatchExportDestination.Destination.WORKFLOWS,
+            ]
+        )
+        .values(team_id=Coalesce(F("batch_export__team_id"), F("batch_export_on_demand__team_id")))
         .annotate(total=Sum("records_completed"))
     )
 
@@ -1447,7 +1459,15 @@ def get_teams_with_active_external_data_schemas_in_period() -> list:
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_active_batch_exports_in_period() -> list:
     # get all batch exports that are active or completed at run time
-    return list(BatchExport.objects.filter(paused=False).values("team_id").annotate(total=Count("id")))
+    regular_counts = BatchExport.objects.filter(paused=False).values("team_id").annotate(total=Count("id"))
+    on_demand_counts = BatchExportOnDemand.objects.unscoped().values("team_id").annotate(total=Count("id"))
+
+    totals: defaultdict[int, int] = defaultdict(int)
+    for row in (*regular_counts, *on_demand_counts):
+        totals[row["team_id"]] += row["total"]
+
+    result = [{"team_id": tid, "total": total} for tid, total in totals.items()]
+    return result
 
 
 @timed_log()
