@@ -20,7 +20,7 @@
 
 'use client'
 
-import { ArchiveIcon, ChevronDownIcon, PlayIcon, SearchIcon, UserIcon } from 'lucide-react'
+import { ArchiveIcon, ChevronDownIcon, CodeIcon, PlayIcon, SearchIcon, UserIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import { JsonView } from '@posthog/agent-chat'
@@ -138,6 +138,7 @@ export function RevisionsBrowser({
     onTryDraft,
 }: RevisionsBrowserProps): React.ReactElement {
     const [configView, setConfigView] = useState<ConfigView>('structured')
+    const [configFilter, setConfigFilter] = useState('')
     const [pending, setPending] = useState<PendingAction | null>(null)
     const [running, setRunning] = useState(false)
     const [actionError, setActionError] = useState<string | null>(null)
@@ -294,6 +295,8 @@ export function RevisionsBrowser({
                                 selected={selected}
                                 configView={configView}
                                 setConfigView={setConfigView}
+                                configFilter={configFilter}
+                                setConfigFilter={setConfigFilter}
                                 highlightedSection={highlightedSection}
                                 nativeToolCatalog={nativeToolCatalog}
                                 onSelectBundleFile={onSelectBundleFile}
@@ -512,6 +515,8 @@ function ConfigPanelCard({
     selected,
     configView,
     setConfigView,
+    configFilter,
+    setConfigFilter,
     highlightedSection,
     nativeToolCatalog,
     onSelectBundleFile,
@@ -522,21 +527,57 @@ function ConfigPanelCard({
     selected: AgentRevisionFixture
     configView: ConfigView
     setConfigView: (v: ConfigView) => void
+    configFilter: string
+    setConfigFilter: (next: string) => void
     highlightedSection?: 'triggers' | 'tools' | 'skills' | 'secrets' | 'limits' | null
     nativeToolCatalog?: NativeToolCatalogEntry[]
     onSelectBundleFile?: (path: string) => void
     onAction: (action: LifecycleAction) => void
     onTryDraft?: () => void
 }): React.ReactElement {
+    const isRaw = configView === 'raw'
     return (
         <section className="flex flex-col overflow-hidden rounded-md border border-border bg-card">
-            <header className="flex items-center justify-between gap-2 border-b border-border bg-muted/30 px-3 py-2">
-                <div className="flex items-center gap-2">
-                    <h3 className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">
-                        Config
-                    </h3>
-                    <ConfigViewToggle view={configView} onChange={setConfigView} />
-                </div>
+            <header className="flex items-center gap-2 border-b border-border bg-muted/30 px-3 py-2">
+                <h3 className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">Config</h3>
+                {!isRaw ? (
+                    <div className="flex flex-1 items-center gap-1.5">
+                        <SearchIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                        <input
+                            value={configFilter}
+                            onChange={(e) => setConfigFilter(e.target.value)}
+                            placeholder="Filter tools, MCP tools, skills…"
+                            className="w-full bg-transparent text-xs placeholder:text-muted-foreground/70 focus:outline-none"
+                        />
+                        {configFilter ? (
+                            <button
+                                type="button"
+                                onClick={() => setConfigFilter('')}
+                                className="text-[0.625rem] uppercase tracking-wide text-muted-foreground hover:text-foreground"
+                            >
+                                clear
+                            </button>
+                        ) : null}
+                    </div>
+                ) : (
+                    <div className="flex-1" />
+                )}
+                <button
+                    type="button"
+                    onClick={() => setConfigView(isRaw ? 'structured' : 'raw')}
+                    aria-pressed={isRaw}
+                    aria-label={isRaw ? 'Switch to structured view' : 'Switch to raw YAML view'}
+                    title={isRaw ? 'Switch to structured view' : 'Switch to raw YAML view'}
+                    className={
+                        'inline-flex h-6 items-center gap-1 rounded border transition-colors ' +
+                        (isRaw
+                            ? 'border-primary bg-primary px-1.5 text-primary-foreground shadow-sm'
+                            : 'border-border bg-card px-1.5 text-muted-foreground hover:border-foreground/40 hover:text-foreground')
+                    }
+                >
+                    <CodeIcon className="h-3.5 w-3.5" />
+                    <span className="text-[0.625rem] font-semibold uppercase tracking-wide">Raw</span>
+                </button>
                 <RevisionActions
                     revision={selected}
                     isLive={selected.id === agent.live_revision}
@@ -545,8 +586,8 @@ function ConfigPanelCard({
                     onTryDraft={onTryDraft}
                 />
             </header>
-            <div className="max-h-[480px] min-h-[280px] flex-1 space-y-3 overflow-auto px-3 py-3">
-                {configView === 'structured' ? (
+            <div className="max-h-[480px] min-h-[280px] flex-1 overflow-auto">
+                {!isRaw ? (
                     <>
                         <ConfigPanel
                             spec={selected.spec as Record<string, unknown>}
@@ -554,6 +595,8 @@ function ConfigPanelCard({
                             nativeToolCatalog={nativeToolCatalog}
                             onSelectBundleFile={onSelectBundleFile}
                             agentSlug={agent.slug}
+                            filter={configFilter}
+                            onFilterChange={setConfigFilter}
                         />
                         <UnstructuredFields
                             spec={selected.spec as Record<string, unknown>}
@@ -561,7 +604,9 @@ function ConfigPanelCard({
                         />
                     </>
                 ) : (
-                    <JsonView value={selected.spec} defaultView="yaml" expandToLevel={3} />
+                    <div className="px-3 py-3">
+                        <JsonView value={selected.spec} defaultView="yaml" expandToLevel={3} />
+                    </div>
                 )}
             </div>
         </section>
@@ -845,41 +890,6 @@ function Section({
             </div>
             {children}
         </section>
-    )
-}
-
-function ConfigViewToggle({
-    view,
-    onChange,
-}: {
-    view: ConfigView
-    onChange: (next: ConfigView) => void
-}): React.ReactElement {
-    const options: ConfigView[] = ['structured', 'raw']
-    return (
-        <div
-            className="inline-flex overflow-hidden rounded border border-border bg-card"
-            role="group"
-            aria-label="Config view"
-        >
-            {options.map((opt, i) => (
-                <button
-                    key={opt}
-                    type="button"
-                    onClick={() => onChange(opt)}
-                    aria-pressed={view === opt}
-                    className={
-                        (view === opt
-                            ? 'bg-accent text-foreground'
-                            : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground') +
-                        ' cursor-pointer px-2 py-0.5 text-[0.6875rem] font-medium uppercase tracking-wide transition-colors' +
-                        (i > 0 ? ' border-l border-border' : '')
-                    }
-                >
-                    {opt}
-                </button>
-            ))}
-        </div>
     )
 }
 
