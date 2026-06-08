@@ -23,6 +23,17 @@
             ],
             "description": "Human-readable description of what this endpoint returns."
         },
+        "display_name": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Human-readable display name for the endpoint. If the slug (name) is omitted, it is derived from this."
+        },
         "is_materialized": {
             "anyOf": [
                 {
@@ -43,7 +54,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars."
+            "description": "Unique URL-safe slug used in the endpoint URL. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars. If omitted, it is derived from display_name."
         },
         "query": {
             "description": "HogQL or insight query this endpoint executes. Changing this auto-creates a new version."

@@ -302,7 +302,13 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
     name = models.CharField(
         max_length=128,
         validators=[validate_endpoint_name],
-        help_text="URL-safe name for the endpoint",
+        help_text="URL-safe slug for the endpoint, used in the run URL and as the per-team lookup key",
+    )
+    display_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Human-readable display name. The URL-safe slug is stored in `name`.",
     )
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
 

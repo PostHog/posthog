@@ -14493,10 +14493,15 @@ export namespace Schemas {
      */
     export interface EndpointRequest {
       /**
-         * Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.
+         * Unique URL-safe slug used in the endpoint URL. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars. If omitted, it is derived from display_name.
          * @nullable
          */
       name?: string | null;
+      /**
+         * Human-readable display name for the endpoint. If the slug (name) is omitted, it is derived from this.
+         * @nullable
+         */
+      display_name?: string | null;
       /** HogQL or insight query this endpoint executes. Changing this auto-creates a new version. */
       query?: unknown;
       /**
@@ -14558,8 +14563,10 @@ export namespace Schemas {
     export interface EndpointResponse {
       /** Unique endpoint identifier (UUID). */
       id: string;
-      /** URL-safe endpoint name, unique per team. */
+      /** URL-safe endpoint slug, unique per team. Used in the run URL. */
       name: string;
+      /** Human-readable display name for the endpoint. */
+      display_name: string;
       /**
          * Human-readable description of the endpoint.
          * @nullable
@@ -14689,8 +14696,10 @@ export namespace Schemas {
     export interface EndpointVersionResponse {
       /** Unique endpoint identifier (UUID). */
       id: string;
-      /** URL-safe endpoint name, unique per team. */
+      /** URL-safe endpoint slug, unique per team. Used in the run URL. */
       name: string;
+      /** Human-readable display name for the endpoint. */
+      display_name: string;
       /**
          * Human-readable description of the endpoint.
          * @nullable
@@ -28844,10 +28853,15 @@ export namespace Schemas {
      */
     export interface PatchedEndpointRequest {
       /**
-         * Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.
+         * Unique URL-safe slug used in the endpoint URL. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars. If omitted, it is derived from display_name.
          * @nullable
          */
       name?: string | null;
+      /**
+         * Human-readable display name for the endpoint. If the slug (name) is omitted, it is derived from this.
+         * @nullable
+         */
+      display_name?: string | null;
       /** HogQL or insight query this endpoint executes. Changing this auto-creates a new version. */
       query?: unknown;
       /**

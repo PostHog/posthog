@@ -94,6 +94,96 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         assert log.detail is not None
         self.assertEqual(log.detail.get("name"), "test_query")
 
+    def test_create_response_includes_display_name(self):
+        data = {
+            "name": "test_query",
+            "display_name": "My Test Query",
+            "query": self.sample_hogql_query,
+        }
+
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        response_data = response.json()
+        self.assertEqual("test_query", response_data["name"])
+        self.assertEqual("My Test Query", response_data["display_name"])
+
+        endpoint = Endpoint.objects.get(name="test_query", team=self.team)
+        self.assertEqual(endpoint.display_name, "My Test Query")
+
+    def test_create_derives_slug_from_display_name(self):
+        data = {
+            "display_name": "My Test Query",
+            "query": self.sample_hogql_query,
+        }
+
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        response_data = response.json()
+        self.assertEqual("my-test-query", response_data["name"])
+        self.assertEqual("My Test Query", response_data["display_name"])
+
+    def test_create_with_explicit_slug_overrides_derived_slug(self):
+        data = {
+            "name": "custom-slug",
+            "display_name": "My Test Query",
+            "query": self.sample_hogql_query,
+        }
+
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        response_data = response.json()
+        self.assertEqual("custom-slug", response_data["name"])
+        self.assertEqual("My Test Query", response_data["display_name"])
+
+    def test_create_name_only_defaults_display_name_to_name(self):
+        data = {
+            "name": "test_query",
+            "query": self.sample_hogql_query,
+        }
+
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        self.assertEqual("test_query", response.json()["display_name"])
+
+    def test_create_with_invalid_derived_slug_returns_error(self):
+        # A display name starting with a digit slugifies to a slug that violates ENDPOINT_NAME_REGEX.
+        data = {
+            "display_name": "123 metrics",
+            "query": self.sample_hogql_query,
+        }
+
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertEqual(response.json()["type"], "validation_error")
+
+    def test_update_endpoint_display_name(self):
+        endpoint = create_endpoint_with_version(
+            name="update_display_name",
+            team=self.team,
+            query=self.sample_hogql_query,
+            display_name="Original",
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"display_name": "Renamed"},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual("Renamed", response.json()["display_name"])
+        # Slug is unchanged - it is the URL key and not editable via display_name.
+        self.assertEqual("update_display_name", response.json()["name"])
+
+        endpoint.refresh_from_db()
+        self.assertEqual("Renamed", endpoint.display_name)
+
     def test_cannot_create_endpoint_with_invalid_sql(self):
         """Test creating an endpoint with invalid HogQL fails."""
         data = {

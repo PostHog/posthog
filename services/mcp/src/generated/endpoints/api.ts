@@ -43,7 +43,13 @@ export const EndpointsCreateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                'Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.'
+                'Unique URL-safe slug used in the endpoint URL. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars. If omitted, it is derived from display_name.'
+            ),
+        display_name: zod
+            .string()
+            .nullish()
+            .describe(
+                'Human-readable display name for the endpoint. If the slug (name) is omitted, it is derived from this.'
             ),
         query: zod
             .unknown()
@@ -110,7 +116,13 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                'Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.'
+                'Unique URL-safe slug used in the endpoint URL. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars. If omitted, it is derived from display_name.'
+            ),
+        display_name: zod
+            .string()
+            .nullish()
+            .describe(
+                'Human-readable display name for the endpoint. If the slug (name) is omitted, it is derived from this.'
             ),
         query: zod
             .unknown()

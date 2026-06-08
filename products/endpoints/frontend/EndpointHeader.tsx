@@ -95,7 +95,7 @@ export const EndpointSceneHeader = (): JSX.Element => {
     return (
         <>
             <SceneTitleSection
-                name={endpointName || endpoint?.name}
+                name={endpointName || endpoint?.display_name || endpoint?.name}
                 description={endpointDescription ?? viewingVersion?.description ?? endpoint?.description}
                 resourceType={{ type: 'endpoints' }}
                 canEdit

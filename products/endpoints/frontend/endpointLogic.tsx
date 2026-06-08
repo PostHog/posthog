@@ -35,6 +35,8 @@ export const endpointLogic = kea<endpointLogicType>([
     })),
     actions({
         setEndpointName: (endpointName: string) => ({ endpointName }),
+        setEndpointDisplayName: (endpointDisplayName: string | null) => ({ endpointDisplayName }),
+        setEndpointSlug: (slug: string) => ({ slug }),
         setEndpointDescription: (endpointDescription: string | null) => ({ endpointDescription }),
         setActiveCodeExampleTab: (tab: CodeExampleTab) => ({ tab }),
         setSelectedCodeExampleVersion: (version: number | null) => ({ version }),
@@ -73,7 +75,33 @@ export const endpointLogic = kea<endpointLogicType>([
         saveTagsInline: (tags: string[]) => ({ tags }),
     }),
     reducers({
-        endpointName: [null as string | null, { setEndpointName: (_, { endpointName }) => endpointName }],
+        endpointName: [
+            null as string | null,
+            {
+                setEndpointName: (_, { endpointName }) => endpointName,
+                setEndpointSlug: (_, { slug }) => slug,
+                createEndpointSuccess: () => null,
+                closeCreateFromInsightModal: () => null,
+            },
+        ],
+        endpointDisplayName: [
+            null as string | null,
+            {
+                setEndpointDisplayName: (_, { endpointDisplayName }) => endpointDisplayName,
+                createEndpointSuccess: () => null,
+                closeCreateFromInsightModal: () => null,
+            },
+        ],
+        // Whether the user has manually edited the slug. While false, the slug tracks slugify(displayName).
+        endpointSlugTouched: [
+            false,
+            {
+                setEndpointSlug: () => true,
+                createEndpointSuccess: () => false,
+                closeCreateFromInsightModal: () => false,
+                openCreateFromInsightModal: () => false,
+            },
+        ],
         endpointDescription: [
             null as string | null,
             { setEndpointDescription: (_, { endpointDescription }) => endpointDescription },
@@ -193,6 +221,12 @@ export const endpointLogic = kea<endpointLogicType>([
             closeCreateFromInsightModal: () => {
                 actions.setDuplicateEndpoint(null)
                 insightPickerEndpointModalLogic.findMounted()?.actions.clearSelectedInsight()
+            },
+            setEndpointDisplayName: ({ endpointDisplayName }) => {
+                // Keep the slug in sync with the display name until the user overrides it manually.
+                if (!values.endpointSlugTouched) {
+                    actions.setEndpointName(slugify(endpointDisplayName || ''))
+                }
             },
             createEndpoint: async ({ request }) => {
                 try {

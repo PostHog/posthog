@@ -1954,7 +1954,10 @@ export type RefreshType =
 export type EndpointQueryNode = TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery
 
 export interface EndpointRequest {
+    /** URL-safe slug used in the endpoint URL. If omitted, it is derived from display_name. */
     name?: string
+    /** Human-readable display name. If the slug (name) is omitted, it is derived from this. */
+    display_name?: string
     description?: string
     query?: HogQLQuery | EndpointQueryNode
     is_active?: boolean

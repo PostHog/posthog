@@ -17,7 +17,13 @@ class EndpointRequestSerializer(serializers.Serializer):
     name = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.",
+        help_text="Unique URL-safe slug used in the endpoint URL. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars. If omitted, it is derived from display_name.",
+    )
+    display_name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Human-readable display name for the endpoint. If the slug (name) is omitted, it is derived from this.",
     )
     query = serializers.JSONField(
         required=False,
@@ -124,7 +130,11 @@ class EndpointResponseSerializer(serializers.Serializer):
     """Full endpoint representation returned by list/retrieve/create/update."""
 
     id = serializers.UUIDField(help_text="Unique endpoint identifier (UUID).")
-    name = serializers.CharField(help_text="URL-safe endpoint name, unique per team.")
+    name = serializers.CharField(help_text="URL-safe endpoint slug, unique per team. Used in the run URL.")
+    display_name = serializers.CharField(
+        allow_blank=True,
+        help_text="Human-readable display name for the endpoint.",
+    )
     description = serializers.CharField(
         allow_null=True,
         allow_blank=True,

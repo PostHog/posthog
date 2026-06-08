@@ -89,7 +89,7 @@ export const EndpointsTable = (): JSX.Element => {
                         to={urls.endpoint(record.name)}
                         title={
                             <>
-                                {record.name}
+                                {record.display_name || record.name}
                                 <LemonTag type="option" size="small" className="mr-1">
                                     {record.query?.kind && humanizeQueryKind(record.query.kind)}
                                 </LemonTag>
@@ -99,7 +99,8 @@ export const EndpointsTable = (): JSX.Element => {
                     />
                 )
             },
-            sorter: (a: EndpointType, b: EndpointType) => a.name.localeCompare(b.name),
+            sorter: (a: EndpointType, b: EndpointType) =>
+                (a.display_name || a.name).localeCompare(b.display_name || b.name),
         },
         {
             title: 'Tags',

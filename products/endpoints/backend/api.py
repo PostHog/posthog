@@ -9,6 +9,7 @@ from typing import Optional, Union, cast
 
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.text import slugify
 
 import structlog
 import posthoganalytics
@@ -519,6 +520,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
         result = {
             "id": str(endpoint.id),
             "name": endpoint.name,
+            "display_name": endpoint.display_name,
             "description": version.description,
             "query": version.query,
             "is_active": version.is_active if isinstance(obj, EndpointVersion) else endpoint.is_active,
@@ -771,6 +773,12 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
         """Create a new endpoint."""
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, EndpointRequest)
+
+        # Resolve the slug: an explicit `name` override wins; otherwise derive it from the display name.
+        # The derived slug is validated below against ENDPOINT_NAME_REGEX (e.g. it must start with a letter).
+        if not data.name and data.display_name:
+            data.name = slugify(data.display_name)
+
         self.validate_request(data, strict=True)
 
         if Endpoint.objects.filter(team=self.team, name=data.name, deleted=False).exists():
@@ -782,6 +790,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
                 team=self.team,
                 created_by=cast(User, request.user),
                 name=cast(str, data.name),  # verified in validate_request
+                display_name=data.display_name or cast(str, data.name),
                 is_active=data.is_active if data.is_active is not None else True,
                 current_version=1,
                 derived_from_insight=data.derived_from_insight,
@@ -825,6 +834,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
                 properties={
                     "endpoint_id": str(endpoint.id),
                     "endpoint_name": endpoint.name,
+                    "endpoint_display_name": endpoint.display_name,
                     "query_kind": query_dict.get("kind") if isinstance(query_dict, dict) else None,
                 },
                 team=self.team,
@@ -922,6 +932,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
             # Deactivates the whole endpoint - we deactivate a version later if requested
             if data.is_active is not None and target_version_override is None:
                 endpoint.is_active = data.is_active
+            if data.display_name is not None:
+                endpoint.display_name = data.display_name
             endpoint.save()
 
             final_is_active = data.is_active if data.is_active is not None else endpoint.is_active

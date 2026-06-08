@@ -25645,12 +25645,19 @@ class EndpointRequest(BaseModel):
     deleted: bool | None = Field(default=None, description="Set to true to soft-delete this endpoint")
     derived_from_insight: str | None = None
     description: str | None = None
+    display_name: str | None = Field(
+        default=None,
+        description="Human-readable display name. If the slug (name) is omitted, it is derived from this.",
+    )
     is_active: bool | None = None
     is_materialized: bool | None = Field(
         default=None,
         description="Whether this endpoint's query results are materialized to S3",
     )
-    name: str | None = None
+    name: str | None = Field(
+        default=None,
+        description="URL-safe slug used in the endpoint URL. If omitted, it is derived from display_name.",
+    )
     query: HogQLQuery | TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery | None = (
         None
     )

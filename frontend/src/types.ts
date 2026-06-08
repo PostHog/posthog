@@ -2434,6 +2434,7 @@ export interface QueryBasedInsightModel<R extends Node<Record<string, any>> = No
 export interface EndpointType extends WithAccessControl {
     id: string
     name: string
+    display_name: string
     description: string
     derived_from_insight?: string | null
     query: HogQLQuery | EndpointQueryNode

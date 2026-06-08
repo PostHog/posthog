@@ -8,7 +8,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
-import { slugify } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { EndpointQueryNode, HogQLQuery } from '~/queries/schema/schema-general'
@@ -23,25 +23,33 @@ export interface EndpointFromInsightModalProps {
 }
 
 export function EndpointFromInsightModal({ insightQuery, insightShortId }: EndpointFromInsightModalProps): JSX.Element {
-    const { createEndpoint, setEndpointName, setEndpointDescription, closeCreateFromInsightModal } =
-        useActions(endpointLogic)
-    const { endpointName, endpointDescription, createFromInsightModalOpen, duplicateEndpoint } =
+    const {
+        createEndpoint,
+        setEndpointDisplayName,
+        setEndpointSlug,
+        setEndpointDescription,
+        closeCreateFromInsightModal,
+    } = useActions(endpointLogic)
+    const { endpointName, endpointDisplayName, endpointDescription, createFromInsightModalOpen, duplicateEndpoint } =
         useValues(endpointLogic)
     const { endpoints } = useValues(endpointsLogic)
+    const { currentTeamId } = useValues(teamLogic)
 
     const endpointsFromThisInsight = insightShortId
         ? endpoints.filter((endpoint) => endpoint.derived_from_insight === insightShortId)
         : []
 
-    const slugifiedName = useMemo(() => (endpointName ? slugify(endpointName) : ''), [endpointName])
-    const nameValidationError = useMemo(() => validateEndpointName(endpointName?.trim() || ''), [endpointName])
+    const slug = endpointName?.trim() || ''
+    const slugValidationError = useMemo(() => (slug ? validateEndpointName(slug) : 'Slug is required'), [slug])
+    const displayNameMissing = !endpointDisplayName?.trim()
 
     const handleSubmit = (): void => {
-        if (nameValidationError) {
+        if (displayNameMissing || slugValidationError) {
             return
         }
         createEndpoint({
-            name: endpointName!.trim(),
+            display_name: endpointDisplayName!.trim(),
+            name: slug,
             description: endpointDescription?.trim() || undefined,
             query: insightQuery,
             derived_from_insight: insightShortId,
@@ -49,7 +57,6 @@ export function EndpointFromInsightModal({ insightQuery, insightShortId }: Endpo
     }
 
     const handleClose = (): void => {
-        setEndpointName('')
         setEndpointDescription('')
         closeCreateFromInsightModal()
     }
@@ -95,20 +102,32 @@ export function EndpointFromInsightModal({ insightQuery, insightShortId }: Endpo
                         </div>
                     )}
 
+                    <LemonField.Pure label="Name">
+                        <LemonInput
+                            value={endpointDisplayName || ''}
+                            onChange={setEndpointDisplayName}
+                            placeholder="My endpoint"
+                            autoFocus
+                        />
+                    </LemonField.Pure>
+
                     <LemonField.Pure
-                        label="Name"
-                        error={endpointName?.trim() ? nameValidationError : undefined}
+                        label="Slug"
+                        error={slug ? validateEndpointName(slug) : undefined}
                         info={
-                            endpointName && slugifiedName !== endpointName.trim()
-                                ? `Will be saved as: ${slugifiedName}`
-                                : undefined
+                            <>
+                                This is the slug we'll use, and it's what your endpoint URL is built from. You can
+                                override it here.
+                                <div className="font-mono text-xs mt-1 break-all">
+                                    {`/api/environments/${currentTeamId ?? ':team_id'}/endpoints/${slug || '<slug>'}/run`}
+                                </div>
+                            </>
                         }
                     >
                         <LemonInput
                             value={endpointName || ''}
-                            onChange={setEndpointName}
-                            placeholder="Enter endpoint name"
-                            autoFocus
+                            onChange={setEndpointSlug}
+                            placeholder="my-endpoint"
                         />
                     </LemonField.Pure>
 
@@ -128,7 +147,13 @@ export function EndpointFromInsightModal({ insightQuery, insightShortId }: Endpo
                 <LemonButton type="secondary" onClick={handleClose}>
                     Cancel
                 </LemonButton>
-                <LemonButton type="primary" onClick={handleSubmit} disabledReason={nameValidationError}>
+                <LemonButton
+                    type="primary"
+                    onClick={handleSubmit}
+                    disabledReason={
+                        displayNameMissing ? 'Name is required' : slugValidationError ? slugValidationError : undefined
+                    }
+                >
                     Create endpoint
                 </LemonButton>
             </LemonModal.Footer>

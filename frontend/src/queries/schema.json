@@ -16001,6 +16001,10 @@
                 "description": {
                     "type": "string"
                 },
+                "display_name": {
+                    "description": "Human-readable display name. If the slug (name) is omitted, it is derived from this.",
+                    "type": "string"
+                },
                 "is_active": {
                     "type": "boolean"
                 },
@@ -16009,6 +16013,7 @@
                     "type": "boolean"
                 },
                 "name": {
+                    "description": "URL-safe slug used in the endpoint URL. If omitted, it is derived from display_name.",
                     "type": "string"
                 },
                 "query": {
