@@ -753,6 +753,37 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "some_field" in db.get_table("events").fields
         assert "timestamp" in db.get_table("whatever0").fields
 
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
+    def test_build_from_sources_raises_when_modifier_table_has_no_backing_row(self, patch_execute):
+        # A dataWarehouseEventsModifier whose table resolves to a node with no backing row must fail
+        # loudly (as the eager .latest() did), not silently skip timestamp-field resolution.
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="orphan_view",
+            query={"query": "SELECT id FROM events"},
+            columns={"id": "String"},
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+        modifiers = create_default_modifiers_for_team(
+            self.team,
+            modifiers=HogQLQueryModifiers(
+                dataWarehouseEventsModifiers=[
+                    DataWarehouseEventsModifier(
+                        table_name="orphan_view",
+                        id_field="id",
+                        timestamp_field="created_at",
+                        distinct_id_field="id",
+                    )
+                ],
+            ),
+        )
+        sources = Database._fetch_sources(team=self.team, modifiers=modifiers)
+        # Simulate the node existing without a backing saved-query row (e.g. a revenue-analytics view).
+        sources.event_modifier_saved_queries["orphan_view"] = None
+
+        with self.assertRaises(DataWarehouseSavedQuery.DoesNotExist):
+            Database._build_from_sources(sources)
+
     def test_database_warehouse_joins_on_system_table_are_serialized(self):
         DataWarehouseJoin.objects.create(
             team=self.team,

@@ -1165,6 +1165,9 @@ class Database(BaseModel):
 
         db_span = trace.get_current_span()
 
+        # datawarehouse_saved_query imports this module, so a top-level import would be circular.
+        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
         team = sources.team
         team_id = team.pk
         modifiers = sources.modifiers
@@ -1422,7 +1425,7 @@ class Database(BaseModel):
 
         def define_mappings(
             root_node: TableNode,
-            get_table: Callable[[Any], Optional[Union[DataWarehouseTable, "DataWarehouseSavedQuery"]]],
+            get_table: Callable[[Any], Union[DataWarehouseTable, "DataWarehouseSavedQuery"]],
         ) -> TableNode:
             table: Table | None = None
 
@@ -1455,30 +1458,31 @@ class Database(BaseModel):
             timestamp_field_is_datetime = isinstance(table.fields.get("timestamp"), DateTimeDatabaseField)
 
             if table_has_no_timestamp_field or not timestamp_field_is_datetime:
+                # Raises DoesNotExist if the modifier names a table with no backing row, on purpose:
+                # a misconfigured modifier should fail loudly rather than silently skip timestamp setup.
                 table_model = get_table(warehouse_modifier)
-                if table_model is not None:
-                    timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
-                    modifier_timestamp_field_is_timestamp = warehouse_modifier.timestamp_field == "timestamp"
+                timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
+                modifier_timestamp_field_is_timestamp = warehouse_modifier.timestamp_field == "timestamp"
 
-                    # If field type is none or datetime, we can use the field directly
-                    if timestamp_field_type is None or timestamp_field_type.startswith("DateTime"):
-                        if modifier_timestamp_field_is_timestamp:
-                            table.fields["timestamp"] = DateTimeDatabaseField(name="timestamp")
-                        else:
-                            table.fields["timestamp"] = ExpressionField(
-                                name="timestamp",
-                                expr=ast.Field(chain=[warehouse_modifier.timestamp_field]),
-                            )
+                # If field type is none or datetime, we can use the field directly
+                if timestamp_field_type is None or timestamp_field_type.startswith("DateTime"):
+                    if modifier_timestamp_field_is_timestamp:
+                        table.fields["timestamp"] = DateTimeDatabaseField(name="timestamp")
                     else:
-                        if modifier_timestamp_field_is_timestamp:
-                            table.fields["timestamp"] = UnknownDatabaseField(name="timestamp")
-                        else:
-                            table.fields["timestamp"] = ExpressionField(
-                                name="timestamp",
-                                expr=ast.Call(
-                                    name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]
-                                ),
-                            )
+                        table.fields["timestamp"] = ExpressionField(
+                            name="timestamp",
+                            expr=ast.Field(chain=[warehouse_modifier.timestamp_field]),
+                        )
+                else:
+                    if modifier_timestamp_field_is_timestamp:
+                        table.fields["timestamp"] = UnknownDatabaseField(name="timestamp")
+                    else:
+                        table.fields["timestamp"] = ExpressionField(
+                            name="timestamp",
+                            expr=ast.Call(
+                                name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]
+                            ),
+                        )
 
             # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
             if "distinct_id" not in table.fields.keys():
@@ -1507,25 +1511,44 @@ class Database(BaseModel):
 
             return root_node
 
+        # Resolve the table model a modifier refers to from already-fetched sources. These mirror the
+        # per-modifier `.latest("created_at")` queries the eager path ran, including raising DoesNotExist
+        # when no row matches, so a modifier pointing at a missing table still fails loudly.
+        def _saved_query_model_for(wm: Any) -> "DataWarehouseSavedQuery":
+            saved_query = sources.event_modifier_saved_queries.get(wm.table_name)
+            if saved_query is None:
+                raise DataWarehouseSavedQuery.DoesNotExist(
+                    f"No DataWarehouseSavedQuery for dataWarehouseEventsModifier table '{wm.table_name}'"
+                )
+            return saved_query
+
+        def _warehouse_table_model_for(wm: Any) -> DataWarehouseTable:
+            name = warehouse_tables_dot_notation_mapping.get(wm.table_name, wm.table_name)
+            warehouse_table = warehouse_table_models_by_name.get(name)
+            if warehouse_table is None:
+                raise DataWarehouseTable.DoesNotExist(
+                    f"No DataWarehouseTable for dataWarehouseEventsModifier table '{wm.table_name}'"
+                )
+            return warehouse_table
+
+        def _self_managed_table_model_for(wm: Any) -> DataWarehouseTable:
+            warehouse_table = warehouse_table_models_by_name.get(wm.table_name)
+            if warehouse_table is None:
+                raise DataWarehouseTable.DoesNotExist(
+                    f"No DataWarehouseTable for dataWarehouseEventsModifier table '{wm.table_name}'"
+                )
+            return warehouse_table
+
         if modifiers.dataWarehouseEventsModifiers:
             with timings.measure("data_warehouse_event_modifiers", emit_span=True):
                 for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
                     with timings.measure(f"data_warehouse_event_modifier_{warehouse_modifier.table_name}"):
                         # Apply mappings to every matching namespace. A saved query and a warehouse table can share a
                         # name, and the final database may resolve that name to the table even if a view exists too.
-                        views = define_mappings(
-                            views,
-                            lambda wm: sources.event_modifier_saved_queries.get(wm.table_name),
-                        )
-                        warehouse_tables = define_mappings(
-                            warehouse_tables,
-                            lambda wm: warehouse_table_models_by_name.get(
-                                warehouse_tables_dot_notation_mapping.get(wm.table_name, wm.table_name)
-                            ),
-                        )
+                        views = define_mappings(views, _saved_query_model_for)
+                        warehouse_tables = define_mappings(warehouse_tables, _warehouse_table_model_for)
                         self_managed_warehouse_tables = define_mappings(
-                            self_managed_warehouse_tables,
-                            lambda wm: warehouse_table_models_by_name.get(wm.table_name),
+                            self_managed_warehouse_tables, _self_managed_table_model_for
                         )
 
         database._add_warehouse_tables(warehouse_tables)
