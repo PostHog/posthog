@@ -8,12 +8,6 @@ import { GraphsHog } from 'lib/components/hedgehogs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 
-import {
-    formatWidgetListCountFooter,
-    WIDGET_LIST_COUNT_ISSUES,
-    type WidgetListCountNoun,
-} from '../../widgets/constants'
-
 export type WidgetCardBodyProps = React.HTMLAttributes<HTMLDivElement> & {
     locked?: boolean
     lockedMessage?: string
