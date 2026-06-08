@@ -60,3 +60,45 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         self.config.refresh_from_db()
         assert self.config.default_autostart_priority == "P2"
         assert self.config.default_slack_notification_channel == "C123|#posthog-signals"
+
+    def test_get_config_includes_autostart_base_branches(self):
+        self.config.autostart_base_branches = {"acme/web": "staging"}
+        self.config.save(update_fields=["autostart_base_branches"])
+        response = self.client.get(self._url())
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["autostart_base_branches"] == {"acme/web": "staging"}
+
+    def test_update_autostart_base_branches_normalizes_and_persists(self):
+        response = self.client.post(
+            self._url(),
+            # Mixed case key is lowercased; blank-branch entry is dropped.
+            data={"autostart_base_branches": {"Acme/Web": "  staging  ", "acme/api": ""}},
+            format="json",
+        )
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["autostart_base_branches"] == {"acme/web": "staging"}
+        self.config.refresh_from_db()
+        assert self.config.autostart_base_branches == {"acme/web": "staging"}
+
+    def test_update_autostart_base_branches_rejects_malformed_repo_key(self):
+        response = self.client.post(
+            self._url(),
+            data={"autostart_base_branches": {"not-a-repo": "staging"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "autostart_base_branches"
+
+    def test_partial_update_preserves_autostart_base_branches(self):
+        self.config.autostart_base_branches = {"acme/web": "staging"}
+        self.config.save(update_fields=["autostart_base_branches"])
+        response = self.client.post(
+            self._url(),
+            data={"default_slack_notification_channel": "C123|#posthog-signals"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        self.config.refresh_from_db()
+        assert self.config.autostart_base_branches == {"acme/web": "staging"}

@@ -23,6 +23,7 @@ from django.utils import timezone
 import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from oauth2_provider.utils import jwk_from_pem
 from rest_framework import status
 
 from posthog.api.id_jag import (
@@ -174,6 +175,8 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         header = jwt.get_unverified_header(body["access_token"])
         self.assertEqual(header["typ"], ACCESS_TOKEN_TYPE)
         self.assertEqual(header["alg"], "RS256")
+        # kid matches the JWKS thumbprint so resource servers can select the key during rotation
+        self.assertEqual(header["kid"], jwk_from_pem(_AS_PRIVATE_KEY_PEM).thumbprint())
 
     def test_email_claim_is_preferred_over_sub_for_user_lookup(self) -> None:
         # IdPs are not required to put an email in `sub` — it may be an opaque
@@ -834,6 +837,27 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         resp = self._call_authenticated(token)
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_token_signed_with_inactive_key_still_authenticates(self) -> None:
+        # Mid-rotation: a token minted under the previous active key keeps working once
+        # that key is demoted to inactive and a freshly generated key takes over signing.
+        token = self._mint_access_token(scope="user:read", signing_pem=_AS_PRIVATE_KEY_PEM)
+        with override_settings(
+            OIDC_RSA_PRIVATE_KEY=_generate_rsa_pem(),
+            OIDC_RSA_PRIVATE_KEYS_INACTIVE=[_AS_PRIVATE_KEY_PEM],
+        ):
+            resp = self._call_authenticated(token)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json()["email"], self.user.email)
+
+    def test_token_signed_with_neither_active_nor_inactive_key_rejected(self) -> None:
+        token = self._mint_access_token(scope="user:read", signing_pem=_generate_rsa_pem())
+        with override_settings(
+            OIDC_RSA_PRIVATE_KEY=_AS_PRIVATE_KEY_PEM,
+            OIDC_RSA_PRIVATE_KEYS_INACTIVE=[_generate_rsa_pem()],
+        ):
+            resp = self._call_authenticated(token)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
     def test_missing_required_claim_rejected(self) -> None:
         # Hand-craft without `scope`
         now = int(time.time())
@@ -935,7 +959,7 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         `/api/projects/@current/`) get a default authenticator chain that
         includes `JwtAuthentication` ahead of other token-based backends.
 
-        `JwtAuthentication.decode_jwt` hard-codes HS256+SECRET_KEY and raises
+        `JwtAuthentication.decode_jwt` hard-codes HS256 + the JWT signing key and raises
         `AuthenticationFailed` (→ 401) on any non-`jwt.DecodeError` exception,
         including the `InvalidAlgorithmError` that fires for an RS256 ID-JAG
         access token. If `IDJagAccessTokenAuthentication` doesn't run first,
