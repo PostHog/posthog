@@ -29,7 +29,6 @@ import type { globalModalsLogicType } from './GlobalModalsType'
 import { navigationLogic } from './navigation/navigationLogic'
 import { ConfigureHomeModal } from './scenes/ConfigureHomeModal'
 import { ConfigurePromotedProductModal } from './scenes/ConfigurePromotedProductModal'
-import { GoodbyeTabsModal } from './scenes/GoodbyeTabsModal'
 
 export const globalModalsLogic = kea<globalModalsLogicType>([
     path(['layout', 'navigation', 'globalModalsLogic']),
@@ -97,7 +96,6 @@ export function GlobalModals(): JSX.Element {
                 isOpen={isConfigurePromotedProductModalOpen}
                 onClose={hideConfigurePromotedProductModal}
             />
-            <GoodbyeTabsModal />
             <MaybeWelcomeDialog />
             <ComposeTicketModal />
         </>

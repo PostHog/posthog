@@ -4620,7 +4620,7 @@
             ]
         },
         "BingAdsDefaultSources": {
-            "enum": ["bing", "microsoft"],
+            "enum": ["bing", "microsoft", "msads", "bing_video"],
             "type": "string"
         },
         "BingAdsTableExclusions": {
@@ -20659,7 +20659,7 @@
                 "settings",
                 "health",
                 "inbox",
-                "sdk_doctor",
+                "sdk_health",
                 "pipeline_status",
                 "llm_evaluations",
                 "llm_tags",
@@ -26515,10 +26515,18 @@
                                 {
                                     "const": "microsoft",
                                     "type": "string"
+                                },
+                                {
+                                    "const": "msads",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "bing_video",
+                                    "type": "string"
                                 }
                             ],
-                            "maxItems": 2,
-                            "minItems": 2,
+                            "maxItems": 4,
+                            "minItems": 4,
                             "type": "array"
                         },
                         "idField": {
@@ -39315,6 +39323,10 @@
                 "skill_version": {
                     "type": "number"
                 },
+                "task_run_id": {
+                    "description": "The `tasks.TaskRun` id the scout span ran inside. Join key into the `signals_scouts_runs` LLM-analytics view, which is keyed on `task_run_id` (the `scout_run_id` bridge row is not).",
+                    "type": "string"
+                },
                 "time_range": {
                     "additionalProperties": false,
                     "description": "Optional time window the finding refers to.",
@@ -39330,7 +39342,15 @@
                     "type": "object"
                 }
             },
-            "required": ["scout_run_id", "finding_id", "skill_name", "skill_version", "confidence", "evidence"],
+            "required": [
+                "scout_run_id",
+                "task_run_id",
+                "finding_id",
+                "skill_name",
+                "skill_version",
+                "confidence",
+                "evidence"
+            ],
             "type": "object"
         },
         "SignalsScoutSignalInput": {
@@ -40218,6 +40238,11 @@
             },
             "required": ["id", "tool_call_id", "content"],
             "type": "object"
+        },
+        "SubscriptionAIPromptMaxLength": {
+            "const": 4000,
+            "description": "Maximum length, in characters, of an AI subscription prompt.",
+            "type": "number"
         },
         "SubscriptionDropoffMode": {
             "enum": ["last_event", "after_dropoff_period"],
