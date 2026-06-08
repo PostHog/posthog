@@ -143,9 +143,9 @@ class TestWorkOSEndpoints:
         # directory_users and directory_groups reject ``order=asc`` with a 422; every
         # WorkOS list endpoint accepts ``order=desc`` (the WorkOS SDK default). Guard
         # against regressing back to the rejected value on any endpoint.
-        params = get_resource(endpoint)["endpoint"]["params"]
+        endpoint_config = cast(dict[str, Any], get_resource(endpoint)["endpoint"])
+        params = cast(dict[str, Any], endpoint_config["params"])
         assert params["order"] == "desc"
-        assert params["order"] != "asc"
         assert params["limit"] == WORKOS_ENDPOINTS[endpoint].page_size
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
