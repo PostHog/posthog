@@ -107,7 +107,8 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
 
             <LemonField name="query" label="Recording filters">
                 {({ value, onChange }) => {
-                    const universal = recordingsQueryToUniversalFilters(value as RecordingsQuery | null)
+                    const query = value as RecordingsQuery | null
+                    const universal = recordingsQueryToUniversalFilters(query)
                     return (
                         <div className="space-y-2">
                             <div className="text-sm text-muted">
@@ -118,14 +119,26 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                 rootKey={`replay-scanner-${scanner.id}`}
                                 group={universal.filter_group}
                                 taxonomicGroupTypes={SCANNER_FILTER_TYPES}
-                                onChange={(filterGroup) =>
-                                    onChange(
-                                        convertUniversalFiltersToRecordingsQuery({
-                                            ...universal,
-                                            filter_group: filterGroup,
-                                        })
-                                    )
-                                }
+                                onChange={(filterGroup) => {
+                                    const next = convertUniversalFiltersToRecordingsQuery({
+                                        ...universal,
+                                        filter_group: filterGroup,
+                                    })
+                                    // Overlay only the dimensions this editor controls, so query fields it doesn't
+                                    // render (e.g. session_ids, person_uuid set via API/MCP) survive an edit.
+                                    onChange({
+                                        ...query,
+                                        kind: next.kind,
+                                        events: next.events,
+                                        actions: next.actions,
+                                        properties: next.properties,
+                                        console_log_filters: next.console_log_filters,
+                                        having_predicates: next.having_predicates,
+                                        comment_text: next.comment_text,
+                                        filter_test_accounts: next.filter_test_accounts,
+                                        operand: next.operand,
+                                    })
+                                }}
                             >
                                 <ScannerFilterGroup />
                             </UniversalFilters>

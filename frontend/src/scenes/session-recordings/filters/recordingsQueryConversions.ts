@@ -1,5 +1,3 @@
-import posthog from 'posthog-js'
-
 import {
     isAnyPropertyfilter,
     isHogQLPropertyFilter,
@@ -115,23 +113,6 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
                 const normalizedValue =
                     f.type !== 'cohort' ? normalizePropertyFilterValue(f.value, f.operator) : f.value
 
-                // Debug logging for replay filter value type investigation
-                // TODO: Remove after debugging
-                if (
-                    f.type === 'feature' ||
-                    (f.type === 'event' && typeof f.key === 'string' && f.key.includes('$feature'))
-                ) {
-                    posthog.capture('debug_replay_filter_value_type', {
-                        filter_type: f.type,
-                        filter_key: f.key,
-                        original_value: f.value,
-                        normalized_value: normalizedValue,
-                        value_type: typeof f.value,
-                        is_array: Array.isArray(f.value),
-                        operator: f.operator,
-                    })
-                }
-
                 // Only create a new object if the value actually changed
                 if (normalizedValue !== f.value) {
                     properties.push({ ...f, value: normalizedValue } as AnyPropertyFilter)
@@ -185,9 +166,10 @@ export function recordingsQueryToUniversalFilters(
     return {
         duration: havingPredicates.filter(isDuration) as RecordingDurationFilter[],
         filter_test_accounts: query?.filter_test_accounts ?? false,
-        // Outer AND group wrapping a single inner AND group — the nesting UniversalFilters expects.
+        // Outer group (preserving the stored AND/OR operand) wraps a single inner AND group — the nesting
+        // UniversalFilters expects. Without carrying `operand` through, an OR query would silently save back as AND.
         filter_group: {
-            type: FilterLogicalOperator.And,
+            type: (query?.operand as FilterLogicalOperator) ?? FilterLogicalOperator.And,
             values: [{ type: FilterLogicalOperator.And, values }],
         },
     }

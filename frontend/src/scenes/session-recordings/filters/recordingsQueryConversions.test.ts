@@ -1,5 +1,11 @@
 import { RecordingsQuery } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AnyPropertyFilter,
+    FilterLogicalOperator,
+    LogEntryPropertyFilter,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import {
     convertUniversalFiltersToRecordingsQuery,
@@ -22,31 +28,31 @@ function innerValues(query: RecordingsQuery | null | undefined): any[] {
 
 const EVENT = { id: '$pageview', type: 'events' }
 const ACTION = { id: '5', type: 'actions' }
-const PERSON_PROP = {
+const PERSON_PROP: AnyPropertyFilter = {
     type: PropertyFilterType.Person,
     key: 'email',
     value: 'a@b.com',
     operator: PropertyOperator.Exact,
 }
-const CONSOLE_LOG = {
+const CONSOLE_LOG: LogEntryPropertyFilter = {
     type: PropertyFilterType.LogEntry,
     key: 'level',
     value: ['error'],
     operator: PropertyOperator.Exact,
 }
-const SNAPSHOT_SOURCE = {
+const SNAPSHOT_SOURCE: AnyPropertyFilter = {
     type: PropertyFilterType.Recording,
     key: 'snapshot_source',
     value: ['web'],
     operator: PropertyOperator.Exact,
 }
-const COMMENT_TEXT = {
+const COMMENT_TEXT: AnyPropertyFilter = {
     type: PropertyFilterType.Recording,
     key: 'comment_text',
     value: 'bug',
     operator: PropertyOperator.IContains,
 }
-const durationFilter = (key: 'duration' | 'active_seconds' | 'inactive_seconds'): any => ({
+const durationFilter = (key: 'duration' | 'active_seconds' | 'inactive_seconds'): AnyPropertyFilter => ({
     type: PropertyFilterType.Recording,
     key,
     value: 5,
@@ -198,6 +204,10 @@ describe('convertUniversalFiltersToRecordingsQuery ∘ recordingsQueryToUniversa
 
     it('preserves filter_test_accounts', () => {
         expect(roundTrip(rq({ filter_test_accounts: true })).filter_test_accounts).toBe(true)
+    })
+
+    it('preserves an OR operand instead of silently downgrading to AND', () => {
+        expect(roundTrip(rq({ operand: FilterLogicalOperator.Or })).operand).toBe(FilterLogicalOperator.Or)
     })
 
     it('an empty query round-trips to an empty (match-all) query', () => {
