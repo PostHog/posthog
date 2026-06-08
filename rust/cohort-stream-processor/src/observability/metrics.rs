@@ -161,6 +161,17 @@ pub const SWEEP_CYCLE_DURATION_SECONDS: &str = "sweep_cycle_duration_seconds";
 /// eviction *work*, not just membership flips (a daily slide that drops a bucket but keeps the member
 /// is counted here with no transition).
 pub const SWEEP_KEYS_EVICTED_TOTAL: &str = "sweep_keys_evicted_total";
+/// Keys the sweep popped from the queue but did **not** evict, labelled by `reason` (counter). The
+/// conservation counterpart to [`SWEEP_KEYS_EVICTED_TOTAL`]: both are counted only once the tick
+/// commits (a produce/write failure reschedules and re-derives, counting neither), so in steady state
+/// every popped key lands in exactly one of the two — `popped == evicted + dropped`. Without this, a
+/// catalog-drift state leak is invisible to metrics. `reason` is one of the `SweepDropReason` labels
+/// (`workers::sweep_callback`): catalog drift (the team or leaf left the catalog mid-tenure), a
+/// missing/corrupt row, an unsupported variant, or a person-property key scheduled in error.
+/// Corrupt/unsupported drops are *also* counted on
+/// `stage1_state_decode_error_total` / `stage1_unsupported_variant_skipped_total`, mirroring how the
+/// event path counts a store-error skip on top of `store_errors_total`.
+pub const SWEEP_KEYS_DROPPED_TOTAL: &str = "sweep_keys_dropped_total";
 
 /// Install the global Prometheus recorder. Call once at startup.
 ///

@@ -29,7 +29,8 @@ use crate::filters::TeamId;
 use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, OUTPUT_MEMBERSHIP_CHANGES_EMITTED,
     OUTPUT_PRODUCE_ERRORS, STAGE1_EVENTS_PROCESSED, STAGE1_EVENTS_SKIPPED,
-    STAGE1_EVENT_PROCESS_DURATION, STAGE1_TRANSITIONS, SWEEP_KEYS_EVICTED_TOTAL,
+    STAGE1_EVENT_PROCESS_DURATION, STAGE1_TRANSITIONS, SWEEP_KEYS_DROPPED_TOTAL,
+    SWEEP_KEYS_EVICTED_TOTAL,
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::partitions::shuffle_message::ShuffleMessage;
@@ -43,7 +44,7 @@ use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::CohortStore;
 use crate::sweep::EvictionQueue;
 use crate::workers::event_path::{process_event, SkipReason};
-use crate::workers::sweep_callback::{sweep_evict, EvictionAction};
+use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReason};
 
 /// A long-lived worker owning one partition's Stage 1 state. The task ends when the channel
 /// `Sender` is dropped (the router's shutdown signal).
@@ -296,16 +297,21 @@ async fn handle_sweep(
     let snapshot = catalog.load();
     let mut changes = Vec::new();
     let mut results = Vec::new();
+    // Reasons for keys popped but not evicted, counted on commit (below) alongside the evictions so
+    // `popped == evicted + dropped` holds: a produce/write failure returns before counting either,
+    // and the retry re-derives both. A read-error team is neither — its keys reschedule and retry.
+    let mut drops: Vec<SweepDropReason> = Vec::new();
     for (team_id, keys) in &by_team {
         let Some(filters) = snapshot.team(TeamId(*team_id as i32)) else {
-            // The team left the catalog (drift): skip its keys (they are not rescheduled, so its
+            // The team left the catalog (drift): drop its keys (they are not rescheduled, so its
             // state lingers until the next rebalance reclaims the slice).
+            drops.extend(std::iter::repeat_n(SweepDropReason::TeamDrift, keys.len()));
             continue;
         };
         let filters: &TeamFilters = filters;
         match sweep_evict(filters, keys, store, due_before_ms) {
-            Ok(team_results) => {
-                for result in &team_results {
+            Ok(evictions) => {
+                for result in &evictions.results {
                     if let Some(transition) = &result.transition {
                         if let Some(kind) = transition_metric_label(filters, transition) {
                             counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(1);
@@ -313,10 +319,12 @@ async fn handle_sweep(
                         changes.extend(map_transition(filters, transition, last_updated));
                     }
                 }
-                results.extend(team_results);
+                results.extend(evictions.results);
+                drops.extend(evictions.drops);
             }
             Err(error) => {
-                // A RocksDB read error for this team: reschedule its keys to retry next tick.
+                // A RocksDB read error for this team: reschedule its keys to retry next tick. They
+                // are neither evicted nor dropped — the retry re-derives both.
                 warn!(
                     partition_id,
                     team_id,
@@ -355,36 +363,44 @@ async fn handle_sweep(
         }
     }
 
-    if results.is_empty() {
-        return; // nothing evicted (all skipped); the popped keys are intentionally dropped
-    }
-
-    // The produce is durable, so apply every eviction atomically.
-    let written = store.write_batch(|batch| {
-        for result in &results {
-            match &result.action {
-                EvictionAction::Write(bytes) => batch.put_stage1(&result.key, bytes),
-                EvictionAction::Delete => batch.delete_stage1(&result.key),
+    // Apply the evictions only once the produce is durable. Skipped when nothing was evicted (every
+    // popped key was dropped) — there is no state to write, so fall through to the drop accounting.
+    if !results.is_empty() {
+        let written = store.write_batch(|batch| {
+            for result in &results {
+                match &result.action {
+                    EvictionAction::Write(bytes) => batch.put_stage1(&result.key, bytes),
+                    EvictionAction::Delete => batch.delete_stage1(&result.key),
+                }
             }
+        });
+        if let Err(error) = written {
+            // The changes were already produced (at-least-once); reschedule so the state advance
+            // retries. Drops stay uncounted — the retry re-derives them on its eventual commit.
+            warn!(
+                partition_id,
+                error = %error,
+                "sweep state write failed; rescheduling popped keys to retry the eviction",
+            );
+            reschedule_all(queue, &popped);
+            return;
         }
-    });
-    if let Err(error) = written {
-        // The `Left`s were already produced (at-least-once); reschedule so the state advance retries.
-        warn!(
-            partition_id,
-            error = %error,
-            "sweep state write failed; rescheduling popped keys to retry the eviction",
-        );
-        reschedule_all(queue, &popped);
-        return;
+
+        // Reschedule the survivors (daily windows still holding buckets) at their next deadline.
+        for result in &results {
+            if let Some(deadline) = result.reschedule {
+                queue.schedule(result.key, deadline);
+            }
+            counter!(SWEEP_KEYS_EVICTED_TOTAL, "variant" => result.variant.as_str()).increment(1);
+        }
     }
 
-    // Reschedule the survivors (daily windows still holding buckets) at their next deadline.
-    for result in &results {
-        if let Some(deadline) = result.reschedule {
-            queue.schedule(result.key, deadline);
-        }
-        counter!(SWEEP_KEYS_EVICTED_TOTAL, "variant" => result.variant.as_str()).increment(1);
+    // Commit point reached (every eviction is durable, or there was nothing to evict): count the
+    // dropped keys now — the same point as `SWEEP_KEYS_EVICTED_TOTAL` — so a produce/write failure
+    // above (which returned early) re-derives and counts each drop exactly once on its eventual
+    // success, keeping `popped == evicted + dropped` exact in steady state.
+    for reason in &drops {
+        counter!(SWEEP_KEYS_DROPPED_TOTAL, "reason" => reason.as_str()).increment(1);
     }
 }
 

@@ -52,11 +52,59 @@ pub(crate) struct EvictionResult {
     pub reschedule: Option<i64>,
 }
 
+/// Why the sweep dropped a popped key instead of evicting it — a key that was due but had no valid,
+/// supported state to advance. Doubles as the `reason` label on
+/// [`SWEEP_KEYS_DROPPED_TOTAL`](crate::observability::metrics::SWEEP_KEYS_DROPPED_TOTAL); the
+/// `Decode`/`UnsupportedVariant` arms are *also* surfaced on the existing error counters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SweepDropReason {
+    /// The team left the catalog mid-tenure; its keys cannot be evaluated until a rebalance reclaims
+    /// the slice. Raised by the worker, which groups by team before calling [`sweep_evict`].
+    TeamDrift,
+    /// The leaf left the catalog mid-tenure (its `LeafStateKey` is no longer in the reverse index).
+    LeafDrift,
+    /// No `cf_stage1` row for the key — already deleted (a prior eviction / merge) or never written.
+    MissingState,
+    /// The stored record failed to decode, or its value disagreed with the variant the `LeafStateKey`
+    /// pins (corruption / format desync). Also counted on `stage1_state_decode_error_total`.
+    Decode,
+    /// A daily leaf whose catalog meta is missing `window_days`/`predicate_op` (a desync). Also
+    /// counted on `stage1_unsupported_variant_skipped_total`.
+    UnsupportedVariant,
+    /// A person-property key — never time-evicted, so it should never have been scheduled; a stale
+    /// schedule is dropped defensively.
+    PersonProperty,
+}
+
+impl SweepDropReason {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::TeamDrift => "team_drift",
+            Self::LeafDrift => "leaf_drift",
+            Self::MissingState => "missing_state",
+            Self::Decode => "decode_error",
+            Self::UnsupportedVariant => "unsupported_variant",
+            Self::PersonProperty => "person_property",
+        }
+    }
+}
+
+/// The outcome of one [`sweep_evict`] pass over a team's due keys: the per-key evictions to apply, and
+/// the reason each popped-but-not-evicted key was dropped. The worker counts both only once the tick
+/// commits, so `popped == evicted + dropped` holds in steady state.
+#[derive(Debug, Default)]
+pub(crate) struct SweepEvictions {
+    pub results: Vec<EvictionResult>,
+    pub drops: Vec<SweepDropReason>,
+}
+
 /// Compute the eviction for each due key against one team's frozen filters, **without writing**.
-/// Returns one [`EvictionResult`] per key that has a supported, decodable state still in the catalog;
-/// a missing/corrupt row, a leaf that left the catalog, or a person-property key is silently skipped
-/// (no result → the worker simply does not reschedule it). A RocksDB read error fails the whole call
-/// so the worker can reschedule and retry the tick.
+/// Returns a [`SweepEvictions`] with one [`EvictionResult`] per key that has a supported, decodable
+/// state still in the catalog, plus a [`SweepDropReason`] for each key that was popped but not evicted
+/// (a missing/corrupt row, a leaf that left the catalog, or a person-property key). The worker counts
+/// the drops on [`SWEEP_KEYS_DROPPED_TOTAL`](crate::observability::metrics::SWEEP_KEYS_DROPPED_TOTAL)
+/// and reschedules neither. A RocksDB read error fails the whole call so the worker can reschedule and
+/// retry the tick.
 ///
 /// All `due_keys` must belong to `filters`' team (the worker groups by team before calling).
 pub(crate) fn sweep_evict(
@@ -64,38 +112,49 @@ pub(crate) fn sweep_evict(
     due_keys: &[Stage1Key],
     store: &CohortStore,
     due_before_ms: i64,
-) -> Result<Vec<EvictionResult>, StoreError> {
-    let mut results = Vec::with_capacity(due_keys.len());
+) -> Result<SweepEvictions, StoreError> {
+    let mut out = SweepEvictions {
+        results: Vec::with_capacity(due_keys.len()),
+        drops: Vec::new(),
+    };
     for &key in due_keys {
         // A backend read error fails the whole call (the worker reschedules for retry); a missing or
-        // corrupt row skips just this key.
+        // corrupt row drops just this key.
         let record = match store.get_stage1(&key)? {
-            None => continue,
+            None => {
+                out.drops.push(SweepDropReason::MissingState);
+                continue;
+            }
             Some(bytes) => match StatefulRecord::decode(&bytes) {
                 Ok(record) => record,
                 Err(_) => {
                     counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
+                    out.drops.push(SweepDropReason::Decode);
                     continue;
                 }
             },
         };
-        // The leaf left the catalog mid-tenure (drift) → skip. The state lingers until the next
+        // The leaf left the catalog mid-tenure (drift) → drop. The state lingers until the next
         // rebalance reclaims the partition slice; it is never spuriously evicted.
         let Some(meta) = filters.by_lsk.get(&key.leaf_state_key) else {
+            out.drops.push(SweepDropReason::LeafDrift);
             continue;
         };
-        let result = match meta.variant {
+        let evicted = match meta.variant {
             StateVariant::BehavioralSingle => evict_single(key, meta, record),
             StateVariant::BehavioralDailyBuckets => {
                 evict_daily(key, meta, record, filters.timezone, due_before_ms)
             }
             // Person-property leaves carry no eviction deadline, so they are never scheduled; defend
-            // against a stale schedule by skipping.
-            StateVariant::PersonProperty => None,
+            // against a stale schedule by dropping.
+            StateVariant::PersonProperty => Err(SweepDropReason::PersonProperty),
         };
-        results.extend(result);
+        match evicted {
+            Ok(result) => out.results.push(result),
+            Err(reason) => out.drops.push(reason),
+        }
     }
-    Ok(results)
+    Ok(out)
 }
 
 /// Evict a `performed_event` single: the window expired (the queue popped it past its deadline), so a
@@ -105,18 +164,18 @@ fn evict_single(
     key: Stage1Key,
     meta: &LeafStateMeta,
     record: StatefulRecord,
-) -> Option<EvictionResult> {
+) -> Result<EvictionResult, SweepDropReason> {
     if !matches!(record.state, Stage1State::BehavioralSingle { .. }) {
-        // The LSK pins the variant; a non-single value is corruption — skip.
+        // The LSK pins the variant; a non-single value is corruption — drop.
         counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
-        return None;
+        return Err(SweepDropReason::Decode);
     }
     // A stored single is written only on a match, so the predicate is `true`; gate the `Left` on it
     // defensively so a (impossible) non-member single deletes without a spurious emit. A single is
     // monotonic — `has_match` is set on a match and never cleared — so it can only ever leave.
     let transition =
         predicate(&record.state, None).then(|| transition_for(key, meta, TransitionKind::Left));
-    Some(EvictionResult {
+    Ok(EvictionResult {
         key,
         variant: StateVariant::BehavioralSingle,
         transition,
@@ -141,12 +200,12 @@ fn evict_daily(
     record: StatefulRecord,
     tz: Tz,
     due_before_ms: i64,
-) -> Option<EvictionResult> {
-    // A daily leaf carries both by construction; absence is a catalog desync — skip.
+) -> Result<EvictionResult, SweepDropReason> {
+    // A daily leaf carries both by construction; absence is a catalog desync — drop.
     let (Some(window_days), Some(op)) = (meta.window_days, meta.predicate_op) else {
         counter!(STAGE1_UNSUPPORTED_VARIANT_SKIPPED, "variant" => StateVariant::BehavioralDailyBuckets.as_str())
             .increment(1);
-        return None;
+        return Err(SweepDropReason::UnsupportedVariant);
     };
     let StatefulRecord {
         state,
@@ -159,15 +218,15 @@ fn evict_daily(
         ..
     } = state
     else {
-        // The LSK pins the variant; a non-bucket value here is corruption — skip.
+        // The LSK pins the variant; a non-bucket value here is corruption — drop.
         counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
-        return None;
+        return Err(SweepDropReason::Decode);
     };
-    // A stored array whose length disagrees with the leaf window is a format desync — skip rather
+    // A stored array whose length disagrees with the leaf window is a format desync — drop rather
     // than slide out of bounds (mirrors the event path's guard).
     if buckets.len() != daily_bucket_len(window_days) {
         counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
-        return None;
+        return Err(SweepDropReason::Decode);
     }
 
     let predicate_before = daily_predicate(&buckets, op);
@@ -213,7 +272,7 @@ fn evict_daily(
         !predicate_after || matches!(action, EvictionAction::Write(_)),
         "a still-member eviction must rewrite + reschedule, not delete (relies on daily_predicate's count>=1 floor)",
     );
-    Some(EvictionResult {
+    Ok(EvictionResult {
         key,
         variant: StateVariant::BehavioralDailyBuckets,
         transition,
@@ -344,7 +403,9 @@ mod tests {
             },
         );
 
-        let results = sweep_evict(&filters, &[key], &store, deadline + 86_400_000).unwrap();
+        let results = sweep_evict(&filters, &[key], &store, deadline + 86_400_000)
+            .unwrap()
+            .results;
         assert_eq!(results.len(), 1);
         let result = &results[0];
         assert_eq!(result.variant, StateVariant::BehavioralSingle);
@@ -385,7 +446,9 @@ mod tests {
 
         // Slide to the day the lone bucket leaves the window: every bucket drains.
         let cutoff = start_of_day_ms_in_tz(day + WINDOW_DAYS as i32 + 1, UTC);
-        let results = sweep_evict(&filters, &[key], &store, cutoff).unwrap();
+        let results = sweep_evict(&filters, &[key], &store, cutoff)
+            .unwrap()
+            .results;
         assert_eq!(results.len(), 1);
         let result = &results[0];
         assert_eq!(
@@ -423,7 +486,9 @@ mod tests {
 
         // Slide one day past the window's current now-day so only the oldest bucket leaves.
         let cutoff = start_of_day_ms_in_tz(window_start + WINDOW_DAYS as i32 + 1, UTC);
-        let results = sweep_evict(&filters, &[key], &store, cutoff).unwrap();
+        let results = sweep_evict(&filters, &[key], &store, cutoff)
+            .unwrap()
+            .results;
         assert_eq!(results.len(), 1);
         let result = &results[0];
         assert!(result.transition.is_none(), "still ≥ 1 match → no Left");
@@ -482,7 +547,9 @@ mod tests {
 
         // Slide one day past the window's now-day so only the oldest bucket leaves: count 2 → 1.
         let cutoff = start_of_day_ms_in_tz(window_start + WINDOW_DAYS as i32 + 1, UTC);
-        let results = sweep_evict(&filters, &[key], &store, cutoff).unwrap();
+        let results = sweep_evict(&filters, &[key], &store, cutoff)
+            .unwrap()
+            .results;
         assert_eq!(results.len(), 1);
         let result = &results[0];
         assert_eq!(
@@ -529,7 +596,9 @@ mod tests {
         );
 
         let cutoff = start_of_day_ms_in_tz(window_start + WINDOW_DAYS as i32 + 1, UTC);
-        let results = sweep_evict(&filters, &[key], &store, cutoff).unwrap();
+        let results = sweep_evict(&filters, &[key], &store, cutoff)
+            .unwrap()
+            .results;
         assert_eq!(results.len(), 1);
         let result = &results[0];
         assert_eq!(
@@ -560,10 +629,15 @@ mod tests {
                 earliest_eviction_at_ms: 2,
             },
         );
-        let results = sweep_evict(&filters, &[key], &store, i64::MAX).unwrap();
+        let out = sweep_evict(&filters, &[key], &store, i64::MAX).unwrap();
         assert!(
-            results.is_empty(),
+            out.results.is_empty(),
             "a length mismatch is skipped, not panicked"
+        );
+        assert_eq!(
+            out.drops,
+            vec![SweepDropReason::Decode],
+            "a length mismatch is dropped as a decode/format desync",
         );
     }
 
@@ -586,10 +660,15 @@ mod tests {
                 last_updated_offset: 2,
             },
         );
-        let results = sweep_evict(&filters, &[key], &store, i64::MAX).unwrap();
+        let out = sweep_evict(&filters, &[key], &store, i64::MAX).unwrap();
         assert!(
-            results.is_empty(),
+            out.results.is_empty(),
             "person-property leaves are never time-evicted",
+        );
+        assert_eq!(
+            out.drops,
+            vec![SweepDropReason::PersonProperty],
+            "a scheduled person-property key is dropped defensively",
         );
     }
 
@@ -618,10 +697,15 @@ mod tests {
         // A known leaf whose state was never written: missing row → skip.
         let missing = key_for(&filters, 999);
 
-        let results = sweep_evict(&filters, &[drifted, missing], &store, i64::MAX).unwrap();
+        let out = sweep_evict(&filters, &[drifted, missing], &store, i64::MAX).unwrap();
         assert!(
-            results.is_empty(),
+            out.results.is_empty(),
             "drift and missing rows both skip cleanly"
+        );
+        assert_eq!(
+            out.drops,
+            vec![SweepDropReason::LeafDrift, SweepDropReason::MissingState],
+            "the drifted key drops as leaf drift, the absent key as missing state",
         );
     }
 
@@ -641,7 +725,9 @@ mod tests {
                 },
             );
         }
-        let results = sweep_evict(&filters, &keys, &store, 10_000).unwrap();
+        let results = sweep_evict(&filters, &keys, &store, 10_000)
+            .unwrap()
+            .results;
         assert_eq!(results.len(), 3, "every member key evicts to a Left+Delete");
         assert!(results
             .iter()
