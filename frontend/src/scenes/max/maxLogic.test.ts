@@ -187,27 +187,43 @@ describe('maxLogic', () => {
         expect(logic.values.frontendConversationId).toMatch(uuidRegex)
     })
 
-    // The side panel chat floats over whatever page you're on (e.g. an insight) and must not touch
-    // the route, whereas the scene instance owns /ai. The harness prefixes the project id
-    // (/project/<id>/…), so match the path suffix.
-    it.each([
-        {
-            scenario: 'side panel chat keeps the current page',
-            props: { panelId: SIDE_PANEL_PANEL_ID },
-            expectedSuffix: '/insights/abc123',
-        },
-        { scenario: 'scene chat navigates to /ai', props: { panelId: 'test' }, expectedSuffix: urls.ai() },
-    ])('startNewConversation: $scenario', async ({ props, expectedSuffix }) => {
-        router.actions.push('/insights/abc123')
+    // The side panel chat floats over whatever scene you're on (e.g. an insight or survey). The
+    // rendered scene is chosen by the route, so if the side panel pushes /ai it replaces the main
+    // content — which is the regression. Only the scene instance, which owns /ai, may navigate.
+    // These are every route-affecting action; the side panel must stay silent on all of them,
+    // including setConversationId, which fires a replace nav when a brand-new conversation is minted.
+    // The harness prefixes the project id (/project/<id>/…), so match the path suffix.
+    const PAGES = ['/insights/abc123', '/surveys/xyz789']
+    const routeActions = [
+        { name: 'startNewConversation', act: () => logic.actions.startNewConversation() },
+        { name: 'openConversation', act: () => logic.actions.openConversation(MOCK_CONVERSATION_ID) },
+        { name: 'setConversationId', act: () => logic.actions.setConversationId(logic.values.frontendConversationId) },
+        { name: 'toggleConversationHistory', act: () => logic.actions.toggleConversationHistory() },
+    ]
+    const sidePanelCases = PAGES.flatMap((page) => routeActions.map((action) => ({ page, ...action })))
 
-        logic = maxLogic(props)
+    it.each(sidePanelCases)('side panel chat keeps the main content on $page on $name', async ({ page, act }) => {
+        useMocks({ get: { '/api/environments/:team_id/conversations/:id': MOCK_CONVERSATION } })
+        router.actions.push(page)
+
+        logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
         logic.mount()
 
-        await expectLogic(logic, () => {
-            logic.actions.startNewConversation()
-        }).toFinishAllListeners()
+        await expectLogic(logic, () => act()).toFinishAllListeners()
 
-        expect(router.values.location.pathname.endsWith(expectedSuffix)).toBe(true)
+        expect(router.values.location.pathname.endsWith(page)).toBe(true)
+    })
+
+    it.each(routeActions)('scene chat navigates to /ai on $name', async ({ act }) => {
+        useMocks({ get: { '/api/environments/:team_id/conversations/:id': MOCK_CONVERSATION } })
+        router.actions.push('/insights/abc123')
+
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+
+        await expectLogic(logic, () => act()).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toContain(urls.ai())
     })
 
     it('uses threadLogicKey correctly with frontendConversationId', async () => {
