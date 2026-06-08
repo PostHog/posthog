@@ -5,6 +5,8 @@ from posthog.schema import SharingConfigurationSettings
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 
+from products.dashboards.backend.models.dashboard import Dashboard
+
 
 class TestSharingConfigurationSettings(BaseTest):
     """Test the SharingConfigurationSettings Pydantic model"""
@@ -210,13 +212,16 @@ class TestSharingConfigurationModel(BaseTest):
         assert new_passwords[1].check_password("password-two")
 
     def test_rotate_access_token_expires_duplicate_active_configs(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="rotate duplicate dashboard", created_by=self.user)
         original_config = SharingConfiguration.objects.create(
             team=self.team,
+            dashboard=dashboard,
             enabled=True,
             access_token="rotate_duplicate_one",
         )
         duplicate_config = SharingConfiguration.objects.create(
             team=self.team,
+            dashboard=dashboard,
             enabled=True,
             access_token="rotate_duplicate_two",
         )
@@ -225,7 +230,7 @@ class TestSharingConfigurationModel(BaseTest):
 
         original_config.refresh_from_db()
         duplicate_config.refresh_from_db()
-        assert SharingConfiguration.objects.filter(team=self.team, expires_at__isnull=True).count() == 1
+        assert SharingConfiguration.objects.filter(dashboard=dashboard, expires_at__isnull=True).count() == 1
         assert new_config.expires_at is None
         assert original_config.expires_at is not None
         assert duplicate_config.expires_at is not None

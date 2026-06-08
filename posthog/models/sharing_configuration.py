@@ -94,10 +94,18 @@ class SharingConfiguration(models.Model):
         return cls.objects.filter(**resource_lookup, expires_at__isnull=True).order_by("-created_at")
 
     @classmethod
-    def expire_duplicate_active_configs(cls, *, keep: "SharingConfiguration", **resource_lookup: Any) -> int:
-        duplicate_ids = list(
-            cls.queryset_active_for_resource(**resource_lookup).exclude(pk=keep.pk).values_list("pk", flat=True)
-        )
+    def expire_duplicate_active_configs(
+        cls,
+        *,
+        keep: "SharingConfiguration",
+        duplicate_pks: list[int] | None = None,
+        **resource_lookup: Any,
+    ) -> int:
+        duplicate_ids = duplicate_pks
+        if duplicate_ids is None:
+            duplicate_ids = list(
+                cls.queryset_active_for_resource(**resource_lookup).exclude(pk=keep.pk).values_list("pk", flat=True)
+            )
         if not duplicate_ids:
             return 0
 
@@ -112,14 +120,20 @@ class SharingConfiguration(models.Model):
 
     @classmethod
     def get_active_for_resource(cls, *, dedupe: bool = False, **resource_lookup: Any) -> "SharingConfiguration | None":
-        active = cls.queryset_active_for_resource(**resource_lookup).first()
-        if active is None:
-            return None
+        if not dedupe:
+            return cls.queryset_active_for_resource(**resource_lookup).first()
 
-        if dedupe:
-            cls.expire_duplicate_active_configs(keep=active, **resource_lookup)
+        with transaction.atomic():
+            active_configs = list(cls.queryset_active_for_resource(**resource_lookup).select_for_update())
+            if not active_configs:
+                return None
 
-        return active
+            keep = active_configs[0]
+            duplicate_pks = [config.pk for config in active_configs[1:]]
+            if duplicate_pks:
+                cls.expire_duplicate_active_configs(keep=keep, duplicate_pks=duplicate_pks, **resource_lookup)
+
+            return keep
 
     def _lock_resource_for_rotation(self) -> None:
         if self.dashboard_id:
