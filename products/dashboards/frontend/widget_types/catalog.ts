@@ -103,7 +103,7 @@ export const DASHBOARD_WIDGET_CATALOG = {
         defaultConfig: errorTrackingWidgetConfigSchema.parse({
             dateRange: { date_from: '-7d' },
         }),
-        defaultLayout: { w: 6, h: 5, minW: 6, minH: 3 },
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
         productAccess: 'error_tracking',
         titleHref: urls.errorTracking(),
         sharedPlaceholder: {
@@ -123,7 +123,7 @@ export const DASHBOARD_WIDGET_CATALOG = {
         defaultConfig: sessionReplayWidgetConfigSchema.parse({
             dateRange: { date_from: '-7d' },
         }),
-        defaultLayout: { w: 6, h: 5, minW: 6, minH: 3 },
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
         productAccess: 'session_recording',
         titleHref: urls.replay(),
         sharedPlaceholder: {
@@ -193,7 +193,7 @@ export function getUnknownDashboardWidgetCatalogFallback(widgetType: string): Re
         label: widgetType,
         description: '',
         defaultConfig: {},
-        defaultLayout: { w: 6, h: 5, minW: 6 },
+        defaultLayout: { w: 6, h: 5, minW: 3 },
         headerTitle: widgetType,
         headerLayout: DEFAULT_DASHBOARD_WIDGET_HEADER_LAYOUT,
         headerMeta: DEFAULT_DASHBOARD_WIDGET_HEADER_META,
