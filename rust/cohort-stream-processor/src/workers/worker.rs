@@ -131,8 +131,8 @@ async fn run_worker(
                         queue.schedule(key, deadline);
                     }
                 }
-                // Self-contained: the sweep produces its own `Left`s and applies its own state
-                // mutation, bypassing the event buffer and offset (it carries no Kafka offset).
+                // Self-contained: the sweep produces its own membership changes and applies its own
+                // state mutation, bypassing the event buffer and offset (it carries no Kafka offset).
                 ShuffleMessage::Sweep { due_before_ms } => {
                     handle_sweep(
                         partition_id,
@@ -259,15 +259,15 @@ fn handle_event(
 }
 
 /// Drain the worker's eviction queue for every key past `due_before_ms` and evict it: produce any
-/// `Left`, then — only on a fully-acked produce — apply the state mutations in one `WriteBatch` and
-/// reschedule the survivors.
+/// membership changes (a daily `eq`/`lte`/`lt` slide can Enter, not only Leave), then — only on a
+/// fully-acked produce — apply the state mutations in one `WriteBatch` and reschedule the survivors.
 ///
 /// **Produce before write** (the inverse order of the event path, same at-least-once semantics): the
 /// sweep has no Kafka offset to hold, so its retry vehicle is the un-evicted state plus the queue
 /// entry. On any produce error it reschedules every popped key at its original deadline and writes
-/// nothing — next tick re-derives the same `Left` against the still-present state and retries. A
+/// nothing — next tick re-derives the same changes against the still-present state and retries. A
 /// crash strictly between the ack and the state-write is at-most-once (the state stays, but the
-/// `Left` was emitted), the same posture as the event path's shadow output (closed by PR 3.5).
+/// change was emitted), the same posture as the event path's shadow output (closed by PR 3.5).
 async fn handle_sweep(
     partition_id: u16,
     store: &CohortStore,
@@ -328,9 +328,11 @@ async fn handle_sweep(
         }
     }
 
-    // Produce the `Left`s and await all acks before mutating any state (produce before write).
+    // Produce the membership changes (a daily eq/lte/lt slide can Enter, not only Leave) and await all
+    // acks before mutating any state (produce before write). Split the counter before `produce` moves
+    // `changes`, then increment once the flush is durable — mirroring the event-path flush.
     if !changes.is_empty() {
-        let left = changes.len() as u64;
+        let (entered, left) = count_by_status(&changes);
         let acks = sink.produce(changes).await;
         let errors = acks.iter().filter(|result| result.is_err()).count();
         if errors > 0 {
@@ -341,10 +343,16 @@ async fn handle_sweep(
                 "sweep produce to cohort_membership_changed_shadow failed; rescheduling for replay",
             );
             reschedule_all(queue, &popped);
-            return; // write nothing; the un-evicted state re-derives the same Left next tick
+            return; // write nothing; the un-evicted state re-derives the same changes next tick
         }
-        counter!(OUTPUT_MEMBERSHIP_CHANGES_EMITTED, "status" => MembershipStatus::Left.as_str())
-            .increment(left);
+        if entered > 0 {
+            counter!(OUTPUT_MEMBERSHIP_CHANGES_EMITTED, "status" => MembershipStatus::Entered.as_str())
+                .increment(entered);
+        }
+        if left > 0 {
+            counter!(OUTPUT_MEMBERSHIP_CHANGES_EMITTED, "status" => MembershipStatus::Left.as_str())
+                .increment(left);
+        }
     }
 
     if results.is_empty() {
@@ -404,6 +412,8 @@ fn reschedule_team(
 /// Map a transition to its `stage1_transitions_total{kind}` label. An unknown LSK maps to no metric.
 /// A `BehavioralSingle` `Left` is only ever produced by the sweep (the event path never clears a
 /// match), so it carries the `behavioral_left` label to keep the sweep's conservation story uniform.
+/// A daily slide emits either direction — `behavioral_daily_left`, or `behavioral_daily_entered` when
+/// a falling count enters an `eq`/`lte`/`lt` range.
 fn transition_metric_label(
     filters: &TeamFilters,
     transition: &LeafTransition,

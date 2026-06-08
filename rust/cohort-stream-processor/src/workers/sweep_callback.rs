@@ -2,8 +2,9 @@
 //!
 //! [`sweep_evict`] is a pure read-and-compute pass: for each due key it reads the stored state,
 //! drops the aged-out bucket(s), recomputes the predicate, and returns what *would* change — the
-//! `Left` transition, the state mutation (rewrite or delete), and the next eviction deadline — but
-//! writes nothing. The worker ([`handle_sweep`](crate::workers::worker)) orchestrates the
+//! membership transition (a `Left`, or an `Entered` when a daily slide lowers the count into an
+//! `Eq`/`Lte`/`Lt` range), the state mutation (rewrite or delete), and the next eviction deadline —
+//! but writes nothing. The worker ([`handle_sweep`](crate::workers::worker)) orchestrates the
 //! produce-before-write ordering over the returned results, so a clean produce failure can replay
 //! against still-un-evicted state.
 //!
@@ -38,9 +39,10 @@ pub(crate) enum EvictionAction {
     Delete,
 }
 
-/// What evicting one key implies: the optional `Left` it emits, the state mutation to apply, and the
-/// next deadline to reschedule (`Some` only for a [`Write`](EvictionAction::Write) that still has a
-/// finite eviction boundary).
+/// What evicting one key implies: the optional membership transition it emits (`Left` for any
+/// variant; `Entered` only for a daily slide lowering the count into an `Eq`/`Lte`/`Lt` range), the
+/// state mutation to apply, and the next deadline to reschedule (`Some` only for a
+/// [`Write`](EvictionAction::Write) that still has a finite eviction boundary).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EvictionResult {
     pub key: Stage1Key,
@@ -110,8 +112,10 @@ fn evict_single(
         return None;
     }
     // A stored single is written only on a match, so the predicate is `true`; gate the `Left` on it
-    // defensively so a (impossible) non-member single deletes without a spurious emit.
-    let transition = predicate(&record.state, None).then(|| left_transition(key, meta));
+    // defensively so a (impossible) non-member single deletes without a spurious emit. A single is
+    // monotonic — `has_match` is set on a match and never cleared — so it can only ever leave.
+    let transition =
+        predicate(&record.state, None).then(|| transition_for(key, meta, TransitionKind::Left));
     Some(EvictionResult {
         key,
         variant: StateVariant::BehavioralSingle,
@@ -123,8 +127,14 @@ fn evict_single(
 
 /// Evict a `performed_event_multiple` daily window: slide it forward to `day_idx(due_before_ms)`
 /// (the same AHEAD slide the event path does, minus the per-event increment), recompute the count
-/// predicate, and emit `Left` on a true→false flip. Rewrites the advanced state with its new deadline
-/// while any bucket survives; deletes once every bucket has drained.
+/// predicate, and emit the membership flip the slide implies — `Left` on true→false, or `Entered` on
+/// false→true (a falling count can enter an `Eq`/`Lte`/`Lt` range, mirroring the event path). Rewrites
+/// the advanced state with its new deadline while any bucket survives; deletes once every bucket has
+/// drained.
+///
+/// Across a multi-boundary slide only the *net* flip is emitted, not the intermediate crossings — the
+/// same discrete recompute the old pipeline and the event path do (`mutate_behavioral_daily`); emitting
+/// each crossed boundary would diverge from the old pipeline and inflate the output.
 fn evict_daily(
     key: Stage1Key,
     meta: &LeafStateMeta,
@@ -169,8 +179,15 @@ fn evict_daily(
         target_now_day,
     );
     let predicate_after = daily_predicate(&buckets, op);
-    // A slide only drains buckets, so the predicate can only flip true→false; emit `Left` on that.
-    let transition = (predicate_before && !predicate_after).then(|| left_transition(key, meta));
+    // A drain only lowers the count, but the comparator is not monotonic: Gte/Gt can only flip
+    // true→false (Left), while Eq/Lte/Lt can flip false→true as the count falls (Entered). Mirror the
+    // event path's bidirectional detection so the sweep stays consistent with it.
+    let kind = match (predicate_before, predicate_after) {
+        (false, true) => Some(TransitionKind::Entered),
+        (true, false) => Some(TransitionKind::Left),
+        _ => None,
+    };
+    let transition = kind.map(|kind| transition_for(key, meta, kind));
 
     let new_deadline = daily_eviction_deadline(&buckets, window_start_day, window_days, tz);
     let (action, reschedule) = if new_deadline == i64::MAX {
@@ -189,6 +206,13 @@ fn evict_daily(
         };
         (EvictionAction::Write(advanced.encode()), Some(new_deadline))
     };
+    // A still-member eviction (an `Entered` or a `Left` that leaves the count ≥ 1) must rewrite and
+    // reschedule, never delete: `predicate_after` ⟹ `count >= 1` ⟹ a non-zero bucket ⟹ a finite
+    // deadline ⟹ the `Write` branch. This pins the invariant the `Entered` arm above relies on.
+    debug_assert!(
+        !predicate_after || matches!(action, EvictionAction::Write(_)),
+        "a still-member eviction must rewrite + reschedule, not delete (relies on daily_predicate's count>=1 floor)",
+    );
     Some(EvictionResult {
         key,
         variant: StateVariant::BehavioralDailyBuckets,
@@ -198,15 +222,17 @@ fn evict_daily(
     })
 }
 
-/// Build the `Left` transition for an evicted key. The sweep starts from a [`Stage1Key`] + catalog
-/// meta rather than an event, so `condition_hash` comes from [`LeafStateMeta`].
-fn left_transition(key: Stage1Key, meta: &LeafStateMeta) -> LeafTransition {
+/// Build the membership transition for an evicted key. The sweep starts from a [`Stage1Key`] +
+/// catalog meta rather than an event, so `condition_hash` comes from [`LeafStateMeta`]. `kind` is
+/// always `Left` for a single (its `has_match` is never cleared, so it only ever expires) and either
+/// direction for a daily slide.
+fn transition_for(key: Stage1Key, meta: &LeafStateMeta, kind: TransitionKind) -> LeafTransition {
     LeafTransition {
         team_id: TeamId(key.team_id as i32),
         leaf_state_key: key.leaf_state_key,
         person_id: key.person_id,
         condition_hash: meta.condition_hash,
-        kind: TransitionKind::Left,
+        kind,
     }
 }
 
@@ -426,6 +452,97 @@ mod tests {
             result.reschedule.unwrap() > deadline,
             "the surviving later bucket pushes the deadline forward",
         );
+    }
+
+    #[test]
+    fn daily_eq_slide_into_range_emits_entered() {
+        let (_dir, store) = temp_store();
+        let filters = freeze(vec![daily_leaf(7, "eq", 1)]);
+        let key = key_for(&filters, 1);
+
+        // Two matching days → count 2, which is *not* `eq 1` (a non-member). Sliding past the oldest
+        // bucket lowers the count to 1, flipping the predicate false→true — the Enter the old `gte`
+        // tests never exercised because `gte` is monotonic under a drain.
+        let day = day_of("2026-05-27 10:00:00.000000");
+        let window_start = day - WINDOW_DAYS as i32;
+        let mut buckets = vec![0u32; LEN];
+        buckets[0] = 1; // day window_start — drops on the slide
+        buckets[4] = 1; // day window_start + 4 — survives
+        let deadline = daily_eviction_deadline(&buckets, window_start, WINDOW_DAYS, UTC);
+        write(
+            &store,
+            &key,
+            Stage1State::BehavioralDailyBuckets {
+                buckets,
+                window_start_day: window_start,
+                last_event_at_ms: 1_700_000_000_000,
+                earliest_eviction_at_ms: deadline,
+            },
+        );
+
+        // Slide one day past the window's now-day so only the oldest bucket leaves: count 2 → 1.
+        let cutoff = start_of_day_ms_in_tz(window_start + WINDOW_DAYS as i32 + 1, UTC);
+        let results = sweep_evict(&filters, &[key], &store, cutoff).unwrap();
+        assert_eq!(results.len(), 1);
+        let result = &results[0];
+        assert_eq!(
+            result
+                .transition
+                .as_ref()
+                .expect("a falling count enters eq 1")
+                .kind,
+            TransitionKind::Entered,
+            "eq 1 flips false→true as the count drops to 1",
+        );
+        assert!(
+            matches!(result.action, EvictionAction::Write(_)),
+            "a still-member eviction rewrites the advanced state",
+        );
+        assert!(
+            result.reschedule.is_some(),
+            "the surviving bucket carries a finite next deadline",
+        );
+    }
+
+    #[test]
+    fn daily_lte_slide_into_range_emits_entered() {
+        let (_dir, store) = temp_store();
+        let filters = freeze(vec![daily_leaf(7, "lte", 2)]);
+        let key = key_for(&filters, 1);
+
+        // Count 3 is above `lte 2` (a non-member). Dropping the oldest bucket lowers it to 2 → member.
+        let day = day_of("2026-05-27 10:00:00.000000");
+        let window_start = day - WINDOW_DAYS as i32;
+        let mut buckets = vec![0u32; LEN];
+        buckets[0] = 1; // drops on the slide
+        buckets[4] = 2; // survives, leaving count 2
+        let deadline = daily_eviction_deadline(&buckets, window_start, WINDOW_DAYS, UTC);
+        write(
+            &store,
+            &key,
+            Stage1State::BehavioralDailyBuckets {
+                buckets,
+                window_start_day: window_start,
+                last_event_at_ms: 1_700_000_000_000,
+                earliest_eviction_at_ms: deadline,
+            },
+        );
+
+        let cutoff = start_of_day_ms_in_tz(window_start + WINDOW_DAYS as i32 + 1, UTC);
+        let results = sweep_evict(&filters, &[key], &store, cutoff).unwrap();
+        assert_eq!(results.len(), 1);
+        let result = &results[0];
+        assert_eq!(
+            result
+                .transition
+                .as_ref()
+                .expect("a falling count enters lte 2")
+                .kind,
+            TransitionKind::Entered,
+            "lte 2 flips false→true as the count drops to 2",
+        );
+        assert!(matches!(result.action, EvictionAction::Write(_)));
+        assert!(result.reschedule.is_some());
     }
 
     #[test]

@@ -164,6 +164,21 @@ async fn send_sweep(tx: &mpsc::Sender<Vec<ShuffleMessage>>, due_before_ms: i64) 
         .unwrap();
 }
 
+/// Drive the current-thread runtime until the worker has recorded `count` changes, so a test can read
+/// the intermediate post-sweep state mid-stream (the queue is per-worker, so it can't drop the worker
+/// to barrier). [`CaptureSink::produce`] is immediately-ready and `handle_sweep` does its state write
+/// and reschedule synchronously right after it, so once a sweep's change lands its state mutation is
+/// durable too — no wall-clock sleep needed.
+async fn drain_until_changes(sink: &CaptureSink, count: usize) {
+    for _ in 0..10_000 {
+        if sink.changes().len() >= count {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("worker did not record {count} changes");
+}
+
 fn spawn_worker(
     store: &CohortStore,
     catalog: Arc<CatalogHandle>,
@@ -377,6 +392,80 @@ async fn sweep_drops_the_oldest_daily_bucket_and_keeps_a_member() {
         }
         other => panic!("expected daily buckets, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn sweep_emits_entered_when_a_daily_eq_count_falls_into_range() {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![behavioral_leaf_multiple(7, "eq", 1)]);
+    let lsk = behavioral_lsk(&filters);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+    let (tx, worker) = spawn_worker(
+        &store,
+        catalog_of(filters),
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    // `eq 1` over a 7-day window, one match on day D and one on D+3. The event path emits Enter@D
+    // (count 1) then Leave@D+3 (count 2); as each day's bucket ages out, the falling count re-enters
+    // and finally leaves `eq 1`. The sweep must reproduce both directions, not only the Leave — this
+    // is the bidirectional flip a `gte`-only sweep would have dropped.
+    let alice = person(1);
+    let first = "2026-05-20 10:00:00.000000";
+    let second = "2026-05-23 10:00:00.000000";
+    let day = day_of(first);
+    send_event(&tracker, &tx, event_at(alice, first, 0), 0).await;
+    send_event(&tracker, &tx, event_at(alice, second, 1), 1).await;
+
+    // Sweep one day past the day-D bucket's leave boundary (start of D+8): count 2 → 1 → Entered.
+    send_sweep(&tx, start_of_day_ms_in_tz(day + 9, UTC)).await;
+
+    // Barrier on the Enter+Leave (events) + Enter (sweep): the slide advanced the window and
+    // rescheduled to the surviving D+3 bucket's leave boundary (start of D+11).
+    drain_until_changes(&sink, 3).await;
+    match state_at(&store, lsk, alice).expect("still a member after the slide into eq 1") {
+        Stage1State::BehavioralDailyBuckets {
+            buckets,
+            earliest_eviction_at_ms,
+            ..
+        } => {
+            assert_eq!(
+                buckets.iter().sum::<u32>(),
+                1,
+                "only the D+3 bucket remains"
+            );
+            assert_eq!(
+                earliest_eviction_at_ms,
+                start_of_day_ms_in_tz(day + 11, UTC),
+                "rescheduled to the surviving bucket's leave boundary",
+            );
+        }
+        other => panic!("expected daily buckets, got {other:?}"),
+    }
+
+    // A later sweep past the D+3 bucket's boundary (start of D+12): count 1 → 0 → Left + delete.
+    send_sweep(&tx, start_of_day_ms_in_tz(day + 12, UTC)).await;
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let statuses: Vec<MembershipStatus> =
+        sink.changes().iter().map(|change| change.status).collect();
+    assert_eq!(
+        statuses,
+        vec![
+            MembershipStatus::Entered, // event @ D    — count 1
+            MembershipStatus::Left,    // event @ D+3  — count 2
+            MembershipStatus::Entered, // sweep        — day-D bucket leaves, count 1
+            MembershipStatus::Left,    // sweep        — day-(D+3) bucket leaves, count 0
+        ],
+        "the sweep reproduces the event path's bidirectional eq-1 flips, not an orphan Left",
+    );
+    assert!(
+        state_at(&store, lsk, alice).is_none(),
+        "the fully-drained window is deleted",
+    );
 }
 
 // ── Produce-before-write retry ───────────────────────────────────────────────────
