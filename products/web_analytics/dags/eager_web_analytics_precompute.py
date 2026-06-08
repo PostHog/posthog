@@ -84,9 +84,9 @@ BASELINE_BREAKDOWNS: tuple[WebStatsBreakdown, ...] = (
     # property `$session_entry_referrer` — there is no sessions-table column
     # for the full referrer URL. On high-volume teams that JSONExtract scans
     # the whole `properties` blob and OOMs the per-day insert, then falls
-    # back to a raw query that times out at 60s. The breakdown sees almost no
-    # real usage (single-digit queries/week across all teams), so warming it
-    # is pure wasted compute. It stays available as an on-demand breakdown.
+    # back to a raw query that times out at 60s. The breakdown sees
+    # negligible real usage, so warming it is pure wasted compute. It stays
+    # available as an on-demand breakdown.
     WebStatsBreakdown.INITIAL_UTM_SOURCE,
     WebStatsBreakdown.INITIAL_UTM_MEDIUM,
     WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
