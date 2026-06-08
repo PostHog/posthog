@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -176,6 +177,21 @@ def _slack_blocks(spec: EventKindSpec) -> list[dict]:
     ]
 
 
+_SLACK_BOLD_RE = re.compile(r"\*([^*\n]+)\*")
+
+
+def _slack_to_teams_markdown(text: str) -> str:
+    # Slack mrkdwn marks bold with *single asterisks*; Adaptive Card markdown uses **double**.
+    # Adaptive Card TextBlocks also need a blank line between paragraphs, so widen single newlines.
+    return _SLACK_BOLD_RE.sub(r"**\1**", text).replace("\n", "\n\n")
+
+
+def _teams_text(spec: EventKindSpec) -> str:
+    # The Microsoft Teams template renders a single Adaptive Card TextBlock from `text`, so fold
+    # the header, body, and action into one markdown string (the button becomes an inline link).
+    return f"**{spec.header}**\n\n{_slack_to_teams_markdown(spec.body)}\n\n[{spec.button_label}]({spec.button_url})"
+
+
 def _filter_for(alert: LogsAlertConfiguration, kind: EventKind) -> dict[str, Any]:
     return {
         "events": [{"id": EVENT_KIND_CONFIG[kind].event_id, "type": "events"}],
@@ -234,5 +250,26 @@ def build_webhook_config(
             "body": {"value": spec.webhook_body},
             "url": {"value": webhook_url},
             "headers": {"value": {"Content-Type": "application/json", "X-PostHog-Webhook-Version": "1"}},
+        },
+    }
+
+
+def build_teams_config(
+    alert: LogsAlertConfiguration,
+    kind: EventKind,
+    webhook_url: str,
+) -> dict[str, Any]:
+    spec = EVENT_KIND_CONFIG[kind]
+    return {
+        "team": alert.team,
+        "type": "internal_destination",
+        "enabled": True,
+        "filters": _filter_for(alert, kind),
+        "name": _clip_name(f"Logs alert — {alert.name} ({spec.display_kind}) → Microsoft Teams"),
+        "description": spec.destination_description(alert.name),
+        "template_id": "template-microsoft-teams",
+        "inputs": {
+            "webhookUrl": {"value": webhook_url},
+            "text": {"value": _teams_text(spec)},
         },
     }
