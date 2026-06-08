@@ -118,7 +118,7 @@ ORDER BY day
 LIMIT 10000
 `
 
-interface BucketRow {
+export interface BucketRow {
     bucket: string
     sessions: number
     tool_calls: number
@@ -263,7 +263,7 @@ export function categorizeHarness(raw: string): string {
     return 'Other'
 }
 
-function aggregateHarnessRows(raw: HarnessRawRow[]): HarnessRow[] {
+export function aggregateHarnessRows(raw: HarnessRawRow[]): HarnessRow[] {
     const byCategory = new Map<string, HarnessRow>()
     for (const row of raw) {
         const category = categorizeHarness(row.client)
@@ -294,7 +294,7 @@ function aggregateHarnessRows(raw: HarnessRawRow[]): HarnessRow[] {
 
 // Pivot flat (day, tool, calls) rows into a label array + one data series per tool, tools ordered
 // by total volume (biggest first) so the stack and legend read consistently.
-function buildToolDailySeries(rows: ToolDailyRow[]): ToolDailySeries {
+export function buildToolDailySeries(rows: ToolDailyRow[]): ToolDailySeries {
     const days = [...new Set(rows.map((r) => r.day))].sort()
     const totalByTool = new Map<string, number>()
     const byToolDay = new Map<string, Map<string, number>>()
@@ -316,7 +316,7 @@ function buildToolDailySeries(rows: ToolDailyRow[]): ToolDailySeries {
     return { labels: days, tools }
 }
 
-function deltaPct(current: number, previous: number): number | null {
+export function deltaPct(current: number, previous: number): number | null {
     if (previous === 0) {
         return current === 0 ? 0 : null
     }
@@ -334,7 +334,7 @@ function parseRows(rawRows: unknown[][]): BucketRow[] {
     }))
 }
 
-function buildKPIs(rows: BucketRow[]): KPIData {
+export function buildKPIs(rows: BucketRow[]): KPIData {
     const current = rows.filter((r) => r.in_current).sort((a, b) => a.bucket.localeCompare(b.bucket))
     const previous = rows.filter((r) => !r.in_current)
 
@@ -527,7 +527,7 @@ function median(values: number[]): number {
 
 // Pick at most one session per rule. Thresholds relax automatically when the
 // data is small so something demo-worthy always shows.
-function pickNotableSessions(rows: SessionRow[]): NotableSession[] {
+export function pickNotableSessions(rows: SessionRow[]): NotableSession[] {
     if (rows.length === 0) {
         return []
     }

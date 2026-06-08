@@ -1,0 +1,424 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`NotableSessionsTable renders a row per flagged session with status and footer link 1`] = `
+<div>
+  <div
+    class="flex h-full flex-col overflow-hidden rounded-lg border border-primary bg-surface-primary"
+  >
+    <h3
+      class="mb-0 border-b border-primary px-3.5 py-3 text-sm font-medium text-primary"
+    >
+      Sessions flagged for review
+    </h3>
+    <div
+      class="quill-table__root"
+      data-quill="true"
+      data-slot="table-container"
+    >
+      <div
+        class="quill-table__viewport"
+        data-slot="table-viewport"
+      >
+        <table
+          class="quill-table"
+          data-full-width=""
+          data-slot="table"
+        >
+          <thead
+            class="quill-table__header"
+            data-slot="table-header"
+          >
+            <tr
+              class="quill-table__row"
+              data-slot="table-row"
+            >
+              <th
+                class="quill-table__head"
+                data-slot="table-head"
+                scope="col"
+              >
+                Session
+              </th>
+              <th
+                class="quill-table__head"
+                data-align="right"
+                data-slot="table-head"
+                scope="col"
+              >
+                Calls
+              </th>
+              <th
+                class="quill-table__head"
+                data-align="right"
+                data-slot="table-head"
+                scope="col"
+              >
+                Duration
+              </th>
+              <th
+                class="quill-table__head"
+                data-slot="table-head"
+                scope="col"
+              >
+                Status
+              </th>
+              <th
+                class="quill-table__head"
+                data-expand=""
+                data-slot="table-head"
+                scope="col"
+              >
+                Why notable
+              </th>
+            </tr>
+          </thead>
+          <tbody
+            class="quill-table__body"
+            data-slot="table-body"
+          >
+            <tr
+              class="quill-table__row"
+              data-slot="table-row"
+            >
+              <td
+                class="quill-table__cell whitespace-nowrap"
+                data-slot="table-cell"
+              >
+                <a
+                  class="Link font-mono"
+                  href="/project/997/mcp-analytics/sessions"
+                  title="abcd1234efgh5678"
+                >
+                  abcd…5678
+                </a>
+              </td>
+              <td
+                class="quill-table__cell"
+                data-align="right"
+                data-slot="table-cell"
+              >
+                47
+              </td>
+              <td
+                class="quill-table__cell"
+                data-align="right"
+                data-slot="table-cell"
+              >
+                38m 55s
+              </td>
+              <td
+                class="quill-table__cell"
+                data-slot="table-cell"
+              >
+                <span
+                  class="quill-badge inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap quill-badge--variant-destructive"
+                  data-quill=""
+                  data-slot="badge"
+                  data-variant="destructive"
+                >
+                  28%
+                   errors
+                </span>
+              </td>
+              <td
+                class="quill-table__cell text-primary"
+                data-expand=""
+                data-slot="table-cell"
+                title="Worst error rate at high volume"
+              >
+                Worst error rate at high volume
+              </td>
+            </tr>
+            <tr
+              class="quill-table__row"
+              data-slot="table-row"
+            >
+              <td
+                class="quill-table__cell whitespace-nowrap"
+                data-slot="table-cell"
+              >
+                <a
+                  class="Link font-mono"
+                  href="/project/997/mcp-analytics/sessions"
+                  title="short"
+                >
+                  short
+                </a>
+              </td>
+              <td
+                class="quill-table__cell"
+                data-align="right"
+                data-slot="table-cell"
+              >
+                12
+              </td>
+              <td
+                class="quill-table__cell"
+                data-align="right"
+                data-slot="table-cell"
+              >
+                40s
+              </td>
+              <td
+                class="quill-table__cell"
+                data-slot="table-cell"
+              >
+                <span
+                  class="quill-badge inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap quill-badge--variant-success"
+                  data-quill=""
+                  data-slot="badge"
+                  data-variant="success"
+                >
+                  Healthy
+                </span>
+              </td>
+              <td
+                class="quill-table__cell text-primary"
+                data-expand=""
+                data-slot="table-cell"
+                title="Exemplar — concise success"
+              >
+                Exemplar — concise success
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div
+      class="mt-auto flex justify-end border-t border-primary px-3.5 py-2"
+    >
+      <a
+        class="Link text-[10px]"
+        href="/project/997/mcp-analytics/sessions"
+      >
+        Open all flagged sessions in Sessions tab ↗
+      </a>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`NotableSessionsTable renders loading skeletons 1`] = `
+<div>
+  <div
+    class="flex h-full flex-col overflow-hidden rounded-lg border border-primary bg-surface-primary"
+  >
+    <h3
+      class="mb-0 border-b border-primary px-3.5 py-3 text-sm font-medium text-primary"
+    >
+      Sessions flagged for review
+    </h3>
+    <div
+      class="quill-table__root"
+      data-quill="true"
+      data-slot="table-container"
+    >
+      <div
+        class="quill-table__viewport"
+        data-slot="table-viewport"
+      >
+        <table
+          class="quill-table"
+          data-full-width=""
+          data-slot="table"
+        >
+          <thead
+            class="quill-table__header"
+            data-slot="table-header"
+          >
+            <tr
+              class="quill-table__row"
+              data-slot="table-row"
+            >
+              <th
+                class="quill-table__head"
+                data-slot="table-head"
+                scope="col"
+              >
+                Session
+              </th>
+              <th
+                class="quill-table__head"
+                data-align="right"
+                data-slot="table-head"
+                scope="col"
+              >
+                Calls
+              </th>
+              <th
+                class="quill-table__head"
+                data-align="right"
+                data-slot="table-head"
+                scope="col"
+              >
+                Duration
+              </th>
+              <th
+                class="quill-table__head"
+                data-slot="table-head"
+                scope="col"
+              >
+                Status
+              </th>
+              <th
+                class="quill-table__head"
+                data-expand=""
+                data-slot="table-head"
+                scope="col"
+              >
+                Why notable
+              </th>
+            </tr>
+          </thead>
+          <tbody
+            class="quill-table__body"
+            data-slot="table-body"
+          >
+            <tr
+              class="quill-table__row"
+              data-slot="table-row"
+            >
+              <td
+                class="quill-table__cell"
+                colspan="5"
+                data-slot="table-cell"
+              >
+                <div
+                  class="space-y-2 py-1"
+                >
+                  <div
+                    class="LemonSkeleton rounded h-3.5 w-full"
+                  >
+                    <span>
+                      Loading…
+                    </span>
+                  </div>
+                  <div
+                    class="LemonSkeleton rounded h-3.5 w-full"
+                  >
+                    <span>
+                      Loading…
+                    </span>
+                  </div>
+                  <div
+                    class="LemonSkeleton rounded h-3.5 w-full"
+                  >
+                    <span>
+                      Loading…
+                    </span>
+                  </div>
+                  <div
+                    class="LemonSkeleton rounded h-3.5 w-full"
+                  >
+                    <span>
+                      Loading…
+                    </span>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`NotableSessionsTable renders the empty state 1`] = `
+<div>
+  <div
+    class="flex h-full flex-col overflow-hidden rounded-lg border border-primary bg-surface-primary"
+  >
+    <h3
+      class="mb-0 border-b border-primary px-3.5 py-3 text-sm font-medium text-primary"
+    >
+      Sessions flagged for review
+    </h3>
+    <div
+      class="quill-table__root"
+      data-quill="true"
+      data-slot="table-container"
+    >
+      <div
+        class="quill-table__viewport"
+        data-slot="table-viewport"
+      >
+        <table
+          class="quill-table"
+          data-full-width=""
+          data-slot="table"
+        >
+          <thead
+            class="quill-table__header"
+            data-slot="table-header"
+          >
+            <tr
+              class="quill-table__row"
+              data-slot="table-row"
+            >
+              <th
+                class="quill-table__head"
+                data-slot="table-head"
+                scope="col"
+              >
+                Session
+              </th>
+              <th
+                class="quill-table__head"
+                data-align="right"
+                data-slot="table-head"
+                scope="col"
+              >
+                Calls
+              </th>
+              <th
+                class="quill-table__head"
+                data-align="right"
+                data-slot="table-head"
+                scope="col"
+              >
+                Duration
+              </th>
+              <th
+                class="quill-table__head"
+                data-slot="table-head"
+                scope="col"
+              >
+                Status
+              </th>
+              <th
+                class="quill-table__head"
+                data-expand=""
+                data-slot="table-head"
+                scope="col"
+              >
+                Why notable
+              </th>
+            </tr>
+          </thead>
+          <tbody
+            class="quill-table__body"
+            data-slot="table-body"
+          >
+            <tr
+              class="quill-table__row"
+              data-slot="table-row"
+            >
+              <td
+                class="quill-table__cell py-6 text-secondary"
+                colspan="5"
+                data-align="center"
+                data-slot="table-cell"
+              >
+                No notable sessions in the last 30 days.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+`;
