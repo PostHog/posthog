@@ -1844,6 +1844,14 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         if expect_hidden:
             assert data["content_snapshot"] == {}
             assert data["change_summary"] is None
+            # The list endpoint shares the same get_serializer_context path, so it scrubs too.
+            list_response = self.client.get(
+                f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/"
+            )
+            assert list_response.status_code == status.HTTP_200_OK, list_response.json()
+            row = next(r for r in list_response.json()["results"] if r["id"] == str(delivery.id))
+            assert row["content_snapshot"] == {}
+            assert row["change_summary"] is None
         else:
             assert data["content_snapshot"]["insights"][0]["name"] == "Secret"
             assert data["change_summary"] == "Signups up 20% week over week"

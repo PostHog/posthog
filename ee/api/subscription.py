@@ -728,6 +728,16 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return instance
 
 
+def _subscription_is_ai_prompt(subscription_id, team_id) -> bool:
+    """An AI subscription is one backed by a non-empty prompt (team-scoped)."""
+    return (
+        Subscription.objects.filter(pk=subscription_id, team_id=team_id)
+        .exclude(prompt__isnull=True)
+        .exclude(prompt="")
+        .exists()
+    )
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -822,12 +832,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             return True
         # Existing subscription (update / test-delivery): resolve its kind by pk, team-scoped.
         pk = view.kwargs.get("pk")
-        return bool(pk) and (
-            Subscription.objects.filter(pk=pk, team_id=self.team_id)
-            .exclude(prompt__isnull=True)
-            .exclude(prompt="")
-            .exists()
-        )
+        return bool(pk) and _subscription_is_ai_prompt(pk, self.team_id)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         request_params = self.request.GET.dict()
@@ -1107,13 +1112,7 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
         subscription_id = self.kwargs.get("parent_lookup_subscription_id")
         if not subscription_id:
             return False
-        is_ai_subscription = (
-            Subscription.objects.filter(pk=subscription_id, team_id=self.team_id)
-            .exclude(prompt__isnull=True)
-            .exclude(prompt="")
-            .exists()
-        )
-        if not is_ai_subscription:
+        if not _subscription_is_ai_prompt(subscription_id, self.team_id):
             return False
         return not self.user_access_control.check_access_level_for_resource("query", "viewer")
 
