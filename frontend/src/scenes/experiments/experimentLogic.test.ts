@@ -1543,6 +1543,36 @@ describe('experimentLogic', () => {
                 },
                 expected: null,
             },
+            {
+                desc: 'ended experiment with deleted flag still marked active',
+                overrides: {
+                    start_date: '2020-01-01',
+                    end_date: '2020-02-01',
+                    feature_flag: {
+                        id: 1,
+                        key: 'flag:deleted:1',
+                        active: true,
+                        deleted: true,
+                        filters: multivariantFilters,
+                    } as any,
+                },
+                expected: null,
+            },
+            {
+                desc: 'draft experiment with deleted flag still marked active',
+                overrides: {
+                    start_date: undefined,
+                    end_date: undefined,
+                    feature_flag: {
+                        id: 1,
+                        key: 'flag:deleted:1',
+                        active: true,
+                        deleted: true,
+                        filters: multivariantFilters,
+                    } as any,
+                },
+                expected: null,
+            },
         ])('$desc → $expected', ({ overrides, expected }) => {
             logic.actions.setExperiment(createExperiment(overrides))
             expect(logic.values.experimentWarning).toEqual(expected)
