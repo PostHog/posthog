@@ -151,14 +151,21 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 actions.observeFailure()
                 return
             }
+            // Backend keys the workflow id on (scanner, session); re-triggering the same pair silently no-ops.
+            if (values.observations.some((o) => o.scanner_id === scannerId)) {
+                lemonToast.info('This scanner has already been run on this recording.')
+                actions.observeFailure()
+                actions.setDockOpen(true)
+                return
+            }
             try {
                 await visionScannersObserveCreate(String(teamId), scannerId, { session_id: props.sessionId })
                 lemonToast.success('Observation started')
                 actions.observeSuccess()
                 actions.setDockOpen(true)
                 actions.loadObservations()
-            } catch (error) {
-                lemonToast.error(`Failed to start observation: ${String(error)}`)
+            } catch (error: any) {
+                lemonToast.error(`Failed to start observation${error.detail ? `: ${error.detail}` : ''}`)
                 actions.observeFailure()
             }
         },

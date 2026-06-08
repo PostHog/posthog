@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -6,6 +7,7 @@ from rest_framework import status
 from posthog.models import Organization
 
 from products.wizard.backend.models import WizardSession
+from products.wizard.backend.presentation.views import _wizard_sync_killswitch_enabled
 
 
 class TestWizardSessionViewSet(APIBaseTest):
@@ -192,3 +194,24 @@ class TestWizardSessionViewSet(APIBaseTest):
         data = response.json()
         self.assertEqual(data["event_plan"], {"events": [{"name": "$pageview"}]})
         self.assertEqual(data["error"], {"type": "TimeoutError", "message": "Anthropic API timed out"})
+
+    def test_stream_requires_workflow_id(self):
+        # No params → 400 from the view-level validation (workflow_id is the
+        # only required query param; skill_id is optional for pattern subscribe).
+        response = self.client.get(f"{self._url()}stream/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("products.wizard.backend.presentation.views.posthoganalytics.feature_enabled", return_value=True)
+    def test_stream_killswitch_returns_204(self, _mock_feature_enabled):
+        # When the killswitch flag is on, the endpoint short-circuits with a 204
+        # before any stream work — a 204 tells EventSource to stop reconnecting.
+        response = self.client.get(f"{self._url()}stream/?workflow_id=onboarding")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    @parameterized.expand([("on", True, True), ("off", False, False), ("unresolved", None, False)])
+    def test_wizard_sync_killswitch_helper(self, _label, flag_value, expected):
+        with patch(
+            "products.wizard.backend.presentation.views.posthoganalytics.feature_enabled",
+            return_value=flag_value,
+        ):
+            self.assertEqual(_wizard_sync_killswitch_enabled("distinct-id"), expected)

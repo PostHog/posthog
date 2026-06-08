@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-26 20:36:55 UTC
+// Generated at: 2026-06-05 20:33:30 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -20,12 +20,15 @@ export type CanonicalProvider =
     | 'ambient-fp8'
     | 'anthropic'
     | 'anthropic-2'
+    | 'anthropic-claude-on-aws'
     | 'arcee-ai'
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
     | 'azure'
+    | 'azure-eu'
     | 'azure-swedencentral'
     | 'azure-us-east-2'
+    | 'baidu-fp4'
     | 'baidu-fp8'
     | 'baseten-fp4'
     | 'cerebras-fp16'
@@ -46,9 +49,10 @@ export type CanonicalProvider =
     | 'deepseek'
     | 'dekallm-bf16'
     | 'dekallm-fp8'
-    | 'featherless'
+    | 'digitalocean'
     | 'fireworks'
     | 'friendli'
+    | 'gmicloud-bf16'
     | 'gmicloud-fp8'
     | 'google-ai-studio'
     | 'google-ai-studio-global'
@@ -83,7 +87,6 @@ export type CanonicalProvider =
     | 'nebius-base'
     | 'nebius-fp4'
     | 'nebius-fp8'
-    | 'nebius-int4'
     | 'nextbit-bf16'
     | 'nextbit-fp8'
     | 'nextbit-int4'
@@ -94,6 +97,7 @@ export type CanonicalProvider =
     | 'novita-fp8'
     | 'nvidia'
     | 'nvidia-bf16'
+    | 'open-inference-bf16'
     | 'open-inference-int8'
     | 'openai'
     | 'openai-default'
@@ -114,6 +118,7 @@ export type CanonicalProvider =
     | 'sambanova'
     | 'sambanova-bf16'
     | 'sambanova-fp8'
+    | 'sambanova-minimax-m2-7-dedicated'
     | 'sambanova-turbo'
     | 'seed-fp8'
     | 'siliconflow'

@@ -8,81 +8,6 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `starting` - Starting
- * `completed` - Completed
- * `failed` - Failed
- * `skipped` - Skipped
- */
-export type SubscriptionDeliveryStatusEnumApi =
-    (typeof SubscriptionDeliveryStatusEnumApi)[keyof typeof SubscriptionDeliveryStatusEnumApi]
-
-export const SubscriptionDeliveryStatusEnumApi = {
-    Starting: 'starting',
-    Completed: 'completed',
-    Failed: 'failed',
-    Skipped: 'skipped',
-} as const
-
-export interface SubscriptionDeliveryApi {
-    /** Primary key for this delivery row. */
-    readonly id: string
-    /** Parent subscription id. */
-    readonly subscription: number
-    /** Temporal workflow id for this delivery run. */
-    readonly temporal_workflow_id: string
-    /** Dedupes activity retries for the same logical run. */
-    readonly idempotency_key: string
-    /** Why the run started (e.g. scheduled, manual, target_change). */
-    readonly trigger_type: string
-    /**
-     * Planned send time when applicable.
-     * @nullable
-     */
-    readonly scheduled_at: string | null
-    /** Channel snapshot at send time (email, slack, webhook). */
-    readonly target_type: string
-    /** Destination snapshot at send time (emails, channel id, URL). */
-    readonly target_value: string
-    /** ExportedAsset ids generated for this send. */
-    readonly exported_asset_ids: readonly number[]
-    /** Snapshot at send time: dashboard metadata, total_insight_count, and per-exported-insight entries (id, short_id, name, query_hash, cache_key, query_results, optional query_error). */
-    readonly content_snapshot: unknown
-    /** Per-destination outcomes; items use status success, failed, or partial. */
-    readonly recipient_results: unknown
-    /** Overall run status: starting, completed, failed, or skipped.
-
-  * `starting` - Starting
-  * `completed` - Completed
-  * `failed` - Failed
-  * `skipped` - Skipped */
-    readonly status: SubscriptionDeliveryStatusEnumApi
-    /** Top-level failure payload when status is failed, if any. */
-    readonly error: unknown
-    /** When the delivery row was created. */
-    readonly created_at: string
-    /** Last ORM update to this row. */
-    readonly last_updated_at: string
-    /**
-     * When the run finished, if applicable.
-     * @nullable
-     */
-    readonly finished_at: string | null
-    /**
-     * AI-generated summary included in this delivery, when one was produced.
-     * @nullable
-     */
-    readonly change_summary: string | null
-}
-
-export interface PaginatedSubscriptionDeliveryListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SubscriptionDeliveryApi[]
-}
-
-/**
  * * `engineering` - Engineering
  * `data` - Data
  * `product` - Product Management
@@ -211,6 +136,22 @@ export interface OrganizationDomainApi {
     readonly scim_base_url: string | null
     /** @nullable */
     readonly scim_bearer_token: string | null
+    /** Returns whether ID-JAG (XAA) is configured for this domain. */
+    readonly has_id_jag: boolean
+    /**
+     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
+     * @maxLength 512
+     * @nullable
+     */
+    id_jag_issuer_url?: string | null
+    /**
+     * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
+     * @maxLength 512
+     * @nullable
+     */
+    id_jag_jwks_url?: string | null
+    /** Allowed ID-JAG client IDs. Empty list allows any client_id. */
+    id_jag_allowed_clients?: string[]
 }
 
 export interface PaginatedOrganizationDomainListApi {
@@ -255,6 +196,22 @@ export interface PatchedOrganizationDomainApi {
     readonly scim_base_url?: string | null
     /** @nullable */
     readonly scim_bearer_token?: string | null
+    /** Returns whether ID-JAG (XAA) is configured for this domain. */
+    readonly has_id_jag?: boolean
+    /**
+     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
+     * @maxLength 512
+     * @nullable
+     */
+    id_jag_issuer_url?: string | null
+    /**
+     * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
+     * @maxLength 512
+     * @nullable
+     */
+    id_jag_jwks_url?: string | null
+    /** Allowed ID-JAG client IDs. Empty list allows any client_id. */
+    id_jag_allowed_clients?: string[]
 }
 
 /**
@@ -593,7 +550,8 @@ export interface ProjectBackwardCompatApi {
     readonly group_types: readonly ProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
     readonly live_events_token: string | null
-    readonly updated_at: string
+    /** @nullable */
+    readonly updated_at: string | null
     readonly uuid: string
     readonly api_token: string
     app_urls?: (string | null)[]
@@ -1386,7 +1344,8 @@ export interface PatchedProjectBackwardCompatApi {
     readonly group_types?: readonly PatchedProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
     readonly live_events_token?: string | null
-    readonly updated_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
     readonly uuid?: string
     readonly api_token?: string
     app_urls?: (string | null)[]
@@ -2143,143 +2102,34 @@ export interface PatchedProjectBackwardCompatApi {
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
 }
 
-/**
- * * `team` - Only team
- * `global` - Global
- * `feature_flag` - Feature Flag
- */
-export type DashboardTemplateScopeEnumApi =
-    (typeof DashboardTemplateScopeEnumApi)[keyof typeof DashboardTemplateScopeEnumApi]
-
-export const DashboardTemplateScopeEnumApi = {
-    Team: 'team',
-    Global: 'global',
-    FeatureFlag: 'feature_flag',
-} as const
-
-export interface DashboardTemplateApi {
-    readonly id: string
+export interface PromotedProductIntentApi {
     /**
-     * @maxLength 400
+     * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
      * @nullable
      */
-    template_name?: string | null
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    dashboard_description?: string | null
-    dashboard_filters?: unknown
-    /** @nullable */
-    tags?: string[] | null
-    tiles?: unknown
-    variables?: unknown
-    /** @nullable */
-    deleted?: boolean | null
-    /** @nullable */
-    readonly created_at: string | null
-    readonly created_by: UserBasicApi
-    /**
-     * @maxLength 8201
-     * @nullable
-     */
-    image_url?: string | null
-    /** @nullable */
-    readonly team_id: number | null
-    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | null
-    /** @nullable */
-    availability_contexts?: string[] | null
-    /** Manually curated; used to highlight templates in the UI. */
-    is_featured?: boolean
+    product_key: string | null
 }
 
-export interface PatchedDashboardTemplateApi {
-    readonly id?: string
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    template_name?: string | null
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    dashboard_description?: string | null
-    dashboard_filters?: unknown
-    /** @nullable */
-    tags?: string[] | null
-    tiles?: unknown
-    variables?: unknown
-    /** @nullable */
-    deleted?: boolean | null
-    /** @nullable */
-    readonly created_at?: string | null
-    readonly created_by?: UserBasicApi
-    /**
-     * @maxLength 8201
-     * @nullable
-     */
-    image_url?: string | null
-    /** @nullable */
-    readonly team_id?: number | null
-    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | null
-    /** @nullable */
-    availability_contexts?: string[] | null
-    /** Manually curated; used to highlight templates in the UI. */
-    is_featured?: boolean
-}
-
-/**
- * * `image/png` - image/png
- * `application/pdf` - application/pdf
- * `text/csv` - text/csv
- * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
- * `video/webm` - video/webm
- * `video/mp4` - video/mp4
- * `image/gif` - image/gif
- * `application/json` - application/json
- */
-export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
-
-export const ExportFormatEnumApi = {
-    ImagePng: 'image/png',
-    ApplicationPdf: 'application/pdf',
-    TextCsv: 'text/csv',
-    ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    VideoWebm: 'video/webm',
-    VideoMp4: 'video/mp4',
-    ImageGif: 'image/gif',
-    ApplicationJson: 'application/json',
-} as const
-
-/**
- * Standard ExportedAsset serializer that doesn't return content.
- */
-export interface ExportedAssetApi {
+export interface SharePasswordApi {
     readonly id: number
-    /** @nullable */
-    dashboard?: number | null
-    /** @nullable */
-    insight?: number | null
-    export_format: ExportFormatEnumApi
     readonly created_at: string
-    readonly has_content: boolean
-    export_context?: unknown
-    readonly filename: string
-    /** @nullable */
-    readonly expires_after: string | null
-    /** @nullable */
-    readonly exception: string | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    note?: string | null
+    readonly created_by_email: string
+    readonly is_active: boolean
 }
 
-export interface PaginatedExportedAssetListApi {
-    count: number
+export interface SharingConfigurationApi {
+    readonly created_at: string
+    enabled?: boolean
     /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ExportedAssetApi[]
+    readonly access_token: string | null
+    settings?: unknown
+    password_required?: boolean
+    readonly share_passwords: readonly SharePasswordApi[]
 }
 
 export interface FileSystemApi {
@@ -2335,35 +2185,251 @@ export interface PatchedFileSystemApi {
     readonly last_viewed_at?: string | null
 }
 
-export interface FlagValueItemApi {
-    name: unknown
-}
-
-export interface FlagValueResponseApi {
-    results: FlagValueItemApi[]
-    refreshing: boolean
-}
-
-export interface SharePasswordApi {
-    readonly id: number
+export interface FolderInstructionsApi {
+    /** Unique identifier for this instructions version. */
+    readonly id: string
+    /** Markdown instructions describing the contents of the folder. */
+    readonly content: string
+    /** Monotonically increasing version number, starting at 1. */
+    readonly version: number
+    /** Whether this is the current (latest) version for the folder. */
+    readonly is_latest: boolean
+    /** User who published this version. */
+    readonly created_by: UserBasicApi
+    /** When this version was published. */
     readonly created_at: string
+    /** When this version row was last modified. */
+    readonly updated_at: string
+}
+
+export interface FolderInstructionsPublishApi {
+    /** Full markdown instructions to publish as a new version for the folder. */
+    content: string
     /**
+     * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
+     * @minimum 0
+     */
+    base_version?: number
+}
+
+export interface PatchedFolderInstructionsPublishApi {
+    /** Full markdown instructions to publish as a new version for the folder. */
+    content?: string
+    /**
+     * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
+     * @minimum 0
+     */
+    base_version?: number
+}
+
+/**
+ * Version-history entry: metadata only, with the markdown content omitted.
+ */
+export interface FolderInstructionsVersionApi {
+    /** Unique identifier for this instructions version. */
+    readonly id: string
+    /** Monotonically increasing version number, starting at 1. */
+    readonly version: number
+    /** Whether this is the current (latest) version for the folder. */
+    readonly is_latest: boolean
+    /** User who published this version. */
+    readonly created_by: UserBasicApi
+    /** When this version was published. */
+    readonly created_at: string
+}
+
+export interface PaginatedFolderInstructionsVersionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FolderInstructionsVersionApi[]
+}
+
+export interface FileSystemShortcutApi {
+    readonly id: string
+    /** Display path of the shortcut in the sidebar. */
+    path: string
+    /**
+     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+     * @maxLength 100
+     */
+    type?: string
+    /**
+     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
      * @maxLength 100
      * @nullable
      */
-    note?: string | null
-    readonly created_by_email: string
-    readonly is_active: boolean
+    ref?: string | null
+    /**
+     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+     * @nullable
+     */
+    href?: string | null
+    /**
+     * Display order within the user's shortcut list, ascending.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order?: number
+    readonly created_at: string
 }
 
-export interface SharingConfigurationApi {
-    readonly created_at: string
-    enabled?: boolean
+export interface PaginatedFileSystemShortcutListApi {
+    count: number
     /** @nullable */
-    readonly access_token: string | null
-    settings?: unknown
-    password_required?: boolean
-    readonly share_passwords: readonly SharePasswordApi[]
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FileSystemShortcutApi[]
+}
+
+export interface PatchedFileSystemShortcutApi {
+    readonly id?: string
+    /** Display path of the shortcut in the sidebar. */
+    path?: string
+    /**
+     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+     * @maxLength 100
+     */
+    type?: string
+    /**
+     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /**
+     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+     * @nullable
+     */
+    href?: string | null
+    /**
+     * Display order within the user's shortcut list, ascending.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order?: number
+    readonly created_at?: string
+}
+
+export interface FileSystemShortcutReorderApi {
+    /** IDs of the current user's shortcuts in the desired display order. */
+    ordered_ids: string[]
+}
+
+/**
+ * * `home` - Home
+ * `pinned` - Pinned
+ * `custom_products` - Custom Products
+ */
+export type PersistedFolderTypeEnumApi = (typeof PersistedFolderTypeEnumApi)[keyof typeof PersistedFolderTypeEnumApi]
+
+export const PersistedFolderTypeEnumApi = {
+    Home: 'home',
+    Pinned: 'pinned',
+    CustomProducts: 'custom_products',
+} as const
+
+export interface PersistedFolderApi {
+    readonly id: string
+    /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+  * `home` - Home
+  * `pinned` - Pinned
+  * `custom_products` - Custom Products */
+    type: PersistedFolderTypeEnumApi
+    /**
+     * Protocol prefix of the folder location, e.g. 'products://'.
+     * @maxLength 64
+     */
+    protocol?: string
+    /** Path within the protocol that the folder resolves to. */
+    path?: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedPersistedFolderListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: PersistedFolderApi[]
+}
+
+export interface PatchedPersistedFolderApi {
+    readonly id?: string
+    /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+  * `home` - Home
+  * `pinned` - Pinned
+  * `custom_products` - Custom Products */
+    type?: PersistedFolderTypeEnumApi
+    /**
+     * Protocol prefix of the folder location, e.g. 'products://'.
+     * @maxLength 64
+     */
+    protocol?: string
+    /** Path within the protocol that the folder resolves to. */
+    path?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+/**
+ * * `image/png` - image/png
+ * `application/pdf` - application/pdf
+ * `text/csv` - text/csv
+ * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+ * `video/webm` - video/webm
+ * `video/mp4` - video/mp4
+ * `image/gif` - image/gif
+ * `application/json` - application/json
+ */
+export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
+
+export const ExportFormatEnumApi = {
+    ImagePng: 'image/png',
+    ApplicationPdf: 'application/pdf',
+    TextCsv: 'text/csv',
+    ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    VideoWebm: 'video/webm',
+    VideoMp4: 'video/mp4',
+    ImageGif: 'image/gif',
+    ApplicationJson: 'application/json',
+} as const
+
+/**
+ * Standard ExportedAsset serializer that doesn't return content.
+ */
+export interface ExportedAssetApi {
+    readonly id: number
+    /** @nullable */
+    dashboard?: number | null
+    /** @nullable */
+    insight?: number | null
+    export_format: ExportFormatEnumApi
+    readonly created_at: string
+    readonly has_content: boolean
+    export_context?: unknown
+    readonly filename: string
+    /** @nullable */
+    readonly expires_after: string | null
+    /** @nullable */
+    readonly exception: string | null
+}
+
+export interface PaginatedExportedAssetListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExportedAssetApi[]
 }
 
 export interface ProjectSecretAPIKeyApi {
@@ -2525,286 +2591,6 @@ export interface BulkUpdateTagsResponseApi {
 }
 
 /**
- * * `email` - Email
- * `slack` - Slack
- * `webhook` - Webhook
- */
-export type TargetTypeEnumApi = (typeof TargetTypeEnumApi)[keyof typeof TargetTypeEnumApi]
-
-export const TargetTypeEnumApi = {
-    Email: 'email',
-    Slack: 'slack',
-    Webhook: 'webhook',
-} as const
-
-/**
- * * `daily` - Daily
- * `weekly` - Weekly
- * `monthly` - Monthly
- * `yearly` - Yearly
- */
-export type SubscriptionFrequencyEnumApi =
-    (typeof SubscriptionFrequencyEnumApi)[keyof typeof SubscriptionFrequencyEnumApi]
-
-export const SubscriptionFrequencyEnumApi = {
-    Daily: 'daily',
-    Weekly: 'weekly',
-    Monthly: 'monthly',
-    Yearly: 'yearly',
-} as const
-
-/**
- * * `monday` - Monday
- * `tuesday` - Tuesday
- * `wednesday` - Wednesday
- * `thursday` - Thursday
- * `friday` - Friday
- * `saturday` - Saturday
- * `sunday` - Sunday
- */
-export type SubscriptionApiByweekdayItem =
-    (typeof SubscriptionApiByweekdayItem)[keyof typeof SubscriptionApiByweekdayItem]
-
-export const SubscriptionApiByweekdayItem = {
-    Monday: 'monday',
-    Tuesday: 'tuesday',
-    Wednesday: 'wednesday',
-    Thursday: 'thursday',
-    Friday: 'friday',
-    Saturday: 'saturday',
-    Sunday: 'sunday',
-} as const
-
-/**
- * Standard Subscription serializer.
- */
-export interface SubscriptionApi {
-    readonly id: number
-    /**
-     * Dashboard ID to subscribe to (mutually exclusive with insight on create).
-     * @nullable
-     */
-    dashboard?: number | null
-    /**
-     * Insight ID to subscribe to (mutually exclusive with dashboard on create).
-     * @nullable
-     */
-    insight?: number | null
-    /** @nullable */
-    readonly insight_short_id: string | null
-    /** @nullable */
-    readonly resource_name: string | null
-    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
-    dashboard_export_insights?: number[]
-    /** Delivery channel: email, slack, or webhook.
-
-  * `email` - Email
-  * `slack` - Slack
-  * `webhook` - Webhook */
-    target_type: TargetTypeEnumApi
-    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
-    target_value: string
-    /** How often to deliver: daily, weekly, monthly, or yearly.
-
-  * `daily` - Daily
-  * `weekly` - Weekly
-  * `monthly` - Monthly
-  * `yearly` - Yearly */
-    frequency: SubscriptionFrequencyEnumApi
-    /**
-     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    interval?: number
-    /**
-     * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
-     * @nullable
-     */
-    byweekday?: SubscriptionApiByweekdayItem[] | null
-    /**
-     * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    bysetpos?: number | null
-    /**
-     * Total number of deliveries before the subscription stops. Null for unlimited.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    count?: number | null
-    /** When to start delivering (ISO 8601 datetime). */
-    start_date: string
-    /**
-     * When to stop delivering (ISO 8601 datetime). Null for indefinite.
-     * @nullable
-     */
-    until_date?: string | null
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
-    deleted?: boolean
-    /** Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid. */
-    enabled?: boolean
-    /**
-     * Human-readable name for this subscription.
-     * @maxLength 100
-     * @nullable
-     */
-    title?: string | null
-    /** Human-readable schedule summary, e.g. 'sent daily'. */
-    readonly summary: string
-    /** @nullable */
-    readonly next_delivery_date: string | null
-    /**
-     * ID of a connected Slack integration. Required when target_type is slack.
-     * @nullable
-     */
-    integration_id?: number | null
-    /**
-     * Optional message included in the invitation email when adding new recipients.
-     * @nullable
-     */
-    invite_message?: string | null
-    summary_enabled?: boolean
-    /** @maxLength 500 */
-    summary_prompt_guide?: string
-}
-
-export interface PaginatedSubscriptionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SubscriptionApi[]
-}
-
-/**
- * * `monday` - Monday
- * `tuesday` - Tuesday
- * `wednesday` - Wednesday
- * `thursday` - Thursday
- * `friday` - Friday
- * `saturday` - Saturday
- * `sunday` - Sunday
- */
-export type PatchedSubscriptionApiByweekdayItem =
-    (typeof PatchedSubscriptionApiByweekdayItem)[keyof typeof PatchedSubscriptionApiByweekdayItem]
-
-export const PatchedSubscriptionApiByweekdayItem = {
-    Monday: 'monday',
-    Tuesday: 'tuesday',
-    Wednesday: 'wednesday',
-    Thursday: 'thursday',
-    Friday: 'friday',
-    Saturday: 'saturday',
-    Sunday: 'sunday',
-} as const
-
-/**
- * Standard Subscription serializer.
- */
-export interface PatchedSubscriptionApi {
-    readonly id?: number
-    /**
-     * Dashboard ID to subscribe to (mutually exclusive with insight on create).
-     * @nullable
-     */
-    dashboard?: number | null
-    /**
-     * Insight ID to subscribe to (mutually exclusive with dashboard on create).
-     * @nullable
-     */
-    insight?: number | null
-    /** @nullable */
-    readonly insight_short_id?: string | null
-    /** @nullable */
-    readonly resource_name?: string | null
-    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
-    dashboard_export_insights?: number[]
-    /** Delivery channel: email, slack, or webhook.
-
-  * `email` - Email
-  * `slack` - Slack
-  * `webhook` - Webhook */
-    target_type?: TargetTypeEnumApi
-    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
-    target_value?: string
-    /** How often to deliver: daily, weekly, monthly, or yearly.
-
-  * `daily` - Daily
-  * `weekly` - Weekly
-  * `monthly` - Monthly
-  * `yearly` - Yearly */
-    frequency?: SubscriptionFrequencyEnumApi
-    /**
-     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    interval?: number
-    /**
-     * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
-     * @nullable
-     */
-    byweekday?: PatchedSubscriptionApiByweekdayItem[] | null
-    /**
-     * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    bysetpos?: number | null
-    /**
-     * Total number of deliveries before the subscription stops. Null for unlimited.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    count?: number | null
-    /** When to start delivering (ISO 8601 datetime). */
-    start_date?: string
-    /**
-     * When to stop delivering (ISO 8601 datetime). Null for indefinite.
-     * @nullable
-     */
-    until_date?: string | null
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
-    deleted?: boolean
-    /** Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid. */
-    enabled?: boolean
-    /**
-     * Human-readable name for this subscription.
-     * @maxLength 100
-     * @nullable
-     */
-    title?: string | null
-    /** Human-readable schedule summary, e.g. 'sent daily'. */
-    readonly summary?: string
-    /** @nullable */
-    readonly next_delivery_date?: string | null
-    /**
-     * ID of a connected Slack integration. Required when target_type is slack.
-     * @nullable
-     */
-    integration_id?: number | null
-    /**
-     * Optional message included in the invitation email when adding new recipients.
-     * @nullable
-     */
-    invite_message?: string | null
-    summary_enabled?: boolean
-    /** @maxLength 500 */
-    summary_prompt_guide?: string
-}
-
-/**
  * * `disabled` - disabled
  * `toolbar` - toolbar
  */
@@ -2896,6 +2682,11 @@ export interface OrganizationApi {
     enforce_2fa?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
+    /**
+     * When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.
+     * @nullable
+     */
+    members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count: number
@@ -3235,6 +3026,99 @@ export interface PatchedUserApi {
     readonly requires_credential_review?: boolean
 }
 
+export interface UserGitHubAccountApi {
+    /**
+     * GitHub account type for the installation (e.g. User or Organization).
+     * @nullable
+     */
+    type?: string | null
+    /**
+     * GitHub login or organization name tied to the installation.
+     * @nullable
+     */
+    name?: string | null
+}
+
+export interface UserGitHubIntegrationItemApi {
+    /** PostHog UserIntegration row id. */
+    id: string
+    /** Integration kind; always `github` for this API. */
+    kind: string
+    /** GitHub App installation id. */
+    installation_id: string
+    /**
+     * Repository selection mode from GitHub (e.g. selected or all).
+     * @nullable
+     */
+    repository_selection?: string | null
+    /** Installation account metadata from GitHub. */
+    account?: UserGitHubAccountApi | null
+    /** True when this installation id matches a team-level GitHub integration on the active project. */
+    uses_shared_installation: boolean
+    /** When this integration row was created. */
+    created_at: string
+}
+
+export interface UserGitHubIntegrationListResponseApi {
+    /** GitHub personal integrations for the authenticated user. */
+    results: UserGitHubIntegrationItemApi[]
+}
+
+export interface PaginatedUserGitHubIntegrationListResponseListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: UserGitHubIntegrationListResponseApi[]
+}
+
+export interface GitHubBranchesResponseApi {
+    /** List of branch names */
+    branches: string[]
+    /**
+     * The default branch of the repository
+     * @nullable
+     */
+    default_branch?: string | null
+    /** Whether more branches exist beyond the returned page */
+    has_more: boolean
+}
+
+export interface GitHubRepoApi {
+    id: number
+    name: string
+    full_name: string
+}
+
+export interface GitHubReposResponseApi {
+    repositories: GitHubRepoApi[]
+    /** Whether more repositories are available beyond this page. */
+    has_more: boolean
+}
+
+export interface GitHubReposRefreshResponseApi {
+    /** The refreshed repository cache. */
+    repositories: GitHubRepoApi[]
+}
+
+export interface UserGitHubLinkStartRequestApi {
+    /**
+     * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
+     * @nullable
+     */
+    team_id?: number | null
+    /** Optional client hint (e.g. posthog_code) for return routing after OAuth. */
+    connect_from?: string
+}
+
+export interface UserGitHubLinkStartResponseApi {
+    /** URL to open in the browser to install or authorize the GitHub App for this user. */
+    install_url: string
+    /** OAuth or install flow used for this GitHub connection. */
+    connect_flow: string
+}
+
 /**
  * * `later` - Later
  * `other` - Other
@@ -3317,27 +3201,6 @@ export interface UserPushTokenUnregisterRequestApi {
     token: string
 }
 
-export type SubscriptionsDeliveriesListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
-     * Return only deliveries in this run status (starting, completed, failed, or skipped).
-     */
-    status?: SubscriptionsDeliveriesListStatus
-}
-
-export type SubscriptionsDeliveriesListStatus =
-    (typeof SubscriptionsDeliveriesListStatus)[keyof typeof SubscriptionsDeliveriesListStatus]
-
-export const SubscriptionsDeliveriesListStatus = {
-    Completed: 'completed',
-    Failed: 'failed',
-    Skipped: 'skipped',
-    Starting: 'starting',
-} as const
-
 export type CimdVerificationTokensListParams = {
     /**
      * Number of results to return per page.
@@ -3397,6 +3260,58 @@ export type OrganizationsProjectsListParams = {
     search?: string
 }
 
+export type DesktopFileSystemListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type DesktopFileSystemInstructionsVersionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type DesktopFileSystemShortcutListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DesktopPersistedFolderListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -3423,11 +3338,26 @@ export type FileSystemListParams = {
     search?: string
 }
 
-export type FlagValueValuesRetrieveParams = {
+export type FileSystemShortcutListParams = {
     /**
-     * The flag ID
+     * Number of results to return per page.
      */
-    key?: string
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type PersistedFolderListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type ProjectSecretApiKeysListParams = {
@@ -3465,7 +3395,7 @@ export type PropertyDefinitionsListParams = {
      */
     excluded_properties?: string
     /**
-     * Whether to return only properties for events in `event_names`
+     * Whether to return only properties for events in `event_names`. Note: this event scoping does not apply to feature flag properties ($feature/*), which are global and not tracked per-event; to retrieve feature flags use is_feature_flag=true instead.
      * @nullable
      */
     filter_by_event_names?: boolean | null
@@ -3474,7 +3404,7 @@ export type PropertyDefinitionsListParams = {
      */
     group_type_index?: number
     /**
-     * Whether to return only (or excluding) feature flag properties
+     * Whether to return only (or excluding) feature flag properties ($feature/*). Flags are global, not per-event, so they can't be scoped by event_names/filter_by_event_names — pass is_feature_flag=true to list them all.
      * @nullable
      */
     is_feature_flag?: boolean | null
@@ -3526,68 +3456,6 @@ export const PropertyDefinitionsListType = {
     Session: 'session',
 } as const
 
-export type SubscriptionsListParams = {
-    /**
-     * Filter by creator user UUID.
-     */
-    created_by?: string
-    /**
-     * Filter by dashboard ID.
-     */
-    dashboard?: number
-    /**
-     * Filter by insight ID.
-     */
-    insight?: number
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string
-    /**
-     * Filter by subscription resource: insight vs dashboard export.
-     */
-    resource_type?: SubscriptionsListResourceType
-    /**
-     * A search term.
-     */
-    search?: string
-    /**
-     * Filter by delivery channel (email, Slack, or webhook).
-     */
-    target_type?: SubscriptionsListTargetType
-}
-
-export type SubscriptionsListResourceType =
-    (typeof SubscriptionsListResourceType)[keyof typeof SubscriptionsListResourceType]
-
-export const SubscriptionsListResourceType = {
-    Dashboard: 'dashboard',
-    Insight: 'insight',
-} as const
-
-export type SubscriptionsListTargetType = (typeof SubscriptionsListTargetType)[keyof typeof SubscriptionsListTargetType]
-
-export const SubscriptionsListTargetType = {
-    Email: 'email',
-    Slack: 'slack',
-    Webhook: 'webhook',
-} as const
-
-export type SubscriptionsSummaryQuotaRetrieve200 = {
-    active_count: number
-    /** @nullable */
-    limit: number | null
-    at_limit: boolean
-}
-
 export type UsersListParams = {
     email?: string
     is_staff?: boolean
@@ -3599,4 +3467,56 @@ export type UsersListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type UsersIntegrationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type UsersIntegrationsGithubBranchesRetrieveParams = {
+    /**
+     * Maximum number of branches to return
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Number of branches to skip
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Repository in owner/repo format
+     * @minLength 1
+     */
+    repo: string
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string
+}
+
+export type UsersIntegrationsGithubReposRetrieveParams = {
+    /**
+     * Maximum number of repositories to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of repositories to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Optional case-insensitive repository name search query.
+     */
+    search?: string
 }

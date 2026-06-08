@@ -14,6 +14,7 @@ import structlog
 from psycopg import sql
 
 import posthog.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
+from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_SCALE,
     MAX_NUMERIC_SCALE,
@@ -49,7 +50,9 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _get_primary_keys,
     _get_sslmode,
     _get_table,
+    _get_table_chunk_size,
     _has_duplicate_primary_keys,
+    _is_connection_dropped_error,
     _is_partitioned_table,
     _is_read_replica,
     _normalize_function_names,
@@ -162,6 +165,42 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Widened integer column error should be non-retryable: {error_msg}"
+
+
+class TestIsConnectionDroppedError:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            psycopg.errors.ProtocolViolation("server conn crashed?"),
+            psycopg.OperationalError("server closed the connection unexpectedly"),
+            psycopg.OperationalError("connection to server was lost"),
+            psycopg.OperationalError("connection to server was closed unexpectedly"),
+            psycopg.OperationalError("consuming input failed: EOF detected"),
+            psycopg.OperationalError("terminating connection due to administrator command"),
+            psycopg.errors.ProtocolViolation("SERVER CONN CRASHED?"),
+        ],
+    )
+    def test_connection_dropped_errors_are_detected(self, error):
+        assert _is_connection_dropped_error(error) is True
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            psycopg.errors.SerializationFailure("could not serialize access due to conflict with recovery"),
+            psycopg.errors.QueryCanceled("statement timeout"),
+            psycopg.OperationalError("password authentication failed for user"),
+            # Initial-connect failures embed "connection to server …" but are
+            # permanent — they must not be misclassified as a recoverable drop.
+            psycopg.OperationalError(
+                'connection to server at "10.0.0.1" failed: FATAL: password authentication failed'
+            ),
+            psycopg.errors.UniqueViolation("duplicate key value violates unique constraint"),
+            ValueError("server conn crashed?"),
+            Exception("server conn crashed?"),
+        ],
+    )
+    def test_unrelated_errors_are_not_detected(self, error):
+        assert _is_connection_dropped_error(error) is False
 
 
 class TestPostgresSourceForPipelineSchemaResolution:
@@ -441,6 +480,64 @@ class TestPostgresSchemaDiscovery:
         assert schemas["public.users"].source_table_name == "users"
         assert schemas["analytics.events"].source_schema == "analytics"
         assert schemas["analytics.events"].source_table_name == "events"
+
+    @pytest.mark.parametrize(
+        "selected_schema,requested_name,fetchall_results,expected_keys",
+        [
+            # Qualified lookup against a schema that's keyed unqualified (config.schema set).
+            # This is the multi-schema migration scenario: row name was rewritten to
+            # `public.tracking_link` while the source still has `schema="public"` configured.
+            (
+                "public",
+                "public.tracking_link",
+                (
+                    [("public", "tracking_link")],
+                    [("public", "tracking_link", "id", "integer", "NO", 1)],
+                ),
+                {"public.tracking_link"},
+            ),
+            # Unqualified lookup against an unqualified keyspace — the legacy path.
+            (
+                "public",
+                "tracking_link",
+                (
+                    [("public", "tracking_link")],
+                    [("public", "tracking_link", "id", "integer", "NO", 1)],
+                ),
+                {"tracking_link"},
+            ),
+            # Qualified lookup against a qualified keyspace (no config.schema, multi-schema mode).
+            (
+                "",
+                "public.tracking_link",
+                (
+                    [("public", "tracking_link")],
+                    [("public", "tracking_link", "id", "integer", "NO", 1)],
+                ),
+                {"public.tracking_link"},
+            ),
+        ],
+    )
+    def test_get_schemas_accepts_qualified_and_unqualified_names(
+        self, selected_schema, requested_name, fetchall_results, expected_keys
+    ):
+        connection = self._mock_connection(*fetchall_results)
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
+            return_value=connection,
+        ):
+            schemas = get_schemas(
+                host="localhost",
+                port=5432,
+                database="postgres",
+                user="postgres",
+                password="postgres",
+                schema=selected_schema,
+                names=[requested_name],
+            )
+
+        assert set(schemas.keys()) == expected_keys
 
     def test_get_foreign_keys_qualifies_target_table_names_when_schema_is_blank(self):
         connection = self._mock_connection(
@@ -982,6 +1079,21 @@ class TestIsPartitionedTable:
             for stmt in setup_ddl:
                 dj_cursor.execute(stmt)
             assert _is_partitioned_table(cast(Any, dj_cursor), "public", table_name) is expected
+
+
+class TestGetTableChunkSize:
+    @pytest.mark.django_db
+    def test_failing_probe_falls_back_without_poisoning_transaction(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            inner_query = sql.SQL("SELECT * FROM does_not_exist_chunk_probe").format()
+
+            chunk_size = _get_table_chunk_size(cast(Any, dj_cursor), inner_query, logger)
+            assert chunk_size == DEFAULT_CHUNK_SIZE
+
+            dj_cursor.execute("SELECT 1")
+            assert dj_cursor.fetchone()[0] == 1
 
 
 class TestPartitionedTableChunkSizing:

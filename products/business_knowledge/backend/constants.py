@@ -2,6 +2,8 @@
 Constants and tunables for business_knowledge.
 """
 
+import datetime
+
 # Per-team caps. Enforced in the create endpoint, not at the DB layer — easier
 # to relax for a single paying customer without a migration.
 MAX_SOURCES_PER_TEAM = 500
@@ -61,3 +63,52 @@ MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024
 # docx can decompress to 10 GB — 100 MB is generous for any legitimate
 # knowledge document while keeping per-request memory bounded.
 MAX_FILE_DECOMPRESSED_BYTES = 100 * 1024 * 1024
+
+# --- Stage 5: safety classifier tunables ---
+# The classifier is a security boundary: the span it inspects MUST equal the
+# span that becomes searchable, otherwise an attacker can hide a prompt-
+# injection payload past the inspected region and still have it indexed and
+# surfaced to the agent. We therefore classify the WHOLE document in overlapping
+# windows (a doc is UNSAFE if any window is) rather than only a leading prefix.
+#
+# Window size is a cost knob, not a security knob — every window is inspected
+# regardless. Overlap guards against a payload straddling a window boundary.
+CLASSIFY_WINDOW_CHARS = 100_000
+CLASSIFY_WINDOW_OVERLAP_CHARS = 1_000
+# Hard cap on how much of one document we will classify. Documents longer than
+# this are failed CLOSED (left excluded from search) rather than partially
+# inspected and waved through — never apply a partial-document verdict to the
+# full, searchable document. Also bounds per-doc memory + LLM calls. Sized to
+# the text-source cap (MAX_TEXT_SIZE_BYTES); larger crawled/file docs are rare
+# and an operator can split them.
+CLASSIFY_MAX_TOTAL_CHARS = 1_000_000
+# How many coordinator passes may try to classify a single doc before we give
+# up and leave it excluded. The classifier fails closed, so an unclassifiable
+# doc stays `unknown` (never searchable); this only bounds the retry churn. At
+# the hourly cadence this is ~5 hours of retries — enough to ride out a
+# transient Gemini outage, bounded enough to not loop forever on poison content.
+CLASSIFY_MAX_ATTEMPTS = 5
+
+# --- Embedding pipeline tunables (hybrid retrieval) ---
+# Embedding model used for both producing chunk vectors and (later) embedding
+# search queries. MUST match a model_name in error_tracking's EMBEDDING_TABLES,
+# and emit-model MUST equal query-model or cosineDistance compares across spaces.
+BK_EMBEDDING_MODEL = "text-embedding-3-small-1536"
+# `product` / `document_type` buckets in the shared `document_embeddings` table.
+# One embedding row per chunk (document_id = chunk_id) so citations stay stable
+# and the read path can re-join to Postgres chunks. Shared with the read path.
+BK_EMBEDDING_PRODUCT = "business_knowledge"
+BK_EMBEDDING_DOCUMENT_TYPE = "chunk"
+BK_EMBEDDING_RENDERING = "plain"
+# Per coordinator pass: how many SAFE documents we pull to emit embeddings for.
+# Each pending doc loads its chunk content into memory to produce to Kafka, so
+# this is the same memory knob as PENDING_CLASSIFICATION_SCAN_CAP. Kept small so
+# the first post-deploy pass (which backfills every existing SAFE doc across all
+# teams) drains over many hourly passes instead of blowing up one run.
+PENDING_EMBEDDING_SCAN_CAP = 50
+# Reconciliation: how many already-emitted SAFE docs to re-verify against
+# ClickHouse per pass (oldest-emitted first), and the grace period a doc must
+# have been emitted for before it's eligible. The grace window keeps us from
+# re-checking docs whose vectors are simply still in flight through Kafka.
+RECONCILE_EMBEDDING_SCAN_CAP = 50
+RECONCILE_EMBEDDING_GRACE = datetime.timedelta(hours=2)

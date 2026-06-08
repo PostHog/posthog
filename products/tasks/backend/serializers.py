@@ -81,8 +81,30 @@ def build_task_run_artifact_size_error(
     return f"{artifact_name or 'Artifact'} exceeds the {max_mb}MB attachment limit"
 
 
+class TaskFileRequestSerializer(serializers.Serializer):
+    folder = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Destination folder path in the project tree (e.g. 'Tasks/Bugs'). Defaults to 'Tasks'.",
+    )
+
+
+class TaskFileResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Identifier of the project-tree entry for this task.")
+    path = serializers.CharField(help_text="Full slash-separated path of the filed task in the project tree.")
+    type = serializers.CharField(help_text="File system entry type. Always 'task'.")
+    ref = serializers.CharField(help_text="Identifier of the task this entry points to.")
+    href = serializers.CharField(help_text="In-app link to the task.")
+
+
 class TaskSerializer(serializers.ModelSerializer):
-    repository = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
+    repository = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).",
+    )
     # UserIntegration is scoped to request.user in validate_github_user_integration.
     github_user_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
         queryset=UserIntegration.objects.filter(kind="github"),
@@ -93,9 +115,22 @@ class TaskSerializer(serializers.ModelSerializer):
     latest_run = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
-    title = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    description = serializers.CharField(required=False, allow_blank=True)
-    origin_product = serializers.ChoiceField(choices=Task.OriginProduct.choices, required=False)
+    title = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Short human-readable title. Auto-generated from `description` when omitted.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Free-form description of the work to be done. Used as the prompt passed to the agent.",
+    )
+    origin_product = serializers.ChoiceField(
+        choices=Task.OriginProduct.choices,
+        required=False,
+        help_text="PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).",
+    )
     # Write-only: which SignalReportTask row to create when linking a task to a report from the
     # public task API (e.g. PostHog Code inbox). Only implementation is supported; research/repo
     # selection links are created by server-side flows.
@@ -483,6 +518,19 @@ class TaskRunErrorResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         help_text="Artifact ids that could not be resolved for the run",
+    )
+    limit_type = serializers.ChoiceField(
+        choices=[("burst", "burst"), ("sustained", "sustained")],
+        required=False,
+        help_text="Which usage limit was hit on a rate_limited error: 'burst' (daily) or 'sustained' (monthly)",
+    )
+    reset_at = serializers.CharField(
+        required=False,
+        help_text="ISO 8601 timestamp when the hit usage limit resets, when known",
+    )
+    is_pro = serializers.BooleanField(
+        required=False,
+        help_text="Whether the team is on a Pro plan (drives the upgrade-prompt copy)",
     )
 
 
@@ -1694,4 +1742,148 @@ class TaskPresenceBeaconRequestSerializer(serializers.Serializer):
 
     device_id = serializers.UUIDField(
         help_text="UUID of the caller's UserPushToken (returned by `/api/users/@me/push_tokens/` on register).",
+    )
+
+
+class SlackThreadContextQuerySerializer(serializers.Serializer):
+    """Query params for the slack-thread debug endpoint."""
+
+    url = serializers.URLField(
+        help_text=(
+            "Full Slack permalink to any message in the thread (e.g. "
+            "https://posthog.slack.com/archives/C…/p1779956938619299). Replies inside the "
+            "thread are accepted too — the `thread_ts` query param (when present) takes "
+            "precedence over the in-path message ts."
+        ),
+    )
+
+
+class SlackThreadContextThreadSerializer(serializers.Serializer):
+    """Slack-side identifiers and the mapping metadata for a thread → task lookup."""
+
+    url = serializers.CharField(help_text="Echoed input URL.")
+    channel = serializers.CharField(help_text="Slack channel id parsed from the URL (e.g. C0ACRAMJUAG).")
+    thread_ts = serializers.CharField(help_text="Slack thread_ts (e.g. 1779956938.619299).")
+    slack_workspace_id = serializers.CharField(
+        allow_null=True,
+        help_text="Slack workspace id (e.g. T…). Null when no mapping exists yet.",
+    )
+    mentioning_slack_user_id = serializers.CharField(
+        allow_null=True,
+        help_text="The Slack user who triggered the task. Null when no mapping exists yet.",
+    )
+
+
+class SlackThreadContextTaskSerializer(serializers.Serializer):
+    """The PostHog Task linked to the Slack thread."""
+
+    id = serializers.CharField(help_text="UUID of the Task row.")
+    team_id = serializers.IntegerField(help_text="Team that owns the task.")
+    title = serializers.CharField(help_text="Task title (typically the first ~255 chars of the Slack ask).")
+    repository = serializers.CharField(
+        allow_null=True,
+        help_text="Resolved repository in `org/repo` form, or null if the run started without a repo.",
+    )
+    origin_product = serializers.CharField(help_text="`Task.OriginProduct` (`slack` for slack-originated tasks).")
+    created_at = serializers.DateTimeField(help_text="When the task was created (server-side timestamp).")
+    url = serializers.CharField(help_text="Absolute URL to the task detail page in the PostHog app.")
+
+
+class SlackThreadContextRepoResearchSerializer(serializers.Serializer):
+    """The internal sandbox run the discovery agent used to pick this run's repo.
+
+    Only present when the originating mention was ambiguous (multiple candidate
+    repos, no explicit mention) — that's the only path that spins up a research
+    sandbox. Null otherwise.
+    """
+
+    task_id = serializers.CharField(help_text="UUID of the internal repo-research Task.")
+    run_id = serializers.CharField(help_text="UUID of the internal repo-research TaskRun.")
+    status = serializers.CharField(
+        allow_null=True,
+        help_text="Research run status, or null if the run row could not be loaded.",
+    )
+    task_processing_workflow_id = serializers.CharField(
+        help_text="Temporal workflow id for the research sandbox run (`task-processing-<task_id>-<run_id>`).",
+    )
+    task_processing_workflow_url = serializers.CharField(
+        allow_null=True,
+        help_text="Full Temporal Web UI URL for the research workflow; null when `TEMPORAL_UI_HOST` is unset.",
+    )
+    sandbox_url = serializers.CharField(
+        allow_null=True,
+        help_text="Live sandbox tunnel URL for the research run, when one was attached.",
+    )
+    task_view_url = serializers.CharField(
+        help_text="Absolute URL to the research task detail page (carries `?ph_debug=true`).",
+    )
+    log_url = serializers.CharField(
+        allow_null=True,
+        help_text="Presigned S3 URL for the research run's JSONL log transcript (valid ~1 hour).",
+    )
+
+
+class SlackThreadContextRunSerializer(serializers.Serializer):
+    """One TaskRun and its associated Temporal workflow handles."""
+
+    id = serializers.CharField(help_text="UUID of the TaskRun row.")
+    status = serializers.CharField(help_text="Run status (queued/in_progress/completed/failed/…).")
+    created_at = serializers.DateTimeField(help_text="When the run was created.")
+    completed_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the run reached a terminal state, or null while still running.",
+    )
+    sandbox_url = serializers.CharField(
+        allow_null=True,
+        help_text="Live sandbox tunnel URL, when one was attached.",
+    )
+    pr_url = serializers.CharField(
+        allow_null=True,
+        help_text="PR URL produced by the run, when one was opened.",
+    )
+    error_message = serializers.CharField(
+        allow_null=True,
+        help_text="Error captured on terminal failure, or null on success.",
+    )
+    task_processing_workflow_id = serializers.CharField(
+        help_text="Temporal workflow id for the sandbox/agent run (`task-processing-<task_id>-<run_id>`).",
+    )
+    task_processing_workflow_url = serializers.CharField(
+        allow_null=True,
+        help_text="Full Temporal Web UI URL for the task-processing workflow; null when `TEMPORAL_UI_HOST` is unset.",
+    )
+    mention_workflow_id = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Temporal workflow id of the Slack mention that dispatched this run "
+            "(`posthog-code-mention-<workspace>:<event_id_or_channel:ts>`). Null for runs "
+            "created before this field was persisted."
+        ),
+    )
+    mention_workflow_url = serializers.CharField(
+        allow_null=True,
+        help_text="Full Temporal Web UI URL for the mention dispatch workflow; null when unavailable.",
+    )
+    task_view_url = serializers.CharField(help_text="Absolute URL to the task detail page focused on this run.")
+    log_url = serializers.CharField(
+        allow_null=True,
+        help_text="Presigned S3 URL for the run's full JSONL log transcript (valid ~1 hour).",
+    )
+    repo_research = SlackThreadContextRepoResearchSerializer(
+        allow_null=True,
+        help_text="The discovery-agent sandbox that picked this run's repo, when the mention was ambiguous.",
+    )
+
+
+class SlackThreadContextResponseSerializer(serializers.Serializer):
+    """Top-level response for the slack-thread debug endpoint."""
+
+    thread = SlackThreadContextThreadSerializer(help_text="Slack-side identifiers and the mapping metadata.")
+    task = SlackThreadContextTaskSerializer(
+        allow_null=True,
+        help_text="Linked PostHog Task. Null when no mapping was found for the thread.",
+    )
+    runs = SlackThreadContextRunSerializer(
+        many=True,
+        help_text="All runs on the task, oldest first. Empty when no mapping was found.",
     )

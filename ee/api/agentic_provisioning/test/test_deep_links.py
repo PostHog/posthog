@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.core.cache import cache
 from django.test import override_settings
 
@@ -33,6 +35,24 @@ class TestDeepLinks(ProvisioningTestBase):
         url = res.json()["url"]
         assert f"team_id={self.team.id}" in url
 
+    @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
+    def test_deep_link_capture_attributes_client(self, mock_capture_event):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/deep_links",
+            data={"purpose": "dashboard"},
+            token=token,
+        )
+        assert res.status_code == 200
+
+        success_calls = [
+            call for call in mock_capture_event.call_args_list if call.args[:2] == ("deep_link_created", "success")
+        ]
+        assert len(success_calls) == 1
+        partner = success_calls[0].kwargs["partner"]
+        assert partner is not None
+        assert partner.name == "PostHog Stripe App"
+
     def test_deep_link_missing_bearer_returns_401(self):
         res = self._post_signed("/api/agentic/provisioning/deep_links", data={"purpose": "dashboard"})
         assert res.status_code == 401
@@ -53,6 +73,45 @@ class TestDeepLinks(ProvisioningTestBase):
         )
         assert res.status_code == 403
         assert res.json()["error"]["code"] == "deep_links_not_enabled"
+
+    def test_deep_link_with_path_redirects_there(self):
+        token = self._get_bearer_token()
+        target = f"/project/{self.team.id}/replay/019e6d10-c3b0-7000-8000-000000000000"
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/deep_links",
+            data={"path": target},
+            token=token,
+        )
+        assert res.status_code == 200
+
+        login_token = res.json()["url"].split("token=")[1].split("&")[0]
+        login_res = self.client.get(f"/agentic/login?token={login_token}")
+        assert login_res.status_code == 302
+        assert login_res["Location"] == target
+
+    @parameterized.expand(
+        [
+            ("protocol_relative", "//evil.com"),
+            ("absolute_url", "https://evil.com/steal"),
+            ("backslash_host", "/\\evil.com"),
+            ("javascript_scheme", "javascript:alert(1)"),
+            ("not_rooted", "project/123/insights"),
+            ("crlf_header_injection", "/project/1\r\nLocation: https://evil.com"),
+            ("newline", "/project/1\nreplay"),
+            ("tab", "/project/1\treplay"),
+            ("space", "/project/1 replay"),
+            ("null_byte", "/project/1\x00"),
+        ]
+    )
+    def test_deep_link_rejects_unsafe_path(self, _name: str, path: str):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/deep_links",
+            data={"path": path},
+            token=token,
+        )
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "invalid_path"
 
     def test_deep_link_requires_hmac_signature_for_hmac_partner(self):
         from posthog.models.oauth import OAuthApplication
@@ -159,3 +218,26 @@ class TestAgenticLogin(ProvisioningTestBase):
         res = self.client.get(f"/agentic/login?token={token}")
         assert res.status_code == 302
         assert not res["Location"].startswith("http")
+
+    def test_path_token_redirects_to_path(self):
+        token = "test_path_token"
+        target = f"/project/{self.team.id}/replay/abc123-DEF"
+        cache.set(
+            f"{DEEP_LINK_CACHE_PREFIX}{token}",
+            {"user_id": self.user.id, "team_id": self.team.id, "path": target},
+            timeout=600,
+        )
+        res = self.client.get(f"/agentic/login?token={token}")
+        assert res.status_code == 302
+        assert res["Location"] == target
+
+    def test_unsafe_path_in_cache_falls_back_to_project(self):
+        token = "test_unsafe_path_token"
+        cache.set(
+            f"{DEEP_LINK_CACHE_PREFIX}{token}",
+            {"user_id": self.user.id, "team_id": self.team.id, "path": "//evil.com"},
+            timeout=600,
+        )
+        res = self.client.get(f"/agentic/login?token={token}")
+        assert res.status_code == 302
+        assert res["Location"] == f"/project/{self.team.id}"

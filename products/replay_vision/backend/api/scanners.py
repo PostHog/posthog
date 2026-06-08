@@ -3,17 +3,18 @@ from typing import Any, NoReturn, cast
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.db.models import QuerySet
+from django.db.models import CharField, Count, F, Q, QuerySet, Value
+from django.db.models.functions import Coalesce, NullIf
 
 import structlog
 import django_filters
 from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -22,10 +23,17 @@ from posthog.schema import RecordingsQuery
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 
-from products.replay_vision.backend.api.constants import VISION_TAG
+from products.replay_vision.backend.api.filters import (
+    MultiChoiceFilter,
+    OrderByFilter,
+    ordering_enum,
+    split_csv,
+    validate_csv_choices,
+)
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import (
@@ -35,6 +43,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.queries import estimate_scanner_session_volume
+from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     MAX_SESSION_ID_LENGTH,
@@ -49,6 +58,37 @@ _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 logger = structlog.get_logger(__name__)
 
 
+def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any) -> str | None:
+    if not isinstance(scanner_config, dict):
+        return "Scanner configuration must be a JSON object."
+    prompt = scanner_config.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        return "Prompt is required."
+    if scanner_type == ScannerType.CLASSIFIER:
+        tags = scanner_config.get("tags") or []
+        if len(tags) == 0:
+            return "Tag vocabulary must have at least one tag."
+        if any(not isinstance(t, str) or not t.strip() for t in tags):
+            return "Tags can't be blank."
+        normalized = {t.strip().lower() for t in tags}
+        if len(normalized) != len(tags):
+            return "Tags must be unique."
+    if scanner_type == ScannerType.SCORER:
+        scale = scanner_config.get("scale")
+        if not isinstance(scale, dict):
+            return "Scale is required."
+        min_v, max_v = scale.get("min"), scale.get("max")
+        if not isinstance(min_v, (int, float)) or not isinstance(max_v, (int, float)):
+            return "Scale min and max must be numbers."
+        if min_v >= max_v:
+            return "Scale max must be greater than min."
+    try:
+        validate_scanner_config(scanner_config=scanner_config, scanner_type=scanner_type)
+    except (ValueError, PydanticValidationError):
+        return "Scanner configuration is invalid."
+    return None
+
+
 class ReplayScannerSerializer(serializers.ModelSerializer):
     name = serializers.CharField(
         max_length=255,
@@ -61,12 +101,12 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
     )
     scanner_type = serializers.ChoiceField(
         choices=ScannerType.choices,
-        help_text="What the scanner does: monitor, classifier, scorer, summarizer, or indexer.",
+        help_text="What the scanner does: monitor, classifier, scorer, or summarizer.",
     )
     scanner_config = serializers.JSONField(
         help_text=(
-            "Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; "
-            "classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`."
+            "Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, "
+            "classifiers add `tags`, scorers add `scale`, summarizers add optional `length`."
         ),
     )
     query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
@@ -155,9 +195,18 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
                 duplicates = duplicates.exclude(pk=self.instance.pk)
             if duplicates.exists():
                 raise serializers.ValidationError({"name": "A scanner with this name already exists in this team."})
+        self._reject_scanner_type_change(attrs)
         self._validate_scanner_config(attrs)
         self._validate_and_strip_query(attrs)
         return attrs
+
+    def _reject_scanner_type_change(self, attrs: dict[str, Any]) -> None:
+        if self.instance is None or "scanner_type" not in attrs:
+            return
+        if attrs["scanner_type"] != self.instance.scanner_type:
+            raise serializers.ValidationError(
+                {"scanner_type": "Scanner type is fixed after creation. Create a new scanner to use a different type."}
+            )
 
     def _validate_scanner_config(self, attrs: dict[str, Any]) -> None:
         # Skip when neither field is touched on PATCH — the existing combination has already been validated.
@@ -167,18 +216,17 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         scanner_config = attrs.get("scanner_config", getattr(self.instance, "scanner_config", None))
         if scanner_type is None:
             return  # Upstream `scanner_type` ChoiceField rejects this on create; PATCH with no instance is unreachable.
-        try:
-            validate_scanner_config(scanner_config=scanner_config, scanner_type=ScannerType(scanner_type))
-        except (ValueError, PydanticValidationError) as exc:
-            raise serializers.ValidationError({"scanner_config": str(exc)})
+        message = _scanner_config_error_message(ScannerType(scanner_type), scanner_config)
+        if message is not None:
+            raise serializers.ValidationError({"scanner_config": message})
 
     def _validate_and_strip_query(self, attrs: dict[str, Any]) -> None:
         if "query" not in attrs:
             return
         try:
             RecordingsQuery.model_validate(attrs["query"])
-        except PydanticValidationError as exc:
-            raise serializers.ValidationError({"query": str(exc)})
+        except PydanticValidationError:
+            raise serializers.ValidationError({"query": "Recording filter is invalid."})
         # Persist exactly what the user sent (validated), minus the date keys the schedule controls.
         attrs["query"] = {k: v for k, v in attrs["query"].items() if k not in _QUERY_FIELDS_TO_STRIP}
 
@@ -215,33 +263,100 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         raise error
 
 
+SCANNER_ORDER_FIELDS = (
+    "name",
+    "created_at",
+    "updated_at",
+    "scanner_type",
+    "enabled",
+    "sampling_rate",
+    "created_by",
+)
+_SCANNER_ENABLED_CHOICES = frozenset({"enabled", "disabled"})
+# Map `?enabled=true/false/1/0` to the CSV form so the conventional boolean stays supported.
+_SCANNER_ENABLED_ALIASES = {"true": "enabled", "false": "disabled", "1": "enabled", "0": "disabled"}
+
+
+class _ScannerOrderByFilter(OrderByFilter):
+    """Plain columns + `created_by` sorted by the display label so UI order matches the column."""
+
+    _allowed_keys = frozenset(SCANNER_ORDER_FIELDS)
+
+    def _handle(self, qs: QuerySet[ReplayScanner], key: str, descending: bool) -> QuerySet[ReplayScanner]:
+        if key == "created_by":
+            # Mirrors the frontend `createdByLabel` fallback so a row rendered "Brown" sorts on "Brown", not its email.
+            qs = qs.annotate(
+                _order_created_by=Coalesce(
+                    NullIf(F("created_by__first_name"), Value("")),
+                    NullIf(F("created_by__last_name"), Value("")),
+                    F("created_by__email"),
+                    output_field=CharField(),
+                ),
+            )
+            return self._order_nulls_last(qs, "_order_created_by", descending)
+        return self._order_plain(qs, key, descending)
+
+
 class ReplayScannerFilter(django_filters.FilterSet):
-    enabled = django_filters.BooleanFilter(
-        field_name="enabled",
-        help_text="Filter to enabled vs disabled scanners.",
+    enabled = django_filters.CharFilter(
+        method="_filter_enabled",
+        help_text="Filter by enabled state. Accepts a comma-separated list of `enabled`/`disabled`.",
     )
-    scanner_type = django_filters.ChoiceFilter(
+    scanner_type = MultiChoiceFilter(
         field_name="scanner_type",
-        choices=ScannerType.choices,
-        help_text="Filter by scanner type (monitor, classifier, scorer, summarizer, indexer).",
+        valid_choices=frozenset(v for v, _ in ScannerType.choices),
+        help_text=("Filter by scanner type (monitor, classifier, scorer, summarizer). Accepts a comma-separated list."),
     )
     emits_signals = django_filters.BooleanFilter(
         field_name="emits_signals",
         help_text="Filter to scanners that emit Signals.",
     )
-    order_by = django_filters.OrderingFilter(
-        fields=(
-            ("name", "name"),
-            ("created_at", "created_at"),
-            ("updated_at", "updated_at"),
-            ("scanner_type", "scanner_type"),
+    created_by = django_filters.CharFilter(
+        method="_filter_created_by",
+        help_text="Filter to scanners created by the given user IDs (comma-separated).",
+    )
+    search = django_filters.CharFilter(
+        method="_filter_search",
+        help_text="Case-insensitive substring match across name, description, and the prompt in scanner_config.",
+    )
+    order_by = _ScannerOrderByFilter(
+        help_text=(
+            "Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or "
+            "created_by. Prefix with `-` for descending."
         ),
-        help_text="Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.",
     )
 
     class Meta:
         model = ReplayScanner
-        fields = ["enabled", "scanner_type", "emits_signals"]
+        fields = ["enabled", "scanner_type", "emits_signals", "created_by", "search"]
+
+    @staticmethod
+    def _filter_enabled(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
+        # `method=` bypasses `MultiChoiceFilter.filter`, so call the shared validator directly.
+        normalized = ",".join(_SCANNER_ENABLED_ALIASES.get(v.strip().lower(), v) for v in split_csv(value))
+        values = set(validate_csv_choices(normalized, _SCANNER_ENABLED_CHOICES, "enabled"))
+        if not values or values == _SCANNER_ENABLED_CHOICES:
+            return queryset
+        return queryset.filter(enabled=("enabled" in values))
+
+    @staticmethod
+    def _filter_created_by(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
+        tokens = split_csv(value)
+        if not tokens:
+            return queryset
+        invalid = sorted(t for t in tokens if not t.isdigit())
+        if invalid:
+            raise ValidationError({"created_by": f"Non-numeric value(s) {invalid}; user IDs must be integers."})
+        return queryset.filter(created_by_id__in=tokens)
+
+    @staticmethod
+    def _filter_search(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
+        q = value.strip()
+        if not q:
+            return queryset
+        return queryset.filter(
+            Q(name__icontains=q) | Q(description__icontains=q) | Q(scanner_config__prompt__icontains=q)
+        )
 
 
 class ObserveRequestSerializer(serializers.Serializer):
@@ -288,9 +403,47 @@ class EstimateRequestSerializer(serializers.Serializer):
     def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
         try:
             RecordingsQuery.model_validate(value)
-        except PydanticValidationError as exc:
-            raise serializers.ValidationError(str(exc))
+        except PydanticValidationError:
+            raise serializers.ValidationError("Recording filter is invalid.")
         return {k: v for k, v in value.items() if k not in _QUERY_FIELDS_TO_STRIP}
+
+
+class ScannerTypeStatsSerializer(serializers.Serializer):
+    """Per-scanner-type count of enabled vs total scanners."""
+
+    enabled = serializers.IntegerField(help_text="Number of enabled scanners of this type.")
+    total = serializers.IntegerField(help_text="Number of scanners of this type (enabled + disabled).")
+
+
+class ScannerStatsByTypeSerializer(serializers.Serializer):
+    """One `ScannerTypeStats` per scanner type — explicit fields give callers a typed shape, not `Record<string, …>`."""
+
+    monitor = ScannerTypeStatsSerializer()
+    classifier = ScannerTypeStatsSerializer()
+    scorer = ScannerTypeStatsSerializer()
+    summarizer = ScannerTypeStatsSerializer()
+
+
+class ScannerStatsResponseSerializer(serializers.Serializer):
+    """Team-wide scanner counts independent of any list-filter state."""
+
+    total = serializers.IntegerField(help_text="Total scanners on the team.")
+    enabled = serializers.IntegerField(help_text="Number of enabled scanners on the team.")
+    by_type = ScannerStatsByTypeSerializer(
+        help_text="Per-scanner-type breakdown (monitor / classifier / scorer / summarizer)."
+    )
+
+
+class ScannerCreatorsResponseSerializer(serializers.Serializer):
+    """Distinct creators across all scanners on the team — feeds the `Created by` filter dropdown."""
+
+    creators = UserBasicSerializer(
+        many=True,
+        help_text=(
+            "Users who created at least one scanner on this team. Returned regardless of pagination state "
+            "so the dropdown stays stable across pages."
+        ),
+    )
 
 
 class EstimateResponseSerializer(serializers.Serializer):
@@ -312,12 +465,31 @@ class EstimateResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=[VISION_TAG])
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            # OrderingFilter renders as an array by default, which the MCP client serializes as a JSON-bracketed
+            # string the filter rejects. Declare it as a single-value string enum so it serializes as ?order_by=field.
+            OpenApiParameter(
+                "order_by",
+                str,
+                OpenApiParameter.QUERY,
+                required=False,
+                enum=ordering_enum(SCANNER_ORDER_FIELDS),
+                description=(
+                    "Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or "
+                    "created_by. Prefix with `-` for descending."
+                ),
+            )
+        ]
+    )
+)
 class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """CRUD for Replay Vision scanners."""
 
     scope_object = "replay_scanner"
     # Custom actions must be listed explicitly or personal-API-key callers 403 silently.
+    scope_object_read_actions = ["list", "retrieve", "creators", "stats"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy", "observe"]
     permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayScannerSerializer
@@ -326,8 +498,58 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filterset_class = ReplayScannerFilter
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
+    # Same authorization as /observe/: configuring a scanner indirectly exposes recording contents.
+    _CONFIG_ACTIONS = {"create", "update", "partial_update"}
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        if self.action in self._CONFIG_ACTIONS:
+            return ["replay_scanner:write", "session_recording:read"]
+        return None
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        if self.action in self._CONFIG_ACTIONS and not self.user_access_control.check_access_level_for_resource(
+            "session_recording", required_level="viewer"
+        ):
+            raise PermissionDenied("Configuring a Replay Vision scanner requires session_recording read access.")
+
     def safely_get_queryset(self, queryset: QuerySet[ReplayScanner]) -> QuerySet[ReplayScanner]:
         return queryset.filter(team_id=self.team_id).select_related("created_by").order_by("name", "id")
+
+    @extend_schema(responses={200: ScannerCreatorsResponseSerializer})
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def creators(self, request: Request, **kwargs: Any) -> Response:
+        """Distinct creators across the team's scanners — feeds the `Created by` filter dropdown."""
+        # Mirror the per-resource RBAC the `list` action applies — the dropdown must not leak creator
+        # identities for scanners the caller can't see.
+        accessible = self.user_access_control.filter_queryset_by_access_level(
+            ReplayScanner.objects.filter(team_id=self.team_id, created_by_id__isnull=False)
+        )
+        users = User.objects.filter(
+            id__in=accessible.values_list("created_by_id", flat=True),
+        ).order_by("first_name", "last_name", "email", "id")
+        return Response({"creators": UserBasicSerializer(users, many=True).data})
+
+    @extend_schema(responses={200: ScannerStatsResponseSerializer})
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def stats(self, request: Request, **kwargs: Any) -> Response:
+        """Team-wide scanner counts — independent of list filters, so the overview stays stable."""
+        accessible = self.user_access_control.filter_queryset_by_access_level(
+            ReplayScanner.objects.filter(team_id=self.team_id)
+        )
+        # `.order_by()` so the default ordering doesn't leak into GROUP BY.
+        rows = accessible.order_by().values("scanner_type", "enabled").annotate(c=Count("*"))
+        by_type: dict[str, dict[str, int]] = {value: {"enabled": 0, "total": 0} for value, _ in ScannerType.choices}
+        total = 0
+        enabled = 0
+        for row in rows:
+            bucket = by_type.setdefault(row["scanner_type"], {"enabled": 0, "total": 0})
+            bucket["total"] += row["c"]
+            total += row["c"]
+            if row["enabled"]:
+                bucket["enabled"] += row["c"]
+                enabled += row["c"]
+        return Response({"total": total, "enabled": enabled, "by_type": by_type})
 
     @extend_schema(
         request=ObserveRequestSerializer,
@@ -345,6 +567,15 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Observation output exposes recording contents, so observe requires session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Triggering an on-demand observation requires session_recording read access.")
+
+        snapshot = compute_quota_snapshot(organization_id=self.team.organization_id)
+        if snapshot.exhausted:
+            raise QuotaLimitExceeded(
+                detail=(
+                    f"Monthly Replay Vision quota of {snapshot.monthly_quota:,} observations reached. "
+                    f"Resets {snapshot.period_end.strftime('%b')} {snapshot.period_end.day}."
+                )
+            )
 
         body = ObserveRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)

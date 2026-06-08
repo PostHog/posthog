@@ -9,12 +9,30 @@ import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { SectionSetting } from 'lib/components/heatmaps/HeatMapsSettings'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
-import { HeatmapType } from '~/types'
+import { AnyPropertyFilter, CohortPropertyFilter, HeatmapType, PropertyFilterType, PropertyOperator } from '~/types'
+
+const cohortIdsToPropertyFilters = (ids: number[]): AnyPropertyFilter[] =>
+    ids.map((id) => ({
+        type: PropertyFilterType.Cohort,
+        key: 'id',
+        value: id,
+        operator: PropertyOperator.In,
+    }))
+
+const propertyFiltersToCohortIds = (filters: AnyPropertyFilter[]): number[] =>
+    filters
+        .filter((f): f is CohortPropertyFilter => f.type === PropertyFilterType.Cohort)
+        .map((f) => f.value)
+        .filter((v): v is number => typeof v === 'number')
 
 const useDebounceLoading = (loading: boolean, delay = 200): boolean => {
     const [debouncedLoading, setDebouncedLoading] = useState(false)
@@ -122,6 +140,8 @@ export function FilterPanel({
         heatmapDataLogic({ context: 'in-app' })
     )
 
+    const cohortFilterEnabled = useFeatureFlag('HEATMAPS_COHORT_FILTER')
+
     const debouncedLoading = useDebounceLoading(rawHeatmapLoading ?? false)
 
     // KLUDGE: the loading bar flaps in visual regression tests,
@@ -145,6 +165,25 @@ export function FilterPanel({
                         }}
                         dateOptions={heatmapDateOptions}
                     />
+                    {cohortFilterEnabled && (
+                        <div className="mt-2 md:mt-0">
+                            <PropertyFilters
+                                pageKey="heatmap-cohorts"
+                                propertyFilters={cohortIdsToPropertyFilters(commonFilters?.cohort_ids ?? [])}
+                                onChange={(filters) =>
+                                    setCommonFilters?.({
+                                        ...commonFilters,
+                                        cohort_ids: propertyFiltersToCohortIds(filters),
+                                    })
+                                }
+                                taxonomicGroupTypes={[TaxonomicFilterGroupType.Cohorts]}
+                                buttonText="Filter by cohort"
+                                addText="Add cohort filter"
+                                buttonSize="small"
+                                {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
+                            />
+                        </div>
+                    )}
                     <div className="mt-2 md:mt-0">
                         <Popover
                             overlay={

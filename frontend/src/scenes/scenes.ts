@@ -488,16 +488,22 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Health detail',
         iconType: 'health',
     },
+    [Scene.HealthAlerts]: {
+        projectBased: true,
+        name: 'Health alerts',
+        description: 'Subscribe to alerts when health checks fire.',
+        iconType: 'health',
+    },
     [Scene.PipelineStatus]: {
         projectBased: true,
         name: 'Pipeline status',
         description: 'Monitor the status of your data pipelines.',
         iconType: 'pipeline_status',
     },
-    [Scene.SdkDoctor]: {
+    [Scene.SdkHealth]: {
         projectBased: true,
-        name: 'SDK doctor',
-        iconType: 'sdk_doctor',
+        name: 'SDK health',
+        iconType: 'sdk_health',
         description:
             'Monitor and maintain your PostHog SDK integrations by automatically detecting version issues, configuration problems, and implementation patterns across your applications.',
     },
@@ -917,11 +923,18 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.inbox()]: [Scene.Inbox, 'inbox'],
     [urls.inbox(':reportId')]: [Scene.Inbox, 'inbox'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
-    [urls.sdkDoctor()]: [Scene.SdkDoctor, 'sdkDoctor'],
+    [urls.sdkHealth()]: [Scene.SdkHealth, 'sdkHealth'],
+    [urls.healthAlerts()]: [Scene.HealthAlerts, 'healthAlerts'],
     // Parameterized route must come after static /health/* routes
     [urls.healthCategory(':category')]: [Scene.HealthCategoryDetail, 'healthCategoryDetail'],
     [urls.exports()]: [Scene.Exports, 'exports'],
     [urls.subscriptions()]: [Scene.Subscriptions, 'subscriptions'],
+    // Static + edit routes MUST come before `/subscriptions/:subscriptionId`,
+    // otherwise the wildcard captures "new" / "<id>/edit" and mounts the detail
+    // scene → 404 "Subscription not found" with a removeChild reconciliation
+    // error from the racing mounts.
+    [urls.subscriptionNew()]: [Scene.Subscriptions, 'subscriptionNew'],
+    [urls.subscriptionEdit(':subscriptionId')]: [Scene.Subscriptions, 'subscriptionEdit'],
     [urls.subscription(':subscriptionId')]: [Scene.Subscription, 'subscription'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],

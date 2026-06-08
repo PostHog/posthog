@@ -288,14 +288,20 @@ export const urls = {
     approval: (id: string): string => `/approvals/${id}`,
     health: (): string => '/health',
     healthCategory: (category: string): string => `/health/${category}`,
+    healthAlerts: (presetKinds?: string[]): string =>
+        presetKinds && presetKinds.length > 0
+            ? `/health/alerts?preset_kinds=${encodeURIComponent(presetKinds.join(','))}`
+            : '/health/alerts',
     inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
     webAnalyticsBotAnalytics: (): string => '/web/bots',
     webAnalyticsHealth: (): string => '/web/health',
     pipelineStatus: (): string => '/health/pipeline-status',
-    sdkDoctor: (): string => '/health/sdk-doctor',
+    sdkHealth: (): string => '/health/sdk-health',
     exports: (): string => '/exports',
     subscriptions: (): string => '/subscriptions',
     subscription: (id: string | number): string => `/subscriptions/${id}`,
+    subscriptionNew: (): string => '/subscriptions/new',
+    subscriptionEdit: (id: string | number): string => `/subscriptions/${id}/edit`,
 }
 
 export interface UrlMatcher {

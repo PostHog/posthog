@@ -16,8 +16,9 @@ import { urls } from 'scenes/urls'
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
 import { PropertyDefinitionType } from '~/types'
 
-import { ConversationDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/ConversationDisplay'
-import { EvaluationDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/EvaluationDisplay'
+import { ConversationDisplay } from 'products/ai_observability/frontend/ConversationDisplay/ConversationDisplay'
+import { EvaluationDisplay } from 'products/ai_observability/frontend/ConversationDisplay/EvaluationDisplay'
+import { TagDisplay } from 'products/ai_observability/frontend/ConversationDisplay/TagDisplay'
 
 import { MCPEventView } from './MCPEventView'
 
@@ -52,7 +53,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     <div className="flex flex-row items-center gap-2">
                                         {properties.$ai_trace_id ? (
                                             <LemonButton
-                                                to={urls.llmAnalyticsTrace(
+                                                to={urls.aiObservabilityTrace(
                                                     properties.$ai_trace_id,
                                                     event.event !== '$ai_trace' ? { event: getEventId(event) } : {}
                                                 )}
@@ -89,6 +90,12 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                         return (
                             <div className="mx-3 -mt-2 mb-2">
                                 <EvaluationDisplay eventProperties={properties} />
+                            </div>
+                        )
+                    case 'tag':
+                        return (
+                            <div className="mx-3 -mt-2 mb-2">
+                                <TagDisplay eventProperties={properties} />
                             </div>
                         )
                     case 'error_display':
