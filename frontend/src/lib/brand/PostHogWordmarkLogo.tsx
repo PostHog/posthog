@@ -7,9 +7,9 @@ export interface PostHogWordmarkLogoProps {
 
 /** Horizontal PostHog mark + wordmark; monochrome strokes use `currentColor` for theme adaptation */
 export function PostHogWordmarkLogo({ className, 'aria-hidden': ariaHidden }: PostHogWordmarkLogoProps): JSX.Element {
-    const uid = useId().replace(/:/g, '')
-    const clipId = `posthog-wordmark-clip-${uid}`
-    const maskId = `posthog-wordmark-mask-${uid}`
+    const safeUid = useId().replace(/:/g, '')
+    const clipId = `posthog-wordmark-clip-${safeUid}`
+    const maskId = `posthog-wordmark-mask-${safeUid}`
 
     return (
         <svg

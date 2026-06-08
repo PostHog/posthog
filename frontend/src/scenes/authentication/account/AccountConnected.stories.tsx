@@ -25,7 +25,10 @@ const cloudPreflight = {
     realm: 'cloud',
 }
 
-const pageUrlFor = (kind: 'github-login' | 'github-integration' | 'invalid', search: string = ''): string => {
+const pageUrlFor = (
+    kind: 'github-login' | 'github-integration' | 'slack-integration' | 'invalid',
+    search: string = ''
+): string => {
     return `${urls.accountConnected(kind)}${search}`
 }
 
