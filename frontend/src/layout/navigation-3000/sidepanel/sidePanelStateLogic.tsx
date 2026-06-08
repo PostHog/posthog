@@ -101,7 +101,24 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
         },
     })),
     actionToUrl(({ values }) => {
+        const removePanelHash = (): any => {
+            if (!('panel' in router.values.hashParams)) {
+                return // nothing to strip — avoid a redundant history replace
+            }
+            const hashParams = { ...router.values.hashParams }
+            delete hashParams['panel']
+            return [router.values.location.pathname, router.values.searchParams, hashParams, { replace: true }]
+        }
         const updateUrl = (): any => {
+            // The PostHog AI (Max) panel is consume-and-clear: a #panel=max hash may open it, but we never
+            // leave it in the URL, otherwise it auto-reopens on reload or when returning to the app. Max reads
+            // any prefill from selectedTabOptions (kea state), so it doesn't need the hash to persist.
+            // Other tabs (e.g. Support) intentionally keep their state in the #panel hash so a refresh
+            // preserves the open form.
+            if (values.selectedTab === SidePanelTab.Max) {
+                return removePanelHash()
+            }
+
             let panelHash: string = values.selectedTab ?? ''
 
             if (values.selectedTabOptions) {
@@ -120,11 +137,7 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
         return {
             openSidePanel: () => updateUrl(),
             setSidePanelOptions: () => updateUrl(),
-            closeSidePanel: () => {
-                const hashParams = { ...router.values.hashParams }
-                delete hashParams['panel']
-                return [router.values.location.pathname, router.values.searchParams, hashParams, { replace: true }]
-            },
+            closeSidePanel: () => removePanelHash(),
         }
     }),
 ])
