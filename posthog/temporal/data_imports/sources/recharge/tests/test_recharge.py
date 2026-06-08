@@ -77,29 +77,24 @@ class TestBuildInitialParams:
         assert params["sort_by"] == "id-asc"
         assert not any(k.endswith("_min") for k in params)
 
-    def test_products_omits_sort_by_and_filters(self) -> None:
-        # `/products` on the 2021-11 API rejects `sort_by` (and exposes no
-        # `*_min` filter), so even with incremental inputs we send only `limit`.
+    @parameterized.expand(
+        [
+            # `collections` is full-refresh but still sortable -> keeps `id-asc`.
+            ("collections", {"limit": 250, "sort_by": "id-asc"}),
+            # `/products` on the 2021-11 API rejects `sort_by` outright -> limit only.
+            ("products", {"limit": 250}),
+        ]
+    )
+    def test_full_refresh_endpoint_ignores_incremental_inputs(self, endpoint: str, expected: dict) -> None:
+        # Full-refresh endpoints must never emit a `*_min` filter even when the
+        # user supplies incremental inputs; products additionally omits `sort_by`.
         params = _build_initial_params(
-            RECHARGE_ENDPOINTS["products"],
+            RECHARGE_ENDPOINTS[endpoint],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
             incremental_field="updated_at",
         )
-        assert params == {"limit": 250}
-        assert "sort_by" not in params
-        assert not any(k.endswith("_min") for k in params)
-
-    def test_non_incremental_endpoint_never_filters(self) -> None:
-        # `collections` ships full-refresh only; even with incremental inputs set
-        # it must not emit a server-side timestamp filter.
-        params = _build_initial_params(
-            RECHARGE_ENDPOINTS["collections"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-            incremental_field="updated_at",
-        )
-        assert params["sort_by"] == "id-asc"
+        assert params == expected
         assert not any(k.endswith("_min") for k in params)
 
 
