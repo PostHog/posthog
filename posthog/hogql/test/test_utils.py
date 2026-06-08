@@ -556,7 +556,7 @@ class TestPrettyPrintInTests(TestCase):
             (
                 "keyword_already_at_line_start_not_doubled",
                 "SELECT a\n    FROM t\n    WHERE b\n    ORDER BY c",
-                ["\n    FROM t", "\n    WHERE b", "\n    ORDER BY c"],
+                ["\nFROM t", "\nWHERE b", "\nORDER BY c"],
                 ["\n    \nFROM", "\n    \nWHERE", "\n    \nORDER", "\n\nFROM"],
             ),
             (
@@ -568,6 +568,59 @@ class TestPrettyPrintInTests(TestCase):
         ]
     )
     def test_keyword_newline_insertion(self, _name: str, query: str, present: list[str], absent: list[str]) -> None:
+        result = pretty_print_in_tests(query, 1)
+        for fragment in present:
+            self.assertIn(fragment, result)
+        for fragment in absent:
+            self.assertNotIn(fragment, result)
+
+    @parameterized.expand(
+        [
+            (
+                "nested_subquery_indents_deeper_than_outer",
+                "FROM (SELECT x FROM (SELECT y FROM z) AS inner) AS outer",
+                ["\nFROM (", "\n  SELECT x", "\n  FROM (", "\n    SELECT y", "\n    FROM z) AS inner) AS outer"],
+                ["\n  SELECT y", "\nSELECT x"],
+            ),
+            (
+                "line_starting_with_closing_bracket_dedents",
+                "FROM (SELECT b\n) AS e LIMIT 1",
+                ["\nFROM (", "\n  SELECT b", "\n) AS e", "\nLIMIT 1"],
+                ["\n  ) AS e", "\n    SELECT b"],
+            ),
+            (
+                "sibling_subqueries_each_indent_under_their_own_bracket",
+                "FROM (SELECT a FROM x) AS p, (SELECT b FROM y) AS q",
+                ["\nFROM (", "\n  SELECT a", "\n  FROM x) AS p, (", "\n  SELECT b", "\n  FROM y) AS q"],
+                ["\n    SELECT a", "\n    SELECT b"],
+            ),
+            (
+                "brackets_inside_string_literal_do_not_shift_depth",
+                "SELECT a FROM events WHERE x = '(' GROUP BY a",
+                ["\nSELECT a", "\nFROM events", "\nWHERE x = '('", "\nGROUP BY a"],
+                ["\n  GROUP BY a", "\n  WHERE"],
+            ),
+            (
+                "continuation_lines_indent_under_their_clause_keyword",
+                "-- ClickHouse\nSELECT\n  e.event AS event\nFROM\n  events AS e",
+                ["-- ClickHouse", "\nSELECT", "\n  e.event AS event", "\nFROM", "\n  events AS e"],
+                ["\n  SELECT", "\n  FROM", "\nevents AS e", "  -- ClickHouse"],
+            ),
+            (
+                "with_clause_anchors_at_column_zero_and_body_indents",
+                "WITH a AS (SELECT 1) SELECT b FROM c",
+                ["WITH a AS (", "\n  SELECT 1)", "\nSELECT b", "\nFROM c"],
+                ["\n  WITH", "\n  SELECT b"],
+            ),
+            (
+                "bracket_started_line_is_not_indented_as_a_continuation",
+                "[['a', (0, None)], ['b', (1, None)]]",
+                ["[['a', (0, None)], ['b', (1, None)]]"],
+                ["  [['a'"],
+            ),
+        ]
+    )
+    def test_bracket_depth_indentation(self, _name: str, query: str, present: list[str], absent: list[str]) -> None:
         result = pretty_print_in_tests(query, 1)
         for fragment in present:
             self.assertIn(fragment, result)

@@ -1,5 +1,17 @@
 # posthog-cli
 
+## 0.7.21 — 2026-06-05
+
+### Patch changes
+
+- [c3ee0a34e1](https://github.com/PostHog/posthog/commit/c3ee0a34e1134e8697cabe9c69bafb07ccffd28f) Clarify the ProGuard map ID help text. — Thanks @cat-ph!
+
+## 0.7.20 — 2026-06-05
+
+### Patch changes
+
+- [81b679f143](https://github.com/PostHog/posthog/commit/81b679f14324668be61e6a3f55df04a60427ab75) Clarify the Hermes upload help text. — Thanks @cat-ph!
+
 ## 0.7.19 — 2026-06-04
 
 ### Patch changes

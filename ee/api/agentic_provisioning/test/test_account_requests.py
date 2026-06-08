@@ -1,6 +1,6 @@
 import json
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
 from unittest.mock import patch
@@ -65,6 +65,17 @@ class TestAccountRequests(ProvisioningTestBase):
         user = User.objects.get(email="newuser@example.com")
         assert user.organization is not None
         assert user.team is not None
+
+    def test_new_user_auth_code_cached_with_issued_at(self):
+        payload = self._account_request_payload()
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        code = res.json()["oauth"]["code"]
+        code_data = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}")
+        assert code_data is not None
+        # Without issued_at the code exchange fails closed once the app is ever session-revoked,
+        # which would block every new user. See _exchange_authorization_code's revoke guard.
+        assert "issued_at" in code_data
+        datetime.fromisoformat(code_data["issued_at"])
 
     def test_existing_user_returns_oauth_type_with_code(self):
         User.objects.create_and_join(

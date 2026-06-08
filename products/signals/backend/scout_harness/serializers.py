@@ -59,6 +59,21 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "runs that errored before close-out. The dedupe key for non-emitting runs."
         ),
     )
+    emitted_count = serializers.IntegerField(
+        help_text=(
+            "Number of findings this run actually emitted to the inbox. 0 for runs that "
+            "investigated but surfaced nothing, or ran dry-run / before AI approval. "
+            "`> 0` means the run produced at least one `Signal`."
+        ),
+    )
+    emitted_finding_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The `finding_id`s behind `emitted_count`, in emit order. Each maps to a "
+            "`Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for "
+            "non-emitting runs."
+        ),
+    )
 
 
 class SignalScoutRunDetailSerializer(SignalScoutRunSummarySerializer):
@@ -85,6 +100,14 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
     text = serializers.CharField(
         required=False,
         help_text="Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.",
+    )
+    emitted = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Filter by emit outcome. `true` returns only runs that emitted at least one finding "
+            "(`emitted_count > 0`); `false` returns only runs that emitted nothing. Omit for both."
+        ),
     )
     limit = serializers.IntegerField(
         required=False,
