@@ -20,5 +20,5 @@ export function useHoverIntent(rawIndex: number, delayMs: number): number {
         return () => clearTimeout(timer)
     }, [rawIndex, delayMs])
 
-    return delayMs <= 0 ? rawIndex : settledIndex
+    return delayMs <= 0 || rawIndex < 0 ? rawIndex : settledIndex
 }
