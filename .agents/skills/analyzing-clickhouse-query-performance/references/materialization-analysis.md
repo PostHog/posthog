@@ -75,6 +75,11 @@ WHERE timestamp > now() - INTERVAL 7 DAY
 
 ## Step 4: Dagster jobs
 
+These jobs must be run by a human operator with dagster access; you cannot run them yourself. Before
+running anything, the operator should sanity-check with #team-clickhouse that the cluster is not in a bad
+state (backfills and materializations add load, so they must not land while the cluster is already
+struggling). Hand the operator the configs below as a recommendation rather than executing them.
+
 - Create: `create_materialized_column` (team-clickhouse location, per region). Backfilling adds cluster
   load, so schedule for a weekend.
 - Drop: `drop_materialized_column` (defaults to `dry_run: true`; minimal impact).

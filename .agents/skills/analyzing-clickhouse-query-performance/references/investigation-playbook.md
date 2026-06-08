@@ -23,19 +23,37 @@ The `exception` message for an OOM (code 241) states the configured ceiling and 
 it, e.g. `Query memory limit exceeded: would use 42.01 GiB, maximum: 42.00 GiB (while reading column
 elements_chain)`. That column name is a direct pointer to what to look at.
 
-## Start from bytes read, not duration
+## Read bytes, CPU time, and duration together
 
-Duration drifts with cluster load and cache warmth; **bytes read is the stable measure of work done**.
-Sort candidates by `read_bytes DESC`. Compare bytes against rows across queries in the same batch: if
-two queries read similar row counts but one reads ~100x more bytes, the heavy one is decompressing a
-wide column (almost always a `properties` JSON blob).
+Three signals matter, and all three are worth pulling: **bytes read**, **CPU time**, and **duration**.
+None of them on its own tells the whole story.
 
-```text
-Query A: 210M rows,  19 GiB   -- materialized columns only
-Query B: 210M rows, 2.65 TiB  -- JSONExtractRaw(events.properties, '$some_prop')
-```
+- **Bytes read** is the most stable measure of work done. Sort candidates by `read_bytes DESC`. Compare
+  bytes against rows across queries in the same batch: if two queries read similar row counts but one
+  reads ~100x more bytes, the heavy one is decompressing a wide column (almost always a `properties` JSON
+  blob).
+
+  ```text
+  Query A: 210M rows,  19 GiB   -- materialized columns only
+  Query B: 210M rows, 2.65 TiB  -- JSONExtractRaw(events.properties, '$some_prop')
+  ```
+
+- **CPU time** (`ProfileEvents['OSCPUVirtualTimeMicroseconds']`, or `query_duration_ms` vs CPU to gauge
+  parallelism) catches work that bytes read misses: expensive expressions, high-cardinality
+  aggregation, and grouping that burns CPU without reading much more data.
+
+- **Duration** still matters, but with a hard rule: **never rely on the duration of the API request.**
+  That number includes queueing, serialization, network, and app overhead, and does not reflect the
+  ClickHouse query itself. When you report duration, it must come from `query_duration_ms` in
+  `query_log` / `query_log_archive`, never from the API timing. Read against bytes and CPU, duration is
+  most telling when it is _high but bytes and CPU are not_: that gap usually means the query spent its
+  time **waiting** (on locks, on concurrency limits, on other queries), which is itself worth flagging.
 
 ## Common causes, most frequent first
+
+These are the causes that come up most often, but they are only a subset: frequently the real problem is
+something else entirely. Treat this list as a starting set of hypotheses to check, not an exhaustive
+diagnosis, and stay open to a cause that is not listed here.
 
 1. **Unmaterialized property access (JSONExtract).** The number-one cause of extreme byte reads.
    `JSONExtract*(events.properties, …)` or `JSONExtract*(person_properties, …)` forces a read of the
@@ -63,7 +81,12 @@ Query B: 210M rows, 2.65 TiB  -- JSONExtractRaw(events.properties, '$some_prop')
 
 ## Tracing a query back to its origin
 
-The `lc_*` columns tell you what triggered the query without reverse-engineering the SQL:
+The `lc_*` columns exist **only on `query_log_archive`** — they are the pre-parsed `log_comment` tags.
+`system.query_log` carries the exact same information, but unparsed, inside its `log_comment` JSON blob,
+so on `query_log` you read the field out of that JSON (e.g. `JSONExtractString(log_comment, 'query_type')`)
+instead of selecting an `lc_*` column. The table below uses the `query_log_archive` column names.
+
+These tags tell you what triggered the query without reverse-engineering the SQL:
 
 | Column                                                                    | Tells you                                                  |
 | ------------------------------------------------------------------------- | ---------------------------------------------------------- |
@@ -83,9 +106,14 @@ to find the query runner that generates it.
 
 ## EXPLAIN to test the hypothesis
 
-EXPLAIN does **not** execute the query, so it is safe to run against prod at any size. Pull the query
-text, strip the leading `/* … */` tag comment, and prepend the EXPLAIN modifier that answers your
-question:
+Per the [ClickHouse EXPLAIN docs](https://clickhouse.com/docs/sql-reference/statements/explain), no
+EXPLAIN variant executes the query or scans table data, so EXPLAIN is safe to run against prod at any
+size. Two variants are not entirely free, though: `EXPLAIN ESTIMATE` and `EXPLAIN indexes=1` read primary
+index marks / part metadata to do their analysis. That is a small metadata read, not a data scan, but it
+is not zero, so prefer the lighter plan-only variants (`actions=1`, `PIPELINE`) when you do not
+specifically need index pruning numbers, and avoid hammering `indexes=1` in a tight loop. If in doubt,
+re-check the current docs before running a variant at scale. Pull the query text, strip the leading
+`/* … */` tag comment, and prepend the EXPLAIN modifier that answers your question:
 
 - `EXPLAIN actions=1` — the full plan: shows the `Sorting` step, `ReadType` (`InOrder` vs `Default`),
   and whether a filter is a primary-key condition or only a `Prewhere` row filter.
