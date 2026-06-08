@@ -34,13 +34,18 @@ class TestIntercomSource:
         assert oauth_field.kind == "intercom"
         assert oauth_field.required is True
 
-    def test_get_non_retryable_errors(self):
-        errors = self.source.get_non_retryable_errors()
-        assert "401 Client Error" in errors
-        assert "403 Client Error" in errors
-        assert "Missing integration ID" in errors
-        assert "Integration not found" in errors
-        assert "Intercom access token not found" in errors
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "401 Client Error",
+            "403 Client Error",
+            "Missing integration ID",
+            "Integration not found",
+            "Intercom access token not found",
+        ],
+    )
+    def test_get_non_retryable_errors(self, key):
+        assert key in self.source.get_non_retryable_errors()
 
     @pytest.mark.parametrize(
         "error_msg",
