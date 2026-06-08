@@ -21,7 +21,6 @@ const CHART_MODE_OPTIONS = [
     { value: 'bar' as const, label: 'Bar' },
 ]
 
-// Bar mode still uses the SVG BarChart, which scales against an explicit maxValue.
 function prepareChartData(results: TrendsResultItem[]): {
     series: Series[]
     labels: string[]
@@ -125,9 +124,6 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                     yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
                 />
             ) : (
-                // The quill chart root is `flex: 1; height: 100%`, so it needs a flex-column parent
-                // with a height. The MCP host imposes none (the web app sizes it via the insight
-                // container), so provide one here.
                 <div className="flex flex-col w-full h-[400px]">
                     <TimeSeriesLineChart series={lineSeries} labels={labels} theme={CHART_THEME} config={lineConfig} />
                 </div>

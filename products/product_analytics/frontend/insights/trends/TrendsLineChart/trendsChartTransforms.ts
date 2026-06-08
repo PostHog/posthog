@@ -180,8 +180,6 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
     allDays?: string[]
     xAxisLabel?: string | null
     yAxisLabel?: string | null
-    // Explicit x-axis tick formatter. When set it wins over the auto date formatter — used by
-    // hosts (e.g. MCP) that have label strings but no interval/timezone for auto formatting.
     xAxisTickFormatter?: (value: string, index: number) => string | null
     goalLines?: GoalLineLike[] | null
     incompletenessOffsetFromEnd?: number
