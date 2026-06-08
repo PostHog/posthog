@@ -49,6 +49,36 @@ The way this is done:
 
 If a destination table is non-sharded, we pick only one node as data for the Distributed table.
 
+# Local setup parity
+
+No table should exist only in the cloud. Every table created via migration must also exist
+in a local dev environment.
+
+Some migrations are cloud-guarded and skipped in local/hobby dev:
+
+```python
+operations = (
+    []
+    if settings.CLOUD_DEPLOYMENT not in ("US", "EU", "DEV")
+    else [...]
+)
+```
+
+If you create a new table inside such a guard, also add its SQL function to
+`posthog/clickhouse/schema.py` in the appropriate tuple so the table is created locally:
+
+| Table type             | Tuple in `schema.py`               |
+| ---------------------- | ---------------------------------- |
+| MergeTree / base table | `CREATE_MERGETREE_TABLE_QUERIES`   |
+| Distributed / writable | `CREATE_DISTRIBUTED_TABLE_QUERIES` |
+| Kafka consumer         | `CREATE_KAFKA_TABLE_QUERIES`       |
+| Materialized view      | `CREATE_MV_TABLE_QUERIES`          |
+| Non-materialized view  | `CREATE_VIEW_QUERIES`              |
+| Dictionary             | `CREATE_DICTIONARY_QUERIES`        |
+
+The only exception is tables whose definition intentionally differs per environment and is
+not tracked in the repo (e.g. the no-go zone `events_json_ws_mv` tables above).
+
 # Migration basics
 
 ## run_sql_with_exceptions function
@@ -125,6 +155,15 @@ engine=Distributed(
 > [!CAUTION]
 > Do not use `ON CLUSTER` clause, it causes issues and is incompatible with our migration setup.
 
+> [!CAUTION]
+> Never write a `DROP COLUMN` migration on your own. `DROP COLUMN` can get stuck in ClickHouse
+> and block releases. Column removal follows a two-step process:
+>
+> 1. The ClickHouse team drops the column directly on the cluster.
+> 2. You write a migration with the matching `DROP COLUMN` to keep the codebase schema in sync.
+>
+> Do not initiate step 2 without confirmation that step 1 has been completed.
+
 > [!INFO]
 > Always use `IF EXISTS` or `IF NOT EXISTS` clauses:
 >
@@ -133,8 +172,31 @@ engine=Distributed(
 > `ALTER TABLE IF EXISTS`
 >
 > `ALTER TABLE IF EXISTS ADD COLUMN`
+
+> [!CAUTION]
+> Never drop or recreate the `clickhouse_events_json` Kafka consumers or their materialized views.
+> These tables are a no-go zone:
 >
-> `ALTER TABLE IF EXISTS DROP COLUMN`
+> - `kafka_events_json_ws` — WarpStream Kafka consumer for events
+> - `events_json_ws_mv` — materialized view reading from `kafka_events_json_ws`
+> - `kafka_ai_events_json_ws` — WarpStream Kafka consumer for AI events
+> - `ai_events_json_ws_mv` — materialized view reading from `kafka_ai_events_json_ws`
+>
+> The MV definitions differ between US prod, EU prod, and dev (dozens of environment-specific
+> `mat_*` materialized columns) and those differences are **not reflected in the repo**.
+> Dropping and recreating these tables from repo SQL would destroy the environment-specific
+> schema and break event ingestion. Any change must go through the ClickHouse team.
+
+> [!INFO]
+> A PR containing a ClickHouse migration must be migration-only. Do not mix it with feature code,
+> API changes, model changes, or frontend changes. Migration-related files are:
+>
+> - The migration file itself (`posthog/clickhouse/migrations/0NNN_*.py`)
+> - SQL definition files the migration depends on (e.g. `posthog/clickhouse/sql/*.py`)
+> - Tests that directly exercise the migration or the SQL definitions it touches
+>
+> If application code needs the new schema, ship the migration PR first and merge it before
+> the application-code PR.
 
 # CREATE / DROP patterns
 
