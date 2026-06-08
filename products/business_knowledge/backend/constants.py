@@ -97,8 +97,6 @@ BK_EMBEDDING_MODEL = "text-embedding-3-small-1536"
 # `product` / `document_type` buckets in the shared `document_embeddings` table.
 # One embedding row per chunk (document_id = chunk_id) so citations stay stable
 # and the read path can re-join to Postgres chunks. Shared with the read path.
-# NOTE: this value is mirrored in rust/common/types/src/embeddings.rs
-# (CONTENT_SUPPRESSED_PRODUCTS) to suppress content persistence — keep in sync.
 BK_EMBEDDING_PRODUCT = "business_knowledge"
 BK_EMBEDDING_DOCUMENT_TYPE = "chunk"
 BK_EMBEDDING_RENDERING = "plain"

@@ -6,17 +6,6 @@ use serde_json::Value;
 
 use crate::format::format_ch_datetime;
 
-/// Products whose raw `content` must NOT be persisted into the shared
-/// `document_embeddings` table (still queryable via HogQL under a `query` scope,
-/// which would bypass these products' own read-access controls). The embedding
-/// vector and document_id are still stored; only the text is dropped. The read
-/// path for these products must re-fetch text from its own store (e.g. Postgres).
-pub const CONTENT_SUPPRESSED_PRODUCTS: &[&str] = &["business_knowledge"];
-
-fn should_store_content(product: &str) -> bool {
-    !CONTENT_SUPPRESSED_PRODUCTS.contains(&product)
-}
-
 // Requests the embedding worker can process. These are consumed over kafka by the embedding worker.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingRequest {
@@ -244,11 +233,7 @@ impl From<EmbeddingResponse> for Vec<EmbeddingRecord> {
                     document_id: response.request.document_id.clone(),
                     timestamp: format_ch_datetime(response.request.timestamp),
                     embedding,
-                    content: if should_store_content(&response.request.product) {
-                        Some(response.request.content.clone())
-                    } else {
-                        None
-                    },
+                    content: Some(response.request.content.clone()),
                     metadata: if response.request.metadata.is_empty() {
                         None
                     } else {
@@ -288,63 +273,5 @@ mod tests {
             result,
             "a >|endoftext|< b >|fim_prefix|< c >|fim_middle|< d >|fim_suffix|< e >|endofprompt|< f"
         );
-    }
-
-    fn make_response(product: &str) -> EmbeddingResponse {
-        let mut metadata = HashMap::new();
-        metadata.insert(
-            "document_id".to_string(),
-            Value::String("doc-uuid-123".to_string()),
-        );
-        EmbeddingResponse {
-            request: EmbeddingRequest {
-                team_id: 1,
-                product: product.to_string(),
-                document_type: "chunk".to_string(),
-                rendering: "plain".to_string(),
-                document_id: "chunk-uuid-456".to_string(),
-                timestamp: chrono::Utc::now(),
-                content: "secret chunk text".to_string(),
-                models: vec![EmbeddingModel::OpenAITextEmbeddingSmall],
-                metadata,
-            },
-            results: vec![ModelResult {
-                model: EmbeddingModel::OpenAITextEmbeddingSmall,
-                outcome: EmbeddingResult::Success {
-                    embedding: vec![0.1, 0.2, 0.3],
-                },
-            }],
-        }
-    }
-
-    #[test]
-    fn test_content_suppressed_for_business_knowledge() {
-        let response = make_response("business_knowledge");
-        let records: Vec<EmbeddingRecord> = response.into();
-
-        assert_eq!(records.len(), 1);
-        let record = &records[0];
-        assert!(record.content.is_none());
-        assert_eq!(record.embedding, vec![0.1, 0.2, 0.3]);
-        assert!(record.metadata.is_some());
-        assert!(record.metadata.as_ref().unwrap().contains("doc-uuid-123"));
-
-        // Wire format: skip_serializing_if omits the field entirely
-        let json = serde_json::to_string(record).unwrap();
-        assert!(!json.contains("secret chunk text"));
-        assert!(!json.contains("\"content\""));
-    }
-
-    #[test]
-    fn test_content_preserved_for_other_products() {
-        let response = make_response("error_tracking");
-        let records: Vec<EmbeddingRecord> = response.into();
-
-        assert_eq!(records.len(), 1);
-        let record = &records[0];
-        assert_eq!(record.content, Some("secret chunk text".to_string()));
-        assert_eq!(record.embedding, vec![0.1, 0.2, 0.3]);
-        assert!(record.metadata.is_some());
-        assert!(record.metadata.as_ref().unwrap().contains("doc-uuid-123"));
     }
 }
