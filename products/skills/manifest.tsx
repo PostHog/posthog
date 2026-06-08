@@ -51,7 +51,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Skills',
             intents: [ProductKey.LLM_PROMPTS],
-            category: ProductItemCategory.AI_ENGINEERING,
+            category: ProductItemCategory.TOOLS,
             type: 'llm_skills',
             iconType: 'llm_prompts' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
