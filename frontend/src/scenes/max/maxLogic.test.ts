@@ -3,6 +3,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
@@ -178,6 +179,37 @@ describe('maxLogic', () => {
 
         // Test that the new ID is also a valid UUID
         expect(logic.values.frontendConversationId).toMatch(uuidRegex)
+    })
+
+    it('does not rewrite the scene route when the side panel chat starts a new conversation', async () => {
+        // The side panel chat floats over whatever page you're on (e.g. an insight). Starting a
+        // new conversation there must not navigate to /ai.
+        router.actions.push('/insights/abc123')
+        const pathBefore = router.values.location.pathname
+
+        logic = maxLogic({ tabId: 'sidepanel' })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.startNewConversation()
+        }).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toBe(pathBefore)
+        expect(router.values.location.pathname.endsWith('/insights/abc123')).toBe(true)
+    })
+
+    it('rewrites the scene route to /ai when the scene chat starts a new conversation', async () => {
+        router.actions.push('/insights/abc123')
+
+        logic = maxLogic({ tabId: 'test' })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.startNewConversation()
+        }).toFinishAllListeners()
+
+        // The harness prefixes the project (/project/<id>/ai), so match the suffix.
+        expect(router.values.location.pathname.endsWith(urls.ai())).toBe(true)
     })
 
     it('uses threadLogicKey correctly with frontendConversationId', async () => {
