@@ -133,9 +133,12 @@ export function InsightMeta({
         variablesOverride: variablesOverride ?? null,
         tileFiltersOverride: tileFiltersOverride ?? null,
     }
-    const { insightFeedback, canToggleDisplayLabelsForInsight, canToggleLegendForInsight } = useValues(
-        insightLogic(insightLogicProps)
-    )
+    const {
+        insightFeedback,
+        canToggleDisplayLabelsForInsight,
+        canToggleLegendForInsight,
+        canToggleAnnotationsForInsight,
+    } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
     const { exportContext, insightData, query } = useValues(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
@@ -199,6 +202,7 @@ export function InsightMeta({
 
     const canToggleDisplayLabels = isUsedAsDashboardTile && canEditInsight && canToggleDisplayLabelsForInsight
     const canToggleLegend = isUsedAsDashboardTile && canEditInsight && canToggleLegendForInsight
+    const canToggleAnnotations = isUsedAsDashboardTile && canEditInsight && canToggleAnnotationsForInsight
 
     const hasTileStyleActions = !!(showCompactTile && toggleShowDescription && insight.description) || !!updateColor
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
@@ -439,11 +443,14 @@ export function InsightMeta({
                             dashboardId={dashboardId}
                             canToggleDisplayLabels={canToggleDisplayLabels}
                             canToggleLegend={canToggleLegend}
+                            canToggleAnnotations={canToggleAnnotations}
                         />
 
                         {canShowCopyToDashboardTile && !canEditDashboard && (
                             <>
-                                {!canToggleDisplayLabels && <LemonDivider />}
+                                {!canToggleDisplayLabels && !canToggleLegend && !canToggleAnnotations && (
+                                    <LemonDivider />
+                                )}
                                 <h5 className="mx-2 my-1">Dashboard</h5>
                                 <DashboardWidgetPlacementMenus
                                     placementDestinations={copyToDestinations}
@@ -455,7 +462,9 @@ export function InsightMeta({
                         {/* Dashboard related */}
                         {canEditDashboard && (
                             <>
-                                {!canToggleDisplayLabels && !canToggleLegend && <LemonDivider />}
+                                {!canToggleDisplayLabels && !canToggleLegend && !canToggleAnnotations && (
+                                    <LemonDivider />
+                                )}
                                 {showCompactTile && toggleShowDescription && !!insight.description && (
                                     <LemonButton onClick={toggleShowDescription} fullWidth>
                                         {tile?.show_description === false ? 'Show description' : 'Hide description'}

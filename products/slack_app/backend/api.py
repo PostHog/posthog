@@ -450,7 +450,7 @@ def resolve_slack_user(
         # membership
         membership = (
             OrganizationMembership.objects.filter(
-                organization_id=integration.team.organization_id, user__email=slack_email
+                organization_id=integration.team.organization_id, user__email__iexact=slack_email
             )
             .select_related("user")
             .first()
@@ -1422,7 +1422,7 @@ def _resolve_posthog_user_from_event(
         if not org_ids:
             return None
         membership = (
-            OrganizationMembership.objects.filter(organization_id__in=org_ids, user__email=slack_email)
+            OrganizationMembership.objects.filter(organization_id__in=org_ids, user__email__iexact=slack_email)
             .select_related("user")
             .first()
         )
@@ -1723,9 +1723,10 @@ def _post_channel_approval_prompt(
 
     org_label = _org_label(integration)
     text = (
-        ":wave: This is an externally-shared Slack channel. Anything I answer here can be "
-        f"seen by every member, including people outside {org_label}'s workspace. "
-        f"A member of {org_label} can enable me below."
+        f":wave: This is an externally-shared Slack channel. My answers can pull from {org_label}'s "
+        "PostHog project — including data about users, customers, and other internal metrics that aren't "
+        "otherwise visible in this channel — and anything I post will be seen by every member here, "
+        f"including people outside {org_label}'s workspace. A member of {org_label} can enable me below."
     )
 
     blocks: list[dict[str, Any]] = [
@@ -2487,6 +2488,110 @@ def _handle_channel_approval_deny(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
+# Wire contract with products/signals/backend/slack_inbox_notifications.py (SIGNALS_DISMISS_REPORT_ACTION_ID).
+SIGNALS_DISMISS_REPORT_ACTION_ID = "signals_dismiss_report"
+
+
+def _dismiss_action_value(payload: dict) -> dict | None:
+    action = next(
+        (a for a in payload.get("actions", []) if a.get("action_id") == SIGNALS_DISMISS_REPORT_ACTION_ID), None
+    )
+    if not action:
+        return None
+    try:
+        value = json.loads(action.get("value", ""))
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _extract_dismiss_hints(payload: dict) -> int | None:
+    """Integration id carried by a signals 'Dismiss' button, used for region-ownership routing."""
+    value = _dismiss_action_value(payload)
+    if not value:
+        return None
+    integration_id = value.get("integration_id")
+    return integration_id if isinstance(integration_id, int) else None
+
+
+def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
+    """Suppress a signals inbox report when a reviewer clicks 'Dismiss' in Slack."""
+    from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product action kept off the slack import path
+        dismiss_report_from_slack,
+    )
+
+    value = _dismiss_action_value(payload)
+    slack_team_id = payload.get("team", {}).get("id")
+    if not value or not slack_team_id:
+        return HttpResponse(status=200)
+
+    integration_id = value.get("integration_id")
+    report_id = value.get("report_id")
+    report_team_id = value.get("team_id")
+    if not (isinstance(integration_id, int) and report_id and isinstance(report_team_id, int)):
+        return HttpResponse(status=200)
+
+    try:
+        # Slack webhook: no team context; scoped by PK + kind + workspace ID. The team match below
+        # ensures the report belongs to the workspace's integration before we touch it.
+        # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get
+        integration = Integration.objects.get(
+            id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
+        )
+    except Integration.DoesNotExist:
+        logger.info("signals_dismiss_report_no_integration", integration_id=integration_id)
+        return HttpResponse(status=200)
+
+    if integration.team_id != report_team_id:
+        logger.warning(
+            "signals_dismiss_report_team_mismatch",
+            integration_team_id=integration.team_id,
+            report_team_id=report_team_id,
+        )
+        return HttpResponse(status=200)
+
+    slack_user_id = payload.get("user", {}).get("id", "")
+    # Only PostHog org members may dismiss — a non-member in a shared channel must not suppress reports.
+    if _is_org_member(integration, slack_user_id) is None:
+        logger.warning(
+            "signals_dismiss_report_not_org_member",
+            integration_id=integration.id,
+            slack_user_id=slack_user_id,
+        )
+        return HttpResponse(status=200)
+
+    suppressed = dismiss_report_from_slack(report_team_id, str(report_id), slack_user_id=slack_user_id)
+
+    _post_signals_dismiss_feedback(payload, dismissed=suppressed, slack_user_id=slack_user_id)
+    return HttpResponse(status=200)
+
+
+def _post_signals_dismiss_feedback(payload: dict, *, dismissed: bool, slack_user_id: str) -> None:
+    """Best-effort: replace the original message so it reads as dismissed."""
+    response_url = payload.get("response_url")
+    if not response_url:
+        return
+
+    if dismissed:
+        actor = f"<@{slack_user_id}>" if slack_user_id else "a reviewer"
+        text = f"✅ Dismissed by {actor}"
+    else:
+        text = "This report could not be dismissed — it may already be resolved or removed."
+
+    original_message = payload.get("message", {})
+    kept_blocks = [b for b in original_message.get("blocks", []) if b.get("type") != "actions"]
+    kept_blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": text}]})
+
+    try:
+        requests.post(
+            response_url,
+            json={"replace_original": True, "text": text, "blocks": kept_blocks},
+            timeout=5,
+        )
+    except requests.RequestException as e:
+        logger.warning("signals_dismiss_report_feedback_failed", error=str(e))
+
+
 def _handle_terminate_task_submit(payload: dict) -> HttpResponse:
     """Start Temporal workflow for task termination and return 200 immediately."""
     action = next((a for a in payload.get("actions", []) if a.get("action_id") == "posthog_code_terminate_task"), None)
@@ -2543,6 +2648,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     context = _decode_picker_context(context_token) if context_token else None
     hinted_integration_id, hinted_user_id = _extract_picker_hints(payload)
     terminate_integration_id, terminate_user_id = _extract_terminate_hints(payload)
+    dismiss_integration_id = _extract_dismiss_hints(payload)
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
 
@@ -2564,6 +2670,14 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     elif slack_team_id and terminate_integration_id and (not terminate_user_id or requesting_user == terminate_user_id):
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=terminate_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        ).exists()
+    elif slack_team_id and dismiss_integration_id:
+        # Any reviewer who can see the inbox-item message may dismiss it (team-shared channels),
+        # so this isn't gated on a specific Slack user — only on owning the integration locally.
+        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=dismiss_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
@@ -2651,5 +2765,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_channel_approval_submit(payload)
             if action.get("action_id") == CHANNEL_APPROVAL_ACTION_DENY:
                 return _handle_channel_approval_deny(payload)
+            if action.get("action_id") == SIGNALS_DISMISS_REPORT_ACTION_ID:
+                return _handle_signals_dismiss_report(payload)
 
     return HttpResponse(status=200)

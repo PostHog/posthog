@@ -32,10 +32,7 @@ export const scene: SceneExport = {
     productKey: ProductKey.GROUP_ANALYTICS,
 }
 
-export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
-    if (!tabId) {
-        throw new Error('GroupsScene rendered with no tabId')
-    }
+export function GroupsScene(): JSX.Element {
     const { groupTypeIndex, groupTypeName, groupTypeNamePlural } = useValues(groupsSceneLogic)
 
     const mountedGroupsListLogic = groupsListLogic({ groupTypeIndex })
@@ -102,8 +99,8 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             />
 
             <Query
-                uniqueKey={`groups-query-${tabId}`}
-                attachTo={groupsSceneLogic({ tabId })}
+                uniqueKey="groups-query"
+                attachTo={groupsSceneLogic()}
                 query={{ ...query, showCount: true, showTableViews: true }}
                 setQuery={setQuery}
                 context={{

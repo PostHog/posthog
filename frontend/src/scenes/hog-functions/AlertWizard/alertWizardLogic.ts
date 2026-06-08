@@ -59,7 +59,7 @@ export interface AlertWizardLogicProps {
     presetTriggerKey?: HogFunctionSubTemplateIdType
     // When set, the wizard pre-applies a `kind IN (...)` property filter on the
     // first event of the created HogFunction. Used by the health-alerts family
-    // so a per-page entry point (e.g. the SDK Doctor scene) can scope the alert
+    // so a per-page entry point (e.g. the SDK Health scene) can scope the alert
     // to one or more health-check kinds. Pass an empty array to mean "all kinds"
     // explicitly; omit the prop to leave filters untouched.
     presetTriggerKinds?: string[]

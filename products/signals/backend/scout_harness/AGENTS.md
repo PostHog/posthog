@@ -11,7 +11,7 @@ _what_ to investigate from scratch, and pushes new signals into the same pipelin
 than acting on existing ones.
 
 In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick every
-`COORDINATOR_INTERVAL_MINUTES = 15` → fan out per-(team, skill) child workflows). Locally
+`COORDINATOR_INTERVAL_MINUTES = 30` → fan out per-(team, skill) child workflows). Locally
 it is exercised via the `run_signals_scout` management command (see `../management/AGENTS.md`).
 
 ## What lives here
@@ -112,8 +112,8 @@ one sandbox session → zero or more emitted signals.
 ## Where the rest of the system meets this directory
 
 - **Coordinator** — `temporal/agentic/scout_coordinator.py` and `scout_scheduler.py`.
-  Polls every `COORDINATOR_INTERVAL_MINUTES = 15`; dispatches each scout whose
-  per-scout schedule (`run_interval_minutes`, default daily) is due, most-overdue
+  Polls every `COORDINATOR_INTERVAL_MINUTES = 30`; dispatches each scout whose
+  per-scout schedule (`run_interval_minutes`, default hourly) is due, most-overdue
   first, hard cap `MAX_RUNS_PER_TICK = 50` per tick, `ScheduleOverlapPolicy.SKIP` to
   drop ticks rather than queue them.
 - **Models** — `SignalScoutConfig`, `SignalScoutRun`, `SignalScratchpad`,
