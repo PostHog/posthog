@@ -674,8 +674,13 @@ export const maxLogic = kea<maxLogicType>([
         },
     })),
 
-    trackedActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values, props }) => ({
         toggleConversationHistory: () => {
+            // The side panel instance lives at #panel=max over the current scene; it must not
+            // push the main pathname to /ai or it would navigate away from the underlying page.
+            if (props.tabId === 'sidepanel') {
+                return undefined
+            }
             if (values.conversationHistoryVisible) {
                 return [urls.aiHistory(), {}, router.values.location.hash]
             } else if (values.conversationId) {
@@ -684,12 +689,21 @@ export const maxLogic = kea<maxLogicType>([
             return [urls.ai(), {}, router.values.location.hash]
         },
         startNewConversation: () => {
+            if (props.tabId === 'sidepanel') {
+                return undefined
+            }
             return [urls.ai(), {}, router.values.location.hash]
         },
         openConversation: ({ conversationId }) => {
+            if (props.tabId === 'sidepanel') {
+                return undefined
+            }
             return [urls.ai(conversationId), {}, router.values.location.hash]
         },
         setConversationId: ({ conversationId }) => {
+            if (props.tabId === 'sidepanel') {
+                return undefined
+            }
             // Only set the URL parameter if this is a new conversation (using frontendConversationId)
             if (conversationId && conversationId === values.frontendConversationId) {
                 return [urls.ai(conversationId), {}, router.values.location.hash, { replace: true }]
