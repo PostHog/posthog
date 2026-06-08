@@ -3,7 +3,7 @@
 [project]
 name = "posthog"
 version = "0.0.0"
-requires-python = "==3.13.13" # Pin full version to control Python upgrades explicitly
+requires-python = "==3.12.12" # Pin full version to control Python upgrades explicitly
 # Prefer ~= (compat) over >= (floor). Only pin exact versions (==) when necessary.
 #
 # ~= signals to others (security, devex, dependabot) that deps can be updated within
@@ -327,9 +327,6 @@ ignore = [
     "UP045",  # ~3064: Optional[X] → X | None (auto-fixable)
     "UP046",  # ~39: generic class → PEP 695 (unsafe)
     "UP047",  # ~37: generic func → PEP 695 (unsafe)
-    "UP043",  # ~162: Generator[X, None, None] → Generator[X] (defer 3.13 sweep)
-    "UP035",  # ~2: typing_extensions.TypeIs → typing.TypeIs (defer 3.13 sweep)
-    "B911",   # ~9: itertools.batched without explicit strict (defer 3.13 sweep)
 ]
 select = [
     "B",
@@ -420,10 +417,10 @@ section-order = [
 "products" = ["products"]
 
 [tool.dagster]
-python_version = "3.13"
+python_version = "3.12"
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.12"
 plugins = [
     "mypy_django_plugin.main",
     "mypy_drf_plugin.main",
@@ -458,10 +455,10 @@ django_settings_module = "posthog.settings"
 [tool.pyright]
 venvPath = ".flox/cache"
 venv = "venv"
-pythonVersion = "3.13"
+pythonVersion = "3.12"
 
 [tool.ty.environment]
-python-version = "3.13"
+python-version = "3.12"
 
 [tool.ty.src]
 exclude = [
