@@ -2744,6 +2744,35 @@ describe('BatchWritingPersonStore', () => {
             expect(mockRepo.fetchPerson).not.toHaveBeenCalled()
         })
 
+        it('should discard late prefetch writes after the batch is released', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            const prefetchedPerson = { ...person, id: '1', team_id: teamId, distinct_id: 'user-1' }
+
+            let resolvePrefetch: (value: (typeof prefetchedPerson)[]) => void
+            const prefetchPromise = new Promise<(typeof prefetchedPerson)[]>((resolve) => {
+                resolvePrefetch = resolve
+            })
+            mockRepo.fetchPersonsByDistinctIds.mockReturnValueOnce(prefetchPromise)
+
+            const prefetchCompletion = personStoreForBatch.prefetchPersons([
+                { teamId, distinctId: 'user-1', batchId: 0 },
+            ])
+
+            personStoreForBatch.releaseBatch(0)
+
+            resolvePrefetch!([prefetchedPerson])
+            await prefetchCompletion
+
+            expect(personStoreForBatch.getCheckCache().has(`${teamId}:user-1`)).toBe(false)
+            expect(personStoreForBatch.getUpdateCache().has(`${teamId}:1`)).toBe(false)
+
+            const batchDistinctKeys = (personStoreForBatch as any)['batchDistinctKeys'] as Map<number, Set<string>>
+            expect(batchDistinctKeys.has(0)).toBe(false)
+            const distinctKeyRefCount = (personStoreForBatch as any)['distinctKeyRefCount'] as Map<string, number>
+            expect(distinctKeyRefCount.has(`${teamId}:user-1`)).toBe(false)
+        })
+
         it('should resolve (not reject) on a transient persons-Postgres failure', async () => {
             const personStoreForBatch = getPersonsStore()
 
