@@ -13,9 +13,10 @@ spec + bundle files, not test-only fixtures. The bundle's README
 walks through the deploy steps. But the source of truth for
 "does this still work" is the test case next to it.
 
-| Bundle                             | Test case                                                              | Status |
-| ---------------------------------- | ---------------------------------------------------------------------- | ------ |
-| [`sre-slack-bot/`](sre-slack-bot/) | [`../cases/example-sre-bot.test.ts`](../cases/example-sre-bot.test.ts) | infant |
+| Bundle                                         | Test case                                                                                      | Status |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------ |
+| [`sre-slack-bot/`](sre-slack-bot/)             | [`../cases/example-sre-bot.test.ts`](../cases/example-sre-bot.test.ts)                         | infant |
+| [`agent-approval-demo/`](agent-approval-demo/) | [`../cases/example-agent-approval-demo.test.ts`](../cases/example-agent-approval-demo.test.ts) | ready  |
 
 "Infant" = buildable today against shipped primitives, but
 some value loop is duct-taped because the platform doesn't have

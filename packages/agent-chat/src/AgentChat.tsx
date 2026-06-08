@@ -146,7 +146,7 @@ export function AgentChat({
     const sending = streaming || awaitingClientTool
     const inputDisabled =
         awaitingClientTool ||
-        session.state === 'awaiting_approval' ||
+        session.state === 'awaiting_user_input' ||
         session.state === 'error' ||
         session.state === 'failed' ||
         session.state === 'cancelled'

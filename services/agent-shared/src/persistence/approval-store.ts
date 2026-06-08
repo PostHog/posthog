@@ -79,6 +79,12 @@ export interface DecideApprovalInput {
 
 export interface ListApprovalsOpts {
     state?: ApprovalRequestState | ApprovalRequestState[]
+    /**
+     * Narrow a team-scoped list to a single application. Ignored by
+     * `listByApplication` / `listBySession` (which already key on a more
+     * specific id).
+     */
+    applicationId?: string
     limit?: number
     offset?: number
 }
@@ -103,6 +109,10 @@ export interface ApprovalStore {
     listByTeam(teamId: number, opts?: ListApprovalsOpts): Promise<ApprovalRequest[]>
     listByApplication(applicationId: string, opts?: ListApprovalsOpts): Promise<ApprovalRequest[]>
     listBySession(sessionId: string, opts?: ListApprovalsOpts): Promise<ApprovalRequest[]>
+    /** Count `queued` rows for a team — drives the fleet-stats badge. */
+    countQueuedByTeam(teamId: number): Promise<number>
+    /** Count `queued` rows for one application — drives the per-agent badge. */
+    countQueuedByApplication(applicationId: string): Promise<number>
 }
 
 /**

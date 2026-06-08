@@ -266,6 +266,18 @@ const ListApprovalsQuerySchema = z.object({
     offset: z.coerce.number().int().nonnegative().optional(),
 })
 
+const ListApprovalsForTeamQuerySchema = z.object({
+    team_id: z.coerce.number().int().positive('missing_team_id'),
+    application_id: z.string().optional(),
+    state: z
+        .string()
+        .optional()
+        .transform((s) => (s ? s.split(',').filter(Boolean) : undefined))
+        .pipe(z.array(ApprovalStateSchema).optional()),
+    limit: z.coerce.number().int().positive().max(500).optional(),
+    offset: z.coerce.number().int().nonnegative().optional(),
+})
+
 const DecideApprovalBodySchema = z.object({
     decision: z.enum(['approve', 'reject']),
     decided_by: z.string().min(1, 'missing_decided_by'),
@@ -361,8 +373,11 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
         '/sessions/stats',
         asyncHandler(async (req, res) => {
             const q = AggregateForApplicationQuerySchema.parse(req.query)
-            const stats = await opts.queue.aggregateForApplication(q.application_id, q.since ?? defaultSince())
-            res.json(stats)
+            const [stats, pendingApprovalsCount] = await Promise.all([
+                opts.queue.aggregateForApplication(q.application_id, q.since ?? defaultSince()),
+                opts.approvals ? opts.approvals.countQueuedByApplication(q.application_id) : Promise.resolve(0),
+            ])
+            res.json({ ...stats, pendingApprovalsCount })
         })
     )
 
@@ -370,8 +385,11 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
         '/fleet/stats',
         asyncHandler(async (req, res) => {
             const q = AggregateForTeamQuerySchema.parse(req.query)
-            const stats = await opts.queue.aggregateForTeam(q.team_id, q.since ?? defaultSince())
-            res.json(stats)
+            const [stats, pendingApprovalsCount] = await Promise.all([
+                opts.queue.aggregateForTeam(q.team_id, q.since ?? defaultSince()),
+                opts.approvals ? opts.approvals.countQueuedByTeam(q.team_id) : Promise.resolve(0),
+            ])
+            res.json({ ...stats, pendingApprovalsCount })
         })
     )
 
@@ -535,6 +553,28 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             const q = ListApprovalsQuerySchema.parse(req.query)
             const rows = await opts.approvals!.listByApplication(q.application_id, {
                 state: q.state,
+                limit: q.limit,
+                offset: q.offset,
+            })
+            res.json({ results: rows.map(summariseApproval) })
+        })
+    )
+
+    // Fleet-wide list — Django's `/agent_fleet/approvals/` proxies through here.
+    // Filters by team, optionally narrows to a single application. Same row
+    // shape as `/approvals` so the console can render either response with one
+    // component. When both team_id and application_id are present we still go
+    // through listByTeam so we cross-check ownership in a single round-trip.
+    app.get(
+        '/fleet/approvals',
+        asyncHandler(async (req, res) => {
+            if (!needApprovalStore(res)) {
+                return
+            }
+            const q = ListApprovalsForTeamQuerySchema.parse(req.query)
+            const rows = await opts.approvals!.listByTeam(q.team_id, {
+                state: q.state,
+                applicationId: q.application_id,
                 limit: q.limit,
                 offset: q.offset,
             })

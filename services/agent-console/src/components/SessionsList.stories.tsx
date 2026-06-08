@@ -58,7 +58,7 @@ export const OnlyCompleted: Story = {
 export const OnlyLive: Story = {
     args: {
         sessions: weeklyDigestSessions.filter((s) =>
-            ['idle', 'streaming', 'awaiting_approval', 'awaiting_client_tool', 'disconnected'].includes(s.state)
+            ['idle', 'streaming', 'awaiting_user_input', 'awaiting_client_tool', 'disconnected'].includes(s.state)
         ),
         onOpenSession,
     },

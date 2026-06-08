@@ -136,7 +136,7 @@ export function AgentLayout({ children }: { children: React.ReactNode }): React.
                                             {t.label}
                                             {count != null && count > 0 ? (
                                                 <span
-                                                    className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 font-mono text-[0.625rem] font-medium text-muted-foreground"
+                                                    className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-foreground/15 px-1 font-mono text-[0.625rem] font-semibold text-foreground"
                                                     aria-label={`${count} ${t.label.toLowerCase()}`}
                                                 >
                                                     {count > 99 ? '99+' : count}
@@ -159,8 +159,8 @@ type TabCounts = Partial<Record<TabKey, number>>
 
 /**
  * Background-polls the data behind each tab and exposes counts so the
- * tab strip can render small badges. Returns `null` for any tab whose
- * data hasn't loaded yet (badge renders nothing rather than 0).
+ * tab strip can render small badges. Returns `undefined` for any tab
+ * whose data hasn't loaded yet (badge renders nothing rather than 0).
  *
  * Approvals counts only `queued` + `approving` — terminal states
  * (dispatched / rejected / expired) aren't actionable so they'd be

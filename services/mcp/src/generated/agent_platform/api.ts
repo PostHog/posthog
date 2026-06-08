@@ -168,8 +168,9 @@ export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeVersionMin = 
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourArgsSchemaDefault = {}
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourRequiredDefault = false
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsDefault = 5000
-export const agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsMax = 60000
+export const agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsMax = 600000
 
+export const agentApplicationsRevisionsCreateBodySpecToolsItemFourInteractiveDefault = false
 export const agentApplicationsRevisionsCreateBodySpecToolsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemSecretsDefault = []
 
@@ -329,6 +330,9 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                 .min(1)
                                 .max(agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsMax)
                                 .default(agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsDefault),
+                            interactive: zod
+                                .boolean()
+                                .default(agentApplicationsRevisionsCreateBodySpecToolsItemFourInteractiveDefault),
                         }),
                     ])
                 )
@@ -566,8 +570,9 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeVersio
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourArgsSchemaDefault = {}
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourRequiredDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsDefault = 5000
-export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsMax = 60000
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsMax = 600000
 
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourInteractiveDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemSecretsDefault = []
 
@@ -729,6 +734,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                 .min(1)
                                 .max(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsMax)
                                 .default(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsDefault),
+                            interactive: zod
+                                .boolean()
+                                .default(
+                                    agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourInteractiveDefault
+                                ),
                         }),
                     ])
                 )
@@ -1057,17 +1067,16 @@ export const AgentApplicationsRevisionsCronFireCreateBody = /* @__PURE__ */ zod.
 /**
  * Freeze the bundle: draft → ready, stamps sha256 on the row.
 
-Single atomic block now that the janitor's freeze endpoint is
-side-effect-free w.r.t. `agent_revision`: (1) resolve
-`spec.skills[].from_template` / `spec.tools[].from_template` refs
-into the bundle (copies content, stamps versions, inserts join
-rows); (2) call the janitor to compute the bundle sha (writes the
-S3 `.frozen` marker, returns the sha); (3) stamp `state='ready'`
-+ `bundle_sha256` on the revision row from Django. Django is the
-sole writer to `agent_revision.state`, so there's no cross-process
-row contention on the same row to deadlock against. Any failure
-leaves the revision in `draft`; the next freeze re-runs all three
-phases idempotently.
+Django is a thin proxy here: resolve template refs into the
+bundle, ask the janitor to seal it (the janitor returns the sha
++ the spec it derived from the typed resources), then stamp the
+row. No `transaction.atomic()` — the janitor's freeze is idempotent
+(on retry it re-reads the existing `.frozen` marker + re-derives
+spec), so a partial failure here is recoverable by re-calling
+freeze, not by transactional rollback. Holding an atomic block
+across the janitor HTTP call previously deadlocked the
+agent_revision row against the janitor's spec write — that's
+moved off the janitor side as part of the same fix.
  */
 export const AgentApplicationsRevisionsFreezeCreateParams = /* @__PURE__ */ zod.object({
     application_id: zod.string(),

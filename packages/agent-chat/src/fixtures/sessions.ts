@@ -180,7 +180,7 @@ export const awaitingApprovalSession: ChatSession = {
     application: weeklyDigest,
     principal,
     turns: richExchangeForApproval,
-    state: 'awaiting_approval',
+    state: 'awaiting_user_input',
     pendingApprovals: awaitingApproval,
     usage: { inputTokens: 4827, outputTokens: 1102, costUsd: 0.041 },
 }
@@ -286,7 +286,7 @@ export const allSessionStates = {
  *
  * These are minimal — just enough to populate a fleet list. Tasks are
  * paraphrased plausible work; states cover idle / streaming /
- * awaiting_approval so the visual variety reads.
+ * awaiting_user_input so the visual variety reads.
  * ──────────────────────────────────────────────────────────────────────── */
 
 function aliceTurn(text: string, at: string): Turn {
@@ -352,7 +352,7 @@ const releaseAwaitingSession: ChatSession = {
             ],
         },
     ],
-    state: 'awaiting_approval',
+    state: 'awaiting_user_input',
     pendingApprovals: [
         {
             callId: 'fleet-call-1',
@@ -711,7 +711,7 @@ export function getAgentStatsFixture(applicationId: string): AgentStats {
     })
 
     const live = sessions.filter((s) =>
-        ['streaming', 'awaiting_approval', 'awaiting_client_tool', 'idle', 'disconnected'].includes(s.state)
+        ['streaming', 'awaiting_user_input', 'awaiting_client_tool', 'idle', 'disconnected'].includes(s.state)
     )
     const spend = recent.reduce((acc, s) => acc + s.usage.costUsd, 0)
     const failures = recent.filter((s) => s.state === 'failed' || s.state === 'error' || s.state === 'cancelled').length

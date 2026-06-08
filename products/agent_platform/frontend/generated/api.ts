@@ -32,6 +32,7 @@ import type {
     AgentCustomToolTemplatesListParams,
     AgentCustomToolTemplatesNameRetrieveParams,
     AgentCustomToolTemplatesNameUsagesListParams,
+    AgentFleetApprovalsListParams,
     AgentFleetLiveSessionsParams,
     AgentFleetLiveSessionsResponseApi,
     AgentFleetStatsParams,
@@ -895,17 +896,16 @@ export const getAgentApplicationsRevisionsFreezeCreateUrl = (projectId: string, 
 /**
  * Freeze the bundle: draft → ready, stamps sha256 on the row.
 
-Single atomic block now that the janitor's freeze endpoint is
-side-effect-free w.r.t. `agent_revision`: (1) resolve
-`spec.skills[].from_template` / `spec.tools[].from_template` refs
-into the bundle (copies content, stamps versions, inserts join
-rows); (2) call the janitor to compute the bundle sha (writes the
-S3 `.frozen` marker, returns the sha); (3) stamp `state='ready'`
-+ `bundle_sha256` on the revision row from Django. Django is the
-sole writer to `agent_revision.state`, so there's no cross-process
-row contention on the same row to deadlock against. Any failure
-leaves the revision in `draft`; the next freeze re-runs all three
-phases idempotently.
+Django is a thin proxy here: resolve template refs into the
+bundle, ask the janitor to seal it (the janitor returns the sha
++ the spec it derived from the typed resources), then stamp the
+row. No `transaction.atomic()` — the janitor's freeze is idempotent
+(on retry it re-reads the existing `.frozen` marker + re-derives
+spec), so a partial failure here is recoverable by re-calling
+freeze, not by transactional rollback. Holding an atomic block
+across the janitor HTTP call previously deadlocked the
+agent_revision row against the janitor's spec write — that's
+moved off the janitor side as part of the same fix.
  */
 export const agentApplicationsRevisionsFreezeCreate = async (
     projectId: string,
@@ -2220,6 +2220,36 @@ export const agentCustomToolTemplatesNameVersionsList = async (
     options?: RequestInit
 ): Promise<TemplateVersionEntryApi[]> => {
     return apiMutator<TemplateVersionEntryApi[]>(getAgentCustomToolTemplatesNameVersionsListUrl(projectId, name), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentFleetApprovalsListUrl = (projectId: string, params?: AgentFleetApprovalsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_fleet/approvals/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_fleet/approvals/`
+}
+
+/**
+ * Approval-gated tool requests across every agent in this team. Team-admin only.
+ */
+export const agentFleetApprovalsList = async (
+    projectId: string,
+    params?: AgentFleetApprovalsListParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAgentFleetApprovalsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

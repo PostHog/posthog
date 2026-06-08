@@ -156,6 +156,26 @@ export class PgApprovalStore implements ApprovalStore {
         return this.runList('session_id = $1', [sessionId], opts)
     }
 
+    async countQueuedByTeam(teamId: number): Promise<number> {
+        const r = await this.pool.query<{ count: string }>(
+            `SELECT COUNT(*)::text AS count
+             FROM agent_tool_approval_request
+             WHERE team_id = $1 AND state = 'queued'`,
+            [teamId]
+        )
+        return Number(r.rows[0]?.count ?? 0)
+    }
+
+    async countQueuedByApplication(applicationId: string): Promise<number> {
+        const r = await this.pool.query<{ count: string }>(
+            `SELECT COUNT(*)::text AS count
+             FROM agent_tool_approval_request
+             WHERE application_id = $1 AND state = 'queued'`,
+            [applicationId]
+        )
+        return Number(r.rows[0]?.count ?? 0)
+    }
+
     private async runList(
         whereSeed: string,
         seedParams: unknown[],
@@ -167,6 +187,10 @@ export class PgApprovalStore implements ApprovalStore {
             const states = Array.isArray(opts.state) ? opts.state : [opts.state]
             params.push(states)
             where.push(`state = ANY($${params.length}::text[])`)
+        }
+        if (opts.applicationId) {
+            params.push(opts.applicationId)
+            where.push(`application_id = $${params.length}`)
         }
         const limit = Math.max(1, Math.min(opts.limit ?? 100, 500))
         const offset = Math.max(0, opts.offset ?? 0)

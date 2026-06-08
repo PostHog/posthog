@@ -75,19 +75,25 @@ export interface SessionUsage {
 /**
  * Session lifecycle state.
  *
- * Live states (session is in flight): `streaming` · `awaiting_approval` ·
+ * Live states (session is in flight): `streaming` · `awaiting_user_input` ·
  * `awaiting_client_tool` · `idle` (paused between turns) ·
  * `disconnected` (transport blip, session preserved).
  *
  * Terminal states (session is over): `completed` · `failed` · `cancelled` ·
  * `error` (live failure that ended the session).
  *
+ * Note: `awaiting_user_input` parks the session for a steering message
+ * (today's only producer is `@posthog/meta-ask-for-input`). Approval-gated
+ * tool calls do NOT park — they return a synthetic queued result and the
+ * session keeps running. The old `awaiting_approval` name predated that
+ * design and was renamed to remove the confusion.
+ *
  * v0.1+ may add `suspended` per [`long-running-sessions.md`](docs/agent-platform/plans/long-running-sessions.md).
  */
 export type SessionState =
     | 'idle'
     | 'streaming'
-    | 'awaiting_approval'
+    | 'awaiting_user_input'
     | 'awaiting_client_tool'
     | 'disconnected'
     | 'error'
@@ -98,7 +104,7 @@ export type SessionState =
 /** True if the session is still active (not in a terminal state). */
 export const LIVE_SESSION_STATES: ReadonlyArray<SessionState> = [
     'streaming',
-    'awaiting_approval',
+    'awaiting_user_input',
     'awaiting_client_tool',
     'idle',
     'disconnected',

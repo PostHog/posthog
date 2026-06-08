@@ -312,7 +312,7 @@ const releaseAwaitingLogs: LogEntry[] = [
         message: 'session.suspended',
         fields: {
             session_id: '01998a01-2222-7000-8000-000000000102',
-            reason: 'awaiting_approval',
+            reason: 'awaiting_user_input',
         },
     },
 ]

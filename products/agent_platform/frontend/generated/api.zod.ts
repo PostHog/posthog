@@ -116,8 +116,9 @@ export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeVersionMin = 
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourArgsSchemaDefault = {}
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourRequiredDefault = false
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsDefault = 5000
-export const agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsMax = 60000
+export const agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsMax = 600000
 
+export const agentApplicationsRevisionsCreateBodySpecToolsItemFourInteractiveDefault = false
 export const agentApplicationsRevisionsCreateBodySpecToolsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemSecretsDefault = []
 
@@ -277,6 +278,9 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                 .min(1)
                                 .max(agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsMax)
                                 .default(agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsDefault),
+                            interactive: zod
+                                .boolean()
+                                .default(agentApplicationsRevisionsCreateBodySpecToolsItemFourInteractiveDefault),
                         }),
                     ])
                 )
@@ -445,8 +449,9 @@ export const agentApplicationsRevisionsUpdateBodySpecToolsItemThreeVersionMin = 
 export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourArgsSchemaDefault = {}
 export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourRequiredDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourTimeoutMsDefault = 5000
-export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourTimeoutMsMax = 60000
+export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourTimeoutMsMax = 600000
 
+export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourInteractiveDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecToolsDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecMcpsItemSecretsDefault = []
 
@@ -606,6 +611,9 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                                 .min(1)
                                 .max(agentApplicationsRevisionsUpdateBodySpecToolsItemFourTimeoutMsMax)
                                 .default(agentApplicationsRevisionsUpdateBodySpecToolsItemFourTimeoutMsDefault),
+                            interactive: zod
+                                .boolean()
+                                .default(agentApplicationsRevisionsUpdateBodySpecToolsItemFourInteractiveDefault),
                         }),
                     ])
                 )
@@ -797,8 +805,9 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeVersio
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourArgsSchemaDefault = {}
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourRequiredDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsDefault = 5000
-export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsMax = 60000
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsMax = 600000
 
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourInteractiveDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemSecretsDefault = []
 
@@ -960,6 +969,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                 .min(1)
                                 .max(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsMax)
                                 .default(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsDefault),
+                            interactive: zod
+                                .boolean()
+                                .default(
+                                    agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourInteractiveDefault
+                                ),
                         }),
                     ])
                 )

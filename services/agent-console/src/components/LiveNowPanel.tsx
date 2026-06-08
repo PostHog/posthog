@@ -127,8 +127,8 @@ function stateTone(state: SessionState): { dotClass: string; label: string } {
     switch (state) {
         case 'streaming':
             return { dotClass: 'bg-info animate-pulse', label: 'streaming' }
-        case 'awaiting_approval':
-            return { dotClass: 'bg-warning', label: 'awaiting approval' }
+        case 'awaiting_user_input':
+            return { dotClass: 'bg-warning', label: 'awaiting user input' }
         case 'awaiting_client_tool':
             return { dotClass: 'bg-info', label: 'awaiting client' }
         case 'error':

@@ -233,6 +233,26 @@ class JanitorClient:
             params["offset"] = offset
         return self._call("GET", "/approvals", params=params)
 
+    def list_approvals_for_team(
+        self,
+        team_id: int,
+        *,
+        application_id: str | None = None,
+        state: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> dict:
+        params: dict[str, Any] = {"team_id": team_id}
+        if application_id:
+            params["application_id"] = application_id
+        if state:
+            params["state"] = state
+        if limit is not None:
+            params["limit"] = limit
+        if offset is not None:
+            params["offset"] = offset
+        return self._call("GET", "/fleet/approvals", params=params)
+
     def get_approval(self, approval_id: str) -> dict:
         return self._call("GET", f"/approvals/{approval_id}")
 

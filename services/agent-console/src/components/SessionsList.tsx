@@ -27,7 +27,7 @@ export interface SessionsListProps {
     onOpenSession?: (sessionId: string) => void
 }
 
-const LIVE_STATES = new Set(['idle', 'streaming', 'awaiting_approval', 'awaiting_client_tool', 'disconnected'])
+const LIVE_STATES = new Set(['idle', 'streaming', 'awaiting_user_input', 'awaiting_client_tool', 'disconnected'])
 const FAILED_STATES = new Set(['failed', 'error', 'cancelled'])
 
 export function SessionsList({ sessions, selectedSessionId, onOpenSession }: SessionsListProps): React.ReactElement {
@@ -155,8 +155,8 @@ function stateTone(state: ChatSession['state']): { dotClass: string; label: stri
     switch (state) {
         case 'streaming':
             return { dotClass: 'bg-info-foreground animate-pulse', label: 'streaming' }
-        case 'awaiting_approval':
-            return { dotClass: 'bg-warning-foreground', label: 'awaiting approval' }
+        case 'awaiting_user_input':
+            return { dotClass: 'bg-warning-foreground', label: 'awaiting user input' }
         case 'awaiting_client_tool':
             return { dotClass: 'bg-info-foreground', label: 'awaiting client' }
         case 'completed':

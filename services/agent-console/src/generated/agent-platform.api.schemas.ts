@@ -277,9 +277,10 @@ export type AgentRevisionApiSpecToolsItem =
           required?: boolean
           /**
            * @minimum 1
-           * @maximum 60000
+           * @maximum 600000
            */
           timeout_ms?: number
+          interactive?: boolean
       }
 
 export type AgentRevisionApiSpecMcpsItemAuth = {
@@ -500,9 +501,10 @@ export type PatchedAgentRevisionApiSpecToolsItem =
           required?: boolean
           /**
            * @minimum 1
-           * @maximum 60000
+           * @maximum 600000
            */
           timeout_ms?: number
+          interactive?: boolean
       }
 
 export type PatchedAgentRevisionApiSpecMcpsItemAuth = {
@@ -1240,6 +1242,8 @@ export interface AgentAggregateStatsApi {
     lastActivityAt: string | null
     /** Sessions in `failed` state created within the window. */
     failedInWindowCount: number
+    /** Approval-gated tool requests across the team currently awaiting a decision. 0 on the per-application aggregate (which doesn't roll up approvals). */
+    pendingApprovalsCount: number
 }
 
 /**
@@ -1915,6 +1919,19 @@ export type AgentCustomToolTemplatesNameUsagesListParams = {
      * Filter to a specific pinned version.
      */
     pinned_version?: number
+}
+
+export type AgentFleetApprovalsListParams = {
+    /**
+     * Optional agent UUID — narrows the listing to one application.
+     */
+    agent_id?: string
+    limit?: number
+    offset?: number
+    /**
+     * Filter by approval state. Comma-separated list accepted. Valid values: queued, approving, dispatched, dispatched_failed, rejected, expired. Defaults to all states.
+     */
+    state?: string
 }
 
 export type AgentFleetLiveSessionsParams = {

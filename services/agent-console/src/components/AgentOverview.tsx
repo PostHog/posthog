@@ -283,8 +283,8 @@ function stateTone(state: ChatSession['state']): { dotClass: string; label: stri
     switch (state) {
         case 'streaming':
             return { dotClass: 'bg-info-foreground animate-pulse', label: 'streaming' }
-        case 'awaiting_approval':
-            return { dotClass: 'bg-warning-foreground', label: 'awaiting approval' }
+        case 'awaiting_user_input':
+            return { dotClass: 'bg-warning-foreground', label: 'awaiting user input' }
         case 'awaiting_client_tool':
             return { dotClass: 'bg-info-foreground', label: 'awaiting client' }
         case 'completed':

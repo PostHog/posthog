@@ -33,6 +33,8 @@ import type {
     AgentApplicationSessionLogsResponseApi,
     AgentApplicationSessionsListResponseApi,
     AgentApplicationSessionsRetrieveResponseApi,
+    AgentApprovalRequestApi,
+    AgentApprovalRequestStateEnumApi,
     AgentConversationMessageApi,
     AgentFleetLiveSessionsResponseApi,
     AgentFleetLiveSessionSummaryApi,
@@ -782,6 +784,7 @@ interface AggregateStatsWire {
     spendInWindowUsd: number
     lastActivityAt: string | null
     failedInWindowCount: number
+    pendingApprovalsCount: number
 }
 
 export async function getAgentStats(teamId: number, slug: string): Promise<AgentStats> {
@@ -804,10 +807,7 @@ export async function getFleetStats(teamId: number): Promise<FleetStats> {
         liveSessionCount: wire.liveCount,
         sessions24hCount: wire.sessionsInWindowCount,
         spend24hUsd: wire.spendInWindowUsd,
-        // Approvals roll-up isn't part of this aggregate yet — defer to a
-        // dedicated approvals-stats endpoint. Surfaced as 0 so the tile
-        // renders without an "attention" treatment.
-        approvalsPendingCount: 0,
+        approvalsPendingCount: wire.pendingApprovalsCount,
     }
 }
 
@@ -1118,4 +1118,100 @@ export interface NativeToolCatalogEntry {
 export async function listNativeTools(teamId: number): Promise<NativeToolCatalogEntry[]> {
     const res = await getJson<{ tools: NativeToolCatalogEntry[] }>(posthogUrl(teamId, '/agent_native_tools/'))
     return res.tools
+}
+
+/* ── Approvals ────────────────────────────────────────────────────── */
+
+/**
+ * Wire shape of an `agent_tool_approval_request` row as the Django API surfaces it.
+ * Re-exported from the generated type so callers don't reach into `@/generated`.
+ */
+export type ApprovalRequest = AgentApprovalRequestApi
+export type ApprovalState = AgentApprovalRequestStateEnumApi
+
+export interface ListApprovalsOpts {
+    /** Single state or comma-separated. Defaults to all states on the wire. */
+    state?: ApprovalState | ApprovalState[]
+    /** Narrow to one agent — UUID, not slug. */
+    agentId?: string
+    limit?: number
+    offset?: number
+}
+
+function approvalsQueryString(opts: ListApprovalsOpts): string {
+    const params = new URLSearchParams()
+    if (opts.state) {
+        const value = Array.isArray(opts.state) ? opts.state.join(',') : opts.state
+        params.set('state', value)
+    }
+    if (opts.agentId) {
+        params.set('agent_id', opts.agentId)
+    }
+    if (opts.limit != null) {
+        params.set('limit', String(opts.limit))
+    }
+    if (opts.offset != null) {
+        params.set('offset', String(opts.offset))
+    }
+    const qs = params.toString()
+    return qs ? `?${qs}` : ''
+}
+
+/** Fleet-wide listing — drives the `/approvals` screen. Admin-only on the server. */
+export async function listFleetApprovals(teamId: number, opts: ListApprovalsOpts = {}): Promise<ApprovalRequest[]> {
+    const { results } = await getJson<{ results: ApprovalRequest[] }>(
+        posthogUrl(teamId, `/agent_fleet/approvals/${approvalsQueryString(opts)}`)
+    )
+    return results
+}
+
+/** Per-agent listing — drives the `/agents/<slug>/approvals` tab. Admin-only on the server. */
+export async function listAgentApprovals(
+    teamId: number,
+    slug: string,
+    opts: Omit<ListApprovalsOpts, 'agentId'> = {}
+): Promise<ApprovalRequest[]> {
+    const { results } = await getJson<{ results: ApprovalRequest[] }>(
+        posthogUrl(teamId, `/agent_applications/${encodeURIComponent(slug)}/approvals/${approvalsQueryString(opts)}`)
+    )
+    return results
+}
+
+/** Single-approval detail — full proposed args, assistant snapshot, decision metadata. */
+export async function getApproval(teamId: number, slug: string, approvalId: string): Promise<ApprovalRequest> {
+    return getJson<ApprovalRequest>(
+        posthogUrl(
+            teamId,
+            `/agent_applications/${encodeURIComponent(slug)}/approvals/${encodeURIComponent(approvalId)}/`
+        )
+    )
+}
+
+export interface DecideApprovalInput {
+    decision: 'approve' | 'reject'
+    /** Reason text — surfaced to the model in the synthetic reject result and audit log. */
+    reason?: string
+    /** Edited args. Server 422s when `approver_scope.allow_edit` is false. */
+    edited_args?: Record<string, unknown>
+}
+
+export interface DecideApprovalResponse {
+    ok: boolean
+    state: 'approving' | 'rejected'
+}
+
+/** Decide a queued approval. Janitor flips the row + writes the wake marker. */
+export async function decideApproval(
+    teamId: number,
+    slug: string,
+    approvalId: string,
+    body: DecideApprovalInput
+): Promise<DecideApprovalResponse> {
+    return postJson<DecideApprovalInput, DecideApprovalResponse>(
+        posthogUrl(
+            teamId,
+            `/agent_applications/${encodeURIComponent(slug)}/approvals/${encodeURIComponent(approvalId)}/decide/`
+        ),
+        body
+    )
 }

@@ -448,6 +448,12 @@ _AGENT_AGGREGATE_STATS = inline_serializer(
         "failedInWindowCount": drf_serializers.IntegerField(
             help_text="Sessions in `failed` state created within the window.",
         ),
+        "pendingApprovalsCount": drf_serializers.IntegerField(
+            help_text=(
+                "Approval-gated tool requests across the team currently awaiting a decision. "
+                "0 on the per-application aggregate (which doesn't roll up approvals)."
+            ),
+        ),
     },
 )
 
@@ -2563,14 +2569,23 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     URLs:
         GET /api/projects/<team>/agent_fleet/stats/           — aggregate counts + spend across every agent in the team
         GET /api/projects/<team>/agent_fleet/live_sessions/   — live sessions for every agent in the team
+        GET /api/projects/<team>/agent_fleet/approvals/       — approval-gated tool requests across every agent in the team
 
-    Both endpoints proxy the janitor (which owns the runtime DB). Used by
-    the agent-console "fleet" overview to render the cards on the agents
+    All three endpoints proxy the janitor (which owns the runtime DB). Used
+    by the agent-console "fleet" overview to render the cards on the agents
     list without per-agent N+1.
     """
 
     scope_object = "agents"
-    scope_object_read_actions = ["stats", "live_sessions"]
+    scope_object_read_actions = ["stats", "live_sessions", "approvals"]
+
+    def _require_team_admin(self) -> None:
+        """Mirror AgentApplicationViewSet — approvals are an admin-only surface."""
+        membership = OrganizationMembership.objects.filter(
+            user=cast(User, self.request.user), organization_id=self.organization_id
+        ).first()
+        if membership is None or membership.level < OrganizationMembership.Level.ADMIN:
+            raise NotFound("Not found")
 
     @extend_schema(
         operation_id="agent_fleet_stats",
@@ -2663,6 +2678,69 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise ValidationError("limit must be an integer")
         try:
             payload = _janitor().list_live_for_team(int(self.team_id), limit=limit)
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_fleet_approvals_list",
+        parameters=[
+            OpenApiParameter(
+                "state",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Filter by approval state. Comma-separated list accepted. "
+                    "Valid values: queued, approving, dispatched, "
+                    "dispatched_failed, rejected, expired. Defaults to all states."
+                ),
+            ),
+            OpenApiParameter(
+                "agent_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Optional agent UUID — narrows the listing to one application.",
+            ),
+            OpenApiParameter("limit", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("offset", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+        ],
+        request=None,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentFleetApprovalsListResponse",
+                fields={
+                    "results": drf_serializers.ListField(
+                        child=inline_serializer(
+                            name="AgentFleetApprovalRequest",
+                            fields=AgentApplicationViewSet._APPROVAL_RESPONSE_FIELDS,
+                        ),
+                        help_text="Approval requests across every agent in the team, newest first.",
+                    ),
+                },
+            )
+        ),
+        description="Approval-gated tool requests across every agent in this team. Team-admin only.",
+    )
+    @action(detail=False, methods=["get"], url_path="approvals")
+    def approvals(self, request: Request, **kwargs) -> Response:
+        self._require_team_admin()
+        limit_param = request.query_params.get("limit")
+        offset_param = request.query_params.get("offset")
+        try:
+            limit = int(limit_param) if limit_param is not None else None
+            offset = int(offset_param) if offset_param is not None else None
+        except ValueError:
+            raise ValidationError("limit and offset must be integers")
+        try:
+            payload = _janitor().list_approvals_for_team(
+                int(self.team_id),
+                application_id=request.query_params.get("agent_id") or None,
+                state=request.query_params.get("state") or None,
+                limit=limit,
+                offset=offset,
+            )
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
         return Response(payload)

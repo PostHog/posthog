@@ -18,7 +18,7 @@
  *   tool_call                → `{ id, name, args }`    finalize tool_call args
  *   tool_result              → `{ id, tool, outcome, output }` set result
  *   completed                → `{ turns, summary? }`   state=completed
- *   waiting                  → `{ turns, prompt }`     state=awaiting_approval
+ *   waiting                  → `{ turns, prompt }`     state=awaiting_user_input
  *   failed                   → `{ reason, turns }`     state=failed
  */
 
@@ -195,7 +195,11 @@ export function applyEvent(session: ChatSession, event: SessionEvent): ChatSessi
             return { ...finalizeActiveTurn(session), state: 'completed' }
 
         case 'waiting':
-            return { ...session, state: 'awaiting_approval' }
+            // Emitted by `@posthog/meta-ask-for-input` — session parks until a
+            // user message lands via /send. Approval-gated tool calls do NOT
+            // park (they return a synthetic queued result; the session keeps
+            // running), so this state is named after what's actually waited on.
+            return { ...session, state: 'awaiting_user_input' }
 
         case 'failed': {
             // Surface a generic, non-leaky message to the end user. The
