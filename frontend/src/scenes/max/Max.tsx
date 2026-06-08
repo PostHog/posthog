@@ -48,7 +48,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { conversationId: tabConversationId } = useValues(maxLogic({ tabId: tabId || '' }))
-    const { conversationId: sidepanelConversationId } = useValues(maxLogic({ tabId: 'sidepanel' }))
+    const { conversationId: sidepanelConversationId } = useValues(maxLogic({ sidePanel: true }))
     if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
             <SceneContent className="px-4 py-4 min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]">
@@ -75,7 +75,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
 
 export interface MaxInstanceProps {
     sidePanel?: boolean
-    tabId: string
+    tabId?: string
 }
 
 export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }: MaxInstanceProps): JSX.Element {
@@ -87,12 +87,13 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
         threadLogicKey,
         conversation,
         conversationId,
-    } = useValues(maxLogic({ tabId }))
-    const { startNewConversation, goBack } = useActions(maxLogic({ tabId }))
+    } = useValues(maxLogic({ tabId, sidePanel }))
+    const { startNewConversation, goBack } = useActions(maxLogic({ tabId, sidePanel }))
     const { openSidePanelMax } = useActions(maxGlobalLogic)
 
     const threadProps: MaxThreadLogicProps = {
         tabId,
+        sidePanel,
         conversationId: threadLogicKey,
         conversation,
     }
@@ -100,7 +101,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     const { closeSidePanel } = useActions(sidePanelLogic)
 
     const content = (
-        <BindLogic logic={maxLogic} props={{ tabId }}>
+        <BindLogic logic={maxLogic} props={{ tabId, sidePanel }}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
                 {conversationHistoryVisible ? (
                     <ConversationHistory sidePanel={sidePanel} />
