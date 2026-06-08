@@ -181,35 +181,23 @@ describe('maxLogic', () => {
         expect(logic.values.frontendConversationId).toMatch(uuidRegex)
     })
 
-    it('does not rewrite the scene route when the side panel chat starts a new conversation', async () => {
-        // The side panel chat floats over whatever page you're on (e.g. an insight). Starting a
-        // new conversation there must not navigate to /ai.
+    // The side panel chat floats over whatever page you're on (e.g. an insight) and must not touch
+    // the route, whereas the scene instance owns /ai. The harness prefixes the project id
+    // (/project/<id>/…), so match the path suffix.
+    it.each([
+        { scenario: 'side panel chat keeps the current page', tabId: 'sidepanel', expectedSuffix: '/insights/abc123' },
+        { scenario: 'scene chat navigates to /ai', tabId: 'test', expectedSuffix: urls.ai() },
+    ])('startNewConversation: $scenario', async ({ tabId, expectedSuffix }) => {
         router.actions.push('/insights/abc123')
-        const pathBefore = router.values.location.pathname
 
-        logic = maxLogic({ tabId: 'sidepanel' })
+        logic = maxLogic({ tabId })
         logic.mount()
 
         await expectLogic(logic, () => {
             logic.actions.startNewConversation()
         }).toFinishAllListeners()
 
-        expect(router.values.location.pathname).toBe(pathBefore)
-        expect(router.values.location.pathname.endsWith('/insights/abc123')).toBe(true)
-    })
-
-    it('rewrites the scene route to /ai when the scene chat starts a new conversation', async () => {
-        router.actions.push('/insights/abc123')
-
-        logic = maxLogic({ tabId: 'test' })
-        logic.mount()
-
-        await expectLogic(logic, () => {
-            logic.actions.startNewConversation()
-        }).toFinishAllListeners()
-
-        // The harness prefixes the project (/project/<id>/ai), so match the suffix.
-        expect(router.values.location.pathname.endsWith(urls.ai())).toBe(true)
+        expect(router.values.location.pathname.endsWith(expectedSuffix)).toBe(true)
     })
 
     it('uses threadLogicKey correctly with frontendConversationId', async () => {
