@@ -17689,11 +17689,18 @@ export namespace Schemas {
 
     export type FeatureFlagFilters = { [key: string]: unknown };
 
-    export type FeatureFlagExperimentSetMetadataItem = { [key: string]: unknown };
-
     export type FeatureFlagSurveys = { [key: string]: unknown };
 
     export type FeatureFlagFeatures = { [key: string]: unknown };
+
+    export interface FeatureFlagExperimentSetMetadata {
+      /** ID of the experiment linked to this flag. */
+      id: number;
+      /** Name of the experiment linked to this flag. */
+      name: string;
+      /** Whether the experiment is currently running (started and not yet stopped). A running experiment blocks deletion of the linked flag. */
+      is_running: boolean;
+    }
 
     /**
      * * `feature_flags` - feature_flags
@@ -17736,7 +17743,7 @@ export namespace Schemas {
       /** @nullable */
       ensure_experience_continuity?: boolean | null;
       readonly experiment_set: readonly number[];
-      readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadataItem[];
+      readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadata[];
       readonly surveys: FeatureFlagSurveys;
       readonly features: FeatureFlagFeatures;
       rollback_conditions?: unknown;

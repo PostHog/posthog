@@ -7380,6 +7380,32 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response.status_code == 200
         assert response.json()["experiment_set"] == []
 
+    def test_feature_flag_experiment_set_metadata_includes_running_status(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="metadata-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        running = Experiment.objects.create(
+            team=self.team, created_by=self.user, name="Running", feature_flag=flag, start_date=now()
+        )
+        stopped = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Stopped",
+            feature_flag=flag,
+            start_date=now() - timedelta(days=1),
+            end_date=now(),
+        )
+        draft = Experiment.objects.create(team=self.team, created_by=self.user, name="Draft", feature_flag=flag)
+
+        response = self.client.get(f"/api/projects/@current/feature_flags/{flag.id}")
+        assert response.status_code == 200
+        # Only a running experiment is flagged as such; the frontend uses this to gate flag deletion
+        running_by_id = {exp["id"]: exp["is_running"] for exp in response.json()["experiment_set_metadata"]}
+        assert running_by_id == {running.id: True, stopped.id: False, draft.id: False}
+
     def test_bulk_keys_valid_ids(self):
         """Test that valid IDs return correct key mapping"""
         # Create test flags

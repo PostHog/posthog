@@ -17,7 +17,7 @@ from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.permissions import BasePermission
@@ -757,6 +757,15 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         help_text="Evaluation contexts that control where this flag evaluates at runtime.",
+    )
+
+
+class FeatureFlagExperimentSetMetadataSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of the experiment linked to this flag.")
+    name = serializers.CharField(help_text="Name of the experiment linked to this flag.")
+    is_running = serializers.BooleanField(
+        help_text="Whether the experiment is currently running (started and not yet stopped). "
+        "A running experiment blocks deletion of the linked flag."
     )
 
 
@@ -2036,11 +2045,15 @@ class FeatureFlagSerializer(
             return [exp.id for exp in obj._active_experiments]
         return [exp.id for exp in obj.experiment_set.filter(deleted=False)]
 
+    @extend_schema_field(FeatureFlagExperimentSetMetadataSerializer(many=True))
     def get_experiment_set_metadata(self, obj: FeatureFlag) -> list[dict]:
         # Use the prefetched active experiments
         if hasattr(obj, "_active_experiments"):
-            return [{"id": exp.id, "name": exp.name} for exp in obj._active_experiments]
-        return [{"id": exp.id, "name": exp.name} for exp in obj.experiment_set.filter(deleted=False)]
+            experiments = obj._active_experiments
+        else:
+            experiments = obj.experiment_set.filter(deleted=False)
+        # `is_running` mirrors the deletion guard: only a running experiment blocks flag deletion
+        return [{"id": exp.id, "name": exp.name, "is_running": exp.is_running} for exp in experiments]
 
 
 def _create_usage_dashboard(feature_flag: FeatureFlag, user):
