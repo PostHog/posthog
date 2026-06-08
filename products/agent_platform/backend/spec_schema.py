@@ -36,6 +36,30 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+# Shared `approval_policy` block — referenced from every tool variant that
+# can be approval-gated (native + custom + MCP entries). Mirror
+# `ApprovalPolicySchema` in services/agent-shared/src/spec/spec.ts.
+_APPROVAL_POLICY_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "approvers": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "enum": ["team_admins", "session_principal"]},
+            "default": ["team_admins"],
+        },
+        "allow_edit": {"type": "boolean", "default": False},
+        "ttl_ms": {
+            "type": "integer",
+            "minimum": 60000,
+            "maximum": 7 * 24 * 60 * 60 * 1000,
+            "default": 24 * 60 * 60 * 1000,
+        },
+        "allow_agent_approver": {"type": "boolean", "default": False},
+    },
+    "additionalProperties": False,
+}
+
 _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -159,10 +183,17 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
             "items": {
                 "oneOf": [
                     {
+                        # Native + custom tool variants accept the same
+                        # inline approval-gating fields as MCP tool
+                        # entries (below) — see `ToolRefSchema` in
+                        # services/agent-shared/src/spec/spec.ts. Mirror
+                        # any changes there.
                         "type": "object",
                         "properties": {
                             "kind": {"type": "string", "const": "native"},
                             "id": {"type": "string"},
+                            "requires_approval": {"type": "boolean", "default": False},
+                            "approval_policy": _APPROVAL_POLICY_JSON_SCHEMA,
                         },
                         "required": ["kind", "id"],
                         "additionalProperties": False,
@@ -173,6 +204,8 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                             "kind": {"type": "string", "const": "custom"},
                             "id": {"type": "string"},
                             "path": {"type": "string"},
+                            "requires_approval": {"type": "boolean", "default": False},
+                            "approval_policy": _APPROVAL_POLICY_JSON_SCHEMA,
                         },
                         "required": ["kind", "id", "path"],
                         "additionalProperties": False,

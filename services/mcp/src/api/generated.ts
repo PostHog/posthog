@@ -7931,10 +7931,34 @@ export namespace Schemas {
     export type AgentRevisionSpecToolsItem = {
       kind: 'native';
       id: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
     } | {
       kind: 'custom';
       id: string;
       path: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
     } | {
       kind: 'custom_template';
       from_template: string;
@@ -29005,10 +29029,34 @@ export namespace Schemas {
     export type PatchedAgentRevisionSpecToolsItem = {
       kind: 'native';
       id: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
     } | {
       kind: 'custom';
       id: string;
       path: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
     } | {
       kind: 'custom_template';
       from_template: string;

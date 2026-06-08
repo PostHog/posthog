@@ -241,11 +241,35 @@ export type AgentRevisionApiSpecToolsItem =
     | {
           kind: 'native'
           id: string
+          requires_approval?: boolean
+          approval_policy?: {
+              /** @minItems 1 */
+              approvers?: ('team_admins' | 'session_principal')[]
+              allow_edit?: boolean
+              /**
+               * @minimum 60000
+               * @maximum 604800000
+               */
+              ttl_ms?: number
+              allow_agent_approver?: boolean
+          }
       }
     | {
           kind: 'custom'
           id: string
           path: string
+          requires_approval?: boolean
+          approval_policy?: {
+              /** @minItems 1 */
+              approvers?: ('team_admins' | 'session_principal')[]
+              allow_edit?: boolean
+              /**
+               * @minimum 60000
+               * @maximum 604800000
+               */
+              ttl_ms?: number
+              allow_agent_approver?: boolean
+          }
       }
     | {
           kind: 'custom_template'
@@ -465,11 +489,35 @@ export type PatchedAgentRevisionApiSpecToolsItem =
     | {
           kind: 'native'
           id: string
+          requires_approval?: boolean
+          approval_policy?: {
+              /** @minItems 1 */
+              approvers?: ('team_admins' | 'session_principal')[]
+              allow_edit?: boolean
+              /**
+               * @minimum 60000
+               * @maximum 604800000
+               */
+              ttl_ms?: number
+              allow_agent_approver?: boolean
+          }
       }
     | {
           kind: 'custom'
           id: string
           path: string
+          requires_approval?: boolean
+          approval_policy?: {
+              /** @minItems 1 */
+              approvers?: ('team_admins' | 'session_principal')[]
+              allow_edit?: boolean
+              /**
+               * @minimum 60000
+               * @maximum 604800000
+               */
+              ttl_ms?: number
+              allow_agent_approver?: boolean
+          }
       }
     | {
           kind: 'custom_template'
