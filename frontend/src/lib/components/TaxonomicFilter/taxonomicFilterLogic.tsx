@@ -1110,6 +1110,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'person metadata',
                         type: TaxonomicFilterGroupType.PersonMetadata,
                         options: personMetadataPropertyDefinitions,
+                        getIcon: getPropertyDefinitionIcon,
                         getName: (option: PropertyDefinition) => {
                             const coreDefinition = getCoreFilterDefinition(
                                 option.id,

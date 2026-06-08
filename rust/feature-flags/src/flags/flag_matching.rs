@@ -259,7 +259,8 @@ impl PropertyContext<'_> {
     pub fn resolve_for_filter(&self, filter: &PropertyFilter) -> &HashMap<String, Value> {
         match filter.prop_type {
             // PersonMetadata fields (e.g. created_at) are injected into the same map as
-            // regular person properties — see `inject_person_metadata_into_properties`.
+            // regular person properties; see the `result.person` block in
+            // `apply_person_cohort_to_state` (flag_matching_utils.rs).
             PropertyType::Person | PropertyType::PersonMetadata => {
                 self.person_properties.unwrap_or(&*EMPTY_PROPERTY_MAP)
             }

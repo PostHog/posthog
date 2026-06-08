@@ -528,6 +528,69 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(str(new_person.uuid), member_ids)
         self.assertNotIn(str(old_person.uuid), member_ids)
 
+    def test_person_metadata_cohort_membership_negated_end_to_end(self) -> None:
+        # Mirror of the is_date_after test with is_date_before, so membership inverts: the OLD
+        # person should be in the cohort and the NEW person should not. Covers the operator whose
+        # missing-value default differs in the Rust matcher (the silent-grant class).
+        utc = ZoneInfo("UTC")
+        old_dt = datetime(2023, 1, 1, tzinfo=utc)
+        new_dt = datetime(2025, 1, 1, tzinfo=utc)
+        with freeze_time(old_dt):
+            old_person = _create_person(
+                team=self.team,
+                distinct_ids=["old_neg"],
+                properties={"name": "old user"},
+                created_at=old_dt,
+                immediate=True,
+            )
+        with freeze_time(new_dt):
+            new_person = _create_person(
+                team=self.team,
+                distinct_ids=["new_neg"],
+                properties={"name": "new user"},
+                created_at=new_dt,
+                immediate=True,
+            )
+        flush_persons_and_events()
+
+        cohort = cast(
+            Cohort,
+            Cohort.objects.create(
+                team=self.team,
+                name="created before 2024",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "created_at",
+                                        "type": "person_metadata",
+                                        "value": "2024-06-01",
+                                        "operator": "is_date_before",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            ),
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        from posthog.clickhouse.client.execute import sync_execute
+
+        rows = sync_execute(
+            "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s "
+            "GROUP BY person_id, cohort_id, team_id, version HAVING sum(sign) > 0",
+            {"cohort_id": cohort.pk, "team_id": self.team.pk},
+        )
+        member_ids = {str(row[0]) for row in rows}
+        self.assertIn(str(old_person.uuid), member_ids)
+        self.assertNotIn(str(new_person.uuid), member_ids)
+
     def test_person_metadata_realtime_cohort_raises_error(self) -> None:
         cohort = Cohort.objects.create(
             team=self.team,

@@ -33,7 +33,7 @@ from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -328,8 +328,48 @@ class PersonFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
         return self
 
 
+class PersonMetadataFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
+    """Filter on a top-level persons-table column (e.g. created_at) rather than the
+    properties JSON. The matching key must be one of PERSON_METADATA_FIELDS."""
+
+    type: Literal["person_metadata"]
+    key: str
+    operator: str | None = None
+    value: Any | None = None
+    negation: bool = False
+
+    @model_validator(mode="after")
+    def _validate_key(self):
+        if self.key not in PERSON_METADATA_FIELDS:
+            allowed = ", ".join(sorted(PERSON_METADATA_FIELDS))
+            raise ValueError(f"Unsupported person_metadata key '{self.key}'. Allowed keys: {allowed}.")
+        return self
+
+    @model_validator(mode="after")
+    def _missing_keys_check(self):
+        missing: list[str] = []
+        if self.value is None and self.operator not in ("is_set", "is_not_set"):
+            missing.append("value")
+        if self.operator is None:
+            missing.append("operator")
+        if missing:
+            raise ValueError(f"Missing required keys for person_metadata filter: {', '.join(missing)}")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_date_value(self):
+        if self.operator in DATE_OPERATORS and self.value is not None:
+            parsed_date = determine_parsed_date_for_property_matching(self.value)
+            if not parsed_date:
+                raise ValueError(
+                    f"Invalid date value '{self.value}' for operator '{self.operator}'. "
+                    f"Expected a relative date (e.g., '-7d', '30d') or an ISO 8601 date (e.g., '2024-01-15')."
+                )
+        return self
+
+
 PropertyFilter = Annotated[
-    Union[BehavioralFilter, CohortFilter, PersonFilter],
+    Union[BehavioralFilter, CohortFilter, PersonFilter, PersonMetadataFilter],
     Field(discriminator="type"),
 ]
 

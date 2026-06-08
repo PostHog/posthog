@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::properties::property_models::{CompiledRegex, OperatorType, PropertyFilter, PropertyType};
@@ -17,6 +18,11 @@ pub(crate) const REGEX_BACKTRACK_LIMIT: usize = 10_000;
 /// person properties map. Avoids collision with user-set properties of the same name.
 const PERSON_METADATA_KEY_PREFIX: &str = "__posthog_person_metadata__";
 
+/// Top-level persons-table columns exposed as PersonMetadata filters. Must stay in sync
+/// with `PERSON_METADATA_FIELDS` in `posthog/hogql/property.py` (the source of truth) and
+/// with the injection match arm in `flag_matching_utils::apply_person_cohort_to_state`.
+pub const PERSON_METADATA_FIELDS: &[&str] = &["created_at"];
+
 /// Build the lookup key for a PersonMetadata field (e.g. created_at).
 pub fn person_metadata_key(field: &str) -> String {
     format!("{}{}", PERSON_METADATA_KEY_PREFIX, field)
@@ -24,11 +30,14 @@ pub fn person_metadata_key(field: &str) -> String {
 
 /// Resolve the lookup key for a property filter, applying the PersonMetadata prefix when
 /// the filter targets a top-level persons-table column rather than the properties JSON.
-pub fn lookup_key_for(filter: &PropertyFilter) -> String {
+///
+/// Returns `Cow::Borrowed` for the common case (Person/Group/Event/Cohort/Flag) so the hot
+/// `match_property` path doesn't allocate; only PersonMetadata filters allocate the prefixed key.
+pub fn lookup_key_for(filter: &PropertyFilter) -> Cow<'_, str> {
     if filter.prop_type == PropertyType::PersonMetadata {
-        person_metadata_key(&filter.key)
+        Cow::Owned(person_metadata_key(&filter.key))
     } else {
-        filter.key.clone()
+        Cow::Borrowed(&filter.key)
     }
 }
 
@@ -78,10 +87,11 @@ pub fn match_property(
     team_timezone: Tz,
 ) -> Result<bool, FlagMatchingError> {
     let lookup_key = lookup_key_for(property);
+    let key: &str = lookup_key.as_ref();
 
     // only looks for matches where key exists in override_property_values
     // doesn't support operator is_not_set with partial_props
-    if partial_props && !matching_property_values.contains_key(&lookup_key) {
+    if partial_props && !matching_property_values.contains_key(key) {
         tracing::warn!("Missing property for matching: {}", property.key);
         return Err(FlagMatchingError::MissingProperty(format!(
             "can't match properties without a value. Missing property: {}",
@@ -89,7 +99,6 @@ pub fn match_property(
         )));
     }
 
-    let key = &lookup_key;
     let operator = property.operator.unwrap_or(OperatorType::Exact);
     let match_value = matching_property_values.get(key);
 

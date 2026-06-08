@@ -628,10 +628,14 @@ fn are_overrides_useful_for_flag(
         return false;
     }
 
-    // Check if overrides contain at least one property the flag needs
-    property_filters
-        .iter()
-        .any(|filter| overrides.contains_key(&filter.key))
+    // Check if overrides contain at least one property the flag needs.
+    // Use `lookup_key_for` so PersonMetadata filters match on the sentinel-prefixed key rather
+    // than the raw key — see the note on `requires_db_property`.
+    property_filters.iter().any(|filter| {
+        overrides.contains_key(
+            crate::properties::property_matching::lookup_key_for(filter).as_ref(),
+        )
+    })
 }
 
 /// Determines if a FlagError should trigger a retry

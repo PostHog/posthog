@@ -31,7 +31,6 @@ import {
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
-    AnyCohortCriteriaType,
     AnyPropertyFilter,
     PropertyDefinitionType,
     PropertyFilterType,
@@ -120,7 +119,7 @@ export function CohortSelectorField({
 export function CohortMathOperatorField(props: CohortSelectorFieldProps): JSX.Element {
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
     const propertyKey = props.criteria?.key
-    const propertyType = (props.criteria as AnyCohortCriteriaType | undefined)?.type
+    const propertyType = props.criteria?.type
     const definitionType =
         propertyType === BehavioralFilterKey.PersonMetadata
             ? PropertyDefinitionType.PersonMetadata

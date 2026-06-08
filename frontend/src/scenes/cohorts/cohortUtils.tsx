@@ -17,6 +17,7 @@ import {
 } from 'scenes/cohorts/CohortFilters/types'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     ActionType,
     AnyCohortCriteriaType,
@@ -68,8 +69,12 @@ export function cleanBehavioralTypeCriteria(criteria: AnyCohortCriteriaType): An
         // It's a transient UI hint that lets us derive the durable `type` once on first
         // selection. Subsequent cleanCriteria passes (and the negation flow in
         // determineFilterType) key on `criteria.type`, which is what gets persisted.
+        // We also preserve an already-durable PersonMetadata `type`, so a later cleanup
+        // pass on a loaded cohort (where `event_type` has since been dropped) doesn't
+        // downgrade the criterion back to a plain Person property lookup.
         type =
-            criteria.event_type === TaxonomicFilterGroupType.PersonMetadata
+            criteria.event_type === TaxonomicFilterGroupType.PersonMetadata ||
+            criteria.type === BehavioralFilterKey.PersonMetadata
                 ? BehavioralFilterKey.PersonMetadata
                 : BehavioralFilterKey.Person
     }
@@ -623,6 +628,17 @@ export function criteriaToHumanSentence(
                     words.push(<pre>{actionsById?.[value]?.name ?? `Action ${value}`}</pre>)
                 } else if (type === FilterType.EventFilters && (criteria.event_filters?.length || 0) > 0) {
                     words.push(<pre>with filters</pre>)
+                } else if (
+                    fieldKey === 'key' &&
+                    (criteria as AnyCohortCriteriaType).type === BehavioralFilterKey.PersonMetadata
+                ) {
+                    // PersonMetadata keys (e.g. created_at) are stored raw; resolve the taxonomy
+                    // label ("First seen") so the human sentence doesn't surface the column name.
+                    const label = getCoreFilterDefinition(
+                        value as string,
+                        TaxonomicFilterGroupType.PersonMetadata
+                    )?.label
+                    words.push(<pre>{label ?? value}</pre>)
                 } else {
                     words.push(<pre>{value}</pre>)
                 }
