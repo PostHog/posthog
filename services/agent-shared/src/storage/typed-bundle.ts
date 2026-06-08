@@ -1,0 +1,365 @@
+/**
+ * Typed bundle — the structured authoring view on top of the S3 bundle.
+ *
+ * The S3 layout below the surface is unchanged:
+ *   - `agent.md`                        ← author's system prompt
+ *   - `skills/<id>.md`                  ← skill markdown body
+ *   - `skills/<id>/files/<path>`        ← skill companion files
+ *   - `tools/<id>/source.ts`            ← TypeScript source (author writes)
+ *   - `tools/<id>/compiled.js`          ← esbuild output (server writes)
+ *   - `tools/<id>/schema.json`          ← derived from PUT body (server writes)
+ *
+ * The author-facing API never references file paths. They write to typed
+ * resources (`PUT /skills/:id`, `PUT /tools/:id`) and the janitor translates
+ * to canonical S3 paths under the hood.
+ *
+ * `readTypedBundle` and `writeTypedBundle` are the round-trip helpers used
+ * by `GET /bundle` and `PUT /bundle` respectively. Single-resource endpoints
+ * (`PUT /skills/:id`, etc.) reach into the bundle store directly with the
+ * canonical paths defined below.
+ */
+
+import { z } from 'zod'
+
+import { BundleEntry, BundleStore } from './bundle'
+
+// ─── Canonical S3 paths ──────────────────────────────────────────────
+
+export const AGENT_MD_PATH = 'agent.md'
+export function skillBodyPath(skillId: string): string {
+    return `skills/${skillId}.md`
+}
+export function skillFilePath(skillId: string, relPath: string): string {
+    return `skills/${skillId}/files/${relPath}`
+}
+export function toolSourcePath(toolId: string): string {
+    return `tools/${toolId}/source.ts`
+}
+export function toolCompiledPath(toolId: string): string {
+    return `tools/${toolId}/compiled.js`
+}
+export function toolSchemaPath(toolId: string): string {
+    return `tools/${toolId}/schema.json`
+}
+
+// ─── Typed resource shapes ──────────────────────────────────────────
+
+// Slugs are url-safe ids the author picks. Tight regex keeps S3 paths sane
+// and matches the convention the existing skill / tool ids already follow.
+export const RESOURCE_ID_REGEX = /^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$/
+const ResourceIdSchema = z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(RESOURCE_ID_REGEX, { message: 'id must be lowercase letters, digits, hyphens, or underscores' })
+
+export const SkillFileSchema = z.object({
+    /** Path relative to `skills/<id>/files/`. No leading slash, no `..`. */
+    path: z
+        .string()
+        .min(1)
+        .max(256)
+        .refine((p) => !p.startsWith('/') && !p.includes('..') && !p.startsWith('./'), {
+            message: 'skill companion path must be relative and not contain `..`',
+        }),
+    content: z.string(),
+})
+
+export const TypedSkillSchema = z.object({
+    id: ResourceIdSchema,
+    description: z.string().min(1).max(2000),
+    body: z.string().max(200_000),
+    files: z.array(SkillFileSchema).max(64).default([]),
+})
+
+export const TypedToolSchema = z.object({
+    id: ResourceIdSchema,
+    description: z.string().min(1).max(2000),
+    /**
+     * JSON Schema for the tool's args. Free-form object (the runner doesn't
+     * introspect it; pi-ai passes it through to the provider). Enforced as
+     * a non-null object so the model sees a parseable schema.
+     */
+    args_schema: z.record(z.string(), z.unknown()),
+    source: z.string().min(1).max(500_000),
+})
+
+export type TypedSkill = z.infer<typeof TypedSkillSchema>
+export type TypedTool = z.infer<typeof TypedToolSchema>
+
+/**
+ * Author-facing spec slice — everything the author writes via PUT /spec.
+ * Excludes `skills[]` / `tools[]` because those are server-derived at
+ * freeze from the typed resources in the bundle.
+ *
+ * Validation is shallow on purpose: the janitor's PUT /spec endpoint just
+ * stashes this onto `agent_revision.spec`. The full `AgentSpecSchema` is
+ * applied at freeze when the derived skills/tools are merged in.
+ */
+export const TypedSpecSchema = z
+    .object({
+        model: z.string().min(1).optional(),
+        triggers: z.array(z.unknown()).optional(),
+        mcps: z.array(z.unknown()).optional(),
+        integrations: z.array(z.string()).optional(),
+        secrets: z.array(z.string()).optional(),
+        limits: z.unknown().optional(),
+        auth: z.unknown().optional(),
+        entrypoint: z.string().optional(),
+        reasoning: z.string().optional(),
+        framework_prompt: z.unknown().optional(),
+        resume: z.unknown().optional(),
+    })
+    .strict()
+
+export type TypedSpec = z.infer<typeof TypedSpecSchema>
+
+export const TypedBundleSchema = z.object({
+    agent_md: z.string(),
+    skills: z.array(TypedSkillSchema),
+    tools: z.array(TypedToolSchema),
+    spec: TypedSpecSchema,
+})
+
+export type TypedBundle = z.infer<typeof TypedBundleSchema>
+
+// ─── Read: S3 → TypedBundle ─────────────────────────────────────────
+
+/**
+ * Reconstruct the typed view from the S3 bundle contents + the revision
+ * spec. Skips files that don't fit the canonical schema (best-effort; lets
+ * malformed legacy bundles still produce a partial typed view rather than
+ * 500ing the GET).
+ *
+ * Tools must have BOTH source.ts and schema.json to be included; bundles
+ * with only one half are reported as broken via `errors`.
+ */
+export interface ReadTypedBundleResult {
+    bundle: TypedBundle
+    /** Non-fatal complaints — bundle files that don't fit the canonical layout. */
+    warnings: string[]
+}
+
+export async function readTypedBundle(
+    revisionId: string,
+    store: BundleStore,
+    spec: Record<string, unknown> = {},
+    precomputedEntries?: BundleEntry[]
+): Promise<ReadTypedBundleResult> {
+    const warnings: string[] = []
+    const entries = precomputedEntries ?? (await store.list(revisionId))
+    const paths = new Set(entries.map((e) => e.path))
+
+    // Read every interesting file in parallel — S3 is the bottleneck, and
+    // sequential reads of a ~14-skill bundle were timing out the Django proxy
+    // (30s) during the typed-API rollout. Parallel reads bring a freeze of
+    // a 50-file bundle down from ~25s to ~2s.
+    const reads = await Promise.all([
+        paths.has(AGENT_MD_PATH) ? store.readText(revisionId, AGENT_MD_PATH) : Promise.resolve(''),
+        ...entries.map(async (entry) => ({ path: entry.path, content: await store.readText(revisionId, entry.path) })),
+    ])
+    const agentMd = reads[0] as string
+    const fileContents = new Map<string, string>()
+    for (let i = 1; i < reads.length; i++) {
+        const r = reads[i] as { path: string; content: string }
+        fileContents.set(r.path, r.content)
+    }
+
+    // Skills: every `skills/<id>.md` that matches the slug regex + collect
+    // companion files from `skills/<id>/files/<path>`.
+    const skillsByid = new Map<
+        string,
+        { description: string; body: string; files: { path: string; content: string }[] }
+    >()
+    for (const entry of entries) {
+        const m = /^skills\/([a-z0-9](?:[a-z0-9_-]*[a-z0-9])?)\.md$/.exec(entry.path)
+        if (!m) {
+            continue
+        }
+        const id = m[1]
+        const body = fileContents.get(entry.path) ?? ''
+        const description = deriveSkillDescription(body)
+        skillsByid.set(id, { description, body, files: [] })
+    }
+    for (const entry of entries) {
+        const m = /^skills\/([a-z0-9](?:[a-z0-9_-]*[a-z0-9])?)\/files\/(.+)$/.exec(entry.path)
+        if (!m) {
+            continue
+        }
+        const id = m[1]
+        const relPath = m[2]
+        const slot = skillsByid.get(id)
+        if (!slot) {
+            warnings.push(`skill companion file at ${entry.path} has no corresponding skills/${id}.md`)
+            continue
+        }
+        slot.files.push({ path: relPath, content: fileContents.get(entry.path) ?? '' })
+    }
+
+    const skills: TypedSkill[] = []
+    for (const [id, slot] of skillsByid) {
+        skills.push({ id, description: slot.description, body: slot.body, files: slot.files })
+    }
+    skills.sort((a, b) => a.id.localeCompare(b.id))
+
+    // Tools: every `tools/<id>/` directory that has source.ts + schema.json.
+    const toolDirs = new Set<string>()
+    for (const entry of entries) {
+        const m = /^tools\/([a-z0-9](?:[a-z0-9_-]*[a-z0-9])?)\//.exec(entry.path)
+        if (m) {
+            toolDirs.add(m[1])
+        }
+    }
+    const tools: TypedTool[] = []
+    for (const id of [...toolDirs].sort()) {
+        const sourcePresent = paths.has(toolSourcePath(id))
+        const schemaPresent = paths.has(toolSchemaPath(id))
+        if (!sourcePresent) {
+            warnings.push(`tool dir tools/${id}/ missing source.ts`)
+            continue
+        }
+        if (!schemaPresent) {
+            warnings.push(`tool dir tools/${id}/ missing schema.json`)
+            continue
+        }
+        const source = fileContents.get(toolSourcePath(id)) ?? ''
+        const schemaText = fileContents.get(toolSchemaPath(id)) ?? '{}'
+        let schema: Record<string, unknown> = {}
+        let description = ''
+        try {
+            const parsed = JSON.parse(schemaText) as Record<string, unknown>
+            if (parsed && typeof parsed === 'object') {
+                description = typeof parsed.description === 'string' ? parsed.description : ''
+                const argsSchema = parsed.args_schema
+                if (argsSchema && typeof argsSchema === 'object' && !Array.isArray(argsSchema)) {
+                    schema = argsSchema as Record<string, unknown>
+                }
+            }
+        } catch {
+            warnings.push(`tool ${id} schema.json is not valid JSON`)
+        }
+        tools.push({ id, description, args_schema: schema, source })
+    }
+
+    return {
+        bundle: {
+            agent_md: agentMd,
+            skills,
+            tools,
+            spec: stripDerivedSpecFields(spec),
+        },
+        warnings,
+    }
+}
+
+function deriveSkillDescription(body: string): string {
+    for (const line of body.split('\n')) {
+        const t = line.trim()
+        if (!t || t.startsWith('#')) {
+            continue
+        }
+        return t.slice(0, 280)
+    }
+    return ''
+}
+
+/**
+ * Strip the runtime-derived fields from a spec before exposing it on the
+ * authoring API. `skills[]` and `tools[]` are owned by the typed resources
+ * in the bundle; the API caller mutates the resources, not the spec arrays.
+ */
+export function stripDerivedSpecFields(spec: Record<string, unknown>): TypedSpec {
+    const { skills: _s, tools: _t, ...rest } = spec ?? {}
+    // Best-effort coerce — the spec column is JSONB so the runtime guarantees
+    // an object shape. We trust the persistence layer.
+    return rest as TypedSpec
+}
+
+// ─── Write: TypedBundle → S3 ─────────────────────────────────────────
+
+/**
+ * Sync the bundle store to match the typed view. Used by `PUT /bundle`.
+ * - Files matching the typed layout for resources NOT in the payload are
+ *   deleted (full replace).
+ * - The author-facing spec (`bundle.spec`) is returned for the caller to
+ *   stamp onto `agent_revision.spec` — this helper doesn't touch Postgres.
+ *
+ * The caller is responsible for:
+ *   - tool compilation (calling `compileAndWriteTool` per tool)
+ *   - persisting `bundle.spec` onto the revision row
+ */
+export async function syncBundleToStore(revisionId: string, store: BundleStore, bundle: TypedBundle): Promise<void> {
+    const entries = await store.list(revisionId)
+    const existing = new Set(entries.map((e) => e.path))
+
+    // Build the set of paths we WILL write so we know what to delete.
+    const willWrite = new Set<string>()
+    willWrite.add(AGENT_MD_PATH)
+    for (const skill of bundle.skills) {
+        willWrite.add(skillBodyPath(skill.id))
+        for (const f of skill.files ?? []) {
+            willWrite.add(skillFilePath(skill.id, f.path))
+        }
+    }
+    for (const tool of bundle.tools) {
+        willWrite.add(toolSourcePath(tool.id))
+        willWrite.add(toolSchemaPath(tool.id))
+        willWrite.add(toolCompiledPath(tool.id))
+    }
+
+    // Delete anything in the canonical layout that's NOT in the new payload.
+    // We DON'T touch paths outside the canonical layout — those are either
+    // future-resource buckets or legacy junk the migrator hasn't cleaned up.
+    for (const path of existing) {
+        if (willWrite.has(path)) {
+            continue
+        }
+        if (path === AGENT_MD_PATH || path.startsWith('skills/') || path.startsWith('tools/')) {
+            await store.delete(revisionId, path)
+        }
+    }
+
+    // Write agent.md + skills + skill companions. Tools are written by the
+    // caller after the compile step succeeds.
+    await store.write(revisionId, AGENT_MD_PATH, bundle.agent_md)
+    for (const skill of bundle.skills) {
+        await store.write(revisionId, skillBodyPath(skill.id), skill.body)
+        for (const f of skill.files ?? []) {
+            await store.write(revisionId, skillFilePath(skill.id, f.path), f.content)
+        }
+    }
+}
+
+/**
+ * Write one tool's source.ts + schema.json. compiled.js is written
+ * separately by the upload pipeline after the AST + esbuild steps succeed.
+ */
+export async function writeToolSourceAndSchema(revisionId: string, store: BundleStore, tool: TypedTool): Promise<void> {
+    await store.write(revisionId, toolSourcePath(tool.id), tool.source)
+    await store.write(
+        revisionId,
+        toolSchemaPath(tool.id),
+        JSON.stringify({ description: tool.description, args_schema: tool.args_schema }, null, 2)
+    )
+}
+
+/**
+ * Delete one tool's bundle files (source.ts, compiled.js, schema.json).
+ */
+export async function deleteToolFiles(revisionId: string, store: BundleStore, toolId: string): Promise<void> {
+    for (const path of [toolSourcePath(toolId), toolCompiledPath(toolId), toolSchemaPath(toolId)]) {
+        if (await store.exists(revisionId, path)) {
+            await store.delete(revisionId, path)
+        }
+    }
+}
+
+/**
+ * Delete one skill's body + every companion file under skills/<id>/files/.
+ */
+export async function deleteSkillFiles(revisionId: string, store: BundleStore, skillId: string): Promise<void> {
+    const entries = await store.list(revisionId, `skills/${skillId}`)
+    for (const e of entries) {
+        await store.delete(revisionId, e.path)
+    }
+}

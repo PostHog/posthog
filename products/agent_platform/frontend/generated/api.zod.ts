@@ -1110,20 +1110,79 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
 })
 
 /**
- * Bulk-push the bundle. Body `{ files, mode: replace|merge }`.
- */
-export const agentApplicationsRevisionsBundleUpdateBodyModeDefault = `replace`
+ * Revisions of an agent. Created in `draft`, promoted through
+`ready → live` once the bundle has been uploaded + frozen.
 
+URLs (nested under an application):
+
+    Model CRUD:
+        GET   .../revisions/                       list
+        POST  .../revisions/                       create draft
+        GET   .../revisions/<id>/                  retrieve
+        PATCH .../revisions/<id>/                  update spec (draft only)
+
+    Lifecycle:
+        POST  .../revisions/<id>/promote/          ready → live
+        POST  .../revisions/<id>/archive/          → archived
+        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+        POST  .../revisions/new_draft/             create draft + clone_from atomically
+
+    Bundle authoring (proxied to the janitor):
+        GET    .../revisions/<id>/manifest/        list paths + sha256
+        GET    .../revisions/<id>/file/?path=…     read one file
+        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+        GET    .../revisions/<id>/bundle/          bulk pull all files
+        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ */
+export const AgentApplicationsRevisionsAgentMdUpdateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod.string(),
+    })
+    .describe('Body shape for PUT \/revisions\/<id>\/agent_md\/.')
+
+/**
+ * Full-replace the typed bundle. Anything not in the payload is
+deleted. Tool sources are AST-checked + esbuild-compiled by the
+janitor before any S3 writes.
+ */
 export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
     .object({
-        files: zod.record(zod.string(), zod.string()),
-        mode: zod
-            .enum(['replace', 'merge'])
-            .describe('\* `replace` - replace\n\* `merge` - merge')
-            .default(agentApplicationsRevisionsBundleUpdateBodyModeDefault),
+        agent_md: zod.string(),
+        skills: zod
+            .array(
+                zod
+                    .object({
+                        description: zod.string(),
+                        body: zod.string(),
+                        files: zod
+                            .array(
+                                zod.object({
+                                    path: zod.string(),
+                                    content: zod.string(),
+                                })
+                            )
+                            .optional(),
+                    })
+                    .describe('Body shape for PUT \/revisions\/<id>\/skills\/<skill_id>\/.')
+            )
+            .optional(),
+        tools: zod
+            .array(
+                zod
+                    .object({
+                        description: zod.string(),
+                        args_schema: zod.record(zod.string(), zod.unknown()),
+                        source: zod.string(),
+                    })
+                    .describe('Body shape for PUT \/revisions\/<id>\/tools\/<tool_id>\/.')
+            )
+            .optional(),
+        spec: zod.record(zod.string(), zod.unknown()),
     })
     .describe(
-        "Body shape for PUT \/revisions\/<id>\/bundle\/ — the bulk upload.\n\n`files` is a `{path: utf-8 content}` map. `mode='replace'` wipes the\nexisting bundle before writing the new set; `'merge'` upserts."
+        'Body shape for PUT \/revisions\/<id>\/bundle\/ — the full-replace typed\npayload. See docs\/agent-platform\/plans\/typed-bundle-authoring-api.md §3.'
     )
 
 /**
@@ -1159,15 +1218,116 @@ export const AgentApplicationsRevisionsCronFireCreateBody = /* @__PURE__ */ zod.
 })
 
 /**
- * Write one file by `?path=...`. Draft-only (janitor enforces).
+ * Revisions of an agent. Created in `draft`, promoted through
+`ready → live` once the bundle has been uploaded + frozen.
+
+URLs (nested under an application):
+
+    Model CRUD:
+        GET   .../revisions/                       list
+        POST  .../revisions/                       create draft
+        GET   .../revisions/<id>/                  retrieve
+        PATCH .../revisions/<id>/                  update spec (draft only)
+
+    Lifecycle:
+        POST  .../revisions/<id>/promote/          ready → live
+        POST  .../revisions/<id>/archive/          → archived
+        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+        POST  .../revisions/new_draft/             create draft + clone_from atomically
+
+    Bundle authoring (proxied to the janitor):
+        GET    .../revisions/<id>/manifest/        list paths + sha256
+        GET    .../revisions/<id>/file/?path=…     read one file
+        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+        GET    .../revisions/<id>/bundle/          bulk pull all files
+        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
-export const AgentApplicationsRevisionsFileUpdateBody = /* @__PURE__ */ zod
+export const AgentApplicationsRevisionsSkillsUpdateBody = /* @__PURE__ */ zod
     .object({
-        content: zod.string(),
+        description: zod.string(),
+        body: zod.string(),
+        files: zod
+            .array(
+                zod.object({
+                    path: zod.string(),
+                    content: zod.string(),
+                })
+            )
+            .optional(),
+    })
+    .describe('Body shape for PUT \/revisions\/<id>\/skills\/<skill_id>\/.')
+
+/**
+ * Revisions of an agent. Created in `draft`, promoted through
+`ready → live` once the bundle has been uploaded + frozen.
+
+URLs (nested under an application):
+
+    Model CRUD:
+        GET   .../revisions/                       list
+        POST  .../revisions/                       create draft
+        GET   .../revisions/<id>/                  retrieve
+        PATCH .../revisions/<id>/                  update spec (draft only)
+
+    Lifecycle:
+        POST  .../revisions/<id>/promote/          ready → live
+        POST  .../revisions/<id>/archive/          → archived
+        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+        POST  .../revisions/new_draft/             create draft + clone_from atomically
+
+    Bundle authoring (proxied to the janitor):
+        GET    .../revisions/<id>/manifest/        list paths + sha256
+        GET    .../revisions/<id>/file/?path=…     read one file
+        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+        GET    .../revisions/<id>/bundle/          bulk pull all files
+        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ */
+export const AgentApplicationsRevisionsSpecUpdateBody = /* @__PURE__ */ zod
+    .object({
+        spec: zod.record(zod.string(), zod.unknown()),
     })
     .describe(
-        'Body shape for PUT \/revisions\/<id>\/file\/. `path` lives in the query\nstring (matches the janitor wire format); `content` is the new file body.'
+        "Body shape for PUT \/revisions\/<id>\/spec\/. The body's `spec` object\nis the author-facing slice (skills\/tools are server-derived at freeze)."
     )
+
+/**
+ * Revisions of an agent. Created in `draft`, promoted through
+`ready → live` once the bundle has been uploaded + frozen.
+
+URLs (nested under an application):
+
+    Model CRUD:
+        GET   .../revisions/                       list
+        POST  .../revisions/                       create draft
+        GET   .../revisions/<id>/                  retrieve
+        PATCH .../revisions/<id>/                  update spec (draft only)
+
+    Lifecycle:
+        POST  .../revisions/<id>/promote/          ready → live
+        POST  .../revisions/<id>/archive/          → archived
+        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+        POST  .../revisions/new_draft/             create draft + clone_from atomically
+
+    Bundle authoring (proxied to the janitor):
+        GET    .../revisions/<id>/manifest/        list paths + sha256
+        GET    .../revisions/<id>/file/?path=…     read one file
+        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+        GET    .../revisions/<id>/bundle/          bulk pull all files
+        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ */
+export const AgentApplicationsRevisionsToolsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        description: zod.string(),
+        args_schema: zod.record(zod.string(), zod.unknown()),
+        source: zod.string(),
+    })
+    .describe('Body shape for PUT \/revisions\/<id>\/tools\/<tool_id>\/.')
 
 /**
  * Create a fresh draft revision under `application_id` and seed it

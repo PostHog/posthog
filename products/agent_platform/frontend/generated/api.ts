@@ -23,9 +23,6 @@ import type {
     AgentApplicationsPreviewProxyGetParams,
     AgentApplicationsPreviewProxyParams,
     AgentApplicationsPreviewTokenParams,
-    AgentApplicationsRevisionsFileDestroyParams,
-    AgentApplicationsRevisionsFileRetrieveParams,
-    AgentApplicationsRevisionsFileUpdateParams,
     AgentApplicationsRevisionsListParams,
     AgentApplicationsSessionLogsParams,
     AgentApplicationsSessionsListParams,
@@ -86,8 +83,11 @@ import type {
     SkillTemplateSummaryApi,
     SkillTemplateUsageApi,
     TemplateVersionEntryApi,
-    WriteBundleRequestApi,
-    WriteFileRequestApi,
+    WriteAgentMdRequestApi,
+    WriteSkillRequestApi,
+    WriteSpecRequestApi,
+    WriteToolRequestApi,
+    WriteTypedBundleRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -711,6 +711,52 @@ export const agentApplicationsRevisionsDestroy = async (
     })
 }
 
+export const getAgentApplicationsRevisionsAgentMdUpdateUrl = (projectId: string, applicationId: string, id: string) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/agent_md/`
+}
+
+/**
+ * Revisions of an agent. Created in `draft`, promoted through
+`ready → live` once the bundle has been uploaded + frozen.
+
+URLs (nested under an application):
+
+    Model CRUD:
+        GET   .../revisions/                       list
+        POST  .../revisions/                       create draft
+        GET   .../revisions/<id>/                  retrieve
+        PATCH .../revisions/<id>/                  update spec (draft only)
+
+    Lifecycle:
+        POST  .../revisions/<id>/promote/          ready → live
+        POST  .../revisions/<id>/archive/          → archived
+        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+        POST  .../revisions/new_draft/             create draft + clone_from atomically
+
+    Bundle authoring (proxied to the janitor):
+        GET    .../revisions/<id>/manifest/        list paths + sha256
+        GET    .../revisions/<id>/file/?path=…     read one file
+        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+        GET    .../revisions/<id>/bundle/          bulk pull all files
+        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ */
+export const agentApplicationsRevisionsAgentMdUpdate = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    writeAgentMdRequestApi: WriteAgentMdRequestApi,
+    options?: RequestInit
+): Promise<AgentRevisionApi> => {
+    return apiMutator<AgentRevisionApi>(getAgentApplicationsRevisionsAgentMdUpdateUrl(projectId, applicationId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(writeAgentMdRequestApi),
+    })
+}
+
 export const getAgentApplicationsRevisionsArchiveCreateUrl = (projectId: string, applicationId: string, id: string) => {
     return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/archive/`
 }
@@ -741,8 +787,7 @@ export const getAgentApplicationsRevisionsBundleRetrieveUrl = (
 }
 
 /**
- * Bulk-pull: returns `{ files: { path: content, ... }, ... }`. Use
-this when the MCP wants the whole bundle to work on locally.
+ * Read the full typed bundle: `{ agent_md, skills, tools, spec }`.
  */
 export const agentApplicationsRevisionsBundleRetrieve = async (
     projectId: string,
@@ -761,20 +806,22 @@ export const getAgentApplicationsRevisionsBundleUpdateUrl = (projectId: string, 
 }
 
 /**
- * Bulk-push the bundle. Body `{ files, mode: replace|merge }`.
+ * Full-replace the typed bundle. Anything not in the payload is
+deleted. Tool sources are AST-checked + esbuild-compiled by the
+janitor before any S3 writes.
  */
 export const agentApplicationsRevisionsBundleUpdate = async (
     projectId: string,
     applicationId: string,
     id: string,
-    writeBundleRequestApi: WriteBundleRequestApi,
+    writeTypedBundleRequestApi: WriteTypedBundleRequestApi,
     options?: RequestInit
 ): Promise<AgentRevisionApi> => {
     return apiMutator<AgentRevisionApi>(getAgentApplicationsRevisionsBundleUpdateUrl(projectId, applicationId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(writeBundleRequestApi),
+        body: JSON.stringify(writeTypedBundleRequestApi),
     })
 }
 
@@ -839,126 +886,6 @@ export const agentApplicationsRevisionsCronFireCreate = async (
             body: JSON.stringify(agentRevisionCronFireRequestApi),
         }
     )
-}
-
-export const getAgentApplicationsRevisionsFileRetrieveUrl = (
-    projectId: string,
-    applicationId: string,
-    id: string,
-    params: AgentApplicationsRevisionsFileRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/file/?${stringifiedParams}`
-        : `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/file/`
-}
-
-/**
- * Read one file by `?path=...`. Works on any revision state.
- */
-export const agentApplicationsRevisionsFileRetrieve = async (
-    projectId: string,
-    applicationId: string,
-    id: string,
-    params: AgentApplicationsRevisionsFileRetrieveParams,
-    options?: RequestInit
-): Promise<AgentRevisionApi> => {
-    return apiMutator<AgentRevisionApi>(
-        getAgentApplicationsRevisionsFileRetrieveUrl(projectId, applicationId, id, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getAgentApplicationsRevisionsFileUpdateUrl = (
-    projectId: string,
-    applicationId: string,
-    id: string,
-    params: AgentApplicationsRevisionsFileUpdateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/file/?${stringifiedParams}`
-        : `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/file/`
-}
-
-/**
- * Write one file by `?path=...`. Draft-only (janitor enforces).
- */
-export const agentApplicationsRevisionsFileUpdate = async (
-    projectId: string,
-    applicationId: string,
-    id: string,
-    writeFileRequestApi: WriteFileRequestApi,
-    params: AgentApplicationsRevisionsFileUpdateParams,
-    options?: RequestInit
-): Promise<AgentRevisionApi> => {
-    return apiMutator<AgentRevisionApi>(
-        getAgentApplicationsRevisionsFileUpdateUrl(projectId, applicationId, id, params),
-        {
-            ...options,
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(writeFileRequestApi),
-        }
-    )
-}
-
-export const getAgentApplicationsRevisionsFileDestroyUrl = (
-    projectId: string,
-    applicationId: string,
-    id: string,
-    params: AgentApplicationsRevisionsFileDestroyParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/file/?${stringifiedParams}`
-        : `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/file/`
-}
-
-/**
- * Delete one file by `?path=...`. Draft-only.
- */
-export const agentApplicationsRevisionsFileDestroy = async (
-    projectId: string,
-    applicationId: string,
-    id: string,
-    params: AgentApplicationsRevisionsFileDestroyParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getAgentApplicationsRevisionsFileDestroyUrl(projectId, applicationId, id, params), {
-        ...options,
-        method: 'DELETE',
-    })
 }
 
 export const getAgentApplicationsRevisionsFreezeCreateUrl = (projectId: string, applicationId: string, id: string) => {
@@ -1037,6 +964,156 @@ export const agentApplicationsRevisionsPromoteCreate = async (
     })
 }
 
+export const getAgentApplicationsRevisionsSkillsUpdateUrl = (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    skillId: string
+) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/skills/${skillId}/`
+}
+
+/**
+ * Revisions of an agent. Created in `draft`, promoted through
+`ready → live` once the bundle has been uploaded + frozen.
+
+URLs (nested under an application):
+
+    Model CRUD:
+        GET   .../revisions/                       list
+        POST  .../revisions/                       create draft
+        GET   .../revisions/<id>/                  retrieve
+        PATCH .../revisions/<id>/                  update spec (draft only)
+
+    Lifecycle:
+        POST  .../revisions/<id>/promote/          ready → live
+        POST  .../revisions/<id>/archive/          → archived
+        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+        POST  .../revisions/new_draft/             create draft + clone_from atomically
+
+    Bundle authoring (proxied to the janitor):
+        GET    .../revisions/<id>/manifest/        list paths + sha256
+        GET    .../revisions/<id>/file/?path=…     read one file
+        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+        GET    .../revisions/<id>/bundle/          bulk pull all files
+        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ */
+export const agentApplicationsRevisionsSkillsUpdate = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    skillId: string,
+    writeSkillRequestApi: WriteSkillRequestApi,
+    options?: RequestInit
+): Promise<AgentRevisionApi> => {
+    return apiMutator<AgentRevisionApi>(
+        getAgentApplicationsRevisionsSkillsUpdateUrl(projectId, applicationId, id, skillId),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(writeSkillRequestApi),
+        }
+    )
+}
+
+export const getAgentApplicationsRevisionsSkillsDestroyUrl = (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    skillId: string
+) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/skills/${skillId}/`
+}
+
+/**
+ * Revisions of an agent. Created in `draft`, promoted through
+`ready → live` once the bundle has been uploaded + frozen.
+
+URLs (nested under an application):
+
+    Model CRUD:
+        GET   .../revisions/                       list
+        POST  .../revisions/                       create draft
+        GET   .../revisions/<id>/                  retrieve
+        PATCH .../revisions/<id>/                  update spec (draft only)
+
+    Lifecycle:
+        POST  .../revisions/<id>/promote/          ready → live
+        POST  .../revisions/<id>/archive/          → archived
+        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+        POST  .../revisions/new_draft/             create draft + clone_from atomically
+
+    Bundle authoring (proxied to the janitor):
+        GET    .../revisions/<id>/manifest/        list paths + sha256
+        GET    .../revisions/<id>/file/?path=…     read one file
+        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+        GET    .../revisions/<id>/bundle/          bulk pull all files
+        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ */
+export const agentApplicationsRevisionsSkillsDestroy = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    skillId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAgentApplicationsRevisionsSkillsDestroyUrl(projectId, applicationId, id, skillId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getAgentApplicationsRevisionsSpecUpdateUrl = (projectId: string, applicationId: string, id: string) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/spec/`
+}
+
+/**
+ * Revisions of an agent. Created in `draft`, promoted through
+`ready → live` once the bundle has been uploaded + frozen.
+
+URLs (nested under an application):
+
+    Model CRUD:
+        GET   .../revisions/                       list
+        POST  .../revisions/                       create draft
+        GET   .../revisions/<id>/                  retrieve
+        PATCH .../revisions/<id>/                  update spec (draft only)
+
+    Lifecycle:
+        POST  .../revisions/<id>/promote/          ready → live
+        POST  .../revisions/<id>/archive/          → archived
+        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+        POST  .../revisions/new_draft/             create draft + clone_from atomically
+
+    Bundle authoring (proxied to the janitor):
+        GET    .../revisions/<id>/manifest/        list paths + sha256
+        GET    .../revisions/<id>/file/?path=…     read one file
+        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+        GET    .../revisions/<id>/bundle/          bulk pull all files
+        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ */
+export const agentApplicationsRevisionsSpecUpdate = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    writeSpecRequestApi: WriteSpecRequestApi,
+    options?: RequestInit
+): Promise<AgentRevisionApi> => {
+    return apiMutator<AgentRevisionApi>(getAgentApplicationsRevisionsSpecUpdateUrl(projectId, applicationId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(writeSpecRequestApi),
+    })
+}
+
 export const getAgentApplicationsRevisionsSystemPromptUrl = (projectId: string, applicationId: string, id: string) => {
     return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/system_prompt/`
 }
@@ -1063,6 +1140,110 @@ export const agentApplicationsRevisionsSystemPrompt = async (
             method: 'GET',
         }
     )
+}
+
+export const getAgentApplicationsRevisionsToolsUpdateUrl = (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    toolId: string
+) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/tools/${toolId}/`
+}
+
+/**
+ * Revisions of an agent. Created in `draft`, promoted through
+`ready → live` once the bundle has been uploaded + frozen.
+
+URLs (nested under an application):
+
+    Model CRUD:
+        GET   .../revisions/                       list
+        POST  .../revisions/                       create draft
+        GET   .../revisions/<id>/                  retrieve
+        PATCH .../revisions/<id>/                  update spec (draft only)
+
+    Lifecycle:
+        POST  .../revisions/<id>/promote/          ready → live
+        POST  .../revisions/<id>/archive/          → archived
+        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+        POST  .../revisions/new_draft/             create draft + clone_from atomically
+
+    Bundle authoring (proxied to the janitor):
+        GET    .../revisions/<id>/manifest/        list paths + sha256
+        GET    .../revisions/<id>/file/?path=…     read one file
+        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+        GET    .../revisions/<id>/bundle/          bulk pull all files
+        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ */
+export const agentApplicationsRevisionsToolsUpdate = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    toolId: string,
+    writeToolRequestApi: WriteToolRequestApi,
+    options?: RequestInit
+): Promise<AgentRevisionApi> => {
+    return apiMutator<AgentRevisionApi>(
+        getAgentApplicationsRevisionsToolsUpdateUrl(projectId, applicationId, id, toolId),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(writeToolRequestApi),
+        }
+    )
+}
+
+export const getAgentApplicationsRevisionsToolsDestroyUrl = (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    toolId: string
+) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/tools/${toolId}/`
+}
+
+/**
+ * Revisions of an agent. Created in `draft`, promoted through
+`ready → live` once the bundle has been uploaded + frozen.
+
+URLs (nested under an application):
+
+    Model CRUD:
+        GET   .../revisions/                       list
+        POST  .../revisions/                       create draft
+        GET   .../revisions/<id>/                  retrieve
+        PATCH .../revisions/<id>/                  update spec (draft only)
+
+    Lifecycle:
+        POST  .../revisions/<id>/promote/          ready → live
+        POST  .../revisions/<id>/archive/          → archived
+        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+        POST  .../revisions/new_draft/             create draft + clone_from atomically
+
+    Bundle authoring (proxied to the janitor):
+        GET    .../revisions/<id>/manifest/        list paths + sha256
+        GET    .../revisions/<id>/file/?path=…     read one file
+        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+        GET    .../revisions/<id>/bundle/          bulk pull all files
+        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ */
+export const agentApplicationsRevisionsToolsDestroy = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    toolId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAgentApplicationsRevisionsToolsDestroyUrl(projectId, applicationId, id, toolId), {
+        ...options,
+        method: 'DELETE',
+    })
 }
 
 export const getAgentApplicationsRevisionsValidateCreateUrl = (

@@ -105,13 +105,10 @@ class InProcessSandbox implements Sandbox {
         }
         const actions: Record<string, LoadedAction> = {}
         for (const [name, fn] of Object.entries(obj.actions)) {
-            if (typeof fn === 'function') {
-                actions[name] = { run: fn as LoadedAction['run'] }
-            } else if (fn && typeof fn === 'object' && typeof (fn as { run?: unknown }).run === 'function') {
-                actions[name] = { run: (fn as LoadedAction).run }
-            } else {
-                throw new Error(`tool ${id} action ${name} is not a function or { run } object`)
+            if (typeof fn !== 'function') {
+                throw new Error(`tool ${id} action ${name} is not a function`)
             }
+            actions[name] = { run: fn as LoadedAction['run'] }
         }
         return { id: obj.id ?? id, actions }
     }

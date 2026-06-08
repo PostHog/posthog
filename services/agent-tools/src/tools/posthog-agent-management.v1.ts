@@ -249,24 +249,22 @@ export const posthogAgentApplicationsRevisionsManifestV1 = defineNativeTool({
     },
 })
 
-export const posthogAgentApplicationsRevisionsFileV1 = defineNativeTool({
-    id: '@posthog/agent-applications-revisions-file-retrieve',
+export const posthogAgentApplicationsRevisionsBundleRetrieveV1 = defineNativeTool({
+    id: '@posthog/agent-applications-revisions-bundle-retrieve',
     description:
-        "Read one file from a revision's bundle by path (e.g. 'agent.md', 'skills/research/SKILL.md'). Returns the file's text content. Use after manifest-retrieve to pull specific files.",
+        "Read the full typed bundle for a revision. Returns `{ agent_md, skills, tools, spec }` — the agent's system prompt, every skill body + companion files, every custom tool's source + args_schema, and the author-facing spec slice. Use this when you want to inspect or edit the whole agent. Works on any revision state.",
     args: Type.Object({
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID.' }),
-        path: Type.String({ description: 'Bundle-relative path, e.g. "skills/research/SKILL.md".' }),
     }),
-    returns: Type.Object({ path: Type.String(), content: Type.String() }),
+    returns: Type.Record(Type.String(), Type.Unknown()),
     requires: { integrations: [], scopes: ['agents:read'] },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'GET',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/file/`),
-            query: { path: args.path },
+            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/bundle/`),
         })
     },
 })
@@ -486,26 +484,125 @@ export const posthogAgentApplicationsRevisionsPartialUpdateV1 = defineNativeTool
     },
 })
 
-export const posthogAgentApplicationsRevisionsFileUpdateV1 = defineNativeTool({
-    id: '@posthog/agent-applications-revisions-file-update',
-    description:
-        "Write or overwrite one bundle file in a draft revision. Path is bundle-relative (e.g. `agent.md`, `skills/research/SKILL.md`). For bulk pushes use `bundle-update` (not yet wired natively — fall back to per-file). Creates the path if it doesn't exist.",
+// ── typed bundle authoring API ──────────────────────────────────────────
+// See docs/agent-platform/plans/typed-bundle-authoring-api.md. Authors no
+// longer write file paths — they write typed resources (agent_md, spec,
+// skills, tools). The single-file file-update / file-retrieve tools were
+// removed; the replacements are below.
+
+export const posthogAgentApplicationsRevisionsAgentMdUpdateV1 = defineNativeTool({
+    id: '@posthog/agent-applications-revisions-agent-md-update',
+    description: "Replace the agent's system prompt (`agent.md`). Draft-only.",
     args: Type.Object({
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID (must be `state=draft`).' }),
-        path: Type.String({ description: 'Bundle-relative file path, e.g. `agent.md`.' }),
-        content: Type.String({ description: 'Full file content. UTF-8.' }),
+        content: Type.String({ description: 'Full system prompt body.' }),
     }),
-    returns: Type.Object({ ok: Type.Boolean(), path: Type.String(), bytes: Type.Number() }),
+    returns: Type.Object({ ok: Type.Boolean(), bytes: Type.Number() }),
     requires: { integrations: [], scopes: ['agents:write'] },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'PUT',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/file/`),
-            query: { path: args.path },
+            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/agent_md/`),
             body: { content: args.content },
+        })
+    },
+})
+
+export const posthogAgentApplicationsRevisionsSkillsUpdateV1 = defineNativeTool({
+    id: '@posthog/agent-applications-revisions-skills-update',
+    description:
+        "Upsert one skill in a draft revision. Body shape `{ description, body, files? }`. `description` is the model-facing 'when to load' hint surfaced in the skill index. `body` is the skill markdown. `files[]` is optional companion docs (path relative to `skills/<id>/files/`). Skill id is the URL path.",
+    args: Type.Object({
+        ...agentRefFields,
+        revision_id: Type.String({ description: 'Revision UUID (must be `state=draft`).' }),
+        skill_id: Type.String({ description: 'Skill slug (lowercase alphanumeric, hyphens, underscores).' }),
+        description: Type.String({ description: 'Short summary the model uses to decide when to load.' }),
+        body: Type.String({ description: 'Skill markdown body.' }),
+        files: Type.Optional(
+            Type.Array(Type.Object({ path: Type.String(), content: Type.String() }), {
+                description: 'Optional companion files. path is relative to `skills/<id>/files/`.',
+            })
+        ),
+    }),
+    returns: Type.Object({ ok: Type.Boolean(), skill_id: Type.String() }),
+    requires: { integrations: [], scopes: ['agents:write'] },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
+        const id = await resolveApplicationId(ctx, args)
+        return callPosthogApi(ctx, {
+            method: 'PUT',
+            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/skills/${args.skill_id}/`),
+            body: { description: args.description, body: args.body, files: args.files ?? [] },
+        })
+    },
+})
+
+export const posthogAgentApplicationsRevisionsSkillsDestroyV1 = defineNativeTool({
+    id: '@posthog/agent-applications-revisions-skills-destroy',
+    description: 'Delete one skill (body + every companion file). Draft-only.',
+    args: Type.Object({
+        ...agentRefFields,
+        revision_id: Type.String({ description: 'Revision UUID (must be `state=draft`).' }),
+        skill_id: Type.String({ description: 'Skill slug.' }),
+    }),
+    returns: Type.Object({ ok: Type.Boolean(), skill_id: Type.String() }),
+    requires: { integrations: [], scopes: ['agents:write'] },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
+        const id = await resolveApplicationId(ctx, args)
+        return callPosthogApi(ctx, {
+            method: 'DELETE',
+            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/skills/${args.skill_id}/`),
+        })
+    },
+})
+
+export const posthogAgentApplicationsRevisionsToolsUpdateV1 = defineNativeTool({
+    id: '@posthog/agent-applications-revisions-tools-update',
+    description:
+        "Upsert one custom tool in a draft revision. The janitor runs an AST shape check + esbuild compile synchronously and returns 422 with structured diagnostics on failure — no half-written tool ever lands. Required source shape: `export default { actions: { default: async (args, ctx) => { ... } } }`. Do NOT include `compiled.js` — it's generated.",
+    args: Type.Object({
+        ...agentRefFields,
+        revision_id: Type.String({ description: 'Revision UUID (must be `state=draft`).' }),
+        tool_id: Type.String({ description: 'Tool slug (lowercase alphanumeric, hyphens, underscores).' }),
+        description: Type.String({ description: 'Description the model sees when picking tools.' }),
+        args_schema: Type.Record(Type.String(), Type.Unknown(), {
+            description: "JSON Schema for the tool's args. Free-form object; the runner doesn't introspect it.",
+        }),
+        source: Type.String({ description: 'TypeScript source.' }),
+    }),
+    returns: Type.Object({ ok: Type.Boolean(), tool_id: Type.String() }),
+    requires: { integrations: [], scopes: ['agents:write'] },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
+        const id = await resolveApplicationId(ctx, args)
+        return callPosthogApi(ctx, {
+            method: 'PUT',
+            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/tools/${args.tool_id}/`),
+            body: { description: args.description, args_schema: args.args_schema, source: args.source },
+        })
+    },
+})
+
+export const posthogAgentApplicationsRevisionsToolsDestroyV1 = defineNativeTool({
+    id: '@posthog/agent-applications-revisions-tools-destroy',
+    description: 'Delete one custom tool (source.ts + compiled.js + schema.json). Draft-only.',
+    args: Type.Object({
+        ...agentRefFields,
+        revision_id: Type.String({ description: 'Revision UUID (must be `state=draft`).' }),
+        tool_id: Type.String({ description: 'Tool slug.' }),
+    }),
+    returns: Type.Object({ ok: Type.Boolean(), tool_id: Type.String() }),
+    requires: { integrations: [], scopes: ['agents:write'] },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
+        const id = await resolveApplicationId(ctx, args)
+        return callPosthogApi(ctx, {
+            method: 'DELETE',
+            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/tools/${args.tool_id}/`),
         })
     },
 })

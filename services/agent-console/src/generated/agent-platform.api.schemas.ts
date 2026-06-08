@@ -647,29 +647,49 @@ export interface PatchedAgentRevisionApi {
     readonly updated_at?: string
 }
 
-export type WriteBundleRequestApiFiles = { [key: string]: string }
+/**
+ * Body shape for PUT /revisions/<id>/agent_md/.
+ */
+export interface WriteAgentMdRequestApi {
+    content: string
+}
+
+export type WriteTypedBundleRequestApiSpec = { [key: string]: unknown }
+
+export interface _SkillFileApi {
+    path: string
+    content: string
+}
 
 /**
- * * `replace` - replace
- * `merge` - merge
+ * Body shape for PUT /revisions/<id>/skills/<skill_id>/.
  */
-export type WriteBundleRequestModeEnumApi =
-    (typeof WriteBundleRequestModeEnumApi)[keyof typeof WriteBundleRequestModeEnumApi]
+export interface WriteSkillRequestApi {
+    description: string
+    body: string
+    files?: _SkillFileApi[]
+}
 
-export const WriteBundleRequestModeEnumApi = {
-    Replace: 'replace',
-    Merge: 'merge',
-} as const
+export type WriteToolRequestApiArgsSchema = { [key: string]: unknown }
 
 /**
- * Body shape for PUT /revisions/<id>/bundle/ — the bulk upload.
-
-`files` is a `{path: utf-8 content}` map. `mode='replace'` wipes the
-existing bundle before writing the new set; `'merge'` upserts.
+ * Body shape for PUT /revisions/<id>/tools/<tool_id>/.
  */
-export interface WriteBundleRequestApi {
-    files: WriteBundleRequestApiFiles
-    mode?: WriteBundleRequestModeEnumApi
+export interface WriteToolRequestApi {
+    description: string
+    args_schema: WriteToolRequestApiArgsSchema
+    source: string
+}
+
+/**
+ * Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
+payload. See docs/agent-platform/plans/typed-bundle-authoring-api.md §3.
+ */
+export interface WriteTypedBundleRequestApi {
+    agent_md: string
+    skills?: WriteSkillRequestApi[]
+    tools?: WriteToolRequestApi[]
+    spec: WriteTypedBundleRequestApiSpec
 }
 
 /**
@@ -702,12 +722,14 @@ export interface AgentRevisionCronFireResponseApi {
     request_id: string
 }
 
+export type WriteSpecRequestApiSpec = { [key: string]: unknown }
+
 /**
- * Body shape for PUT /revisions/<id>/file/. `path` lives in the query
-string (matches the janitor wire format); `content` is the new file body.
+ * Body shape for PUT /revisions/<id>/spec/. The body's `spec` object
+is the author-facing slice (skills/tools are server-derived at freeze).
  */
-export interface WriteFileRequestApi {
-    content: string
+export interface WriteSpecRequestApi {
+    spec: WriteSpecRequestApiSpec
 }
 
 export interface AgentRevisionSystemPromptResponseApi {
@@ -1757,27 +1779,6 @@ export type AgentApplicationsRevisionsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-}
-
-export type AgentApplicationsRevisionsFileRetrieveParams = {
-    /**
-     * Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.
-     */
-    path: string
-}
-
-export type AgentApplicationsRevisionsFileUpdateParams = {
-    /**
-     * Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.
-     */
-    path: string
-}
-
-export type AgentApplicationsRevisionsFileDestroyParams = {
-    /**
-     * Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.
-     */
-    path: string
 }
 
 export type AgentApplicationsApprovalsListParams = {

@@ -23,8 +23,15 @@ export interface BundleStore {
      *  *after* the janitor returns, leaving a brief window where state is
      *  still `draft` but the bundle is already frozen on disk. */
     isFrozen(revisionId: string): Promise<boolean>
-    /** Freeze a draft bundle. Returns sha256 of the frozen contents. */
-    freeze(revisionId: string): Promise<string>
+    /**
+     * Freeze a draft bundle. Returns sha256 of the frozen contents.
+     *
+     * `precomputedEntries`: if the caller already has the result of a recent
+     * `list()` call (e.g. the freeze handler that called `readTypedBundle`
+     * a moment ago), pass it in. Saves a round-trip's worth of N+1 HEADs
+     * on every freeze of a multi-file bundle.
+     */
+    freeze(revisionId: string, precomputedEntries?: BundleEntry[]): Promise<string>
     /** Copy one file between revisions (used by cross-agent reuse). */
     copy(srcRev: string, srcPath: string, dstRev: string, dstPath: string): Promise<void>
 }

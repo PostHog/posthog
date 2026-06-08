@@ -1,214 +1,168 @@
 /**
- * Unit tests for the compile-at-freeze helper. Asserts the contract:
- *   - source.ts → compiled.js, written into the bundle, CJS module shape.
- *   - Multiple tools compile in one pass.
- *   - A syntax error in any tool aborts (errors[] populated, freeze caller
- *     must abort) — partial compilation is the wrong failure mode.
- *   - Tools whose `kind !== "custom"` are skipped.
- *   - Compiled output is shape-checked: the runner requires
- *     `{ actions: { default: fn } }`. A source.ts that compiles cleanly
- *     but exports the wrong shape is rejected at freeze instead of at
- *     session-start (live agent, opaque failure mid-chat).
+ * Unit tests for compileTypedTool — the AST shape check + esbuild compile
+ * pipeline that runs inside the typed `PUT /tools/:id` endpoint.
+ *
+ * The test split:
+ *   - Happy path: valid source compiles to CJS exports.
+ *   - Shape failures: every distinct AST-detected error has a parameterised
+ *     case asserting the error kind + a fragment of the message.
+ *   - Parse failures: TS syntax errors surface as ast_no_default_export
+ *     (the parser produces a malformed tree that still completes; the
+ *     "no default" check is what trips).
+ *   - Async smoke: the function is async; awaiting works and returns the
+ *     expected shape.
+ *
+ * The compiler API parses without type-checking, so this is genuinely fast
+ * (~10ms per call locally) and the cases stay tight.
  */
 
-import type { S3Client } from '@aws-sdk/client-s3'
-import { z } from 'zod'
+import { compileTypedTool } from './compile-custom-tools'
 
-import {
-    AgentRevision,
-    AgentSpecSchema,
-    buildTestBundleStore,
-    newTestPrefix,
-    S3BundleStore,
-    wipeTestPrefix,
-} from '@posthog/agent-shared'
-
-import { compileCustomToolsIntoBundle } from './compile-custom-tools'
-
-let bundlePrefix: string
-let bundleClient: S3Client
-let bundleStore: S3BundleStore
-
-beforeEach(() => {
-    bundlePrefix = newTestPrefix('agent_bundles_compile_custom_tools_test')
-    const built = buildTestBundleStore(bundlePrefix)
-    bundleClient = built.client
-    bundleStore = built.store
-})
-
-afterEach(async () => {
-    await wipeTestPrefix(bundleClient, bundlePrefix).catch(() => undefined)
-    bundleClient.destroy()
-})
-
-function mkRev(spec: Partial<z.input<typeof AgentSpecSchema>> = {}): AgentRevision {
-    return {
-        id: 'rev1',
-        application_id: 'app1',
-        parent_revision_id: null,
-        created_by_id: null,
-        created_at: '2026-05-27',
-        state: 'draft',
-        bundle_uri: 'mem://',
-        bundle_sha256: null,
-        spec: AgentSpecSchema.parse({
-            model: 'anthropic/claude-haiku-4-5',
-            triggers: [{ type: 'chat', config: { require_auth: false } }],
-            ...spec,
-        }),
-    }
-}
-
-// The canonical source.ts shape — matches what the runner's sandbox loader
-// expects: `module.exports.default ?? module.exports → { id?, actions: { default: fn } }`.
-// Every passing-shape test uses this template (with the body swapped) so a
-// single drift in the contract surfaces in one place.
-const GOOD_SOURCE = (body: string): string =>
-    `
+const GOOD = `
 export default {
     actions: {
-        default: async (args: { name?: string }) => (${body}),
+        default: async (args: { name?: string }) => ({ greeting: 'hello ' + args.name }),
     },
 }
 `.trim()
 
-describe('compileCustomToolsIntoBundle', () => {
-    it('compiles a single custom tool source.ts into compiled.js (CJS shape)', async () => {
-        await bundleStore.write('rev1', 'tools/my-tool/source.ts', GOOD_SOURCE(`{ greeting: 'hello ' + args.name }`))
-        const rev = mkRev({ tools: [{ kind: 'custom', id: 'my-tool', path: 'tools/my-tool' }] })
-
-        const result = await compileCustomToolsIntoBundle(rev, bundleStore)
-        expect(result.errors).toEqual([])
-        expect(result.compiled).toBe(1)
-
-        const compiled = await bundleStore.readText('rev1', 'tools/my-tool/compiled.js')
-        // CJS = exports.default-style. We don't assert the exact code esbuild
-        // produces — just the shape contract: it's not the original TS, and
-        // it references `exports`.
-        expect(compiled).toContain('exports')
-        expect(compiled).not.toContain('export default {')
+describe('compileTypedTool', () => {
+    it('compiles a known-good source.ts to CJS', async () => {
+        const r = await compileTypedTool({ tool_id: 'greet', source: GOOD })
+        expect(r.ok).toBe(true)
+        expect(r.errors).toEqual([])
+        expect(r.compiled_js).toBeTruthy()
+        // CJS exports — esbuild defaults to `module.exports.default = ...` or
+        // `exports.default = ...` depending on the source shape. Either is fine.
+        expect(r.compiled_js!).toMatch(/exports/)
+        expect(r.compiled_js!).not.toMatch(/^export default/m)
     })
 
-    it('compiles N custom tools in one pass', async () => {
-        await bundleStore.write('rev1', 'tools/a/source.ts', GOOD_SOURCE(`{ tool: 'a' }`))
-        await bundleStore.write('rev1', 'tools/b/source.ts', GOOD_SOURCE(`{ tool: 'b' }`))
-        const rev = mkRev({
-            tools: [
-                { kind: 'custom', id: 'a', path: 'tools/a' },
-                { kind: 'custom', id: 'b', path: 'tools/b' },
-            ],
-        })
-
-        const result = await compileCustomToolsIntoBundle(rev, bundleStore)
-        expect(result.errors).toEqual([])
-        expect(result.compiled).toBe(2)
-        expect(await bundleStore.exists('rev1', 'tools/a/compiled.js')).toBe(true)
-        expect(await bundleStore.exists('rev1', 'tools/b/compiled.js')).toBe(true)
+    it('accepts string-keyed actions ({ "default": fn })', async () => {
+        const src = `
+        export default {
+            actions: {
+                "default": async () => ({ ok: true }),
+            },
+        }
+        `.trim()
+        const r = await compileTypedTool({ tool_id: 'strkey', source: src })
+        expect(r.ok).toBe(true)
     })
 
-    it('reports a structured error when source.ts has a syntax error — does not write compiled.js for the broken tool', async () => {
-        await bundleStore.write('rev1', 'tools/ok/source.ts', GOOD_SOURCE(`{}`))
-        await bundleStore.write(
-            'rev1',
-            'tools/broken/source.ts',
-            'export default async function run( { return {} }' // missing close paren
-        )
-        const rev = mkRev({
-            tools: [
-                { kind: 'custom', id: 'ok', path: 'tools/ok' },
-                { kind: 'custom', id: 'broken', path: 'tools/broken' },
-            ],
-        })
-
-        const result = await compileCustomToolsIntoBundle(rev, bundleStore)
-        expect(result.errors).toHaveLength(1)
-        expect(result.errors[0]).toMatchObject({
-            tool_id: 'broken',
-            source_path: 'tools/broken/source.ts',
-        })
-        expect(result.errors[0].message).toBeTruthy()
-        // The good tool DID compile (we don't roll back) — the caller is
-        // responsible for aborting freeze. This lets the caller surface the
-        // exact failing tool to the user without us pretending a partial
-        // bundle is the wrong shape.
-        expect(await bundleStore.exists('rev1', 'tools/ok/compiled.js')).toBe(true)
-        expect(await bundleStore.exists('rev1', 'tools/broken/compiled.js')).toBe(false)
-    })
-
-    it('skips non-custom tool refs (native, client) silently', async () => {
-        await bundleStore.write('rev1', 'tools/my-tool/source.ts', GOOD_SOURCE(`{}`))
-        const rev = mkRev({
-            tools: [
-                { kind: 'native', id: '@posthog/web-fetch' },
-                { kind: 'custom', id: 'my-tool', path: 'tools/my-tool' },
-            ],
-        })
-
-        const result = await compileCustomToolsIntoBundle(rev, bundleStore)
-        expect(result.compiled).toBe(1) // only the custom one
-        expect(result.errors).toEqual([])
-    })
-
-    it('returns { compiled: 0, errors: [] } when no custom tools are declared', async () => {
-        const rev = mkRev({ tools: [{ kind: 'native', id: '@posthog/web-fetch' }] })
-        const result = await compileCustomToolsIntoBundle(rev, bundleStore)
-        expect(result).toEqual({ compiled: 0, errors: [] })
-    })
-
-    // Shape-mismatch cases. Each is a source.ts that parses cleanly but
-    // produces a compiled.js the runner can't dispatch. The whole point of
-    // the freeze-time shape check is catching these BEFORE the agent goes
-    // live and the failure surfaces mid-conversation as `action_not_found`.
     it.each([
         {
-            label: 'bare function (the historical concierge foot-gun)',
+            label: 'bare function default — the historical concierge foot-gun',
             source: 'export default async function run() { return {} }',
-            expectedFragment: 'must export `{ id?, actions: { default: fn } }`',
+            kind: 'ast_default_not_object',
+            fragment: 'bare function',
+        },
+        {
+            label: 'arrow-fn default',
+            source: 'export default async () => ({})',
+            kind: 'ast_default_not_object',
+            fragment: 'bare function',
+        },
+        {
+            label: 'dynamic factory call default',
+            source: 'function make() { return { actions: { default: () => ({}) } } }\nexport default make()',
+            kind: 'ast_dynamic_export',
+            fragment: 'statically declared',
+        },
+        {
+            label: 'identifier reference default',
+            source: 'const tool = { actions: { default: () => ({}) } }\nexport default tool',
+            kind: 'ast_dynamic_export',
+            fragment: 'statically declared',
         },
         {
             label: 'object missing `actions`',
             source: 'export default { id: "x", run: async () => ({}) }',
-            expectedFragment: '`actions` is missing or not an object',
+            kind: 'ast_missing_actions',
+            fragment: 'missing required `actions`',
+        },
+        {
+            label: '`actions` is an array',
+            source: 'export default { actions: [] }',
+            kind: 'ast_actions_not_object',
+            fragment: 'must be an object literal',
         },
         {
             label: '`actions` present but no `default` key',
             source: 'export default { actions: { run: async () => ({}) } }',
-            expectedFragment: '`actions.default` as a function',
+            kind: 'ast_missing_default_action',
+            fragment: '`actions.default` is required',
         },
         {
-            label: '`actions.default` is a string instead of a function',
+            label: '`actions.default` is a string',
             source: 'export default { actions: { default: "not a function" } }',
-            expectedFragment: '`actions.default` as a function',
+            kind: 'ast_default_action_not_callable',
+            fragment: '`actions.default` must be a function',
         },
-    ])('rejects shape mismatch: $label', async ({ source, expectedFragment }) => {
-        await bundleStore.write('rev1', 'tools/bad/source.ts', source)
-        const rev = mkRev({ tools: [{ kind: 'custom', id: 'bad', path: 'tools/bad' }] })
-
-        const result = await compileCustomToolsIntoBundle(rev, bundleStore)
-        expect(result.compiled).toBe(0)
-        expect(result.errors).toHaveLength(1)
-        expect(result.errors[0]).toMatchObject({
-            tool_id: 'bad',
-            source_path: 'tools/bad/source.ts',
-        })
-        expect(result.errors[0].message).toContain(expectedFragment)
-        // Critically: compiled.js is NOT written on shape failure. Otherwise
-        // the next freeze would see a stale broken compiled.js (esbuild
-        // failure path would skip it, but a successful esbuild + shape
-        // failure must not leave junk behind).
-        expect(await bundleStore.exists('rev1', 'tools/bad/compiled.js')).toBe(false)
+        {
+            label: '`actions.default` is a number',
+            source: 'export default { actions: { default: 42 } }',
+            kind: 'ast_default_action_not_callable',
+            fragment: '`actions.default` must be a function',
+        },
+        {
+            label: 'no export default at all',
+            source: 'function foo() { return 1 }',
+            kind: 'ast_no_default_export',
+            fragment: 'no `export default` found',
+        },
+        {
+            label: 'multiple export defaults',
+            source: 'export default { actions: { default: () => ({}) } }\nexport default { actions: { default: () => ({}) } }',
+            kind: 'ast_no_default_export',
+            fragment: 'exactly one',
+        },
+    ])('rejects shape mismatch: $label', async ({ source, kind, fragment }) => {
+        const r = await compileTypedTool({ tool_id: 'bad', source })
+        expect(r.ok).toBe(false)
+        expect(r.compiled_js).toBeUndefined()
+        expect(r.errors).not.toEqual([])
+        expect(r.errors[0].kind).toBe(kind)
+        expect(r.errors[0].message).toContain(fragment)
     })
 
-    it('accepts `actions.default` as a { run } wrapper object — runner supports both', async () => {
-        await bundleStore.write(
-            'rev1',
-            'tools/wrapper/source.ts',
-            `export default { actions: { default: { run: async () => ({ ok: true }) } } }`
-        )
-        const rev = mkRev({ tools: [{ kind: 'custom', id: 'wrapper', path: 'tools/wrapper' }] })
+    it('the AST check tolerates `as Type` casts on the default export', async () => {
+        const src = `
+        export default {
+            actions: {
+                default: (async (args: any) => ({ ok: true })) as any,
+            },
+        } as const
+        `.trim()
+        const r = await compileTypedTool({ tool_id: 'cast', source: src })
+        expect(r.ok).toBe(true)
+    })
 
-        const result = await compileCustomToolsIntoBundle(rev, bundleStore)
-        expect(result.errors).toEqual([])
-        expect(result.compiled).toBe(1)
+    it('reports a TS syntax error via the AST check (no esbuild call)', async () => {
+        // esbuild would also reject this, but the AST step catches it first
+        // — the parser produces an incomplete tree and the no-default check
+        // fires.
+        const r = await compileTypedTool({
+            tool_id: 'bad',
+            source: 'export default async function run( { return {} }',
+        })
+        expect(r.ok).toBe(false)
+        // The exact kind depends on what TypeScript's recovery parser
+        // managed to assemble; either ast_no_default_export (if the parser
+        // gave up) or ast_default_not_object / ast_default_action_not_callable.
+        // Just confirm we got *some* AST-level error.
+        expect(r.errors[0].kind).toMatch(/^ast_/)
+    })
+
+    it('records a 1-based line number on detected errors', async () => {
+        const src = `
+// header comment line 1
+const x = 1
+export default async function run() { return {} }
+        `.trim()
+        const r = await compileTypedTool({ tool_id: 'pos', source: src })
+        expect(r.ok).toBe(false)
+        expect(r.errors[0].line).toBeGreaterThan(0)
+        expect(r.errors[0].column).toBeGreaterThan(0)
     })
 })

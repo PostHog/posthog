@@ -79,8 +79,11 @@ from .serializers import (
     PromoteRevisionRequestSerializer,
     SetEnvKeyRequestSerializer,
     SetEnvRequestSerializer,
-    WriteBundleRequestSerializer,
-    WriteFileRequestSerializer,
+    WriteAgentMdRequestSerializer,
+    WriteSkillRequestSerializer,
+    WriteSpecRequestSerializer,
+    WriteToolRequestSerializer,
+    WriteTypedBundleRequestSerializer,
 )
 from .spec_schema import missing_required_secrets
 
@@ -1506,16 +1509,19 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "freeze",
         "clone_from",
         "new_draft",
-        "put_file",
-        "delete_file",
         "put_bundle",
+        "put_agent_md",
+        "put_spec",
+        "put_skill",
+        "delete_skill",
+        "put_tool",
+        "delete_tool",
         "cron_fire",
     ]
     scope_object_read_actions = [
         "list",
         "retrieve",
         "manifest",
-        "get_file",
         "get_bundle",
         "validate",
         "system_prompt",
@@ -1658,73 +1664,79 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         revision: AgentRevision = self.get_object()
         return Response(self._call(_janitor().manifest, str(revision.id)))
 
-    # DRF routes /file/ and /bundle/ across multiple HTTP verbs via a single
-    # @action + .mapping.<verb> chain. Three separate @action decorators with
-    # the same url_path don't merge — the last one registered wins and the
-    # others 405.
-    _FILE_PATH_PARAM = OpenApiParameter(
-        "path",
-        OpenApiTypes.STR,
-        OpenApiParameter.QUERY,
-        required=True,
-        description="Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.",
-    )
+    # DRF routes the typed bundle verbs across @action + .mapping.<verb>
+    # chains. Three separate @action decorators with the same url_path
+    # don't merge — the last one registered wins and the others 405. So
+    # GET+PUT under /bundle/, PUT+DELETE under /skills/<id>/ and
+    # /tools/<id>/ share a single @action with mapping chains below.
 
-    @extend_schema(parameters=[_FILE_PATH_PARAM], request=None)
-    @action(detail=True, methods=["get"], url_path="file")
-    def get_file(self, request: Request, **kwargs) -> Response:
-        """Read one file by `?path=...`. Works on any revision state."""
-        revision: AgentRevision = self.get_object()
-        path = request.query_params.get("path")
-        if not path:
-            raise ValidationError("Missing ?path=… query parameter.")
-        return Response(self._call(_janitor().get_file, str(revision.id), path))
-
-    @extend_schema(parameters=[_FILE_PATH_PARAM], request=WriteFileRequestSerializer)
-    @get_file.mapping.put
-    def put_file(self, request: Request, **kwargs) -> Response:
-        """Write one file by `?path=...`. Draft-only (janitor enforces)."""
-        revision: AgentRevision = self.get_object()
-        path = request.query_params.get("path")
-        if not path:
-            raise ValidationError("Missing ?path=… query parameter.")
-        body = WriteFileRequestSerializer(data=request.data)
-        body.is_valid(raise_exception=True)
-        return Response(self._call(_janitor().put_file, str(revision.id), path, body.validated_data["content"]))
-
-    @extend_schema(parameters=[_FILE_PATH_PARAM], request=None)
-    @get_file.mapping.delete
-    def delete_file(self, request: Request, **kwargs) -> Response:
-        """Delete one file by `?path=...`. Draft-only."""
-        revision: AgentRevision = self.get_object()
-        path = request.query_params.get("path")
-        if not path:
-            raise ValidationError("Missing ?path=… query parameter.")
-        return Response(self._call(_janitor().delete_file, str(revision.id), path))
+    # ── typed bundle authoring API ──────────────────────────────────────
+    # See docs/agent-platform/plans/typed-bundle-authoring-api.md. Django
+    # is a thin proxy: every byte of the payload flows through to the
+    # janitor unchanged. The legacy file-grain endpoints (file/, bundle/
+    # with mode) were removed.
 
     @extend_schema(request=None)
     @action(detail=True, methods=["get"], url_path="bundle")
     def get_bundle(self, request: Request, **kwargs) -> Response:
-        """Bulk-pull: returns `{ files: { path: content, ... }, ... }`. Use
-        this when the MCP wants the whole bundle to work on locally."""
+        """Read the full typed bundle: `{ agent_md, skills, tools, spec }`."""
         revision: AgentRevision = self.get_object()
         return Response(self._call(_janitor().get_bundle, str(revision.id)))
 
-    @extend_schema(request=WriteBundleRequestSerializer)
+    @extend_schema(request=WriteTypedBundleRequestSerializer)
     @get_bundle.mapping.put
     def put_bundle(self, request: Request, **kwargs) -> Response:
-        """Bulk-push the bundle. Body `{ files, mode: replace|merge }`."""
+        """Full-replace the typed bundle. Anything not in the payload is
+        deleted. Tool sources are AST-checked + esbuild-compiled by the
+        janitor before any S3 writes."""
         revision: AgentRevision = self.get_object()
-        body = WriteBundleRequestSerializer(data=request.data)
+        body = WriteTypedBundleRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
-        return Response(
-            self._call(
-                _janitor().put_bundle,
-                str(revision.id),
-                body.validated_data["files"],
-                body.validated_data["mode"],
-            )
-        )
+        return Response(self._call(_janitor().put_bundle, str(revision.id), body.validated_data))
+
+    @extend_schema(request=WriteAgentMdRequestSerializer)
+    @action(detail=True, methods=["put"], url_path="agent_md")
+    def put_agent_md(self, request: Request, **kwargs) -> Response:
+        revision: AgentRevision = self.get_object()
+        body = WriteAgentMdRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        return Response(self._call(_janitor().put_agent_md, str(revision.id), body.validated_data["content"]))
+
+    @extend_schema(request=WriteSpecRequestSerializer)
+    @action(detail=True, methods=["put"], url_path="spec")
+    def put_spec(self, request: Request, **kwargs) -> Response:
+        revision: AgentRevision = self.get_object()
+        body = WriteSpecRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        return Response(self._call(_janitor().put_spec, str(revision.id), body.validated_data["spec"]))
+
+    @extend_schema(request=WriteSkillRequestSerializer)
+    @action(detail=True, methods=["put"], url_path=r"skills/(?P<skill_id>[a-z0-9][a-z0-9_-]*)")
+    def put_skill(self, request: Request, skill_id: str, **kwargs) -> Response:
+        revision: AgentRevision = self.get_object()
+        body = WriteSkillRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        return Response(self._call(_janitor().put_skill, str(revision.id), skill_id, body.validated_data))
+
+    @extend_schema(request=None)
+    @put_skill.mapping.delete
+    def delete_skill(self, request: Request, skill_id: str, **kwargs) -> Response:
+        revision: AgentRevision = self.get_object()
+        return Response(self._call(_janitor().delete_skill, str(revision.id), skill_id))
+
+    @extend_schema(request=WriteToolRequestSerializer)
+    @action(detail=True, methods=["put"], url_path=r"tools/(?P<tool_id>[a-z0-9][a-z0-9_-]*)")
+    def put_tool(self, request: Request, tool_id: str, **kwargs) -> Response:
+        revision: AgentRevision = self.get_object()
+        body = WriteToolRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        return Response(self._call(_janitor().put_tool, str(revision.id), tool_id, body.validated_data))
+
+    @extend_schema(request=None)
+    @put_tool.mapping.delete
+    def delete_tool(self, request: Request, tool_id: str, **kwargs) -> Response:
+        revision: AgentRevision = self.get_object()
+        return Response(self._call(_janitor().delete_tool, str(revision.id), tool_id))
 
     @extend_schema(
         request=None,

@@ -20,6 +20,7 @@ export * from './spec/trigger-secrets'
 
 export * from './storage/bundle'
 export * from './storage/s3-bundle-store'
+export * from './storage/typed-bundle'
 
 export * from './persistence/queue'
 export * from './persistence/revision-store'

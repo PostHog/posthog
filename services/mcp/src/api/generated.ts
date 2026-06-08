@@ -42395,37 +42395,59 @@ export namespace Schemas {
       results: WidgetCatalogEntry[];
     }
 
-    export type WriteBundleRequestFiles = {[key: string]: string};
-
     /**
-     * * `replace` - replace
-    * `merge` - merge
+     * Body shape for PUT /revisions/<id>/agent_md/.
      */
-    export type WriteBundleRequestModeEnum = typeof WriteBundleRequestModeEnum[keyof typeof WriteBundleRequestModeEnum];
+    export interface WriteAgentMdRequest {
+      content: string;
+    }
 
-
-    export const WriteBundleRequestModeEnum = {
-      Replace: 'replace',
-      Merge: 'merge',
-    } as const;
-
-    /**
-     * Body shape for PUT /revisions/<id>/bundle/ — the bulk upload.
-
-    `files` is a `{path: utf-8 content}` map. `mode='replace'` wipes the
-    existing bundle before writing the new set; `'merge'` upserts.
-     */
-    export interface WriteBundleRequest {
-      files: WriteBundleRequestFiles;
-      mode?: WriteBundleRequestModeEnum;
+    export interface _SkillFile {
+      path: string;
+      content: string;
     }
 
     /**
-     * Body shape for PUT /revisions/<id>/file/. `path` lives in the query
-    string (matches the janitor wire format); `content` is the new file body.
+     * Body shape for PUT /revisions/<id>/skills/<skill_id>/.
      */
-    export interface WriteFileRequest {
-      content: string;
+    export interface WriteSkillRequest {
+      description: string;
+      body: string;
+      files?: _SkillFile[];
+    }
+
+    export type WriteSpecRequestSpec = { [key: string]: unknown };
+
+    /**
+     * Body shape for PUT /revisions/<id>/spec/. The body's `spec` object
+    is the author-facing slice (skills/tools are server-derived at freeze).
+     */
+    export interface WriteSpecRequest {
+      spec: WriteSpecRequestSpec;
+    }
+
+    export type WriteToolRequestArgsSchema = { [key: string]: unknown };
+
+    /**
+     * Body shape for PUT /revisions/<id>/tools/<tool_id>/.
+     */
+    export interface WriteToolRequest {
+      description: string;
+      args_schema: WriteToolRequestArgsSchema;
+      source: string;
+    }
+
+    export type WriteTypedBundleRequestSpec = { [key: string]: unknown };
+
+    /**
+     * Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
+    payload. See docs/agent-platform/plans/typed-bundle-authoring-api.md §3.
+     */
+    export interface WriteTypedBundleRequest {
+      agent_md: string;
+      skills?: WriteSkillRequest[];
+      tools?: WriteToolRequest[];
+      spec: WriteTypedBundleRequestSpec;
     }
 
     export interface _CompareFilter {
@@ -48240,27 +48262,6 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    };
-
-    export type AgentApplicationsRevisionsFileRetrieveParams = {
-    /**
-     * Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.
-     */
-    path: string;
-    };
-
-    export type AgentApplicationsRevisionsFileUpdateParams = {
-    /**
-     * Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.
-     */
-    path: string;
-    };
-
-    export type AgentApplicationsRevisionsFileDestroyParams = {
-    /**
-     * Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.
-     */
-    path: string;
     };
 
     export type AgentApplicationsApprovalsListParams = {

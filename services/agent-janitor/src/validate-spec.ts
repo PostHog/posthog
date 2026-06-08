@@ -15,7 +15,6 @@
  */
 
 import cronParser from 'cron-parser'
-import { transform as esbuildTransform } from 'esbuild'
 
 import { AgentRevision, BundleStore } from '@posthog/agent-shared'
 import { hasNativeTool } from '@posthog/agent-tools'
@@ -24,10 +23,6 @@ export type ValidationCode =
     | 'no_triggers'
     | 'missing_entrypoint'
     | 'unknown_native_tool'
-    | 'missing_custom_tool_source'
-    | 'missing_custom_tool_schema'
-    | 'invalid_custom_tool_source'
-    | 'missing_skill'
     | 'invalid_cron_schedule'
     | 'cron_schedule_too_frequent'
     | 'invalid_cron_timezone'
@@ -36,11 +31,11 @@ export type ValidationCode =
 
 /**
  * Non-blocking soft signals — surface to the author before freeze, but the
- * runner will still load the revision. Distinct from `errors` so the freeze
- * gate stays explicit (`errors.length === 0`) and the concierge can act on
- * warnings without conflating them with hard problems.
+ * runner will still load the revision. Kept as a typed union for future
+ * use; the orphan_skill/tool warnings became structurally impossible once
+ * the typed authoring API landed and spec.skills/tools are server-derived.
  */
-export type ValidationWarningCode = 'orphan_custom_tool_dir' | 'orphan_skill_file'
+export type ValidationWarningCode = never
 
 /**
  * Placeholder set authors can use inside `external_key` and `prompt` on a
@@ -126,6 +121,15 @@ export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleS
         })
     }
 
+    // Tool / skill bundle-presence checks used to live here (orphan
+    // detection, missing source / schema). With the typed authoring API
+    // (`docs/agent-platform/plans/typed-bundle-authoring-api.md`) those
+    // failures are structurally impossible: `spec.tools[]` /
+    // `spec.skills[]` are server-derived at freeze from the actual typed
+    // resources in the bundle, so a missing-file failure means the freeze
+    // never derived the entry in the first place. The native-tool
+    // registry check below is still real (an unregistered `@posthog/X`
+    // can land in spec via the author-facing `PUT /spec`).
     for (const [i, tool] of rev.spec.tools.entries()) {
         if (tool.kind === 'native') {
             if (!hasNativeTool(tool.id)) {
@@ -137,113 +141,8 @@ export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleS
             } else {
                 resolvedNatives.push(tool.id)
             }
-            continue
         }
-        if (tool.kind === 'client') {
-            // Client tools live entirely in the spec — no bundle artifacts
-            // to validate, no runtime registry to check. Whether the call
-            // succeeds depends on whether the connecting client implements
-            // the id, which we can't know at freeze time.
-            continue
-        }
-        const base = tool.path.replace(/\/$/, '')
-        const source = `${base}/source.ts`
-        const schema = `${base}/schema.json`
-        if (!(await bundle.exists(rev.id, source))) {
-            errors.push({
-                code: 'missing_custom_tool_source',
-                message: `custom tool "${tool.id}" is missing "${source}"`,
-                pointer: `spec.tools[${i}].path`,
-            })
-        } else {
-            // Syntax-check the source via esbuild's TS loader without emitting.
-            // Catches authoring mistakes (typos, missing braces, bad imports the
-            // sandbox can't satisfy) at validate time so the concierge can fix
-            // before freeze. The freeze step does the actual transpile to
-            // compiled.js — validate is pure (no bundle writes).
-            try {
-                const text = await bundle.readText(rev.id, source)
-                await esbuildTransform(text, {
-                    loader: 'ts',
-                    format: 'cjs',
-                    // No `write` here — we just want the parse + check.
-                })
-            } catch (err) {
-                const message = err instanceof Error ? err.message : String(err)
-                errors.push({
-                    code: 'invalid_custom_tool_source',
-                    message: `custom tool "${tool.id}" source.ts failed to parse: ${message.split('\n')[0]}`,
-                    pointer: `spec.tools[${i}].path`,
-                })
-            }
-        }
-        if (!(await bundle.exists(rev.id, schema))) {
-            errors.push({
-                code: 'missing_custom_tool_schema',
-                message: `custom tool "${tool.id}" is missing "${schema}"`,
-                pointer: `spec.tools[${i}].path`,
-            })
-        }
-    }
-
-    for (const [i, skill] of rev.spec.skills.entries()) {
-        if (!(await bundle.exists(rev.id, skill.path))) {
-            errors.push({
-                code: 'missing_skill',
-                message: `skill "${skill.id}" path "${skill.path}" is not present in the bundle`,
-                pointer: `spec.skills[${i}].path`,
-            })
-        }
-    }
-
-    // Soft-warning pass over the bundle filesystem. Catches the "wrote the
-    // files but forgot the spec ref" foot-gun — most common authoring bug,
-    // especially for AI authors who skip the schema discovery loop for
-    // `kind: "custom"` and just write the directory. Doesn't block freeze;
-    // the concierge surfaces it before freeze + asks the user whether the
-    // orphan should be added to spec.tools[] or deleted.
-    //
-    // We list once and partition into the two checks (tools / skills) so the
-    // bundle store sees a single round-trip even when both shapes exist.
-    const entries = await bundle.list(rev.id)
-    const referencedCustomToolPaths = new Set(
-        rev.spec.tools
-            .filter((t): t is Extract<typeof t, { kind: 'custom' }> => t.kind === 'custom')
-            .map((t) => t.path.replace(/\/$/, ''))
-    )
-    const customToolDirs = new Set<string>()
-    for (const entry of entries) {
-        // `tools/<id>/schema.json` is the canonical marker for a custom tool
-        // directory — the runner loads on schema, not source, so a stray
-        // source.ts without a schema.json is not a tool. Mirror that here.
-        const match = entry.path.match(/^(tools\/[^/]+)\/schema\.json$/)
-        if (match) {
-            customToolDirs.add(match[1])
-        }
-    }
-    for (const dir of customToolDirs) {
-        if (!referencedCustomToolPaths.has(dir)) {
-            warnings.push({
-                code: 'orphan_custom_tool_dir',
-                message: `bundle contains "${dir}/" but no entry in spec.tools[] references it; either add { kind: "custom", id, path: "${dir}" } to spec.tools[] or delete the directory before freeze`,
-                pointer: `${dir}/`,
-            })
-        }
-    }
-
-    const referencedSkillPaths = new Set(rev.spec.skills.map((s) => s.path.replace(/\/$/, '')))
-    for (const entry of entries) {
-        // Same shape as the runner's skill loader: SKILL.md inside a
-        // directory under skills/, or a flat skills/foo.md file. Anything
-        // else under skills/ (notes, fixtures) is ignored.
-        const isSkillMd = /^skills\/[^/]+\/SKILL\.md$/.test(entry.path) || /^skills\/[^/]+\.md$/.test(entry.path)
-        if (isSkillMd && !referencedSkillPaths.has(entry.path)) {
-            warnings.push({
-                code: 'orphan_skill_file',
-                message: `bundle contains "${entry.path}" but no entry in spec.skills[] references it; either add a skill ref with this path, or delete the file before freeze`,
-                pointer: entry.path,
-            })
-        }
+        // kind:'custom' / kind:'client' need no presence check — see above.
     }
 
     // Cron-specific freeze-time checks. Zod has already validated the field

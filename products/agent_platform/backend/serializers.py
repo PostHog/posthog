@@ -196,21 +196,68 @@ class PromoteRevisionRequestSerializer(serializers.Serializer):
     """
 
 
-class WriteFileRequestSerializer(serializers.Serializer):
-    """Body shape for PUT /revisions/<id>/file/. `path` lives in the query
-    string (matches the janitor wire format); `content` is the new file body."""
+class WriteAgentMdRequestSerializer(serializers.Serializer):
+    """Body shape for PUT /revisions/<id>/agent_md/."""
 
     content = serializers.CharField(allow_blank=True, trim_whitespace=False)
 
 
-class WriteBundleRequestSerializer(serializers.Serializer):
-    """Body shape for PUT /revisions/<id>/bundle/ — the bulk upload.
+class WriteSpecRequestSerializer(serializers.Serializer):
+    """Body shape for PUT /revisions/<id>/spec/. The body's `spec` object
+    is the author-facing slice (skills/tools are server-derived at freeze)."""
 
-    `files` is a `{path: utf-8 content}` map. `mode='replace'` wipes the
-    existing bundle before writing the new set; `'merge'` upserts."""
+    spec = serializers.DictField(child=serializers.JSONField())
 
-    files = serializers.DictField(child=serializers.CharField(allow_blank=True, trim_whitespace=False))
-    mode = serializers.ChoiceField(choices=["replace", "merge"], default="replace")
+
+class _SkillFileSerializer(serializers.Serializer):
+    path = serializers.CharField(allow_blank=False, trim_whitespace=False)
+    content = serializers.CharField(allow_blank=True, trim_whitespace=False)
+
+
+class WriteSkillRequestSerializer(serializers.Serializer):
+    """Body shape for PUT /revisions/<id>/skills/<skill_id>/."""
+
+    description = serializers.CharField(allow_blank=False, trim_whitespace=False)
+    body = serializers.CharField(allow_blank=True, trim_whitespace=False)
+    files = serializers.ListField(child=_SkillFileSerializer(), required=False, default=list)
+
+
+class WriteToolRequestSerializer(serializers.Serializer):
+    """Body shape for PUT /revisions/<id>/tools/<tool_id>/."""
+
+    description = serializers.CharField(allow_blank=False, trim_whitespace=False)
+    args_schema = serializers.DictField(child=serializers.JSONField())
+    source = serializers.CharField(allow_blank=False, trim_whitespace=False)
+
+
+class WriteTypedBundleRequestSerializer(serializers.Serializer):
+    """Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
+    payload. See docs/agent-platform/plans/typed-bundle-authoring-api.md §3."""
+
+    agent_md = serializers.CharField(allow_blank=True, trim_whitespace=False)
+    skills = serializers.ListField(child=WriteSkillRequestSerializer(), required=False, default=list)
+    tools = serializers.ListField(child=WriteToolRequestSerializer(), required=False, default=list)
+    spec = serializers.DictField(child=serializers.JSONField())
+
+    def to_internal_value(self, data: dict) -> dict:
+        """Skill / tool items carry an `id` field that the nested serializer
+        doesn't declare (it lives in the URL for the single-resource PUTs).
+        Stash + restore so the per-item validation still passes."""
+        skills = data.get("skills", [])
+        tools = data.get("tools", [])
+        skill_ids = [s.get("id") for s in skills]
+        tool_ids = [t.get("id") for t in tools]
+        # Strip ids so the inner serializers don't complain about unknowns.
+        stripped = {
+            **data,
+            "skills": [{k: v for k, v in s.items() if k != "id"} for s in skills],
+            "tools": [{k: v for k, v in t.items() if k != "id"} for t in tools],
+        }
+        out = super().to_internal_value(stripped)
+        # Reattach ids — janitor wants them.
+        out["skills"] = [{**s, "id": skill_ids[i]} for i, s in enumerate(out.get("skills", []))]
+        out["tools"] = [{**t, "id": tool_ids[i]} for i, t in enumerate(out.get("tools", []))]
+        return out
 
 
 class CloneFromRequestSerializer(serializers.Serializer):

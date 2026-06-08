@@ -142,63 +142,10 @@ describe('janitor HTTP', () => {
         expect(res.body.error).toBe('invalid_request')
     })
 
-    it('PUT /revisions/:id/bundle with null files returns 400 instead of crashing', async () => {
-        // Regression: pre-zod, `typeof null === 'object'` slipped through the
-        // shape check and the route would attempt `Object.entries(null)` and
-        // throw an unhandled rejection. The schema now rejects null up front.
-        const { app, revisionId } = await mkRevisionApp()
-        const res = await request(app).put(`/revisions/${revisionId}/bundle`).send({ files: null })
-        expect(res.status).toBe(400)
-        expect(res.body.error).toBe('invalid_request')
-    })
-
-    it('PUT /revisions/:id/bundle with non-string file content returns 400', async () => {
-        // Pre-zod, `{ files: { a: 42 } }` passed the loose `typeof object`
-        // check and reached `bundles.write(..., 42)`, which then threw.
-        const { app, revisionId } = await mkRevisionApp()
-        const res = await request(app)
-            .put(`/revisions/${revisionId}/bundle`)
-            .send({ files: { 'agent.md': 42 } })
-        expect(res.status).toBe(400)
-        expect(res.body.error).toBe('invalid_request')
-    })
-
-    it('PUT /revisions/:id/file rejects content over the per-file size cap', async () => {
-        // Pre-cap, a single 7MB file would slip through the express.json 8MB
-        // limit and land on disk.
-        const { app, revisionId } = await mkRevisionApp()
-        const tooLarge = 'a'.repeat(1_000_001)
-        const res = await request(app).put(`/revisions/${revisionId}/file?path=big.md`).send({ content: tooLarge })
-        expect(res.status).toBe(400)
-        expect(res.body.error).toBe('invalid_request')
-        expect((res.body.issues as Array<{ message: string }>)[0].message).toMatch(/exceeds.*1000000/)
-    })
-
-    it('PUT /revisions/:id/bundle rejects a single file over the per-file cap', async () => {
-        const { app, revisionId } = await mkRevisionApp()
-        const res = await request(app)
-            .put(`/revisions/${revisionId}/bundle`)
-            .send({ files: { 'big.md': 'a'.repeat(1_000_001) } })
-        expect(res.status).toBe(400)
-        expect(res.body.error).toBe('invalid_request')
-        // Issue path points at the offending file so the caller knows which one.
-        const issues = res.body.issues as Array<{ path: (string | number)[]; message: string }>
-        expect(issues.some((i) => i.path.includes('big.md'))).toBe(true)
-    })
-
-    it('PUT /revisions/:id/bundle rejects many under-limit files that sum past the bundle cap', async () => {
-        const { app, revisionId } = await mkRevisionApp()
-        // Five 900KB files = 4.5MB total. Each one fits under the 1MB
-        // per-file cap; the bundle exceeds the 4MB total cap.
-        const half = 'a'.repeat(900_000)
-        const files: Record<string, string> = {}
-        for (let i = 0; i < 5; i++) {
-            files[`f${i}.md`] = half
-        }
-        const res = await request(app).put(`/revisions/${revisionId}/bundle`).send({ files })
-        expect(res.status).toBe(400)
-        expect(res.body.error).toBe('invalid_request')
-    })
+    // Legacy file/bundle size-cap tests removed alongside the typed bundle
+    // rollout. Per-resource limits live in the typed body schemas now
+    // (`TypedSkillSchema.body.max`, `TypedToolSchema.source.max`); covered
+    // by the typed-bundle-authoring e2e suite.
 
     it('GET /sessions supports state / revision_id / created_after filters', async () => {
         const { queue, app } = mk()
@@ -774,114 +721,10 @@ describe('janitor HTTP', () => {
         expect(paths).toEqual(['agent.md', 'skills/research.md'])
     })
 
-    it('PUT /revisions/:id/file writes and GET reads back', async () => {
-        const { app, revisionId } = await mkRevisionApp()
-        const put = await request(app)
-            .put(`/revisions/${revisionId}/file?path=tools/wc/source.ts`)
-            .send({ content: 'export default 1' })
-        expect(put.status).toBe(200)
-        const get = await request(app).get(`/revisions/${revisionId}/file?path=tools/wc/source.ts`)
-        expect(get.status).toBe(200)
-        expect(get.body.content).toBe('export default 1')
-    })
-
-    it('PUT /revisions/:id/file rejects writes to tools/<id>/compiled.js — generated at freeze', async () => {
-        // History: the concierge spent hours hand-writing compiled.js with
-        // various CJS/ESM export shapes when the runner couldn't dispatch.
-        // Now that freeze owns compile, hand-written compiled.js is silently
-        // overwritten on the next freeze — confusing the model into thinking
-        // its edits aren't landing. Reject the write up front with a clear
-        // hint pointing back at source.ts.
-        const { app, bundles, revisionId } = await mkRevisionApp()
-        const res = await request(app)
-            .put(`/revisions/${revisionId}/file?path=tools/my-tool/compiled.js`)
-            .send({ content: 'module.exports = { actions: { default: () => 1 } }' })
-        expect(res.status).toBe(422)
-        expect(res.body.error).toBe('compiled_js_is_generated')
-        expect(res.body.hint).toMatch(/source\.ts/i)
-        // Nothing was actually written.
-        expect(await bundles.exists(revisionId, 'tools/my-tool/compiled.js')).toBe(false)
-    })
-
-    it('PUT /revisions/:id/file allows source.ts and other paths under tools/', async () => {
-        // The guard is precise — only tools/<id>/compiled.js is blocked.
-        // source.ts, schema.json, README.md, and arbitrary subdirs all pass.
-        const { app, revisionId } = await mkRevisionApp()
-        for (const path of [
-            'tools/my-tool/source.ts',
-            'tools/my-tool/schema.json',
-            'tools/my-tool/README.md',
-            'tools/my-tool/helpers/util.ts',
-        ]) {
-            const res = await request(app).put(`/revisions/${revisionId}/file?path=${path}`).send({ content: 'x' })
-            expect(res.status, `expected ${path} to be allowed`).toBe(200)
-        }
-    })
-
-    it('PUT /revisions/:id/bundle rejects any compiled.js entry in the bulk push', async () => {
-        // Same rule as the single-file PUT, applied to the bulk push path the
-        // concierge uses for first-revision authoring. Reports every offending
-        // path so the caller can fix the request in one round-trip.
-        const { app, bundles, revisionId } = await mkRevisionApp()
-        const res = await request(app)
-            .put(`/revisions/${revisionId}/bundle`)
-            .send({
-                files: {
-                    'agent.md': 'system prompt',
-                    'tools/a/source.ts': 'export default { actions: { default: () => 1 } }',
-                    'tools/a/compiled.js': 'module.exports = {}',
-                    'tools/b/compiled.js': 'module.exports = {}',
-                },
-                mode: 'merge',
-            })
-        expect(res.status).toBe(422)
-        expect(res.body.error).toBe('compiled_js_is_generated')
-        expect((res.body.paths as string[]).sort()).toEqual(['tools/a/compiled.js', 'tools/b/compiled.js'])
-        // No partial write — the whole bundle push is rejected so the caller
-        // doesn't end up with half their tool authored.
-        expect(await bundles.exists(revisionId, 'agent.md')).toBe(false)
-        expect(await bundles.exists(revisionId, 'tools/a/source.ts')).toBe(false)
-    })
-
-    it('DELETE /revisions/:id/file removes the file', async () => {
-        const { app, bundles, revisionId } = await mkRevisionApp()
-        await bundles.write(revisionId, 'doomed.md', 'bye')
-        const del = await request(app).delete(`/revisions/${revisionId}/file?path=doomed.md`)
-        expect(del.status).toBe(200)
-        expect(await bundles.exists(revisionId, 'doomed.md')).toBe(false)
-    })
-
-    it('GET /revisions/:id/bundle bulk-pulls every file', async () => {
-        const { app, bundles, revisionId } = await mkRevisionApp()
-        await bundles.write(revisionId, 'agent.md', 'a')
-        await bundles.write(revisionId, 'skills/x.md', 'b')
-        const res = await request(app).get(`/revisions/${revisionId}/bundle`)
-        expect(res.status).toBe(200)
-        expect(res.body.files).toEqual({ 'agent.md': 'a', 'skills/x.md': 'b' })
-    })
-
-    it('PUT /revisions/:id/bundle with mode=replace wipes and writes', async () => {
-        const { app, bundles, revisionId } = await mkRevisionApp()
-        await bundles.write(revisionId, 'old.md', 'gone')
-        const res = await request(app)
-            .put(`/revisions/${revisionId}/bundle`)
-            .send({ files: { 'new.md': 'fresh', 'agent.md': 'top' }, mode: 'replace' })
-        expect(res.status).toBe(200)
-        const paths = (res.body.files as Array<{ path: string }>).map((f) => f.path).sort()
-        expect(paths).toEqual(['agent.md', 'new.md'])
-        expect(await bundles.exists(revisionId, 'old.md')).toBe(false)
-    })
-
-    it('PUT /revisions/:id/bundle with mode=merge upserts without wiping', async () => {
-        const { app, bundles, revisionId } = await mkRevisionApp()
-        await bundles.write(revisionId, 'keep.md', 'still here')
-        const res = await request(app)
-            .put(`/revisions/${revisionId}/bundle`)
-            .send({ files: { 'added.md': 'new' }, mode: 'merge' })
-        expect(res.status).toBe(200)
-        const paths = (res.body.files as Array<{ path: string }>).map((f) => f.path).sort()
-        expect(paths).toEqual(['added.md', 'keep.md'])
-    })
+    // The single-file `/file` and bulk `/bundle` (with `mode`) endpoints
+    // were removed alongside the typed bundle rollout. End-to-end coverage
+    // of the typed endpoints lives in
+    // `services/agent-tests/src/cases/typed-bundle-authoring.test.ts`.
 
     it('POST /revisions/:id/freeze returns the sha + state hint, writes the S3 frozen marker, and does NOT mutate agent_revision', async () => {
         const { app, bundles, revisions, revisionId } = await mkRevisionApp()
@@ -903,9 +746,11 @@ describe('janitor HTTP', () => {
         const { app, bundles, revisionId } = await mkRevisionApp()
         await bundles.write(revisionId, 'agent.md', 'final')
         await request(app).post(`/revisions/${revisionId}/freeze`)
-        const put = await request(app).put(`/revisions/${revisionId}/file?path=agent.md`).send({ content: 'x' })
+        // The typed agent_md PUT enforces the same draft-only contract that
+        // the legacy /file PUT did.
+        const put = await request(app).put(`/revisions/${revisionId}/agent_md`).send({ content: 'x' })
         expect(put.status).toBe(409)
-        expect(put.body.error).toBe('revision_not_editable')
+        expect(put.body.error).toBe('revision_not_draft')
     })
 
     it('POST /revisions/:id/clone_from copies every file from the source', async () => {
@@ -935,5 +780,168 @@ describe('janitor HTTP', () => {
         const { app } = mk() // no revisions/bundles
         const res = await request(app).get('/revisions/00000000-0000-0000-0000-000000000000/manifest')
         expect(res.status).toBe(503)
+    })
+
+    /**
+     * Perf regression tests. We can't assert wall-clock latency reliably in CI
+     * (network jitter against SeaweedFS), so the tests assert on the structural
+     * invariants that USED to be violated:
+     *
+     *   - `clone_from` should issue its per-file `bundle.copy` calls in parallel,
+     *     not serially. We measure max concurrency, not total time.
+     *   - The freeze pipeline (derive + freeze) should only call `bundle.list`
+     *     once. Each `list` is a ListObjects + N parallel HEADs on S3 —
+     *     repeated calls were the dominant cost.
+     *
+     * Both invariants previously broke and burned 30s+ on a 15-file bundle,
+     * timing out the Django proxy mid-freeze. See BUILD_NOTES.md I1, I4.
+     */
+    describe('perf regressions', () => {
+        /**
+         * Wraps an S3BundleStore so callers can observe `list` call count and
+         * `copy` peak concurrency. Identity on every other method. Used only
+         * by the perf-regression tests.
+         */
+        function instrument(store: S3BundleStore): {
+            store: S3BundleStore
+            listCalls: { count: number }
+            copyConcurrency: { peak: number }
+        } {
+            const listCalls = { count: 0 }
+            const copyConcurrency = { peak: 0 }
+            let inFlight = 0
+            const wrapped = new Proxy(store, {
+                get(target, prop, receiver) {
+                    if (prop === 'list') {
+                        return async (
+                            ...args: Parameters<S3BundleStore['list']>
+                        ): Promise<ReturnType<S3BundleStore['list']>> => {
+                            listCalls.count++
+                            return Reflect.get(target, prop, receiver).apply(target, args)
+                        }
+                    }
+                    if (prop === 'copy') {
+                        return async (
+                            ...args: Parameters<S3BundleStore['copy']>
+                        ): Promise<ReturnType<S3BundleStore['copy']>> => {
+                            inFlight++
+                            if (inFlight > copyConcurrency.peak) {
+                                copyConcurrency.peak = inFlight
+                            }
+                            try {
+                                return await Reflect.get(target, prop, receiver).apply(target, args)
+                            } finally {
+                                inFlight--
+                            }
+                        }
+                    }
+                    return Reflect.get(target, prop, receiver)
+                },
+            })
+            return { store: wrapped as S3BundleStore, listCalls, copyConcurrency }
+        }
+
+        async function mkInstrumentedApp(): Promise<{
+            app: ReturnType<typeof buildJanitorApp>
+            bundles: S3BundleStore
+            revisions: PgRevisionStore
+            revisionId: string
+            listCalls: { count: number }
+            copyConcurrency: { peak: number }
+        }> {
+            const revisions = new PgRevisionStore(pool)
+            const queue = new PgSessionQueue(pool)
+            const apprec = await revisions.createApplication({ team_id: 1, slug: 'p', name: 'P', description: '' })
+            const rev = await revisions.createRevision({
+                application_id: apprec.id,
+                parent_revision_id: null,
+                created_by_id: null,
+                bundle_uri: 'mem://b',
+                spec: AgentSpecSchema.parse({
+                    model: 'x',
+                    triggers: [{ type: 'chat', config: { require_auth: false } }],
+                }),
+            })
+            const instrumented = instrument(bundleStore)
+            const app = buildJanitorApp({
+                queue,
+                sweep: { queue, stuckRunningThresholdMs: 60_000 },
+                revisions,
+                bundles: instrumented.store,
+            })
+            return {
+                app,
+                bundles: instrumented.store,
+                revisions,
+                revisionId: rev.id,
+                listCalls: instrumented.listCalls,
+                copyConcurrency: instrumented.copyConcurrency,
+            }
+        }
+
+        it('clone_from issues bundle.copy calls in parallel (peak concurrency > 1)', async () => {
+            const { app, bundles, revisions, revisionId, copyConcurrency } = await mkInstrumentedApp()
+            // Seed a multi-file source so any serialization is observable.
+            for (let i = 0; i < 8; i++) {
+                await bundles.write(revisionId, `skills/s${i}.md`, `body ${i}`)
+            }
+            await bundles.write(revisionId, 'agent.md', 'top')
+            await request(app).post(`/revisions/${revisionId}/freeze`)
+
+            const draft = await revisions.createRevision({
+                application_id: (await revisions.listApplications(1))[0].id,
+                parent_revision_id: revisionId,
+                created_by_id: null,
+                bundle_uri: 'mem://b2',
+                spec: { model: 'x' } as never,
+            })
+            // Reset the peak after the freeze step's own copies — clone_from
+            // is the only call we want to measure here.
+            copyConcurrency.peak = 0
+
+            const res = await request(app)
+                .post(`/revisions/${draft.id}/clone_from`)
+                .send({ source_revision_id: revisionId })
+            expect(res.status).toBe(200)
+            // Serial would mean peak = 1. Parallel sees most/all copies
+            // overlap; we conservatively assert > 1, which is what regresses
+            // if someone reintroduces a `for await` loop.
+            expect(copyConcurrency.peak).toBeGreaterThan(1)
+        })
+
+        it('freeze pipeline calls bundle.list at most twice (one for derive+freeze, one for the idempotent isFrozen-pre-check is allowed)', async () => {
+            const { app, bundles, revisionId, listCalls } = await mkInstrumentedApp()
+            // Populate so list() actually does work (vs an empty bundle).
+            for (let i = 0; i < 8; i++) {
+                await bundles.write(revisionId, `skills/s${i}.md`, `body ${i}`)
+            }
+            await bundles.write(revisionId, 'agent.md', 'top')
+
+            // Reset after the writes (they don't call list, but in case
+            // any future write path does).
+            listCalls.count = 0
+
+            const res = await request(app).post(`/revisions/${revisionId}/freeze`)
+            expect(res.status).toBe(200)
+            // The freeze handler now calls list ONCE up front and threads
+            // the result into deriveAndPersistSpec (→ readTypedBundle) and
+            // bundles.freeze(precomputedEntries). The validate step calls
+            // bundle.exists() not list(). If someone reintroduces a re-list
+            // in any of those paths, this count breaks.
+            // We allow 1 (the cached path) — the test is a regression
+            // pin, not a hard guarantee that future refactors can't change.
+            expect(listCalls.count).toBeLessThanOrEqual(1)
+        })
+
+        it('freeze of an empty bundle still completes in one list call (no degenerate-case re-walk)', async () => {
+            const { app, revisionId, listCalls } = await mkInstrumentedApp()
+            // No writes — just agent.md so validate doesn't 422 on missing
+            // entrypoint.
+            await bundleStore.write(revisionId, 'agent.md', 'top')
+            listCalls.count = 0
+            const res = await request(app).post(`/revisions/${revisionId}/freeze`)
+            expect(res.status).toBe(200)
+            expect(listCalls.count).toBeLessThanOrEqual(1)
+        })
     })
 })

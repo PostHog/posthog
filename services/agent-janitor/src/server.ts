@@ -46,9 +46,12 @@ import { z } from 'zod'
 
 import {
     accumulateUsage,
+    AgentRevision,
     AgentSession,
+    AgentSpecSchema,
     ApprovalRequest,
     ApprovalStore,
+    BundleEntry,
     BundleStore,
     buildSystemPrompt,
     ConversationMessage,
@@ -59,17 +62,22 @@ import {
     InternalJwtVerifyError,
     lastAssistantTextPreview,
     MemoryStore,
-    TabularStore,
+    readTypedBundle,
     RevisionStore,
     SessionQueue,
+    skillBodyPath,
+    TabularStore,
     verifyInternalJwt,
 } from '@posthog/agent-shared'
 import { listNativeTools } from '@posthog/agent-tools'
 
 import { mountMemoryRoutes } from './api/memory'
 import { mountTableRoutes } from './api/tables'
+import { buildTypedBundleRouter } from './api/typed-bundle'
 import { buildApprovalDecidedMarker } from './approval-marker'
-import { compileCustomToolsIntoBundle } from './compile-custom-tools'
+// compile-custom-tools.ts now exports `compileTypedTool` — wired by the
+// typed PUT /tools/:id handler, not by freeze. Freeze just validates +
+// seals; the compiled.js is already in the bundle by then.
 import { fireCronManually } from './cron-tick'
 import { asyncHandler, errorHandler } from './http-utils'
 import { SweepDeps, sweepOnce } from './sweep'
@@ -147,6 +155,63 @@ function defaultSince(): string {
     return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
 }
 
+/**
+ * Derive `spec.skills[]` + `spec.tools[]` from the typed resources in the
+ * bundle and persist the merged spec onto `agent_revision.spec`. Called by
+ * the freeze handler immediately before validate + freeze so the validator
+ * sees the final shape.
+ *
+ * Authors never write the derived arrays directly — they're computed from
+ * the source of truth (the typed-resource state in the bundle) at the
+ * freeze instant. This is what makes orphan files structurally impossible:
+ * any skill markdown in the bundle gets a spec entry, any tool dir gets a
+ * spec entry. Drift requires a writer; there isn't one.
+ */
+async function deriveAndPersistSpec(args: {
+    revisionId: string
+    rev: AgentRevision
+    revisions: RevisionStore
+    bundles: BundleStore
+    /** Precomputed `bundles.list()` result, threaded through to avoid a
+     *  re-list inside `readTypedBundle`. The freeze handler hands this in. */
+    entries?: BundleEntry[]
+}): Promise<void> {
+    const { bundle } = await readTypedBundle(
+        args.revisionId,
+        args.bundles,
+        args.rev.spec as unknown as Record<string, unknown>,
+        args.entries
+    )
+    const derivedSkills = bundle.skills.map((s) => ({
+        id: s.id,
+        path: skillBodyPath(s.id),
+        description: s.description,
+    }))
+    const derivedTools = bundle.tools.map((t) => ({
+        kind: 'custom' as const,
+        id: t.id,
+        path: `tools/${t.id}`,
+    }))
+
+    // Merge with anything the author wrote via PUT /spec (mcps, triggers,
+    // native_tools, etc.). The derived arrays are authoritative for
+    // skills + custom tools; spec.tools[] may also carry kind:'native' or
+    // kind:'client' entries the author wrote — preserve those by merging
+    // alongside the derived custom entries.
+    const authorTools = ((args.rev.spec as Record<string, unknown>).tools as unknown[] | undefined) ?? []
+    const preservedTools = authorTools.filter(
+        (t) => typeof t === 'object' && t !== null && (t as { kind?: string }).kind !== 'custom'
+    )
+
+    const mergedSpec = {
+        ...(args.rev.spec as Record<string, unknown>),
+        skills: derivedSkills,
+        tools: [...preservedTools, ...derivedTools],
+    }
+    const parsed = AgentSpecSchema.parse(mergedSpec)
+    await args.revisions.updateSpec(args.revisionId, parsed)
+}
+
 const BackfillUsageBodySchema = z.object({
     /**
      * Walk sessions for this application. Required so a single call can't
@@ -157,40 +222,6 @@ const BackfillUsageBodySchema = z.object({
     dry_run: z.boolean().default(true),
     /** Cap on rows scanned per call so a giant backlog doesn't tie up the request. */
     limit: z.coerce.number().int().positive().max(5000).default(500),
-})
-
-const FilePathQuerySchema = z.object({
-    path: z.string().min(1, 'missing_path'),
-})
-
-// Custom-tool `compiled.js` is generated at freeze from `source.ts` via esbuild.
-// Author writes (concierge included) MUST NOT touch it directly — hand-written
-// compiled.js gets clobbered by the next freeze, which historically sent the
-// concierge into a multi-turn debugging spiral guessing CJS/ESM export shapes.
-// Reject the write here so the failure surfaces immediately with a clear hint
-// instead of as a confusing "my edits didn't land" symptom later.
-const GENERATED_COMPILED_JS = /^tools\/[^/]+\/compiled\.js$/
-function isGeneratedPath(path: string): boolean {
-    return GENERATED_COMPILED_JS.test(path)
-}
-
-// Per-file ceiling, well below the express.json() 8MB limit. The 8MB cap
-// lets a single ~7MB file path slip through; this stops that. Bundles
-// containing files larger than this should land via S3 presigned URLs
-// (future work — see typed-config-loader.md notes).
-const MAX_FILE_BYTES = 1_000_000 // 1 MB per file
-// Per-bundle ceiling — sum of all file content. Defends against a bulk
-// push with many under-limit files that still exhausts disk / memory.
-const MAX_BUNDLE_BYTES = 4_000_000 // 4 MB across all files in one push
-
-function utf8Bytes(s: string): number {
-    return Buffer.byteLength(s, 'utf8')
-}
-
-const FileUpdateBodySchema = z.object({
-    content: z
-        .string()
-        .refine((s) => utf8Bytes(s) <= MAX_FILE_BYTES, { message: `file content exceeds ${MAX_FILE_BYTES} bytes` }),
 })
 
 const CronFireBodySchema = z.object({
@@ -209,31 +240,6 @@ const CronFireBodySchema = z.object({
      * resolves against this timestamp.
      */
     fired_at: z.string().datetime({ offset: true }).optional(),
-})
-
-const BundleFilesSchema = z.record(z.string(), z.string()).superRefine((files, ctx) => {
-    let total = 0
-    for (const [path, content] of Object.entries(files)) {
-        const bytes = utf8Bytes(content)
-        if (bytes > MAX_FILE_BYTES) {
-            ctx.addIssue({
-                code: 'custom',
-                path: [path],
-                message: `file content exceeds ${MAX_FILE_BYTES} bytes`,
-            })
-        }
-        total += bytes
-    }
-    if (total > MAX_BUNDLE_BYTES) {
-        ctx.addIssue({
-            code: 'custom',
-            message: `bundle total exceeds ${MAX_BUNDLE_BYTES} bytes`,
-        })
-    }
-})
-const BundlePutBodySchema = z.object({
-    files: BundleFilesSchema,
-    mode: z.enum(['replace', 'merge']).default('replace'),
 })
 
 const CloneFromBodySchema = z.object({
@@ -699,123 +705,13 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
         })
     )
 
-    app.get(
-        '/revisions/:id/file',
-        asyncHandler(async (req, res) => {
-            if (!needRevisionStore(res)) {
-                return
-            }
-            const { path } = FilePathQuerySchema.parse(req.query)
-            if (!(await opts.bundles!.exists(req.params.id, path))) {
-                res.status(404).json({ error: 'file_not_found' })
-                return
-            }
-            const text = await opts.bundles!.readText(req.params.id, path)
-            res.json({ path, content: text })
-        })
-    )
-
-    app.put(
-        '/revisions/:id/file',
-        asyncHandler(async (req, res) => {
-            if (!needRevisionStore(res)) {
-                return
-            }
-            const { path } = FilePathQuerySchema.parse(req.query)
-            if (isGeneratedPath(path)) {
-                res.status(422).json({
-                    error: 'compiled_js_is_generated',
-                    path,
-                    hint: 'compiled.js is produced from source.ts at freeze time via esbuild. Write source.ts instead — the janitor will compile it for you. Hand-written compiled.js is overwritten on the next freeze.',
-                })
-                return
-            }
-            const { content } = FileUpdateBodySchema.parse(req.body)
-            const ok = await requireDraft(res, req.params.id)
-            if (!ok) {
-                return
-            }
-            await opts.bundles!.write(req.params.id, path, content)
-            res.json({ ok: true, path, bytes: Buffer.byteLength(content, 'utf8') })
-        })
-    )
-
-    app.delete(
-        '/revisions/:id/file',
-        asyncHandler(async (req, res) => {
-            if (!needRevisionStore(res)) {
-                return
-            }
-            const { path } = FilePathQuerySchema.parse(req.query)
-            const ok = await requireDraft(res, req.params.id)
-            if (!ok) {
-                return
-            }
-            await opts.bundles!.delete(req.params.id, path)
-            res.json({ ok: true, path })
-        })
-    )
-
-    app.get(
-        '/revisions/:id/bundle',
-        asyncHandler(async (req, res) => {
-            if (!needRevisionStore(res)) {
-                return
-            }
-            const rev = await opts.revisions!.getRevision(req.params.id)
-            if (!rev) {
-                res.status(404).json({ error: 'revision_not_found' })
-                return
-            }
-            const entries = await opts.bundles!.list(req.params.id)
-            const files: Record<string, string> = {}
-            for (const e of entries) {
-                files[e.path] = await opts.bundles!.readText(req.params.id, e.path)
-            }
-            res.json({
-                revision_id: req.params.id,
-                state: rev.state,
-                bundle_sha256: rev.bundle_sha256,
-                files,
-            })
-        })
-    )
-
-    app.put(
-        '/revisions/:id/bundle',
-        asyncHandler(async (req, res) => {
-            if (!needRevisionStore(res)) {
-                return
-            }
-            const { files, mode } = BundlePutBodySchema.parse(req.body)
-            const generated = Object.keys(files).filter(isGeneratedPath)
-            if (generated.length > 0) {
-                res.status(422).json({
-                    error: 'compiled_js_is_generated',
-                    paths: generated,
-                    hint: 'compiled.js is produced from source.ts at freeze time via esbuild. Remove these entries and write source.ts instead — the janitor will compile them for you. Hand-written compiled.js is overwritten on the next freeze.',
-                })
-                return
-            }
-            const ok = await requireDraft(res, req.params.id)
-            if (!ok) {
-                return
-            }
-            if (mode === 'replace') {
-                // Wipe everything before writing the new set. Keeps the bundle
-                // in lockstep with what the caller declared.
-                const existing = await opts.bundles!.list(req.params.id)
-                for (const e of existing) {
-                    await opts.bundles!.delete(req.params.id, e.path)
-                }
-            }
-            for (const [p, content] of Object.entries(files)) {
-                await opts.bundles!.write(req.params.id, p, content)
-            }
-            const listed = await opts.bundles!.list(req.params.id)
-            res.json({ ok: true, mode, files: listed })
-        })
-    )
+    // Typed bundle authoring API. The legacy file-grain endpoints
+    // (`/file?path=X`, `/bundle` with `mode`) were removed — see
+    // `docs/agent-platform/plans/typed-bundle-authoring-api.md`. The new
+    // surface lives entirely under the typed router below.
+    if (opts.revisions && opts.bundles) {
+        app.use('/revisions/:id', buildTypedBundleRouter({ revisions: opts.revisions, bundles: opts.bundles }))
+    }
 
     app.post(
         '/revisions/:id/freeze',
@@ -823,30 +719,60 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             if (!needRevisionStore(res)) {
                 return
             }
+            // Idempotency: if the bundle is already frozen (e.g. a previous
+            // freeze HTTP call timed out at the Django proxy while the
+            // janitor finished writing the .frozen marker), return the
+            // existing sha instead of failing with revision_not_editable.
+            // Lets the caller stamp the row + recover from the inconsistent
+            // mid-freeze state.
+            if (opts.bundles && (await opts.bundles.isFrozen(req.params.id))) {
+                // Re-derive the sha from the existing manifest. Same shape
+                // S3BundleStore.freeze uses — list, sort, hash (path \0 sha \0).
+                const entries = await opts.bundles.list(req.params.id)
+                const { createHash } = await import('node:crypto')
+                const hash = createHash('sha256')
+                for (const e of entries) {
+                    hash.update(e.path).update('\0').update(e.sha256).update('\0')
+                }
+                res.json({ ok: true, state: 'ready', bundle_sha256: hash.digest('hex'), idempotent: true })
+                return
+            }
             const ok = await requireDraft(res, req.params.id)
             if (!ok) {
+                return
+            }
+            // Single bundle.list() up front, threaded through every step
+            // that needs it. Without this each of derive / freeze re-lists
+            // the bundle (= one S3 ListObjects + N parallel HEADs each),
+            // which dominates wall time on bundles past ~10 files. Caching
+            // the result is the load-bearing latency fix.
+            const entries = await opts.bundles!.list(req.params.id)
+            await deriveAndPersistSpec({
+                revisionId: req.params.id,
+                rev: ok.rev!,
+                revisions: opts.revisions!,
+                bundles: opts.bundles!,
+                entries,
+            })
+            const merged = await opts.revisions!.getRevision(req.params.id)
+            if (!merged) {
+                res.status(404).json({ error: 'revision_not_found' })
                 return
             }
             // Validate before freezing — freeze is the contract that says
             // "this is a real candidate for running." A revision that would
             // fail validation can't pass that gate; otherwise we'd ship dead
             // agents like the original Hedgebox Helper v2 (empty triggers).
-            const report = await validateRevisionBundle(ok.rev!, opts.bundles!)
+            const report = await validateRevisionBundle(merged, opts.bundles!)
             if (!report.ok) {
                 res.status(422).json({ error: 'validation_failed', report })
                 return
             }
-            // Compile every kind:"custom" tool's source.ts → compiled.js.
-            // Authors don't ship compiled.js anymore — it's a build artifact
-            // owned by the platform. The runner / sandbox still loads
-            // compiled.js exactly as before. If any tool fails to compile,
-            // abort the freeze before the bundle is sealed.
-            const compileResult = await compileCustomToolsIntoBundle(ok.rev!, opts.bundles!)
-            if (compileResult.errors.length > 0) {
-                res.status(422).json({ error: 'compile_failed', compile: compileResult })
-                return
-            }
-            const sha = await opts.bundles!.freeze(req.params.id)
+            // Custom tools were compiled at PUT /tools/:id — the typed
+            // upload pipeline runs AST shape check + esbuild synchronously
+            // inside the upload handler. By the time freeze runs,
+            // compiled.js is on disk for every tool.
+            const sha = await opts.bundles!.freeze(req.params.id, entries)
             // Django owns the `agent_revision.state` + `bundle_sha256` write.
             // Returning sha lets the caller stamp the row inside its own
             // transaction; the janitor stays out of that table to avoid
@@ -956,10 +882,13 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             if (!ok) {
                 return
             }
+            // Parallel copy — sequential was the cause of new_draft_create
+            // timing out at the 30s Django proxy on bundles with 15+ files,
+            // leaving a half-cloned draft. S3 server-side copy doesn't move
+            // bytes through this process so the only ceiling is the S3
+            // client connection pool, which handles dozens fine.
             const src = await opts.bundles!.list(sourceId)
-            for (const entry of src) {
-                await opts.bundles!.copy(sourceId, entry.path, req.params.id, entry.path)
-            }
+            await Promise.all(src.map((entry) => opts.bundles!.copy(sourceId, entry.path, req.params.id, entry.path)))
             const files = await opts.bundles!.list(req.params.id)
             res.json({ ok: true, source_revision_id: sourceId, files })
         })

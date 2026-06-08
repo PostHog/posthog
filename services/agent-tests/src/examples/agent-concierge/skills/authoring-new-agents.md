@@ -197,7 +197,26 @@ already has that integration installed. If not, tell the user to
 install it from the PostHog integrations UI — you can't do this
 for them.
 
-## Phase 5 — write the bundle
+## Phase 5 — write the bundle (typed authoring API)
+
+The authoring surface is **typed resources, not file paths**. You
+never write a path; you upsert a typed object via one of these calls:
+
+| Resource      | Tool                                           | Body shape                                         |
+| ------------- | ---------------------------------------------- | -------------------------------------------------- |
+| System prompt | `agent-applications-revisions-agent-md-update` | `{ content }`                                      |
+| Spec          | `agent-applications-revisions-spec-update`     | `{ spec }` (author-facing slice — no skills/tools) |
+| One skill     | `agent-applications-revisions-skills-update`   | `{ description, body, files? }`                    |
+| Delete skill  | `agent-applications-revisions-skills-destroy`  | (no body)                                          |
+| One tool      | `agent-applications-revisions-tools-update`    | `{ description, args_schema, source }`             |
+| Delete tool   | `agent-applications-revisions-tools-destroy`   | (no body)                                          |
+| Whole bundle  | `agent-applications-revisions-bundle-update`   | `{ agent_md, skills, tools, spec }` — full replace |
+
+**`spec.skills[]` and `spec.tools[]` are server-derived at freeze.**
+You can't write them via `spec-update`. The janitor scans the typed
+resources in the bundle and emits the spec entries automatically.
+Orphan skills, dangling tool refs, and renaming-without-spec-patch
+are structurally impossible.
 
 Start with `agent.md` — the system prompt. Keep it tight:
 
@@ -208,9 +227,8 @@ Start with `agent.md` — the system prompt. Keep it tight:
 
 If the agent has > 1 distinct chunk of "how to do the job" (say,
 both "how to triage an alert" AND "how to format a Slack reply"),
-**split into skills**. The system prompt lists each skill in the
-skill index; the model loads on demand. This keeps per-turn
-context small.
+**split into skills**. The runtime auto-builds the skill index from
+the typed resources; the model loads them on demand.
 
 Before writing a brand-new skill or custom tool, **check the
 registry** — `agent-skill-templates-list` /
@@ -218,14 +236,11 @@ registry** — `agent-skill-templates-list` /
 template fits, pin it via `spec.skills[].from_template` instead of
 re-authoring. Load `skills/using-the-registry` for the full pattern.
 
-For custom tools, write **`tools/<id>/source.ts`** and
-**`tools/<id>/schema.json`** (declaring args + required secrets).
-That's it — DO NOT write `compiled.js`. The janitor compiles
-`source.ts` to `compiled.js` at freeze time using esbuild; the
-runner then sandboxes the compiled output at session start. The
-janitor REJECTS direct writes to `tools/*/compiled.js` (422
-`compiled_js_is_generated`) — if you see that error, you tried to
-hand-compile; write `source.ts` instead.
+For custom tools you call **`tools-update`** with `{ description,
+args_schema, source }`. The janitor runs an AST shape check + esbuild
+compile **synchronously inside the PUT** — a bad shape returns 422
+with structured diagnostics in the `errors[]` array, and the bundle
+is left untouched. You never write `compiled.js`; it's generated.
 
 #### The exact `source.ts` shape the runner expects
 
@@ -285,15 +300,18 @@ export default {
 | `export default { actions: { run: async () => ... } }` | wrong key                      | `actions.run` exists, `actions.default` doesn't — the dispatcher fires `default` only |
 | `module.exports = async function run() { ... }`        | CJS bare function              | Same as the first row — no `actions` map                                              |
 
-The freeze step **vm-evaluates the compiled output** and rejects any
-of the above with the exact reason in `compile.errors[0].message`. If
-freeze returns `compile_failed`, read that message — it tells you the
-exact shape you missed. Do NOT retry by tweaking the export style;
-the contract is `{actions: {default: fn}}` and nothing else.
+The **upload** step (`tools-update`) AST-checks the source and
+rejects any of the above with the exact reason in `errors[0].kind` +
+`errors[0].message`. If you get `tool_compile_failed`, read the
+diagnostic — it tells you the exact shape you missed. Do NOT retry
+by tweaking the export style; the contract is `{actions: {default:
+fn}}` and nothing else.
 
-Use `agent-applications-revisions-file-update` for each file.
-Don't use `bundle-update` mode=replace until you have a sense for
-the whole shape — too easy to overwrite something.
+Use the **single-resource** typed PUTs (`skills-update`,
+`tools-update`, `agent-md-update`) for individual edits. Use the
+full **`bundle-update`** ONLY when you have authoritative state for
+the whole bundle and want to wipe-and-replace — it deletes anything
+not in the payload.
 
 ## Phase 6 — validate
 
@@ -302,18 +320,16 @@ the whole shape — too easy to overwrite something.
 freeze — they block. Then walk every warning and decide what to do;
 they don't block but they're usually the bug.
 
-### Acting on warnings
+### Why the orphan warnings went away
 
-| Warning code             | What it means                                                                                                                                                          | What to do                                                                                                                                                                                                                                                        |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `orphan_custom_tool_dir` | You wrote `tools/<id>/schema.json` (and probably `source.ts`) but no `spec.tools[]` entry references it. The runner won't load it; the model is blind to it.           | **Almost always:** patch the spec to add `{ kind: "custom", id: "<id>", path: "tools/<id>" }` via `agent-applications-revisions-partial-update`. Then re-validate. If the file is genuinely WIP and shouldn't be exposed yet, delete the directory before freeze. |
-| `orphan_skill_file`      | A `skills/.../SKILL.md` or `skills/foo.md` exists in the bundle but no `spec.skills[]` entry references it. The skill index won't include it; the model can't load it. | Patch the spec to add `{ id, path, description }` for the skill, OR delete the file. Re-validate.                                                                                                                                                                 |
+In the legacy file-grain world the validator emitted
+`orphan_custom_tool_dir` / `orphan_skill_file` when bundle files
+existed but no spec entry referenced them. With the typed authoring
+API those warnings are impossible: `spec.skills[]` and `spec.tools[]`
+are **derived** from the typed resources at freeze, so a resource
+that exists ALWAYS has a matching spec entry. You can't drift them.
 
-**Don't freeze with warnings unaddressed unless you've explicitly
-told the user why.** The orphan ones especially are usually a sign
-the spec drifted from the bundle — the most common authoring
-foot-gun. Ask the user "I see <X> is in the bundle but not in the
-spec — want me to wire it in?" before doing anything irreversible.
+If you see leftover orphan-warning prose in older docs, it's stale.
 
 ## Phase 7 — freeze + test
 

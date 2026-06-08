@@ -131,8 +131,8 @@ export class S3BundleStore implements BundleStore {
         return this.headObject(this.keyFor(rev, p))
     }
 
-    async freeze(rev: string): Promise<string> {
-        const entries = await this.list(rev)
+    async freeze(rev: string, precomputedEntries?: BundleEntry[]): Promise<string> {
+        const entries = precomputedEntries ?? (await this.list(rev))
         const hash = createHash('sha256')
         for (const e of entries) {
             hash.update(e.path).update('\0').update(e.sha256).update('\0')

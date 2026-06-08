@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 50 enabled ops
+ * PostHog API - MCP 53 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -879,6 +879,49 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
 })
 
 /**
+ * Revisions of an agent. Created in `draft`, promoted through
+`ready → live` once the bundle has been uploaded + frozen.
+
+URLs (nested under an application):
+
+    Model CRUD:
+        GET   .../revisions/                       list
+        POST  .../revisions/                       create draft
+        GET   .../revisions/<id>/                  retrieve
+        PATCH .../revisions/<id>/                  update spec (draft only)
+
+    Lifecycle:
+        POST  .../revisions/<id>/promote/          ready → live
+        POST  .../revisions/<id>/archive/          → archived
+        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+        POST  .../revisions/new_draft/             create draft + clone_from atomically
+
+    Bundle authoring (proxied to the janitor):
+        GET    .../revisions/<id>/manifest/        list paths + sha256
+        GET    .../revisions/<id>/file/?path=…     read one file
+        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+        GET    .../revisions/<id>/bundle/          bulk pull all files
+        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ */
+export const AgentApplicationsRevisionsAgentMdUpdateParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AgentApplicationsRevisionsAgentMdUpdateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod.string(),
+    })
+    .describe('Body shape for PUT /revisions/<id>/agent_md/.')
+
+/**
  * Mark a revision archived. If it was the live one, clear the
 application's live_revision pointer (the app effectively has no
 deployable version until another revision is promoted).
@@ -894,8 +937,7 @@ export const AgentApplicationsRevisionsArchiveCreateParams = /* @__PURE__ */ zod
 })
 
 /**
- * Bulk-pull: returns `{ files: { path: content, ... }, ... }`. Use
-this when the MCP wants the whole bundle to work on locally.
+ * Read the full typed bundle: `{ agent_md, skills, tools, spec }`.
  */
 export const AgentApplicationsRevisionsBundleRetrieveParams = /* @__PURE__ */ zod.object({
     application_id: zod.string(),
@@ -908,7 +950,9 @@ export const AgentApplicationsRevisionsBundleRetrieveParams = /* @__PURE__ */ zo
 })
 
 /**
- * Bulk-push the bundle. Body `{ files, mode: replace|merge }`.
+ * Full-replace the typed bundle. Anything not in the payload is
+deleted. Tool sources are AST-checked + esbuild-compiled by the
+janitor before any S3 writes.
  */
 export const AgentApplicationsRevisionsBundleUpdateParams = /* @__PURE__ */ zod.object({
     application_id: zod.string(),
@@ -920,18 +964,42 @@ export const AgentApplicationsRevisionsBundleUpdateParams = /* @__PURE__ */ zod.
         ),
 })
 
-export const agentApplicationsRevisionsBundleUpdateBodyModeDefault = `replace`
-
 export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
     .object({
-        files: zod.record(zod.string(), zod.string()),
-        mode: zod
-            .enum(['replace', 'merge'])
-            .describe('* `replace` - replace\n* `merge` - merge')
-            .default(agentApplicationsRevisionsBundleUpdateBodyModeDefault),
+        agent_md: zod.string(),
+        skills: zod
+            .array(
+                zod
+                    .object({
+                        description: zod.string(),
+                        body: zod.string(),
+                        files: zod
+                            .array(
+                                zod.object({
+                                    path: zod.string(),
+                                    content: zod.string(),
+                                })
+                            )
+                            .optional(),
+                    })
+                    .describe('Body shape for PUT /revisions/<id>/skills/<skill_id>/.')
+            )
+            .optional(),
+        tools: zod
+            .array(
+                zod
+                    .object({
+                        description: zod.string(),
+                        args_schema: zod.record(zod.string(), zod.unknown()),
+                        source: zod.string(),
+                    })
+                    .describe('Body shape for PUT /revisions/<id>/tools/<tool_id>/.')
+            )
+            .optional(),
+        spec: zod.record(zod.string(), zod.unknown()),
     })
     .describe(
-        "Body shape for PUT /revisions/<id>/bundle/ — the bulk upload.\n\n`files` is a `{path: utf-8 content}` map. `mode='replace'` wipes the\nexisting bundle before writing the new set; `'merge'` upserts."
+        'Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed\npayload. See docs/agent-platform/plans/typed-bundle-authoring-api.md §3.'
     )
 
 /**
@@ -987,65 +1055,6 @@ export const AgentApplicationsRevisionsCronFireCreateBody = /* @__PURE__ */ zod.
 })
 
 /**
- * Read one file by `?path=...`. Works on any revision state.
- */
-export const AgentApplicationsRevisionsFileRetrieveParams = /* @__PURE__ */ zod.object({
-    application_id: zod.string(),
-    id: zod.string().describe('A UUID string identifying this agent revision.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const AgentApplicationsRevisionsFileRetrieveQueryParams = /* @__PURE__ */ zod.object({
-    path: zod.string().describe('Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.'),
-})
-
-/**
- * Write one file by `?path=...`. Draft-only (janitor enforces).
- */
-export const AgentApplicationsRevisionsFileUpdateParams = /* @__PURE__ */ zod.object({
-    application_id: zod.string(),
-    id: zod.string().describe('A UUID string identifying this agent revision.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const AgentApplicationsRevisionsFileUpdateQueryParams = /* @__PURE__ */ zod.object({
-    path: zod.string().describe('Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.'),
-})
-
-export const AgentApplicationsRevisionsFileUpdateBody = /* @__PURE__ */ zod
-    .object({
-        content: zod.string(),
-    })
-    .describe(
-        'Body shape for PUT /revisions/<id>/file/. `path` lives in the query\nstring (matches the janitor wire format); `content` is the new file body.'
-    )
-
-/**
- * Delete one file by `?path=...`. Draft-only.
- */
-export const AgentApplicationsRevisionsFileDestroyParams = /* @__PURE__ */ zod.object({
-    application_id: zod.string(),
-    id: zod.string().describe('A UUID string identifying this agent revision.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const AgentApplicationsRevisionsFileDestroyQueryParams = /* @__PURE__ */ zod.object({
-    path: zod.string().describe('Bundle-relative file path, e.g. `agent.md` or `skills/research.md`.'),
-})
-
-/**
  * Freeze the bundle: draft → ready, stamps sha256 on the row.
 
 Single atomic block now that the janitor's freeze endpoint is
@@ -1097,6 +1106,146 @@ export const AgentApplicationsRevisionsPromoteCreateParams = /* @__PURE__ */ zod
 })
 
 /**
+ * Revisions of an agent. Created in `draft`, promoted through
+`ready → live` once the bundle has been uploaded + frozen.
+
+URLs (nested under an application):
+
+    Model CRUD:
+        GET   .../revisions/                       list
+        POST  .../revisions/                       create draft
+        GET   .../revisions/<id>/                  retrieve
+        PATCH .../revisions/<id>/                  update spec (draft only)
+
+    Lifecycle:
+        POST  .../revisions/<id>/promote/          ready → live
+        POST  .../revisions/<id>/archive/          → archived
+        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+        POST  .../revisions/new_draft/             create draft + clone_from atomically
+
+    Bundle authoring (proxied to the janitor):
+        GET    .../revisions/<id>/manifest/        list paths + sha256
+        GET    .../revisions/<id>/file/?path=…     read one file
+        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+        GET    .../revisions/<id>/bundle/          bulk pull all files
+        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ */
+export const agentApplicationsRevisionsSkillsUpdatePathSkillIdRegExp = new RegExp('^[a-z0-9][a-z0-9_-]*$')
+
+export const AgentApplicationsRevisionsSkillsUpdateParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    skill_id: zod.string().regex(agentApplicationsRevisionsSkillsUpdatePathSkillIdRegExp),
+})
+
+export const AgentApplicationsRevisionsSkillsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        description: zod.string(),
+        body: zod.string(),
+        files: zod
+            .array(
+                zod.object({
+                    path: zod.string(),
+                    content: zod.string(),
+                })
+            )
+            .optional(),
+    })
+    .describe('Body shape for PUT /revisions/<id>/skills/<skill_id>/.')
+
+/**
+ * Revisions of an agent. Created in `draft`, promoted through
+`ready → live` once the bundle has been uploaded + frozen.
+
+URLs (nested under an application):
+
+    Model CRUD:
+        GET   .../revisions/                       list
+        POST  .../revisions/                       create draft
+        GET   .../revisions/<id>/                  retrieve
+        PATCH .../revisions/<id>/                  update spec (draft only)
+
+    Lifecycle:
+        POST  .../revisions/<id>/promote/          ready → live
+        POST  .../revisions/<id>/archive/          → archived
+        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+        POST  .../revisions/new_draft/             create draft + clone_from atomically
+
+    Bundle authoring (proxied to the janitor):
+        GET    .../revisions/<id>/manifest/        list paths + sha256
+        GET    .../revisions/<id>/file/?path=…     read one file
+        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+        GET    .../revisions/<id>/bundle/          bulk pull all files
+        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ */
+export const agentApplicationsRevisionsSkillsDestroyPathSkillIdRegExp = new RegExp('^[a-z0-9][a-z0-9_-]*$')
+
+export const AgentApplicationsRevisionsSkillsDestroyParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    skill_id: zod.string().regex(agentApplicationsRevisionsSkillsDestroyPathSkillIdRegExp),
+})
+
+/**
+ * Revisions of an agent. Created in `draft`, promoted through
+`ready → live` once the bundle has been uploaded + frozen.
+
+URLs (nested under an application):
+
+    Model CRUD:
+        GET   .../revisions/                       list
+        POST  .../revisions/                       create draft
+        GET   .../revisions/<id>/                  retrieve
+        PATCH .../revisions/<id>/                  update spec (draft only)
+
+    Lifecycle:
+        POST  .../revisions/<id>/promote/          ready → live
+        POST  .../revisions/<id>/archive/          → archived
+        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+        POST  .../revisions/new_draft/             create draft + clone_from atomically
+
+    Bundle authoring (proxied to the janitor):
+        GET    .../revisions/<id>/manifest/        list paths + sha256
+        GET    .../revisions/<id>/file/?path=…     read one file
+        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+        GET    .../revisions/<id>/bundle/          bulk pull all files
+        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ */
+export const AgentApplicationsRevisionsSpecUpdateParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AgentApplicationsRevisionsSpecUpdateBody = /* @__PURE__ */ zod
+    .object({
+        spec: zod.record(zod.string(), zod.unknown()),
+    })
+    .describe(
+        "Body shape for PUT /revisions/<id>/spec/. The body's `spec` object\nis the author-facing slice (skills/tools are server-derived at freeze)."
+    )
+
+/**
  * Return the fully-assembled system prompt for this revision.
 
 Authoring tools call this to preview what the model will actually
@@ -1113,6 +1262,94 @@ export const AgentApplicationsRevisionsSystemPromptParams = /* @__PURE__ */ zod.
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * Revisions of an agent. Created in `draft`, promoted through
+`ready → live` once the bundle has been uploaded + frozen.
+
+URLs (nested under an application):
+
+    Model CRUD:
+        GET   .../revisions/                       list
+        POST  .../revisions/                       create draft
+        GET   .../revisions/<id>/                  retrieve
+        PATCH .../revisions/<id>/                  update spec (draft only)
+
+    Lifecycle:
+        POST  .../revisions/<id>/promote/          ready → live
+        POST  .../revisions/<id>/archive/          → archived
+        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+        POST  .../revisions/new_draft/             create draft + clone_from atomically
+
+    Bundle authoring (proxied to the janitor):
+        GET    .../revisions/<id>/manifest/        list paths + sha256
+        GET    .../revisions/<id>/file/?path=…     read one file
+        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+        GET    .../revisions/<id>/bundle/          bulk pull all files
+        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ */
+export const agentApplicationsRevisionsToolsUpdatePathToolIdRegExp = new RegExp('^[a-z0-9][a-z0-9_-]*$')
+
+export const AgentApplicationsRevisionsToolsUpdateParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    tool_id: zod.string().regex(agentApplicationsRevisionsToolsUpdatePathToolIdRegExp),
+})
+
+export const AgentApplicationsRevisionsToolsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        description: zod.string(),
+        args_schema: zod.record(zod.string(), zod.unknown()),
+        source: zod.string(),
+    })
+    .describe('Body shape for PUT /revisions/<id>/tools/<tool_id>/.')
+
+/**
+ * Revisions of an agent. Created in `draft`, promoted through
+`ready → live` once the bundle has been uploaded + frozen.
+
+URLs (nested under an application):
+
+    Model CRUD:
+        GET   .../revisions/                       list
+        POST  .../revisions/                       create draft
+        GET   .../revisions/<id>/                  retrieve
+        PATCH .../revisions/<id>/                  update spec (draft only)
+
+    Lifecycle:
+        POST  .../revisions/<id>/promote/          ready → live
+        POST  .../revisions/<id>/archive/          → archived
+        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+        POST  .../revisions/new_draft/             create draft + clone_from atomically
+
+    Bundle authoring (proxied to the janitor):
+        GET    .../revisions/<id>/manifest/        list paths + sha256
+        GET    .../revisions/<id>/file/?path=…     read one file
+        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+        GET    .../revisions/<id>/bundle/          bulk pull all files
+        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ */
+export const agentApplicationsRevisionsToolsDestroyPathToolIdRegExp = new RegExp('^[a-z0-9][a-z0-9_-]*$')
+
+export const AgentApplicationsRevisionsToolsDestroyParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    tool_id: zod.string().regex(agentApplicationsRevisionsToolsDestroyPathToolIdRegExp),
 })
 
 /**

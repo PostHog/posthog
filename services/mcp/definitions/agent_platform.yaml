@@ -189,10 +189,12 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Pull every file in a revision's bundle
+        title: Get the typed bundle
         description: >
-            Bulk download — returns `{ files: { path: utf-8 content, … } }` for every file in the bundle. Use when you
-            want to edit the whole agent locally; mutate files, then push back via the bundle PUT (replace mode).
+            Returns `{ agent_md, skills, tools, spec }` — the typed view of the revision. Use this when you want to
+            edit the whole agent locally (pull, mutate in-memory, push back via the bundle PUT). Skills carry
+            `description`, `body`, and optional `files[]`. Tools carry `description`, `args_schema`, `source`
+            (TypeScript). `spec` is the author-facing slice (skills/tools are server-derived at freeze).
     agent-applications-revisions-bundle-update:
         operation: agent_applications_revisions_bundle_update
         enabled: true
@@ -202,11 +204,94 @@ tools:
             readOnly: false
             destructive: true
             idempotent: false
-        title: Push a full bundle to a draft revision
+        title: Full-replace the typed bundle
         description: >
-            Body `{ files: { path: content, … }, mode: "replace" | "merge" }`. `replace` wipes the existing bundle
-            before writing the new set (use after a full edit); `merge` upserts (use for incremental adds). Only
-            `state=draft` revisions accept this.
+            Body shape matches the GET response: `{ agent_md, skills, tools, spec }`. **Full replace** — anything not
+            in the payload is deleted. For incremental edits use the single-resource PUTs
+            (`agent-applications-revisions-skills-update`, etc.). Each tool source is AST-checked + esbuild-compiled
+            synchronously; a bad shape returns 422 before any S3 writes. Only `state=draft` revisions accept this.
+    agent-applications-revisions-agent-md-update:
+        operation: agent_applications_revisions_agent_md_update
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Replace agent.md
+        description: >
+            Body `{ content: "…" }`. Overwrites the agent's system prompt. Use for surgical edits to the prompt;
+            leaves skills, tools, and spec untouched. Draft-only.
+    agent-applications-revisions-spec-update:
+        operation: agent_applications_revisions_spec_update
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Replace the author-facing spec
+        description: >
+            Body `{ spec: { … } }`. Replaces the author-writable spec slice (model, triggers, mcps, integrations,
+            secrets, limits, auth, entrypoint, reasoning). `skills[]` and `tools[]` are NOT author-writable — they're
+            derived at freeze from the typed resources. Draft-only.
+    agent-applications-revisions-skills-update:
+        operation: agent_applications_revisions_skills_update
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Upsert one skill
+        description: >
+            Body `{ description, body, files? }`. Creates the skill if it doesn't exist, replaces it if it does.
+            `files[]` is the optional list of companion docs (path relative to `skills/<id>/files/`). Skill id comes
+            from the URL. Draft-only.
+    agent-applications-revisions-skills-destroy:
+        operation: agent_applications_revisions_skills_destroy
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete one skill
+        description: >
+            Removes the skill body + every companion file under `skills/<id>/files/`. Returns 404 if the skill doesn't
+            exist. Draft-only.
+    agent-applications-revisions-tools-update:
+        operation: agent_applications_revisions_tools_update
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Upsert one custom tool
+        description: >
+            Body `{ description, args_schema, source }`. `source` is the TypeScript tool source — the janitor runs an
+            AST shape check + esbuild compile synchronously and rejects a bad shape with structured diagnostics in
+            the 422 response. Required shape: `export default { actions: { default: async (args, ctx) => { ... } } }`.
+            Do NOT include `compiled.js` — it's generated. Tool id comes from the URL. Draft-only.
+    agent-applications-revisions-tools-destroy:
+        operation: agent_applications_revisions_tools_destroy
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete one custom tool
+        description: >
+            Removes source.ts, compiled.js, schema.json from the bundle. Returns 404 if the tool doesn't exist.
+            Draft-only.
     agent-applications-revisions-clone-from-create:
         operation: agent_applications_revisions_clone_from_create
         enabled: true
@@ -257,44 +342,10 @@ tools:
     agent-applications-revisions-destroy:
         operation: agent_applications_revisions_destroy
         enabled: false
-    agent-applications-revisions-file-destroy:
-        operation: agent_applications_revisions_file_destroy
-        enabled: true
-        scopes:
-            - agents:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete one file
-        description: |
-            Remove the file at `?path=…` from a draft revision. Idempotent — deleting an already-absent file is a no-op.
-    agent-applications-revisions-file-retrieve:
-        operation: agent_applications_revisions_file_retrieve
-        enabled: true
-        scopes:
-            - agents:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Read one file
-        description: >
-            Returns `{ path, content }` for one file in the bundle. Pass `?path=…` (e.g. `?path=skills/research.md`).
-            Works on any revision state.
-    agent-applications-revisions-file-update:
-        operation: agent_applications_revisions_file_update
-        enabled: true
-        scopes:
-            - agents:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Write one file
-        description: >
-            Body `{ content: "…" }`. Creates or overwrites the file at `?path=…` in a draft revision. Use for targeted
-            edits (one skill, one tool source); for bulk changes use the bundle PUT.
+    # The legacy file/* tools (file-update, file-retrieve, file-destroy) were
+    # removed alongside the typed bundle authoring API rollout. Authors no
+    # longer write file paths — they write typed resources via
+    # `agent-applications-revisions-{agent-md,spec,skills,tools}-{update,destroy}`.
     agent-applications-revisions-freeze-create:
         operation: agent_applications_revisions_freeze_create
         enabled: true

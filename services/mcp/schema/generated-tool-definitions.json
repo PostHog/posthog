@@ -372,6 +372,20 @@
             "readOnlyHint": true
         }
     },
+    "agent-applications-revisions-agent-md-update": {
+        "description": "Body `{ content: \"…\" }`. Overwrites the agent's system prompt. Use for surgical edits to the prompt; leaves skills, tools, and spec untouched. Draft-only.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Replace agent.md",
+        "title": "Replace agent.md",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "agent-applications-revisions-archive-create": {
         "description": "Mark a revision archived. If it was the live revision, clears the parent application's `live_revision` (the app has no deployable version until another revision is promoted). Idempotent.",
         "category": "Agent stack",
@@ -387,11 +401,11 @@
         }
     },
     "agent-applications-revisions-bundle-retrieve": {
-        "description": "Bulk download — returns `{ files: { path: utf-8 content, … } }` for every file in the bundle. Use when you want to edit the whole agent locally; mutate files, then push back via the bundle PUT (replace mode).",
+        "description": "Returns `{ agent_md, skills, tools, spec }` — the typed view of the revision. Use this when you want to edit the whole agent locally (pull, mutate in-memory, push back via the bundle PUT). Skills carry `description`, `body`, and optional `files[]`. Tools carry `description`, `args_schema`, `source` (TypeScript). `spec` is the author-facing slice (skills/tools are server-derived at freeze).",
         "category": "Agent stack",
         "feature": "agent_platform",
-        "summary": "Pull every file in a revision's bundle",
-        "title": "Pull every file in a revision's bundle",
+        "summary": "Get the typed bundle",
+        "title": "Get the typed bundle",
         "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
@@ -401,11 +415,11 @@
         }
     },
     "agent-applications-revisions-bundle-update": {
-        "description": "Body `{ files: { path: content, … }, mode: \"replace\" | \"merge\" }`. `replace` wipes the existing bundle before writing the new set (use after a full edit); `merge` upserts (use for incremental adds). Only `state=draft` revisions accept this.",
+        "description": "Body shape matches the GET response: `{ agent_md, skills, tools, spec }`. **Full replace** — anything not in the payload is deleted. For incremental edits use the single-resource PUTs (`agent-applications-revisions-skills-update`, etc.). Each tool source is AST-checked + esbuild-compiled synchronously; a bad shape returns 422 before any S3 writes. Only `state=draft` revisions accept this.",
         "category": "Agent stack",
         "feature": "agent_platform",
-        "summary": "Push a full bundle to a draft revision",
-        "title": "Push a full bundle to a draft revision",
+        "summary": "Full-replace the typed bundle",
+        "title": "Full-replace the typed bundle",
         "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": true,
@@ -451,48 +465,6 @@
         "required_scopes": ["agents:write"],
         "annotations": {
             "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "agent-applications-revisions-file-destroy": {
-        "description": "Remove the file at `?path=…` from a draft revision. Idempotent — deleting an already-absent file is a no-op.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Delete one file",
-        "title": "Delete one file",
-        "required_scopes": ["agents:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "agent-applications-revisions-file-retrieve": {
-        "description": "Returns `{ path, content }` for one file in the bundle. Pass `?path=…` (e.g. `?path=skills/research.md`). Works on any revision state.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Read one file",
-        "title": "Read one file",
-        "required_scopes": ["agents:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "agent-applications-revisions-file-update": {
-        "description": "Body `{ content: \"…\" }`. Creates or overwrites the file at `?path=…` in a draft revision. Use for targeted edits (one skill, one tool source); for bulk changes use the bundle PUT.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Write one file",
-        "title": "Write one file",
-        "required_scopes": ["agents:write"],
-        "annotations": {
-            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -596,6 +568,48 @@
             "readOnlyHint": true
         }
     },
+    "agent-applications-revisions-skills-destroy": {
+        "description": "Removes the skill body + every companion file under `skills/<id>/files/`. Returns 404 if the skill doesn't exist. Draft-only.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Delete one skill",
+        "title": "Delete one skill",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "agent-applications-revisions-skills-update": {
+        "description": "Body `{ description, body, files? }`. Creates the skill if it doesn't exist, replaces it if it does. `files[]` is the optional list of companion docs (path relative to `skills/<id>/files/`). Skill id comes from the URL. Draft-only.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Upsert one skill",
+        "title": "Upsert one skill",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "agent-applications-revisions-spec-update": {
+        "description": "Body `{ spec: { … } }`. Replaces the author-writable spec slice (model, triggers, mcps, integrations, secrets, limits, auth, entrypoint, reasoning). `skills[]` and `tools[]` are NOT author-writable — they're derived at freeze from the typed resources. Draft-only.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Replace the author-facing spec",
+        "title": "Replace the author-facing spec",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "agent-applications-revisions-system-prompt": {
         "description": "Returns the fully-assembled system prompt the runner would pass to the model at session start — framework preamble + agent.md (or `spec.entrypoint`) + skills index. Use to verify what the model actually sees before promoting; particularly useful for confirming `spec.framework_prompt.omit` opt-outs took effect or for debugging author-vs-framework precedence. Response also includes `framework_prompt_version` so you can tell whether a pin (`spec.framework_prompt.version_pin`) is in effect. Works on any revision state.",
         "category": "Agent stack",
@@ -608,6 +622,34 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "agent-applications-revisions-tools-destroy": {
+        "description": "Removes source.ts, compiled.js, schema.json from the bundle. Returns 404 if the tool doesn't exist. Draft-only.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Delete one custom tool",
+        "title": "Delete one custom tool",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "agent-applications-revisions-tools-update": {
+        "description": "Body `{ description, args_schema, source }`. `source` is the TypeScript tool source — the janitor runs an AST shape check + esbuild compile synchronously and rejects a bad shape with structured diagnostics in the 422 response. Required shape: `export default { actions: { default: async (args, ctx) => { ... } } }`. Do NOT include `compiled.js` — it's generated. Tool id comes from the URL. Draft-only.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Upsert one custom tool",
+        "title": "Upsert one custom tool",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "agent-applications-revisions-validate-create": {

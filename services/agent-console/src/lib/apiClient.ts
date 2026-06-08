@@ -176,29 +176,60 @@ export async function listRevisions(teamId: number, slug: string): Promise<Agent
 }
 
 /**
- * Bulk-pull a revision's bundle. Django shape: `{ files: { path:
- * content }, ... }`. Transformed here so consumers get the typed
- * `BundleFile[]` array.
+ * Bulk-pull a revision's typed bundle. Django returns the typed shape
+ * `{ bundle: { agent_md, skills, tools, spec }, ... }`. We flatten it
+ * back to a `BundleFile[]` keyed by canonical S3 path so the existing
+ * file-tree UI works unchanged.
  */
+interface TypedBundleResponse {
+    bundle: {
+        agent_md: string
+        skills: { id: string; description: string; body: string; files?: { path: string; content: string }[] }[]
+        tools: { id: string; description: string; args_schema: Record<string, unknown>; source: string }[]
+    }
+}
+
 export async function getBundle(teamId: number, slug: string, revisionId: string): Promise<BundleFile[]> {
-    const raw = await getJson<{ files: Record<string, string> }>(
+    const raw = await getJson<TypedBundleResponse>(
         posthogUrl(
             teamId,
             `/agent_applications/${encodeURIComponent(slug)}/revisions/${encodeURIComponent(revisionId)}/bundle/`
         )
     )
-    return Object.entries(raw.files).map(([path, content]) => ({
-        path,
-        content,
-        language: languageForPath(path),
-    }))
+    const bundle = raw.bundle ?? { agent_md: '', skills: [], tools: [] }
+    const out: BundleFile[] = []
+    if (bundle.agent_md !== undefined) {
+        out.push({ path: 'agent.md', content: bundle.agent_md, language: languageForPath('agent.md') })
+    }
+    for (const skill of bundle.skills ?? []) {
+        out.push({
+            path: `skills/${skill.id}.md`,
+            content: skill.body,
+            language: 'markdown',
+        })
+        for (const f of skill.files ?? []) {
+            const p = `skills/${skill.id}/files/${f.path}`
+            out.push({ path: p, content: f.content, language: languageForPath(p) })
+        }
+    }
+    for (const tool of bundle.tools ?? []) {
+        const sourcePath = `tools/${tool.id}/source.ts`
+        out.push({ path: sourcePath, content: tool.source, language: 'typescript' })
+        const schemaPath = `tools/${tool.id}/schema.json`
+        const schemaText = JSON.stringify({ description: tool.description, args_schema: tool.args_schema }, null, 2)
+        out.push({ path: schemaPath, content: schemaText, language: 'json' })
+    }
+    out.sort((a, b) => a.path.localeCompare(b.path))
+    return out
 }
 
 function languageForPath(path: string): BundleFileLanguage {
     if (path.endsWith('.md') || path.endsWith('.mdx')) {
         return 'markdown'
     }
-    if (path.endsWith('.ts') || path.endsWith('.tsx')) {
+    // TS/JS share the same highlighter — compiled.js lives next to source.ts
+    // in tool bundles, and authors should be able to read both.
+    if (path.endsWith('.ts') || path.endsWith('.tsx') || path.endsWith('.js') || path.endsWith('.jsx')) {
         return 'typescript'
     }
     if (path.endsWith('.json')) {
