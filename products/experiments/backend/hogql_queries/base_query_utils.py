@@ -39,9 +39,14 @@ from products.experiments.backend.models.experiment import Experiment
 
 
 class FeatureFlagKeyCandidate(Protocol):
-    id: int
-    key: str
-    deleted: bool | None
+    # Read-only members so structural matching is covariant — a model whose
+    # `deleted` is `bool` still satisfies the wider `bool | None` here.
+    @property
+    def id(self) -> int: ...
+    @property
+    def key(self) -> str: ...
+    @property
+    def deleted(self) -> bool | None: ...
 
 
 def resolve_feature_flag_key(feature_flag: FeatureFlagKeyCandidate) -> str:
