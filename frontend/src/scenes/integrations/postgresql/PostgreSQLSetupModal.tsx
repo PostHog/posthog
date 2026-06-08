@@ -24,7 +24,7 @@ export const PostgreSQLSetupModal = (props: PostgreSQLSetupModalLogicProps): JSX
             }
             onClose={props.onComplete}
         >
-            <Form logic={postgreSQLSetupModalLogic} formKey="postgreSQLIntegration">
+            <Form logic={postgreSQLSetupModalLogic} props={props} formKey="postgreSQLIntegration">
                 <div className="gap-4 flex flex-col">
                     <LemonField name="host" label="Host">
                         <LemonInput placeholder="my-host" />
