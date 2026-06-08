@@ -4,7 +4,6 @@ from products.batch_exports.backend.api import (
     batch_export as batch_exports,
     file_download,
 )
-from products.batch_exports.backend.api.batch_imports import BatchImportViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -37,13 +36,6 @@ def register_routes(routers: RouterRegistry) -> None:
         batch_exports.BatchExportBackfillViewSet,
         "project_batch_export_backfills",
         ["team_id", "batch_export_id"],
-    )
-
-    routers.projects.register(
-        r"managed_migrations",
-        BatchImportViewSet,
-        "project_managed_migrations",
-        ["project_id"],
     )
 
     routers.organizations.register(
