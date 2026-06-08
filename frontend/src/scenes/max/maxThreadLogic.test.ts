@@ -70,11 +70,11 @@ describe('maxThreadLogic', () => {
         jest.spyOn(maxGlobalLogicInstance.selectors, 'dataProcessingAccepted').mockReturnValue(true)
 
         // Set up maxLogic with matching conversationId so that activeThreadKey matches
-        maxLogicInstance = maxLogic({ tabId: 'test' })
+        maxLogicInstance = maxLogic({ panelId: 'test' })
         maxLogicInstance.mount()
         maxLogicInstance.actions.setConversationId(MOCK_CONVERSATION_ID)
 
-        logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+        logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
         logic.mount()
     })
 
@@ -238,7 +238,7 @@ describe('maxThreadLogic', () => {
     })
 
     it('adds a thinking message to an ephemeral group', async () => {
-        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
         logic.mount()
 
         // Only a human message–should create an ephemeral group
@@ -271,7 +271,7 @@ describe('maxThreadLogic', () => {
     })
 
     it('adds a thinking message to the last group of messages with IDs', async () => {
-        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
         logic.mount()
 
         // Human and assistant messages with IDs–should append thinking message
@@ -316,7 +316,7 @@ describe('maxThreadLogic', () => {
     })
 
     it('does not add a thinking message when the last message is without ID', async () => {
-        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
         logic.mount()
 
         // Human with ID and assistant messages without ID–should not add the message
@@ -355,7 +355,7 @@ describe('maxThreadLogic', () => {
         const streamSpy = mockStream()
         logic.unmount()
         maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
-        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
         logic.mount()
 
         expect(streamSpy).toHaveBeenCalledTimes(0)
@@ -409,7 +409,7 @@ describe('maxThreadLogic', () => {
             } as any)
 
             maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -434,7 +434,7 @@ describe('maxThreadLogic', () => {
 
             // Don't add any context data, so compiledContext will be null
             maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -456,7 +456,7 @@ describe('maxThreadLogic', () => {
             const streamSpy = mockStream()
 
             maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             const formAnswers = { q1: 'answer1', q2: 'answer2' }
@@ -488,7 +488,7 @@ describe('maxThreadLogic', () => {
             } as any)
 
             maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             const formAnswers = { q1: 'answer1' }
@@ -513,7 +513,7 @@ describe('maxThreadLogic', () => {
             const streamSpy = mockStream()
 
             maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -700,7 +700,7 @@ describe('maxThreadLogic', () => {
             })
 
             logic.unmount()
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
             await new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -843,7 +843,7 @@ describe('maxThreadLogic', () => {
 
             // Create a second thread logic with a different conversation ID
             const otherConversationId = 'other-conversation-id'
-            const otherLogic = maxThreadLogic({ conversationId: otherConversationId, tabId: 'test' })
+            const otherLogic = maxThreadLogic({ conversationId: otherConversationId, panelId: 'test' })
             otherLogic.mount()
 
             // maxLogicInstance is still set to MOCK_CONVERSATION_ID (the first logic's conversation)
@@ -879,7 +879,7 @@ describe('maxThreadLogic', () => {
 
             // Create a second thread logic with a different conversation ID
             const otherConversationId = 'other-conversation-id'
-            const otherLogic = maxThreadLogic({ conversationId: otherConversationId, tabId: 'test' })
+            const otherLogic = maxThreadLogic({ conversationId: otherConversationId, panelId: 'test' })
             otherLogic.mount()
 
             // Now switch maxLogicInstance to point to the other conversation
@@ -993,7 +993,7 @@ describe('maxThreadLogic', () => {
 
             logic.unmount()
             maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -1017,7 +1017,7 @@ describe('maxThreadLogic', () => {
 
             logic.unmount()
             maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -1131,7 +1131,7 @@ describe('maxThreadLogic', () => {
             logic.unmount()
             logic = maxThreadLogic({
                 conversationId: MOCK_CONVERSATION_ID,
-                tabId: 'test',
+                panelId: 'test',
                 conversation: conversationWithMessages,
             })
             logic.mount()
@@ -1169,7 +1169,7 @@ describe('maxThreadLogic', () => {
             logic.unmount()
             logic = maxThreadLogic({
                 conversationId: MOCK_CONVERSATION_ID,
-                tabId: 'test',
+                panelId: 'test',
                 conversation: conversationWithoutMessages,
             })
             logic.mount()
@@ -1192,7 +1192,7 @@ describe('maxThreadLogic', () => {
             logic.unmount()
             logic = maxThreadLogic({
                 conversationId: MOCK_CONVERSATION_ID,
-                tabId: 'test',
+                panelId: 'test',
                 conversation: conversationWithoutMessages,
             })
 
@@ -1218,7 +1218,7 @@ describe('maxThreadLogic', () => {
 
             logic = maxThreadLogic({
                 conversationId: MOCK_CONVERSATION_ID,
-                tabId: 'test',
+                panelId: 'test',
                 conversation: {
                     // No messages field — simulates a list-level cache entry for an in-progress chat.
                     ...MOCK_IN_PROGRESS_CONVERSATION,
@@ -1254,7 +1254,7 @@ describe('maxThreadLogic', () => {
             const getSpy = jest.spyOn(api.conversations, 'get')
             const streamSpy = mockStream()
 
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
             await new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -1278,7 +1278,7 @@ describe('maxThreadLogic', () => {
             logic.unmount()
             logic = maxThreadLogic({
                 conversationId: MOCK_CONVERSATION_ID,
-                tabId: 'test',
+                panelId: 'test',
                 conversation: initialConversation,
             })
             logic.mount()
@@ -1306,7 +1306,7 @@ describe('maxThreadLogic', () => {
             // Simulate prop change by creating new logic instance with updated conversation
             logic = maxThreadLogic({
                 conversationId: MOCK_CONVERSATION_ID,
-                tabId: 'test',
+                panelId: 'test',
                 conversation: updatedConversation,
             })
             logic.mount()
@@ -1331,7 +1331,7 @@ describe('maxThreadLogic', () => {
 
     describe('command selection and activation', () => {
         beforeEach(() => {
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
         })
 
@@ -1414,7 +1414,7 @@ describe('maxThreadLogic', () => {
 
     describe('assistant update event handling', () => {
         beforeEach(() => {
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
         })
 
@@ -1566,7 +1566,7 @@ describe('maxThreadLogic', () => {
 
     describe('onEventImplementation message streaming', () => {
         beforeEach(() => {
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
         })
 
@@ -2078,7 +2078,7 @@ describe('maxThreadLogic', () => {
 
     describe('enhanceThreadToolCalls', () => {
         beforeEach(() => {
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
         })
 
@@ -2119,7 +2119,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('marks tool call as in_progress when no completion message and still loading', async () => {
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -2824,7 +2824,7 @@ describe('maxThreadLogic', () => {
 
     describe('agent mode functionality', () => {
         beforeEach(() => {
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
         })
 
@@ -2936,7 +2936,7 @@ describe('maxThreadLogic', () => {
 
     describe('scene to agent mode mapping', () => {
         it('does not auto-set mode when conversation already exists', async () => {
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             // Set a conversation first
@@ -2957,7 +2957,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('syncAgentModeFromConversation does not lock agent mode', async () => {
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             // Sync should not lock

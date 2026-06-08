@@ -389,6 +389,8 @@ export interface PaginatedSnapshotListApi {
     /** @nullable */
     previous?: string | null
     results: SnapshotApi[]
+    /** Count of this run's snapshots whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
+    quarantined_count?: number
 }
 
 export interface MarkToleratedInputApi {
@@ -516,6 +518,10 @@ export type VisualReviewRunsSnapshotHistoryListParams = {
 }
 
 export type VisualReviewRunsSnapshotsListParams = {
+    /**
+     * Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes.
+     */
+    include_quarantined?: boolean
     /**
      * Number of results to return per page.
      */

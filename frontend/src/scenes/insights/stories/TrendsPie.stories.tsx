@@ -37,37 +37,8 @@ const meta: Meta = {
 }
 export default meta
 /* eslint-disable @typescript-eslint/no-var-requires */
-// Trends Pie
-export const TrendsPie: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json')
-)
-TrendsPie.parameters = { testOptions: { waitForSelector: '[data-attr=trend-pie-graph] > canvas' } }
-export const TrendsPieEdit: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'),
-    'edit'
-)
-TrendsPieEdit.parameters = { testOptions: { waitForSelector: '[data-attr=trend-pie-graph] > canvas' } }
 
-export const TrendsPieBreakdown: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json')
-)
-TrendsPieBreakdown.parameters = { testOptions: { waitForSelector: '[data-attr=trend-pie-graph] > canvas' } }
-export const TrendsPieBreakdownEdit: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'),
-    'edit'
-)
-TrendsPieBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-pie-graph] > canvas' },
-}
-
-export const TrendsPieBreakdownLabels: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'),
-    'view',
-    true
-)
-TrendsPieBreakdownLabels.parameters = { testOptions: { waitForSelector: '[data-attr=trend-pie-graph] > canvas' } }
-
-// Trends World Map
+// Trends World Map (no hog-charts equivalent yet — keep these)
 export const TrendsWorldMap: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json')
 )
@@ -77,15 +48,5 @@ export const TrendsWorldMapEdit: Story = createInsightStory(
     'edit'
 )
 TrendsWorldMapEdit.parameters = { testOptions: { waitForSelector: '.WorldMap' } }
-export const TrendsPieEditViewports: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'),
-    'edit'
-)
-TrendsPieEditViewports.parameters = {
-    testOptions: {
-        waitForSelector: '[data-attr=trend-pie-graph] > canvas',
-        viewportWidths: ['medium', 'wide', 'superwide'],
-    },
-}
 
 /* eslint-enable @typescript-eslint/no-var-requires */

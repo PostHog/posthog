@@ -26,6 +26,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSource,
+    WebhookSyncResult,
 )
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -50,11 +51,13 @@ from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripePermissionError,
     StripeResumeConfig,
     StripeValidationError,
+    _all_known_webhook_events,
     check_endpoint_permissions as check_stripe_endpoint_permissions,
     create_webhook,
     delete_webhook,
     get_external_webhook_info,
     stripe_source,
+    update_webhook_events,
     validate_credentials as validate_stripe_credentials,
 )
 
@@ -371,6 +374,24 @@ If automatic creation failed due to a permissions error and you're using a restr
     def create_webhook(self, config: StripeSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
         api_key = self._get_api_key(config, team_id)
         return create_webhook(api_key, config.stripe_account_id, webhook_url)
+
+    def get_desired_webhook_events(
+        self, config: StripeSourceConfig, eligible_schema_names: list[str]
+    ) -> list[str] | None:
+        # Every mappable event, not just the selected tables — auto-heals webhooks created
+        # before RESOURCE_TO_STRIPE_WEBHOOK_EVENT gained new resources.
+        return _all_known_webhook_events()
+
+    def sync_webhook_events(
+        self,
+        config: StripeSourceConfig,
+        webhook_url: str,
+        team_id: int,
+        eligible_schema_names: list[str],
+    ) -> WebhookSyncResult:
+        api_key = self._get_api_key(config, team_id)
+        desired_events = self.get_desired_webhook_events(config, eligible_schema_names) or []
+        return update_webhook_events(api_key, config.stripe_account_id, webhook_url, desired_events)
 
     def get_external_webhook_info(
         self, config: StripeSourceConfig, webhook_url: str, team_id: int

@@ -10,13 +10,13 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { handsFreeLogic } from '../handsFreeLogic'
 
 interface HandsFreeButtonProps {
-    tabId: string
+    panelId?: string
 }
 
-export function HandsFreeButton({ tabId }: HandsFreeButtonProps): JSX.Element | null {
+export function HandsFreeButton({ panelId }: HandsFreeButtonProps): JSX.Element | null {
     const flagEnabled = useFeatureFlag('MAX_HANDS_FREE')
-    const { status, canUseHandsFree } = useValues(handsFreeLogic({ tabId }))
-    const { toggleHandsFree } = useActions(handsFreeLogic({ tabId }))
+    const { status, canUseHandsFree } = useValues(handsFreeLogic({ panelId }))
+    const { toggleHandsFree } = useActions(handsFreeLogic({ panelId }))
 
     if (!flagEnabled || !canUseHandsFree || status !== 'off') {
         return null

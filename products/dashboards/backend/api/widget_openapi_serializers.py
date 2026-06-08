@@ -8,8 +8,15 @@ from products.dashboards.backend.constants import (
     MAX_WIDGET_RESULT_LIMIT,
     WIDGET_DATE_FROM_VALUES,
 )
+from products.dashboards.backend.widget_registry import (
+    ERROR_TRACKING_LIST_WIDGET_TYPE,
+    EXPECTED_WIDGET_TYPES,
+    SESSION_REPLAY_LIST_WIDGET_TYPE,
+)
 from products.dashboards.backend.widgets.error_tracking_list import ERROR_TRACKING_ORDER_BY
 from products.dashboards.backend.widgets.session_replay_list import SESSION_REPLAY_ORDER_BY
+from products.dashboards.backend.widgets.widget_filters import WIDGET_FILTERS_CATALOG_HINT
+from products.error_tracking.backend.api.query_serializers import ErrorTrackingAssigneeSerializer
 
 _ERROR_TRACKING_WIDGET_STATUS_CHOICES = [
     "archived",
@@ -19,6 +26,12 @@ _ERROR_TRACKING_WIDGET_STATUS_CHOICES = [
     "suppressed",
     "all",
 ]
+
+WIDGET_BATCH_ADD_OPENAPI_HELP = (
+    "Widget tiles to add atomically. Supported widget_type values: "
+    + ", ".join(sorted(EXPECTED_WIDGET_TYPES))
+    + ". Use dashboard-widget-catalog-list for config_schema_hints per type."
+)
 
 
 class WidgetDateRangeSerializer(serializers.Serializer):
@@ -30,13 +43,27 @@ class WidgetDateRangeSerializer(serializers.Serializer):
     )
 
 
+class WidgetFilterConfigEntrySerializer(serializers.Serializer):
+    filterId = serializers.CharField(help_text="Filter UUID; must match the widgetFilters map key.")
+    propertyName = serializers.CharField(help_text="Event property key (for example $environment).")
+    optionId = serializers.CharField(help_text="Selected option id from the filter definition.")
+    operator = serializers.CharField(
+        help_text="Property filter operator (for example exact, is_not, icontains).",
+    )
+    value = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Filter value as a string, list of strings, or null.",
+    )
+
+
 class ErrorTrackingListWidgetConfigSerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         min_value=1,
         max_value=MAX_WIDGET_RESULT_LIMIT,
         default=DEFAULT_WIDGET_LIST_LIMIT,
         required=False,
-        help_text="Maximum number of issues to return.",
+        help_text="Maximum number of issues to return (page size).",
     )
     orderBy = serializers.ChoiceField(
         choices=sorted(ERROR_TRACKING_ORDER_BY),
@@ -56,10 +83,20 @@ class ErrorTrackingListWidgetConfigSerializer(serializers.Serializer):
         required=False,
         help_text="Issue status filter.",
     )
+    assignee = ErrorTrackingAssigneeSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Filter by assignee ({type: user|role, id}). Omit for any assignee.",
+    )
+    widgetFilters = serializers.DictField(
+        child=WidgetFilterConfigEntrySerializer(),
+        required=False,
+        help_text=WIDGET_FILTERS_CATALOG_HINT["description"],
+    )
     dateRange = WidgetDateRangeSerializer(
         required=False,
         allow_null=True,
-        help_text="Optional relative date range override.",
+        help_text="Relative date range for issues (date_from only on widgets).",
     )
     filterTestAccounts = serializers.BooleanField(
         required=False,
@@ -92,6 +129,11 @@ class SessionReplayListWidgetConfigSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Optional relative date range override.",
     )
+    widgetFilters = serializers.DictField(
+        child=WidgetFilterConfigEntrySerializer(),
+        required=False,
+        help_text=WIDGET_FILTERS_CATALOG_HINT["description"],
+    )
     filterTestAccounts = serializers.BooleanField(
         required=False,
         help_text="When omitted, follows the project default for filtering test accounts.",
@@ -117,3 +159,77 @@ class DashboardWidgetConfigField(serializers.JSONField):
     """
 
     pass
+
+
+class _WidgetTileLayoutBoxOpenApiSerializer(serializers.Serializer):
+    x = serializers.IntegerField(
+        required=False,
+        help_text="Column position in the dashboard grid (0-indexed).",
+    )
+    y = serializers.IntegerField(
+        required=False,
+        help_text="Row position in the dashboard grid (0-indexed).",
+    )
+    w = serializers.IntegerField(
+        required=False,
+        help_text="Width in grid columns. The desktop grid is 12 columns wide.",
+    )
+    h = serializers.IntegerField(required=False, help_text="Height in grid rows.")
+
+
+class _WidgetTileLayoutsOpenApiSerializer(serializers.Serializer):
+    sm = _WidgetTileLayoutBoxOpenApiSerializer(
+        required=False,
+        help_text="Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
+    )
+    xs = _WidgetTileLayoutBoxOpenApiSerializer(
+        required=False,
+        help_text="Layout for the small (mobile) breakpoint. The grid is 1 column wide.",
+    )
+
+
+class _AddDashboardWidgetTileFieldsOpenApiSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional custom display name for the widget tile.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional markdown description shown when show_description is enabled.",
+    )
+    layouts = _WidgetTileLayoutsOpenApiSerializer(
+        required=False,
+        help_text="Optional react-grid-layout positions keyed by breakpoint (sm, xs).",
+    )
+    show_description = serializers.BooleanField(
+        required=False,
+        help_text="Whether to show the description on the dashboard tile.",
+    )
+
+
+class ErrorTrackingListWidgetAddRequestOpenApiSerializer(_AddDashboardWidgetTileFieldsOpenApiSerializer):
+    widget_type = serializers.ChoiceField(choices=[ERROR_TRACKING_LIST_WIDGET_TYPE])
+    config = ErrorTrackingListWidgetConfigSerializer(
+        help_text="Configuration for the error tracking list widget.",
+    )
+
+
+class SessionReplayListWidgetAddRequestOpenApiSerializer(_AddDashboardWidgetTileFieldsOpenApiSerializer):
+    widget_type = serializers.ChoiceField(choices=[SESSION_REPLAY_LIST_WIDGET_TYPE])
+    config = SessionReplayListWidgetConfigSerializer(
+        help_text="Configuration for the session replay list widget.",
+    )
+
+
+AddDashboardWidgetRequestOpenApi = PolymorphicProxySerializer(
+    component_name="AddDashboardWidgetRequest",
+    serializers={
+        ERROR_TRACKING_LIST_WIDGET_TYPE: ErrorTrackingListWidgetAddRequestOpenApiSerializer,
+        SESSION_REPLAY_LIST_WIDGET_TYPE: SessionReplayListWidgetAddRequestOpenApiSerializer,
+    },
+    resource_type_field_name="widget_type",
+)

@@ -1,5 +1,12 @@
 import { dimensions, makeSeries } from '../testing'
-import { type ComputeSeriesBarsOptions, computeBarTrackRect, computeSeriesBars, cornersFor } from './bar-layout'
+import {
+    bandCenter,
+    type ComputeSeriesBarsOptions,
+    computeBarTrackRect,
+    computeSeriesBars,
+    cornersFor,
+    groupedBarCenter,
+} from './bar-layout'
 import type { BarRect } from './canvas-renderer'
 import { computeStackData, createBarScales } from './scales'
 import type { ChartDimensions } from './types'
@@ -467,6 +474,57 @@ describe('hog-charts bar-layout', () => {
                 corners: {},
                 dataIndex: 0,
             })
+        })
+    })
+
+
+    describe('bandCenter', () => {
+        it.each([
+            { label: 'a', expected: 50 },
+            { label: 'b', expected: 150 },
+        ])('returns the pixel center $expected for label $label', ({ label, expected }) => {
+            const s = makeSeries({ key: 's', data: [10, 20] })
+            const scales = createBarScales([s], ['a', 'b'], PIXEL_TEST_DIMENSIONS, {
+                barLayout: 'grouped',
+                bandPadding: 0,
+                groupPadding: 0,
+            })
+            // Two bands across 200px → band width 100, centers at 50 and 150.
+            expect(bandCenter(scales, label)).toBeCloseTo(expected, 5)
+        })
+
+        it('returns undefined for an unknown band', () => {
+            const s = makeSeries({ key: 's', data: [10] })
+            const scales = createBarScales([s], ['a'], PIXEL_TEST_DIMENSIONS, { barLayout: 'grouped' })
+            expect(bandCenter(scales, 'missing')).toBeUndefined()
+        })
+    })
+
+
+    describe('groupedBarCenter', () => {
+        it.each([
+            { seriesKey: 'a', expected: 25 },
+            { seriesKey: 'b', expected: 75 },
+        ])("returns the center $expected for series $seriesKey's sub-band in a grouped layout", ({ seriesKey, expected }) => {
+            const a = makeSeries({ key: 'a', data: [10, 20] })
+            const b = makeSeries({ key: 'b', data: [20, 10] })
+            const scales = createBarScales([a, b], ['L1', 'L2'], PIXEL_TEST_DIMENSIONS, {
+                barLayout: 'grouped',
+                bandPadding: 0,
+                groupPadding: 0,
+            })
+            // a@L1 slot x:0 w:50 → center 25; b@L1 slot x:50 w:50 → center 75 (see grouped pixel case).
+            expect(groupedBarCenter(scales, 'L1', seriesKey)).toBeCloseTo(expected, 5)
+        })
+
+        it('returns undefined when the series is not in the group scale', () => {
+            const a = makeSeries({ key: 'a', data: [10] })
+            const scales = createBarScales([a], ['L1'], PIXEL_TEST_DIMENSIONS, {
+                barLayout: 'grouped',
+                bandPadding: 0,
+                groupPadding: 0,
+            })
+            expect(groupedBarCenter(scales, 'L1', 'missing')).toBeUndefined()
         })
     })
 })
