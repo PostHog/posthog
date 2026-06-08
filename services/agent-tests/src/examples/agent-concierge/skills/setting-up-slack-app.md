@@ -79,12 +79,28 @@ bury the action.
    - `channels:history` + `groups:history` — read channels the bot
      is in (for `@posthog/slack-read-channel` /
      `@posthog/slack-read-thread`)
-   - `reactions:write` — only if the agent uses
-     `@posthog/slack-react`
+   - `reactions:write` — required when the agent uses
+     `@posthog/slack-react` OR when the slack trigger has
+     `ack_reaction` set (the ingress posts the configured emoji as
+     an immediate ack on every accepted event). Without this scope
+     the Slack API returns `missing_scope` and the ack is silently
+     dropped — the session still enqueues, but the user sees no
+     "I saw it" feedback in Slack.
    - `app_mentions:read` — required if the agent will subscribe to
      `app_mention` events (added later in step 3 of this skill)
      Match scopes to the tools the agent actually uses; over-scoping
      is a workspace-admin red flag.
+
+   **Inspect the spec before listing scopes.** Read `spec.tools[]` AND
+   `spec.triggers[].config.ack_reaction` and only ask for scopes the
+   agent will actually exercise. If you're configuring an existing
+   agent and the user reports `ack_reaction_failed` /
+   `missing_scope` in the ingress logs (see "Common failure modes"),
+   add `reactions:write` to the bot scopes and re-install the app —
+   Slack invalidates the scope set on each install, so adding scopes
+   after the fact requires a re-install banner to be clicked. The
+   same `xoxb-...` token then carries the new scope; no PostHog-side
+   re-punch-out needed.
 
 4. **Install to workspace.**
    Same page → "Install to <workspace>" at the top. Authorize.
@@ -267,18 +283,19 @@ warn them once that the bot won't see thread replies unless they
 
 ## Common failure modes
 
-| Symptom (user sees)                                       | Likely cause                                                                                                                     | Fix                                                                                                                                |
-| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| URL verification fails BEFORE promote                     | Agent has no live revision yet — Slack's challenge POST hits a 404                                                               | Don't paste the URL into Slack until promote returns `state=live`                                                                  |
-| URL verification fails AFTER promote ("didn't respond")   | Tunnel not running / wrong URL / agent-ingress crashed                                                                           | Check `curl <events_url>` from terminal; restart `bin/agent-tunnel`                                                                |
-| URL turns green but bot doesn't respond to mentions       | Bot not invited to channel OR `app_mentions:read` scope missing OR `trusted_workspaces` wrong                                    | Invite bot, re-install app, fix `trusted_workspaces`                                                                               |
-| `invalid_signature` 401 in ingress logs                   | `SLACK_SIGNING_SECRET` value mismatch (wrong app, or copied with whitespace)                                                     | Rotate via punch-out with `mode: "rotate"`                                                                                         |
-| `slack.chat.postMessage error: invalid_auth` in session   | `SLACK_BOT_TOKEN` revoked or wrong (e.g. `xoxp-` user token vs `xoxb-` bot token)                                                | Rotate via punch-out — confirm it's the Bot User OAuth Token, not the user token                                                   |
-| `slack.chat.postMessage error: not_in_channel`            | Bot not invited to the target channel                                                                                            | `/invite @<bot>` in the channel                                                                                                    |
-| Promote refuses with `missing required encrypted_env`     | One of the two punch-outs got skipped or `user_cancelled`                                                                        | Run that specific `set_secret` again                                                                                               |
-| Bot ignores thread replies after the first @-mention      | `mention_only: true` set without `auto_resume_threads: true`                                                                     | Add `auto_resume_threads: true` to the slack trigger config OR drop `mention_only`                                                 |
-| Bot reacts to non-mention messages despite `mention_only` | Slack event subscriptions include `message.channels` AND `auto_resume_threads: true` with the message landing in an owned thread | Expected — `auto_resume_threads` accepts thread replies on owned sessions; the seed flags `mention: false` so the model can ignore |
-| No `:eyes:` ack reaction lands in Slack                   | `ack_reaction` unset, or `SLACK_BOT_TOKEN` missing `reactions:write` scope, or bot not in channel                                | Add the scope + re-install; verify token; remember `ack_reaction` is fail-open so this never blocks ingestion                      |
+| Symptom (user sees)                                                     | Likely cause                                                                                                                                                             | Fix                                                                                                                                                                                                               |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| URL verification fails BEFORE promote                                   | Agent has no live revision yet — Slack's challenge POST hits a 404                                                                                                       | Don't paste the URL into Slack until promote returns `state=live`                                                                                                                                                 |
+| URL verification fails AFTER promote ("didn't respond")                 | Tunnel not running / wrong URL / agent-ingress crashed                                                                                                                   | Check `curl <events_url>` from terminal; restart `bin/agent-tunnel`                                                                                                                                               |
+| URL turns green but bot doesn't respond to mentions                     | Bot not invited to channel OR `app_mentions:read` scope missing OR `trusted_workspaces` wrong                                                                            | Invite bot, re-install app, fix `trusted_workspaces`                                                                                                                                                              |
+| `invalid_signature` 401 in ingress logs                                 | `SLACK_SIGNING_SECRET` value mismatch (wrong app, or copied with whitespace)                                                                                             | Rotate via punch-out with `mode: "rotate"`                                                                                                                                                                        |
+| `slack.chat.postMessage error: invalid_auth` in session                 | `SLACK_BOT_TOKEN` revoked or wrong (e.g. `xoxp-` user token vs `xoxb-` bot token)                                                                                        | Rotate via punch-out — confirm it's the Bot User OAuth Token, not the user token                                                                                                                                  |
+| `slack.chat.postMessage error: not_in_channel`                          | Bot not invited to the target channel                                                                                                                                    | `/invite @<bot>` in the channel                                                                                                                                                                                   |
+| Promote refuses with `missing required encrypted_env`                   | One of the two punch-outs got skipped or `user_cancelled`                                                                                                                | Run that specific `set_secret` again                                                                                                                                                                              |
+| Bot ignores thread replies after the first @-mention                    | `mention_only: true` set without `auto_resume_threads: true`                                                                                                             | Add `auto_resume_threads: true` to the slack trigger config OR drop `mention_only`                                                                                                                                |
+| Bot reacts to non-mention messages despite `mention_only`               | Slack event subscriptions include `message.channels` AND `auto_resume_threads: true` with the message landing in an owned thread                                         | Expected — `auto_resume_threads` accepts thread replies on owned sessions; the seed flags `mention: false` so the model can ignore                                                                                |
+| No `:eyes:` ack reaction lands in Slack                                 | `ack_reaction` unset, or `SLACK_BOT_TOKEN` missing `reactions:write` scope, or bot not in channel                                                                        | Add the scope + re-install; verify token; remember `ack_reaction` is fail-open so this never blocks ingestion                                                                                                     |
+| `ack_reaction_failed` with `slack_error: missing_scope` in ingress logs | Bot token lacks `reactions:write`. Slack issues scopes at install time — adding the scope to the app config later requires a re-install to mint a token that carries it. | OAuth & Permissions → add `reactions:write` to Bot Token Scopes → click the yellow "Reinstall to Workspace" banner → authorize. Same `xoxb-...` token now carries the scope; no PostHog-side re-punch-out needed. |
 
 ## Things not to do
 
