@@ -106,25 +106,38 @@ describe('preCymbalGroupKey', () => {
             expect(split).not.toBe(merged)
         })
 
-        it('uses abs_path, line, and column aliases', () => {
-            const withAliases = preCymbalGroupKey(
+        it('uses abs_path as a filename alias', () => {
+            const withAbsPath = preCymbalGroupKey(
                 exceptionEvent({
                     type: 'Error',
-                    stacktrace: {
-                        frames: [{ function: 'fn', abs_path: '/app/x.js', line: 10, column: 2 }],
-                    },
+                    stacktrace: { frames: [{ function: 'fn', abs_path: '/app/x.js' }] },
                 })
             )
-            const withCanonical = preCymbalGroupKey(
+            const withFilename = preCymbalGroupKey(
                 exceptionEvent({
                     type: 'Error',
-                    stacktrace: {
-                        frames: [{ function: 'fn', filename: '/app/x.js', lineno: 10, colno: 2 }],
-                    },
+                    stacktrace: { frames: [{ function: 'fn', filename: '/app/x.js' }] },
                 })
             )
 
-            expect(withAliases).toBe(withCanonical)
+            expect(withAbsPath).toBe(withFilename)
+        })
+
+        it('ignores line and column so the same frame groups across deploys', () => {
+            const deployA = preCymbalGroupKey(
+                exceptionEvent({
+                    type: 'Error',
+                    stacktrace: { frames: [{ function: 'fn', filename: '/app/x.js', lineno: 10, colno: 2 }] },
+                })
+            )
+            const deployB = preCymbalGroupKey(
+                exceptionEvent({
+                    type: 'Error',
+                    stacktrace: { frames: [{ function: 'fn', filename: '/app/x.js', lineno: 920, colno: 47 }] },
+                })
+            )
+
+            expect(deployA).toBe(deployB)
         })
 
         it('does not throw when a frame is null', () => {
@@ -175,6 +188,47 @@ describe('preCymbalGroupKey', () => {
             )
 
             expect(minimal).toBe(verbose)
+        })
+    })
+
+    describe('in_app frames', () => {
+        const frame = (fn: string, inApp?: boolean) => ({
+            function: fn,
+            filename: `${fn}.js`,
+            ...(inApp === undefined ? {} : { in_app: inApp }),
+        })
+
+        it('keys on in_app frames and ignores non-in_app frames when any are in_app', () => {
+            const withVendor = preCymbalGroupKey(
+                exceptionEvent({ type: 'Error', stacktrace: { frames: [frame('app', true), frame('vendor', false)] } })
+            )
+            const appOnly = preCymbalGroupKey(
+                exceptionEvent({ type: 'Error', stacktrace: { frames: [frame('app', true)] } })
+            )
+
+            expect(withVendor).toBe(appOnly)
+        })
+
+        it('falls back to all frames when none are in_app', () => {
+            const unset = preCymbalGroupKey(
+                exceptionEvent({ type: 'Error', stacktrace: { frames: [frame('a'), frame('b')] } })
+            )
+            const explicitlyFalse = preCymbalGroupKey(
+                exceptionEvent({ type: 'Error', stacktrace: { frames: [frame('a', false), frame('b', false)] } })
+            )
+
+            expect(unset).toBe(explicitlyFalse)
+        })
+
+        it('separates issues by their in_app frames even when vendor frames match', () => {
+            const a = preCymbalGroupKey(
+                exceptionEvent({ type: 'Error', stacktrace: { frames: [frame('a', true), frame('vendor', false)] } })
+            )
+            const b = preCymbalGroupKey(
+                exceptionEvent({ type: 'Error', stacktrace: { frames: [frame('b', true), frame('vendor', false)] } })
+            )
+
+            expect(a).not.toBe(b)
         })
     })
 

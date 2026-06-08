@@ -11,10 +11,6 @@ function updatePreCymbalFrameHash(hash: ReturnType<typeof createHash>, frame: Re
     hash.update(PRE_CYMBAL_FRAME_FIELD_SEP)
     hash.update(String(frame.filename ?? frame.abs_path ?? ''))
     hash.update(PRE_CYMBAL_FRAME_FIELD_SEP)
-    hash.update(String(frame.lineno ?? frame.line ?? ''))
-    hash.update(PRE_CYMBAL_FRAME_FIELD_SEP)
-    hash.update(String(frame.colno ?? frame.column ?? ''))
-    hash.update(PRE_CYMBAL_FRAME_FIELD_SEP)
 }
 
 export function preCymbalGroupKey(event: PluginEvent): string | null {
@@ -41,10 +37,18 @@ export function preCymbalGroupKey(event: PluginEvent): string | null {
         hash.update(String(exc.type ?? ''))
         hash.update(PRE_CYMBAL_FRAME_FIELD_SEP)
 
-        if (frames?.length) {
-            for (const frame of frames) {
-                const safeFrame = frame && typeof frame === 'object' ? (frame as Record<string, unknown>) : {}
-                updatePreCymbalFrameHash(hash, safeFrame)
+        // Mirror Cymbal grouping: in_app frames if any, else all frames, else the
+        // raw message. Line/column are excluded — they shift across deploys for the
+        // same issue and otherwise split it across rate-limit buckets.
+        const safeFrames = frames?.map((frame) =>
+            frame && typeof frame === 'object' ? (frame as Record<string, unknown>) : {}
+        )
+        const inAppFrames = safeFrames?.filter((frame) => frame.in_app === true)
+        const usedFrames = inAppFrames?.length ? inAppFrames : safeFrames
+
+        if (usedFrames?.length) {
+            for (const frame of usedFrames) {
+                updatePreCymbalFrameHash(hash, frame)
                 hash.update(PRE_CYMBAL_FRAME_SEP)
             }
         } else {
