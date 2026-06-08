@@ -464,6 +464,26 @@ def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
     return "master"
 
 
+def _run_is_on_default_branch(repo: Repo, branch: str) -> bool:
+    """Whether this run targets the repo's GitHub default branch.
+
+    Fences the client-supplied ``is_partial`` flag: the default branch holds
+    the authoritative full baseline, so a partial run there must not skip
+    removed-baseline detection. Resolves the default branch server-side from
+    GitHub. Returns ``False`` when it can't be determined (no integration) —
+    harmless, since the baseline fetch then returns empty and removal
+    detection short-circuits regardless.
+    """
+    try:
+        github = get_github_integration_for_repo(repo)
+        if github.access_token_expired():
+            github.refresh_access_token()
+    except Exception:
+        logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
+        return False
+    return branch == _get_default_branch(github, repo.repo_full_name)
+
+
 def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
     """Fetch baseline content hashes from GitHub for snapshot comparison.
 
@@ -871,7 +891,19 @@ def complete_run(run_id: UUID) -> Run:
         ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)):
             tolerated_lookup[(t.identifier, t.baseline_hash, t.alternate_hash)] = t
 
-    classifier = SnapshotClassifier(run, baseline, tolerated_lookup)
+    # is_partial is client-supplied and only suppresses removed-baseline
+    # detection. Never honor it on the default branch (authoritative full
+    # baseline), so a token can't hide deleted snapshots from the gate.
+    effective_is_partial = run.is_partial
+    if effective_is_partial and _run_is_on_default_branch(repo, run.branch):
+        logger.warning(
+            "visual_review.is_partial_ignored_on_default_branch",
+            run_id=str(run.id),
+            branch=run.branch,
+        )
+        effective_is_partial = False
+
+    classifier = SnapshotClassifier(run, baseline, tolerated_lookup, is_partial=effective_is_partial)
     classifier.classify()
 
     # Update total and counts from actual RunSnapshot rows

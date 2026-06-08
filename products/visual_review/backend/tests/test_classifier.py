@@ -69,7 +69,7 @@ def _make_tolerated(repo: Repo, identifier: str, baseline_hash: str, alternate_h
 
 
 def _classify(run: Run, baseline: dict[str, str], tolerated_lookup: dict | None = None) -> dict[str, RunSnapshot]:
-    classifier = SnapshotClassifier(run, baseline, tolerated_lookup or {})
+    classifier = SnapshotClassifier(run, baseline, tolerated_lookup or {}, is_partial=run.is_partial)
     classifier.classify()
     return {s.identifier: s for s in run.snapshots.all()}
 

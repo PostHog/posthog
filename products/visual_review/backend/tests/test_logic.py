@@ -351,6 +351,54 @@ class TestRunOperations:
         removed = run.snapshots.get(identifier="deleted")
         assert removed.result == SnapshotResult.REMOVED
 
+    def test_complete_run_partial_skips_removals_off_default_branch(self, repo, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="feature-x",
+            pr_number=7,
+            snapshots=[{"identifier": "kept", "content_hash": "h1"}],
+            is_partial=True,
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"kept": "h1", "deleted": "h2"}, 0),
+        )
+        mocker.patch("products.visual_review.backend.logic._run_is_on_default_branch", return_value=False)
+
+        completed = logic.complete_run(run.id)
+
+        assert completed.removed_count == 0
+        assert not run.snapshots.filter(identifier="deleted").exists()
+
+    def test_complete_run_partial_ignored_on_default_branch(self, repo, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="master",
+            pr_number=None,
+            snapshots=[{"identifier": "kept", "content_hash": "h1"}],
+            is_partial=True,
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"kept": "h1", "deleted": "h2"}, 0),
+        )
+        mocker.patch("products.visual_review.backend.logic._run_is_on_default_branch", return_value=True)
+
+        completed = logic.complete_run(run.id)
+
+        # is_partial must not suppress removal detection on the default branch.
+        assert completed.removed_count == 1
+        removed = run.snapshots.get(identifier="deleted")
+        assert removed.result == SnapshotResult.REMOVED
+
     def test_complete_run_passes_commit_sha_to_baseline_resolution(self, repo, mocker):
         """complete_run passes run.commit_sha so default-branch baselines are pinned."""
         run, _ = logic.create_run(
@@ -1758,6 +1806,34 @@ class TestRerunGithubJob:
 
         assert success is True
         assert error is None
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestRunIsOnDefaultBranch:
+    @pytest.fixture
+    def repo(self, team):
+        return logic.create_repo(team_id=team.id, repo_external_id=1234, repo_full_name="org/test-repo")
+
+    def _mock_github(self, mocker, default_branch="master"):
+        mock_github = mocker.MagicMock()
+        mock_github.access_token_expired.return_value = False
+        mocker.patch("products.visual_review.backend.logic.get_github_integration_for_repo", return_value=mock_github)
+        mocker.patch("products.visual_review.backend.logic._get_default_branch", return_value=default_branch)
+
+    def test_true_when_branch_matches_default(self, repo, mocker):
+        self._mock_github(mocker, default_branch="main")
+        assert logic._run_is_on_default_branch(repo, "main") is True
+
+    def test_false_when_branch_differs(self, repo, mocker):
+        self._mock_github(mocker, default_branch="main")
+        assert logic._run_is_on_default_branch(repo, "feature-x") is False
+
+    def test_false_when_no_github_integration(self, repo, mocker):
+        mocker.patch(
+            "products.visual_review.backend.logic.get_github_integration_for_repo",
+            side_effect=logic.GitHubIntegrationNotFoundError("none"),
+        )
+        assert logic._run_is_on_default_branch(repo, "master") is False
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
