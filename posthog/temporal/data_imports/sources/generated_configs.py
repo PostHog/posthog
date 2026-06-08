@@ -128,7 +128,9 @@ class AmazonAdsSourceConfig(config.Config):
 
 @config.config
 class AmplitudeSourceConfig(config.Config):
-    pass
+    api_key: str
+    secret_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -148,7 +150,7 @@ class AsanaSourceConfig(config.Config):
 
 @config.config
 class AshbySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -378,7 +380,7 @@ class FreshsalesSourceConfig(config.Config):
 
 @config.config
 class FrontSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -388,7 +390,9 @@ class FullStorySourceConfig(config.Config):
 
 @config.config
 class GitLabSourceConfig(config.Config):
-    pass
+    personal_access_token: str
+    project: str
+    gitlab_host: str | None = None
 
 
 @config.config
@@ -399,7 +403,8 @@ class GithubSourceConfig(config.Config):
 
 @config.config
 class GongSourceConfig(config.Config):
-    pass
+    access_key: str
+    access_key_secret: str
 
 
 @config.config
@@ -470,12 +475,15 @@ class IntercomSourceConfig(config.Config):
 
 @config.config
 class IterableSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
 class JiraSourceConfig(config.Config):
-    pass
+    subdomain: str
+    email: str
+    api_token: str
 
 
 @config.config
@@ -643,7 +651,8 @@ class PayPalSourceConfig(config.Config):
 
 @config.config
 class PendoSourceConfig(config.Config):
-    pass
+    integration_key: str
+    region: Literal["us", "us1", "eu", "jp", "au"] = config.value(default="us")
 
 
 @config.config
@@ -759,7 +768,7 @@ class SFTPSourceConfig(config.Config):
 
 @config.config
 class SalesLoftSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -880,7 +889,8 @@ class TikTokAdsSourceConfig(config.Config):
 
 @config.config
 class TrelloSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_token: str
 
 
 @config.config

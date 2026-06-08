@@ -17,7 +17,6 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { nonHogFunctionTemplatesLogic } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
@@ -61,7 +60,6 @@ export interface NewSourceSceneLogicProps {
 export const newSourceSceneLogic = kea<newSourceSceneLogicType>([
     path(['products', 'dataWarehouse', 'newSourceSceneLogic']),
     props({} as NewSourceSceneLogicProps),
-    tabAwareScene(),
     connect(() => ({
         values: [availableSourcesLogic, ['availableSources', 'availableSourcesLoading']],
     })),

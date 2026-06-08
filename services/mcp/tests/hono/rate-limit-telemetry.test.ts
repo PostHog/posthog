@@ -56,6 +56,21 @@ describe('recordRateLimitBlock', () => {
         expect(await teamValue('unresolved')).toBe(1)
     })
 
+    it('logs the block with the project id and a token redacted to its last 4 chars', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+        const get = vi.fn()
+        await recordRateLimitBlock(
+            { get } as never,
+            makeProps({ projectId: '123', apiToken: 'phx_secrettoken9876' }),
+            blocked('mcp_burst')
+        )
+        expect(warn).toHaveBeenCalledWith(
+            '[RateLimiter] rate limited',
+            JSON.stringify({ scope: 'mcp_burst', projectId: '123', token: '****9876' })
+        )
+        warn.mockRestore()
+    })
+
     it.each([['not-a-number'], ['12345678901234567890'], ['1; DROP']])(
         'buckets a non-numeric or oversized project id %j as unresolved',
         async (projectId) => {

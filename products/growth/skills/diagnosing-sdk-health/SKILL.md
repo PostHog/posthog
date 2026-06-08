@@ -3,23 +3,23 @@ name: diagnosing-sdk-health
 description: >
   Diagnoses the health of a project's PostHog SDK integrations — which SDKs are up to
   date, which are outdated, and what to do about it. Use when a user asks about PostHog
-  SDK versions, outdated SDKs, upgrade recommendations, "SDK health", "SDK doctor", or
-  when events or features seem off and it might be due to using an old SDK.
+  SDK versions, outdated SDKs, upgrade recommendations, "SDK health", "SDK doctor" (the
+  former name), or when events or features seem off and it might be due to using an old SDK.
 ---
 
 # Diagnosing SDK health
 
 When a user asks about PostHog SDK versions, outdated SDKs, or whether they should
-upgrade, use the pre-digested SDK Doctor report rather than reasoning about versions
+upgrade, use the pre-digested SDK Health report rather than reasoning about versions
 yourself. The backend applies smart-semver rules (grace periods, minor-count thresholds,
 age-based detection), traffic-percentage thresholds, and provides user-facing copy that
-matches the SDK Doctor UI exactly.
+matches the SDK Health UI exactly.
 
 ## Available tools
 
 | Tool                     | Purpose                                                                                              |
 | ------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `posthog:sdk-doctor-get` | Returns a structured health report plus UI-matching copy and drill-in URLs per SDK/version.          |
+| `posthog:sdk-health-get` | Returns a structured health report plus UI-matching copy and drill-in URLs per SDK/version.          |
 | `posthog:execute-sql`    | (Optional) Run a `sql_query` from the report to show events captured by a specific outdated version. |
 
 ## Workflow
@@ -27,7 +27,7 @@ matches the SDK Doctor UI exactly.
 ### Step 1 — Invoke the tool
 
 ```json
-posthog:sdk-doctor-get
+posthog:sdk-health-get
 {}
 ```
 
@@ -55,7 +55,7 @@ Lead with the headline:
 
 ### Step 3 — Surface the banner text(s) verbatim
 
-Each SDK's `banners` array contains zero or more sentences that match the SDK Doctor UI's
+Each SDK's `banners` array contains zero or more sentences that match the SDK Health UI's
 "Time for an update!" alert exactly, e.g.:
 
 > Version 7.0.0 of the Python SDK has captured more than 10% of events in the last 7 days.
@@ -99,7 +99,7 @@ ready-to-use links:
 
 ### Step 6 — Link to the UI
 
-Always close with a link to the SDK Doctor page: `/project/<project_id>/health/sdk-doctor`.
+Always close with a link to the SDK Health page: `/project/<project_id>/health/sdk-health`.
 The UI shows per-row event counts, last-event timestamps, release notes, and SDK docs
 links — more than the tool response includes.
 
@@ -148,7 +148,7 @@ interpolate (e.g. it contained quote characters or whitespace). When this happen
 
 Similarly, if you pass `sql_query` to `posthog:execute-sql` and it errors, surface the
 error verbatim rather than rewriting the query. The query template is a verbatim mirror
-of what the SDK Doctor UI uses — if the UI's SQL wouldn't run, something else is wrong.
+of what the SDK Health UI uses — if the UI's SQL wouldn't run, something else is wrong.
 
 **Do not wrap, truncate, or modify `sql_query` in any way before passing to
 `posthog:execute-sql`.** No `SELECT * FROM (<sql_query>) LIMIT 10`, no adding `WHERE`

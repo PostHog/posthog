@@ -55,6 +55,9 @@ export interface UseGroupListInput {
      *  numeric-only items locally for DataWarehousePersonProperties. */
     showNumericalPropsOnly?: boolean
     hideBehavioralCohorts?: boolean
+    /** Exclude event definitions not seen within the staleness window (event /
+     *  custom-event endpoints only). Mirrors legacy's default-on `exclude_stale`. */
+    excludeStale?: boolean
     /** Override per-group minSearchQueryLength. */
     minSearchQueryLength?: number
     /** Pagination page size. */
@@ -109,6 +112,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         optionsFromProp,
         showNumericalPropsOnly = false,
         hideBehavioralCohorts = false,
+        excludeStale = false,
         minSearchQueryLength: minSearchOverride,
         limit = DEFAULT_LIMIT,
         allowNonCapturedEvents = false,
@@ -200,6 +204,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             limit,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
+            excludeStale,
         ],
         [
             group.type,
@@ -210,6 +215,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             limit,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
+            excludeStale,
         ]
     )
 
@@ -224,6 +230,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
                 isExpanded,
                 showNumericalPropsOnly,
                 hideBehavioralCohorts,
+                excludeStale,
                 signal,
             }),
         // Long staleTime for client-filtered groups — the cached first page
@@ -260,6 +267,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             limit,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
+            excludeStale,
         ],
         [
             group.type,
@@ -270,6 +278,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             limit,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
+            excludeStale,
         ]
     )
 
@@ -284,6 +293,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
                 isExpanded,
                 showNumericalPropsOnly,
                 hideBehavioralCohorts,
+                excludeStale,
                 signal,
             }),
         { enabled: serverSearchEnabled, staleTime: 60_000, keepPreviousData: true }
