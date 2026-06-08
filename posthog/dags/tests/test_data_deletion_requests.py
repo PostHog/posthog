@@ -33,6 +33,7 @@ from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionM
 from posthog.models.person import Person
 
 TEAM_ID = 99999
+VERIFY_TEAM_ID = 77777
 
 
 def _insert_events(events: list[tuple], client: Client) -> None:
@@ -485,8 +486,8 @@ def test_full_job_event_deletion_deferred(cluster: ClickhouseCluster):
 
 
 @pytest.mark.django_db
-def test_verify_queued_promotes_when_events_gone():
-    from posthog.models.data_deletion_request import count_remaining_matching_events
+def test_verify_queued_request_promotes_when_events_gone():
+    from posthog.models.data_deletion_request import verify_queued_request
 
     now = datetime.now()
     request = DataDeletionRequest.objects.create(
@@ -499,16 +500,41 @@ def test_verify_queued_promotes_when_events_gone():
         execution_mode=ExecutionMode.DEFERRED,
     )
 
-    assert count_remaining_matching_events(request) == 0
+    outcome = verify_queued_request(request)
 
-    from django.utils import timezone
-
-    DataDeletionRequest.objects.filter(pk=request.pk, status=RequestStatus.QUEUED).update(
-        status=RequestStatus.COMPLETED, updated_at=timezone.now()
-    )
-
+    assert outcome.remaining == 0
+    assert outcome.promoted is True
     request.refresh_from_db()
     assert request.status == RequestStatus.COMPLETED
+
+
+@pytest.mark.django_db
+def test_verify_queued_request_keeps_status_when_events_remain(cluster: ClickhouseCluster):
+    from posthog.models.data_deletion_request import verify_queued_request
+
+    now = datetime.now()
+    cluster.any_host(_truncate_writable_events).result()
+    remaining_events = [(VERIFY_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i)) for i in range(3)]
+    cluster.any_host(partial(_insert_events, remaining_events)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=VERIFY_TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=now - timedelta(days=7),
+        end_time=now + timedelta(minutes=1),
+        status=RequestStatus.QUEUED,
+        execution_mode=ExecutionMode.DEFERRED,
+    )
+
+    outcome = verify_queued_request(request)
+
+    assert outcome.remaining == 3
+    assert outcome.promoted is False
+    request.refresh_from_db()
+    assert request.status == RequestStatus.QUEUED
+
+    cluster.any_host(_truncate_writable_events).result()
 
 
 # ---------------------------------------------------------------------------

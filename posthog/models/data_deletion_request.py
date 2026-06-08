@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -388,3 +390,25 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
             ch_user=ClickHouseUser.META,
         )
     return int(result[0][0]) if result else 0
+
+
+@dataclass
+class VerifyOutcome:
+    remaining: int
+    promoted: bool
+
+
+def verify_queued_request(request: "DataDeletionRequest") -> VerifyOutcome:
+    """Verify a QUEUED event-removal request and promote it to COMPLETED when its events are gone.
+
+    Counts events still matching the request in ClickHouse. When zero remain and the request is
+    still QUEUED, atomically promotes QUEUED → COMPLETED via a status-guarded update. Idempotent;
+    safe to call from both the Dagster sweep job and the Django admin button.
+    """
+    remaining = count_remaining_matching_events(request)
+    if remaining > 0 or request.status != RequestStatus.QUEUED:
+        return VerifyOutcome(remaining=remaining, promoted=False)
+    promoted = DataDeletionRequest.objects.filter(pk=request.pk, status=RequestStatus.QUEUED).update(
+        status=RequestStatus.COMPLETED, updated_at=timezone.now()
+    )
+    return VerifyOutcome(remaining=remaining, promoted=bool(promoted))
