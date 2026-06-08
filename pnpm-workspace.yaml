@@ -36,7 +36,7 @@ catalog:
     kea-window-values: ^3.0.1
     # PostHog packages
     '@posthog/react': ^1.9.0
-    posthog-js: ^1.382.0
+    posthog-js: ^1.383.1
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4
