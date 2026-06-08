@@ -1053,15 +1053,18 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "change_summary": {"help_text": "AI-generated summary included in this delivery, when one was produced."},
         }
 
+    # Delivery fields that embed the query-derived AI report, mapped to the value each returns when
+    # scrubbed for a caller without query access (content_snapshot is a non-null object, change_summary
+    # nullable text). Single source of truth — keep in sync when adding AI-derived delivery fields.
+    AI_REPORT_SCRUBBED = {"content_snapshot": {}, "change_summary": None}
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        # AI prompt subscription deliveries embed the query-derived report — content_snapshot holds
-        # the insight query_results, change_summary the generated summary. Scrub both for callers
-        # without query access (the viewset sets this flag) so subscription:read or a self-granted
-        # query:read scope can't read analytics the user isn't allowed to run themselves.
+        # The viewset sets this flag when an AI prompt delivery is read by a caller without query
+        # access; scrub the query-derived report so subscription:read (or a self-granted query:read
+        # scope) can't read analytics the user isn't allowed to run themselves.
         if self.context.get("hide_ai_report"):
-            data["content_snapshot"] = {}
-            data["change_summary"] = None
+            data.update(self.AI_REPORT_SCRUBBED)
         return data
 
 
