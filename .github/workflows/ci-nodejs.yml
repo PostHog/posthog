@@ -7,6 +7,8 @@ on:
             - master
 
 env:
+    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     OBJECT_STORAGE_ENABLED: true
     OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
     OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
@@ -84,6 +86,7 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-nodejs.yml
+                  token: ${{ github.token }}
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -122,6 +125,7 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-nodejs.yml
+                  token: ${{ github.token }}
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -173,6 +177,13 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
             - name: Stop/Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -195,6 +206,7 @@ jobs:
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
+                  token: ${{ github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -242,6 +254,7 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-nodejs.yml
+                  token: ${{ github.token }}
 
             - name: Download MaxMind Database
               run: |

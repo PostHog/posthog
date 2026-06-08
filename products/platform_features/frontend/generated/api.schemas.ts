@@ -7,189 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-/**
- * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
-
-export interface ApprovalPolicyApi {
-    readonly id: string
-    /** @maxLength 128 */
-    action_key: string
-    conditions?: unknown
-    approver_config: unknown
-    allow_self_approve?: boolean
-    bypass_org_membership_levels?: unknown
-    bypass_roles?: string[]
-    /** Auto-expire change requests after this duration */
-    expires_after?: string
-    enabled?: boolean
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-}
-
-export interface PaginatedApprovalPolicyListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ApprovalPolicyApi[]
-}
-
-export interface PatchedApprovalPolicyApi {
-    readonly id?: string
-    /** @maxLength 128 */
-    action_key?: string
-    conditions?: unknown
-    approver_config?: unknown
-    allow_self_approve?: boolean
-    bypass_org_membership_levels?: unknown
-    bypass_roles?: string[]
-    /** Auto-expire change requests after this duration */
-    expires_after?: string
-    enabled?: boolean
-    readonly created_by?: UserBasicApi
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-}
-
-/**
- * * `valid` - Valid
- * `invalid` - Invalid
- * `expired` - Expired
- * `stale` - Stale (resource changed)
- */
-export type ValidationStatusEnumApi = (typeof ValidationStatusEnumApi)[keyof typeof ValidationStatusEnumApi]
-
-export const ValidationStatusEnumApi = {
-    Valid: 'valid',
-    Invalid: 'invalid',
-    Expired: 'expired',
-    Stale: 'stale',
-} as const
-
-/**
- * * `pending` - Pending
- * `approved` - Approved (awaiting application)
- * `applied` - Applied
- * `rejected` - Rejected
- * `expired` - Expired
- * `failed` - Failed to apply
- */
-export type ChangeRequestStateEnumApi = (typeof ChangeRequestStateEnumApi)[keyof typeof ChangeRequestStateEnumApi]
-
-export const ChangeRequestStateEnumApi = {
-    Pending: 'pending',
-    Approved: 'approved',
-    Applied: 'applied',
-    Rejected: 'rejected',
-    Expired: 'expired',
-    Failed: 'failed',
-} as const
-
-export type ChangeRequestApiApprovalsItem = { [key: string]: unknown }
-
-export interface ChangeRequestApi {
-    readonly id: string
-    readonly action_key: string
-    readonly action_version: number
-    readonly resource_type: string
-    /** @nullable */
-    readonly resource_id: string | null
-    readonly intent: unknown
-    readonly intent_display: unknown
-    readonly policy_snapshot: unknown
-    readonly validation_status: ValidationStatusEnumApi
-    readonly validation_errors: unknown
-    /** @nullable */
-    readonly validated_at: string | null
-    readonly state: ChangeRequestStateEnumApi
-    readonly created_by: UserBasicApi
-    readonly applied_by: UserBasicApi
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    readonly expires_at: string
-    /** @nullable */
-    readonly applied_at: string | null
-    readonly apply_error: string
-    readonly result_data: unknown
-    readonly approvals: readonly ChangeRequestApiApprovalsItem[]
-    /** Check if current user can approve this change request. */
-    readonly can_approve: boolean
-    readonly can_cancel: boolean
-    /** Check if current user is the requester. */
-    readonly is_requester: boolean
-    /**
-     * Get the current user's approval decision if they have voted.
-     * @nullable
-     */
-    readonly user_decision: string | null
-}
-
-export interface PaginatedChangeRequestListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ChangeRequestApi[]
-}
-
 export type EffectiveMembershipLevelEnumApi =
     (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
 
@@ -226,6 +43,12 @@ export const DefaultExperimentStatsMethodEnumApi = {
     Frequentist: 'frequentist',
 } as const
 
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
 export type OrganizationApiTeamsItem = { [key: string]: unknown }
 
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
@@ -257,6 +80,11 @@ export interface OrganizationApi {
     enforce_2fa?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
+    /**
+     * When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.
+     * @nullable
+     */
+    members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count: number
@@ -348,6 +176,11 @@ export interface PatchedOrganizationApi {
     enforce_2fa?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
+    /**
+     * When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.
+     * @nullable
+     */
+    members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count?: number
@@ -400,6 +233,55 @@ export interface PatchedOrganizationApi {
 }
 
 /**
+ * * `engineering` - Engineering
+ * `data` - Data
+ * `product` - Product Management
+ * `founder` - Founder
+ * `leadership` - Leadership
+ * `marketing` - Marketing
+ * `sales` - Sales / Success
+ * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+/**
  * * `1` - member
  * `8` - administrator
  * `15` - owner
@@ -442,6 +324,56 @@ export interface PatchedOrganizationMemberApi {
     readonly is_2fa_enabled?: boolean
     readonly has_social_auth?: boolean
     readonly last_login?: string
+}
+
+export interface OrganizationPersonalAPIKeyOwnerApi {
+    /** First name of the key's owner. */
+    readonly first_name: string
+    /** Last name of the key's owner. */
+    readonly last_name: string
+    /** Email address of the key's owner. */
+    readonly email: string
+}
+
+export interface OrganizationPersonalAPIKeyProjectScopeApi {
+    /** Project (team) ID the key is scoped to. */
+    id: number
+    /** Name of the project the key is scoped to. */
+    name: string
+}
+
+export interface OrganizationPersonalAPIKeyAccessScopeApi {
+    /** Breadth of access: 'all' (every project the owner can reach), 'organization' (this whole organization), or 'projects' (specific projects listed under 'projects'). */
+    type: string
+    /** Projects within this organization the key is scoped to, present only when type is 'projects'. */
+    projects?: OrganizationPersonalAPIKeyProjectScopeApi[]
+}
+
+export interface OrganizationPersonalAPIKeyApi {
+    /** The organization member who owns this key. */
+    readonly owner: OrganizationPersonalAPIKeyOwnerApi
+    /** Masked, display-safe hint of the key value (e.g. 'phx_***1234'). Not the secret. The owner sees the same masked value in their own settings, so it can be used to identify a key. */
+    readonly mask_value: string
+    /** API scopes granted to the key, e.g. 'insight:read'. A single '*' means full access. */
+    readonly scopes: readonly string[]
+    /** Where the key's scopes apply within this organization. */
+    readonly access_scope: OrganizationPersonalAPIKeyAccessScopeApi
+    /**
+     * When the key was last used to authenticate, if ever.
+     * @nullable
+     */
+    readonly last_used_at: string | null
+    /** When the key was created. */
+    readonly created_at: string
+}
+
+export interface PaginatedOrganizationPersonalAPIKeyListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationPersonalAPIKeyApi[]
 }
 
 export type RoleApiMembersItem = { [key: string]: unknown }
@@ -641,6 +573,134 @@ export interface AvailableFiltersResponseApi {
     detail_fields: AvailableFiltersResponseApiDetailFields
 }
 
+export interface ApprovalPolicyApi {
+    readonly id: string
+    /** @maxLength 128 */
+    action_key: string
+    conditions?: unknown
+    approver_config: unknown
+    allow_self_approve?: boolean
+    bypass_org_membership_levels?: unknown
+    bypass_roles?: string[]
+    /** Auto-expire change requests after this duration */
+    expires_after?: string
+    enabled?: boolean
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedApprovalPolicyListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ApprovalPolicyApi[]
+}
+
+export interface PatchedApprovalPolicyApi {
+    readonly id?: string
+    /** @maxLength 128 */
+    action_key?: string
+    conditions?: unknown
+    approver_config?: unknown
+    allow_self_approve?: boolean
+    bypass_org_membership_levels?: unknown
+    bypass_roles?: string[]
+    /** Auto-expire change requests after this duration */
+    expires_after?: string
+    enabled?: boolean
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+/**
+ * * `valid` - Valid
+ * `invalid` - Invalid
+ * `expired` - Expired
+ * `stale` - Stale (resource changed)
+ */
+export type ValidationStatusEnumApi = (typeof ValidationStatusEnumApi)[keyof typeof ValidationStatusEnumApi]
+
+export const ValidationStatusEnumApi = {
+    Valid: 'valid',
+    Invalid: 'invalid',
+    Expired: 'expired',
+    Stale: 'stale',
+} as const
+
+/**
+ * * `pending` - Pending
+ * `approved` - Approved (awaiting application)
+ * `applied` - Applied
+ * `rejected` - Rejected
+ * `expired` - Expired
+ * `failed` - Failed to apply
+ */
+export type ChangeRequestStateEnumApi = (typeof ChangeRequestStateEnumApi)[keyof typeof ChangeRequestStateEnumApi]
+
+export const ChangeRequestStateEnumApi = {
+    Pending: 'pending',
+    Approved: 'approved',
+    Applied: 'applied',
+    Rejected: 'rejected',
+    Expired: 'expired',
+    Failed: 'failed',
+} as const
+
+export type ChangeRequestApiApprovalsItem = { [key: string]: unknown }
+
+export interface ChangeRequestApi {
+    readonly id: string
+    readonly action_key: string
+    readonly action_version: number
+    readonly resource_type: string
+    /** @nullable */
+    readonly resource_id: string | null
+    readonly intent: unknown
+    readonly intent_display: unknown
+    readonly policy_snapshot: unknown
+    readonly validation_status: ValidationStatusEnumApi
+    readonly validation_errors: unknown
+    /** @nullable */
+    readonly validated_at: string | null
+    readonly state: ChangeRequestStateEnumApi
+    readonly created_by: UserBasicApi
+    readonly applied_by: UserBasicApi
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly expires_at: string
+    /** @nullable */
+    readonly applied_at: string | null
+    readonly apply_error: string
+    readonly result_data: unknown
+    readonly approvals: readonly ChangeRequestApiApprovalsItem[]
+    /** Check if current user can approve this change request. */
+    readonly can_approve: boolean
+    readonly can_cancel: boolean
+    /** Check if current user is the requester. */
+    readonly is_requester: boolean
+    /**
+     * Get the current user's approval decision if they have voted.
+     * @nullable
+     */
+    readonly user_decision: string | null
+}
+
+export interface PaginatedChangeRequestListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ChangeRequestApi[]
+}
+
 export interface CommentApi {
     readonly id: string
     readonly created_by: UserBasicApi
@@ -715,6 +775,14 @@ export interface PatchedCommentApi {
     source_comment?: string | null
 }
 
+export interface PromotedProductIntentApi {
+    /**
+     * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
+     * @nullable
+     */
+    product_key: string | null
+}
+
 export interface PinnedSceneTabApi {
     /** Stable identifier for the tab. Generated client-side; safe to omit on create. */
     id?: string
@@ -763,36 +831,6 @@ export interface PatchedPinnedSceneTabsApi {
     homepage?: PinnedSceneTabApi | null
 }
 
-export type ApprovalPoliciesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ChangeRequestsListParams = {
-    action_key?: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    requester?: number
-    resource_id?: string
-    resource_type?: string
-    /**
-     * Multiple values may be separated by commas.
-     */
-    state?: string[]
-}
-
 export type ListParams = {
     /**
      * Number of results to return per page.
@@ -821,6 +859,17 @@ export type MembersListParams = {
      * Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.
      */
     search?: string
+}
+
+export type PersonalApiKeysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type RolesListParams = {
@@ -922,9 +971,11 @@ export type ActivityLogListParams = {
 * `Log` - Log
 * `LogsAlertConfiguration` - LogsAlertConfiguration
 * `LogsExclusionRule` - LogsExclusionRule
+* `DashboardWidget` - DashboardWidget
 * `ProductTour` - ProductTour
 * `Ticket` - Ticket
 * `InstanceSetting` - InstanceSetting
+* `SignalScoutConfig` - SignalScoutConfig
  * @minLength 1
  */
     scope?: ActivityLogListScope
@@ -998,9 +1049,11 @@ export const ActivityLogListScope = {
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
+    DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
+    SignalScoutConfig: 'SignalScoutConfig',
 } as const
 
 /**
@@ -1061,9 +1114,11 @@ export const ActivityLogListScope = {
  * `Log` - Log
  * `LogsAlertConfiguration` - LogsAlertConfiguration
  * `LogsExclusionRule` - LogsExclusionRule
+ * `DashboardWidget` - DashboardWidget
  * `ProductTour` - ProductTour
  * `Ticket` - Ticket
  * `InstanceSetting` - InstanceSetting
+ * `SignalScoutConfig` - SignalScoutConfig
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1125,9 +1180,11 @@ export const ActivityLogListScopesItem = {
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
+    DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
+    SignalScoutConfig: 'SignalScoutConfig',
 } as const
 
 export type AdvancedActivityLogsListParams = {
@@ -1200,6 +1257,36 @@ export type AdvancedActivityLogsListParams = {
      * @nullable
      */
     was_impersonated?: boolean | null
+}
+
+export type ApprovalPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ChangeRequestsListParams = {
+    action_key?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    requester?: number
+    resource_id?: string
+    resource_type?: string
+    /**
+     * Multiple values may be separated by commas.
+     */
+    state?: string[]
 }
 
 export type CommentsListParams = {

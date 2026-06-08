@@ -35,81 +35,77 @@ export const scene: SceneExport = {
     productKey: ProductKey.ENDPOINTS,
 }
 
-export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
-    const { activeTab } = useValues(endpointsLogic({ tabId: tabId || '' }))
+export function EndpointsScene(): JSX.Element {
+    const { activeTab } = useValues(endpointsLogic)
 
     const tabs: LemonTab<string>[] = [
         {
             key: 'endpoints',
             label: 'Endpoints',
-            content: <Endpoints tabId={tabId || ''} />,
+            content: <Endpoints />,
             link: urls.endpoints(),
         },
         {
             key: 'usage',
             label: 'Usage',
-            content: <EndpointsUsage tabId={tabId || ''} />,
+            content: <EndpointsUsage />,
             link: urls.endpointsUsage(),
         },
     ]
     return (
-        <BindLogic logic={endpointsUsageLogic} props={{ key: 'endpointsUsageScene', tabId: tabId || '' }}>
-            <BindLogic logic={endpointsLogic} props={{ key: 'endpointsLogic', tabId: tabId || '' }}>
-                <BindLogic logic={endpointsUsageLogic} props={{ key: 'endpointsUsageLogic', tabId: tabId || '' }}>
-                    <SceneContent>
-                        <SceneTitleSection
-                            name={sceneConfigurations[Scene.EndpointsScene].name}
-                            description={sceneConfigurations[Scene.EndpointsScene].description}
-                            resourceType={{
-                                type: sceneConfigurations[Scene.EndpointsScene].iconType || 'default_icon_type',
-                            }}
-                            actions={
-                                <AppShortcut
-                                    name="EndpointsNew"
-                                    keybind={[keyBinds.new]}
-                                    intent="New endpoint"
-                                    interaction="click"
-                                    scope={Scene.EndpointsScene}
+        <BindLogic logic={endpointsLogic} props={{}}>
+            <BindLogic logic={endpointsUsageLogic} props={{}}>
+                <SceneContent>
+                    <SceneTitleSection
+                        name={sceneConfigurations[Scene.EndpointsScene].name}
+                        description={sceneConfigurations[Scene.EndpointsScene].description}
+                        resourceType={{
+                            type: sceneConfigurations[Scene.EndpointsScene].iconType || 'default_icon_type',
+                        }}
+                        actions={
+                            <AppShortcut
+                                name="EndpointsNew"
+                                keybind={[keyBinds.new]}
+                                intent="New endpoint"
+                                interaction="click"
+                                scope={Scene.EndpointsScene}
+                            >
+                                <LemonButton
+                                    type="primary"
+                                    to={urls.sqlEditor({ source: 'endpoint' })}
+                                    sideAction={{
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            className: 'new-endpoint-overlay',
+                                            actionable: true,
+                                            overlay: <OverlayForNewEndpointMenu />,
+                                        },
+                                        'data-attr': 'new-endpoint-dropdown',
+                                    }}
+                                    data-attr="new-endpoint-button"
+                                    size="small"
+                                    icon={<IconPlusSmall />}
                                 >
-                                    <LemonButton
-                                        type="primary"
-                                        to={urls.sqlEditor({ source: 'endpoint' })}
-                                        sideAction={{
-                                            dropdown: {
-                                                placement: 'bottom-end',
-                                                className: 'new-endpoint-overlay',
-                                                actionable: true,
-                                                overlay: <OverlayForNewEndpointMenu />,
-                                            },
-                                            'data-attr': 'new-endpoint-dropdown',
-                                        }}
-                                        data-attr="new-endpoint-button"
-                                        size="small"
-                                        icon={<IconPlusSmall />}
-                                    >
-                                        New
-                                    </LemonButton>
-                                </AppShortcut>
-                            }
-                        />
-                        <ProductIntroduction
-                            productName="endpoints"
-                            productKey={ProductKey.ENDPOINTS}
-                            thingName="endpoint"
-                            description={
-                                activeTab === 'usage'
-                                    ? ENDPOINTS_USAGE_PRODUCT_DESCRIPTION
-                                    : ENDPOINTS_PRODUCT_DESCRIPTION
-                            }
-                            docsURL="https://posthog.com/docs/endpoints"
-                            customHog={BigLeaguesHog}
-                            isEmpty={false}
-                            action={() => router.actions.push(urls.sqlEditor({ source: 'endpoint' }))}
-                        />
-                        <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
-                        <InsightPickerEndpointModal tabId={tabId || ''} />
-                    </SceneContent>
-                </BindLogic>
+                                    New
+                                </LemonButton>
+                            </AppShortcut>
+                        }
+                    />
+                    <ProductIntroduction
+                        productName="endpoints"
+                        productKey={ProductKey.ENDPOINTS}
+                        thingName="endpoint"
+                        description={
+                            activeTab === 'usage' ? ENDPOINTS_USAGE_PRODUCT_DESCRIPTION : ENDPOINTS_PRODUCT_DESCRIPTION
+                        }
+                        docsURL="https://posthog.com/docs/endpoints"
+                        customHog={BigLeaguesHog}
+                        isEmpty={false}
+                        action={() => router.actions.push(urls.sqlEditor({ source: 'endpoint' }))}
+                    />
+                    <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
+                    <InsightPickerEndpointModal />
+                </SceneContent>
             </BindLogic>
         </BindLogic>
     )

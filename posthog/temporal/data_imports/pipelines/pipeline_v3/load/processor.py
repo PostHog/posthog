@@ -16,6 +16,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import 
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     append_partition_key_to_table,
+    evolve_pyarrow_schema,
     pyarrow_schema_from_arrow_exportable,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table
@@ -211,7 +212,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         if delta_table is None:
             logger.error(
                 "no_delta_table_for_post_load",
-                job_id=export_signal.job_id,
+                external_data_job_id=export_signal.job_id,
                 batch_index=export_signal.batch_index,
             )
             return
@@ -252,9 +253,9 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
     logger.info(
         "job_marked_completed",
-        job_id=export_signal.job_id,
+        external_data_job_id=export_signal.job_id,
         team_id=export_signal.team_id,
-        schema_id=export_signal.schema_id,
+        external_data_schema_id=export_signal.schema_id,
     )
 
 
@@ -268,9 +269,9 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
     if existing is not None:
         logger.info(
             "job_already_marked_failed",
-            job_id=export_signal.job_id,
+            external_data_job_id=export_signal.job_id,
             team_id=export_signal.team_id,
-            schema_id=export_signal.schema_id,
+            external_data_schema_id=export_signal.schema_id,
         )
         return
 
@@ -284,9 +285,9 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
 
     logger.info(
         "job_marked_failed",
-        job_id=export_signal.job_id,
+        external_data_job_id=export_signal.job_id,
         team_id=export_signal.team_id,
-        schema_id=export_signal.schema_id,
+        external_data_schema_id=export_signal.schema_id,
         error=str(error),
     )
 
@@ -333,7 +334,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
             logger.info(
                 "batch_already_processed",
                 team_id=export_signal.team_id,
-                schema_id=export_signal.schema_id,
+                external_data_schema_id=export_signal.schema_id,
                 run_uuid=export_signal.run_uuid,
                 batch_index=export_signal.batch_index,
             )
@@ -343,7 +344,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
             logger.info(
                 "batch_already_processed_running_post_load",
                 team_id=export_signal.team_id,
-                schema_id=export_signal.schema_id,
+                external_data_schema_id=export_signal.schema_id,
                 run_uuid=export_signal.run_uuid,
                 batch_index=export_signal.batch_index,
             )
@@ -354,7 +355,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
         logger.debug(
             "message_received",
             team_id=export_signal.team_id,
-            schema_id=export_signal.schema_id,
+            external_data_schema_id=export_signal.schema_id,
             resource_name=export_signal.resource_name,
             batch_index=export_signal.batch_index,
             is_final_batch=export_signal.is_final_batch,
@@ -453,6 +454,9 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
                             existing_rows = existing_rows.filter(pc.is_null(existing_rows.column(SCD2_VALID_TO_COLUMN)))
 
                         pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows)
+
+        if existing_delta_table is not None:
+            pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())
 
         if cdc_write_mode == "scd2_append":
             logger.debug(

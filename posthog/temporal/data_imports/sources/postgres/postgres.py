@@ -997,9 +997,12 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
     logger.debug(f"Running EXPLAIN on {query.as_string()}")
 
     try:
-        query_with_explain = sql.SQL("EXPLAIN {}").format(query)
-        cursor.execute(query_with_explain)
-        rows = cursor.fetchall()
+        # Debug-only and best-effort: a query may use syntax the source DB rejects (e.g.
+        # TABLESAMPLE on CockroachDB). Savepoint so a failure doesn't poison the transaction.
+        with cursor.connection.transaction(savepoint_name="explain_query"):
+            query_with_explain = sql.SQL("EXPLAIN {}").format(query)
+            cursor.execute(query_with_explain)
+            rows = cursor.fetchall()
         explain_result: str = ""
         # Build up a single string of the EXPLAIN output
         for row in rows:
@@ -1007,7 +1010,6 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
                 explain_result += f"\n{col}"
         logger.debug(f"EXPLAIN result: {explain_result}")
     except Exception as e:
-        capture_exception(e)
         logger.debug(f"EXPLAIN raised an exception: {e}")
 
 
@@ -1146,10 +1148,13 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
             ) as subquery
         """).format(inner_query)
 
-        _explain_query(cursor, query, logger)
-        logger.debug(f"Running query: {query.as_string()}")
-        cursor.execute(query)
-        row = cursor.fetchone()
+        # Best-effort: the sampled query can fail (e.g. TABLESAMPLE on CockroachDB). Savepoint
+        # so a failure falls back to DEFAULT_CHUNK_SIZE without poisoning the transaction.
+        with cursor.connection.transaction(savepoint_name="table_chunk_size"):
+            _explain_query(cursor, query, logger)
+            logger.debug(f"Running query: {query.as_string()}")
+            cursor.execute(query)
+            row = cursor.fetchone()
 
         if row is None:
             logger.debug(f"_get_table_chunk_size: No results returned. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")
@@ -1860,7 +1865,9 @@ def postgres_source(
                 # wide/partitioned scans the source's default (often 30-60s)
                 # kills the fetch before rows come back.
                 try:
-                    with connection.cursor() as setup_cursor:
+                    # Use psycopg.Cursor directly to bypass cursor_factory (which may be
+                    # ServerCursor and requires a `name` arg, breaking an unnamed cursor()).
+                    with psycopg.Cursor(connection) as setup_cursor:
                         setup_cursor.execute(
                             sql.SQL("SET statement_timeout = {timeout}").format(
                                 timeout=sql.Literal(SYNC_STATEMENT_TIMEOUT_MS)

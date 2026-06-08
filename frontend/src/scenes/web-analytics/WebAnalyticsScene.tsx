@@ -1,6 +1,10 @@
+import { useValues } from 'kea'
+
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { FocusModeModal } from 'scenes/web-analytics/focus-mode/FocusModeModal'
+import { FocusModeOnboardingModal } from 'scenes/web-analytics/focus-mode/FocusModeOnboardingModal'
 import { WebAnalyticsDashboard } from 'scenes/web-analytics/WebAnalyticsDashboard'
 import { WebAnalyticsHeaderButtons } from 'scenes/web-analytics/WebAnalyticsHeaderButtons'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -21,6 +25,7 @@ export function WebAnalyticsScene(): JSX.Element {
             'Diagnose my reverse proxy setup',
         ],
     })
+    const { showFocusMode } = useValues(webAnalyticsLogic)
 
     return (
         <>
@@ -36,6 +41,12 @@ export function WebAnalyticsScene(): JSX.Element {
                 />
                 <WebAnalyticsDashboard />
             </SceneContent>
+            {showFocusMode && (
+                <>
+                    <FocusModeModal />
+                    <FocusModeOnboardingModal />
+                </>
+            )}
         </>
     )
 }

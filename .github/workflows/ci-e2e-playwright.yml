@@ -7,6 +7,12 @@ name: E2E CI Playwright
 on:
     pull_request:
     workflow_dispatch:
+        inputs:
+            playwright_retries:
+                description: 'Override Playwright retries (leave empty for default of 3 on CI). Set to "0" to surface true per-test failure rate.'
+                required: false
+                type: string
+                default: ''
     push:
         branches:
             - master
@@ -15,6 +21,8 @@ permissions:
     contents: read
 
 env:
+    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     REDIS_URL: redis://localhost
     DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_e2e_test
@@ -241,6 +249,7 @@ jobs:
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.12.12
+                  token: ${{ github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -276,11 +285,10 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-e2e-playwright.yml
+                  token: ${{ github.token }}
 
-            # tests would intermittently fail in GH actions
-            # with exit code 134 _after passing_ all tests
-            # this appears to fix it
-            # absolute wild tbh https://stackoverflow.com/a/75503402
+            # Workaround for SIGABRT (exit 134) raised after all tests pass.
+            # See https://pytest-qt.readthedocs.io/en/latest/troubleshooting.html#tlambert03-setup-qt-libs
             - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1.8
 
             - name: Install plugin_transpiler
@@ -334,6 +342,13 @@ jobs:
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
             - name: Start Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -353,11 +368,11 @@ jobs:
                   pnpm --filter=@posthog/frontend build
 
             - name: Collect static files
-              run: |
-                  # KLUDGE: posthog-js now bundles rrweb and ships image-bitmap-data-url-worker-*.js.map
-                  # KLUDGE: under its own dist; the worker references the map alongside, so copy it into
-                  # KLUDGE: dist/ or django's collectstatic fails on the missing source map
-                  cp frontend/node_modules/posthog-js/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ && python manage.py collectstatic --noinput
+              # The image-bitmap-data-url-worker-*.js.map files are already mirrored
+              # into frontend/dist/ by copyRRWebWorkerFiles() in frontend/build.mjs
+              # (see common/esbuilder/utils.mjs), which runs as part of the
+              # `pnpm --filter=@posthog/frontend build` step above. No extra cp needed.
+              run: python manage.py collectstatic --noinput
             - name: Create test database
               shell: bash
               run: |
@@ -506,6 +521,11 @@ jobs:
             - name: Run Playwright tests
               id: playwright-tests
               shell: bash
+              env:
+                  # The flake-audit workflow (.github/workflows/ci-e2e-playwright-audit.yml)
+                  # passes PLAYWRIGHT_RETRIES=0 to surface real per-test failure rates.
+                  # PR/master runs leave this unset and inherit the default (3 retries).
+                  PLAYWRIGHT_RETRIES: ${{ inputs.playwright_retries }}
               # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
               # Reduced from 6+4 to 4+2 to minimize CPU scheduling contention (see PR #46853)
               # Capture-only: VR is the gate for visual changes, Playwright just captures screenshots
@@ -795,6 +815,7 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  token: ${{ github.token }}
 
             - name: Install VR CLI
               run: cd products/visual_review/cli && npm ci && npm run build && npm link

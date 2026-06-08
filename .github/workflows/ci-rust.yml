@@ -11,6 +11,8 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     CARGO_TERM_COLOR: always
     UV_HTTP_TIMEOUT: 120
 
@@ -28,7 +30,6 @@ jobs:
         # Set job outputs to values from filter step
         outputs:
             rust: ${{ steps.filter.outputs.rust || 'true' }}
-            matrix: ${{ steps.shards.outputs.matrix }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -66,16 +67,56 @@ jobs:
                         - 'posthog/models/feature_flag/feature_flag.py'
                         - 'rust/feature-flags/tests/fixtures/hypercache_contract.json'
 
-            # Bin-pack packages into balanced test shards.
-            # Weights are approximate total durations (compile + test) in seconds,
-            # calibrated against 2-week avg CI job times (last updated: 2026-05-07).
-            # TARGET_MINUTES controls max wall-clock per shard; shard count is derived.
+    # Compute affected crates and test shards. Only runs when Rust changes
+    # are detected, keeping the lightweight `changes` job fast for non-Rust PRs.
+    affected:
+        name: Compute affected Rust crates
+        needs: changes
+        if: needs.changes.outputs.rust == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            contents: read
+        outputs:
+            matrix: ${{ steps.shards.outputs.matrix }}
+            affected_crates: ${{ steps.affected.outputs.crates }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  sparse-checkout: |
+                      rust/
+                      proto/
+                      .github/rust-images.yml
+                      .github/actions/rust-compute-affected/
+                  sparse-checkout-cone-mode: false
+                  clean: false
+
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+
+            - name: Compute affected crates
+              id: affected
+              uses: ./.github/actions/rust-compute-affected
+              with:
+                  event-name: ${{ github.event_name }}
+                  pr-base-sha: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+                  push-before-sha: ${{ github.event.before }}
+                  rebuild-all: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
+
+            # Bin-pack affected packages into balanced test shards.
             - name: Compute test shards
               id: shards
-              if: steps.filter.outputs.rust != 'false'
+              env:
+                  AFFECTED_CRATES: ${{ steps.affected.outputs.crates }}
               shell: python3 {0}
               run: |
                   import json, math, os
+
+                  affected = set(json.loads(os.environ.get("AFFECTED_CRATES", "[]")))
 
                   packages = {
                       "assignment-coordination": 11,
@@ -117,10 +158,30 @@ jobs:
                       "serve-metrics": 14,
                   }
 
-                  # Target max minutes for the cargo-test step per shard.
-                  # Total job time ≈ this + ~2.5 min setup overhead.
-                  # Shard count is computed dynamically so adding packages doesn't
-                  # silently blow past the budget — just adds more shards.
+                  # Filter to only affected crates when selective builds are active.
+                  # Unknown crates (not in packages dict) get a default weight so new
+                  # services are never silently dropped from CI.
+                  DEFAULT_WEIGHT = 60
+                  if affected:
+                      unknown = affected - packages.keys()
+                      if unknown:
+                          print(f"WARNING: affected crates missing from weight table (using {DEFAULT_WEIGHT}s default): {', '.join(sorted(unknown))}")
+                          print("Add them to the packages dict in ci-rust.yml with measured weights.")
+                          for crate in unknown:
+                              packages[crate] = DEFAULT_WEIGHT
+                      packages = {k: v for k, v in packages.items() if k in affected}
+                      print(f"Selective build: testing {len(packages)} of affected crates")
+                  else:
+                      print("Full build: testing all crates")
+
+                  if not packages:
+                      with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                          f.write('matrix={"include":[]}\n')
+                      raise SystemExit(0)
+
+                  # Weights are approximate total durations (compile + test) in seconds,
+                  # calibrated against 2-week avg CI job times (last updated: 2026-05-07).
+                  # TARGET_MINUTES controls max wall-clock per shard; shard count is derived.
                   TARGET_MINUTES = 8
                   target_seconds = TARGET_MINUTES * 60
                   total = sum(packages.values())
@@ -153,7 +214,7 @@ jobs:
 
     build:
         name: Build Rust services (depot-ubuntu-22.04-4)
-        needs: changes
+        needs: [changes, affected]
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-22.04-4
         timeout-minutes: 15
@@ -194,17 +255,33 @@ jobs:
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
 
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-ci'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
+
             - name: Run cargo build
               env:
                   # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
                   OPENSSL_NO_VENDOR: '1'
-              run: cargo build --all --locked --release && find target/release/ -maxdepth 1 -executable -type f | xargs strip
+                  AFFECTED_CRATES: ${{ needs.affected.outputs.affected_crates }}
+              run: |
+                  crates=$(echo "$AFFECTED_CRATES" | python3 -c "import json,sys; print(' '.join(f'-p {c}' for c in json.load(sys.stdin)))")
+                  if [ -z "$crates" ]; then
+                      echo "No affected crates — skipping build"
+                  else
+                      echo "Building affected crates: $crates"
+                      cargo build $crates --locked --release
+                      find target/release/ -maxdepth 1 -executable -type f -exec strip {} +
+                  fi
 
     test:
         name: Test Rust (${{ matrix.packages }})
         strategy:
-            matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
-        needs: changes
+            matrix: ${{ fromJSON(needs.affected.outputs.matrix) }}
+        needs: [changes, affected]
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 20
@@ -225,6 +302,13 @@ jobs:
                   # Use docker to clean up files created by containers (from repo root, not rust/)
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
+
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Setup main repo and dependencies
               env:
@@ -261,6 +345,7 @@ jobs:
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
+                  token: ${{ github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -367,6 +452,13 @@ jobs:
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
 
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-ci'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
+
             - name: Check format
               run: cargo fmt -- --check
 
@@ -386,7 +478,11 @@ jobs:
               uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
 
             - name: Install cargo-shear
-              run: cargo binstall --no-confirm cargo-shear@1.1.12
+              # --force is required: Swatinem/rust-cache restores ~/.cargo/.crates2.json
+              # (which records cargo-shear as installed) but not the binary itself, so
+              # without --force binstall short-circuits ("already installed") and the
+              # next step fails with `error: no such command: shear`.
+              run: cargo binstall --no-confirm --force cargo-shear@1.1.12
 
             - name: Run cargo shear
               run: cargo shear
@@ -394,7 +490,7 @@ jobs:
     # Collate job - single required status check for branch protection.
     # Individual jobs skip entirely when no Rust changes, saving runner time.
     rust_tests:
-        needs: [changes, build, test, linting]
+        needs: [changes, affected, build, test, linting]
         name: Rust Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -403,7 +499,7 @@ jobs:
         steps:
             - name: Check all Rust jobs
               run: |
-                  # Fail if change detection itself failed
+                  # Fail if change detection or affected computation failed
                   if [[ "${{ needs.changes.result }}" == "failure" ]]; then
                     echo "Change detection job failed."
                     exit 1
@@ -413,6 +509,11 @@ jobs:
                   if [[ "${{ needs.changes.outputs.rust }}" != "true" ]]; then
                     echo "Rust checks were skipped (no relevant changes)"
                     exit 0
+                  fi
+
+                  if [[ "${{ needs.affected.result }}" == "failure" ]]; then
+                    echo "Affected crate computation failed."
+                    exit 1
                   fi
 
                   if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then

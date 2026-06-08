@@ -136,7 +136,6 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
-    WebTrendsQuery = 'WebTrendsQuery',
     WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
     WebNotableChangesQuery = 'WebNotableChangesQuery',
 
@@ -178,6 +177,7 @@ export enum NodeKind {
 
     // Customer analytics
     UsageMetricsQuery = 'UsageMetricsQuery',
+    AccountsQuery = 'AccountsQuery',
 
     // Endpoints usage queries
     EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
@@ -218,7 +218,6 @@ export type AnyDataNode =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
-    | WebTrendsQuery
     | WebAnalyticsExternalSummaryQuery
     | WebNotableChangesQuery
     | SessionAttributionExplorerQuery
@@ -243,6 +242,7 @@ export type AnyDataNode =
     | TraceNeighborsQuery
     | VectorSearchQuery
     | UsageMetricsQuery
+    | AccountsQuery
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
@@ -348,6 +348,7 @@ export type QuerySchema =
 
     // Customer analytics
     | UsageMetricsQuery
+    | AccountsQuery
 
     // Endpoints usage
     | EndpointsUsageOverviewQuery
@@ -448,10 +449,11 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    pushDownPredicates?: boolean
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
     inlineCohortCalculation?: 'off' | 'auto' | 'always'
-    /** HogQL parser backend; absent → `cpp_with_rust_py_shadow` (cpp is primary, rust-py runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
+    /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
     parserMode?:
         | 'cpp_only'
         | 'cpp_with_rust_shadow'
@@ -476,6 +478,8 @@ export interface DataWarehouseSyncWarning {
     schema_name: string
     /** Source type, e.g. "Stripe", "Hubspot" */
     source_type: string
+    /** ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables. */
+    source_id?: string | null
     /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
     status: string
     /** Human-readable warning shown to the user */
@@ -525,7 +529,7 @@ export interface HogQLVariable {
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
     query: string
-    /** Optional direct external data source id for running against a specific source */
+    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
     connectionId?: string
     /** Run the selected connection query directly without translating it through HogQL first */
     sendRawQuery?: boolean
@@ -603,6 +607,8 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
      * */
     operand?: FilterLogicalOperator
     session_ids?: string[]
+    /** Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set. */
+    hide_viewed_recordings?: 'current-user' | 'any-user' | null
     /** If provided, this recording will be fetched and prepended to the results, even if it doesn't match the filters */
     session_recording_id?: string
     person_uuid?: string
@@ -738,7 +744,7 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
-    /** Optional direct external data source id for running against a specific source */
+    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
     connectionId?: string
     /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
     sourceQuery?: AnyDataNode
@@ -758,7 +764,7 @@ export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
-    /** Optional direct external data source id for running against a specific source */
+    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
     connectionId?: string
     /** Query in whose context to validate. */
     sourceQuery?: AnyDataNode
@@ -1052,6 +1058,7 @@ export interface DataTableNode
                     | ExperimentTrendsQuery
                     | TracesQuery
                     | EndpointsUsageTableQuery
+                    | AccountsQuery
                 )['response']
             >
         >,
@@ -1090,6 +1097,7 @@ export interface DataTableNode
         | TracesQuery
         | TraceQuery
         | EndpointsUsageTableQuery
+        | AccountsQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -1442,6 +1450,10 @@ export type TrendsFilter = {
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
     /** @default false */
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
+    /** On the horizontal bar-value chart, stack a series' breakdown values into a single bar
+     *  instead of rendering one bar per breakdown value.
+     * @default false */
+    stackBreakdownValues?: boolean
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
     /** @default false */
     showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
@@ -1468,6 +1480,8 @@ export type TrendsFilter = {
     excludeBoxPlotOutliers?: boolean
     /** @default false */
     hideWeekends?: boolean
+    /** @default true */
+    showAnnotations?: boolean
 }
 
 export type CalendarHeatmapFilter = {
@@ -1494,10 +1508,12 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showValuesOnSeries',
     'showLabelsOnSeries',
     'showPercentStackView',
+    'stackBreakdownValues',
     'yAxisScaleType',
     'hiddenLegendIndexes',
     'excludeBoxPlotOutliers',
     'hideWeekends',
+    'showAnnotations',
 ])
 
 export interface BoxPlotDatum {
@@ -1664,6 +1680,17 @@ export type FunnelsFilter = {
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
     breakdownSorting?: string
+    /**
+     * Whether to render annotations on the chart. Only applies to historical-trends funnels.
+     * @default true
+     */
+    showAnnotations?: boolean
+    /**
+     * Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent
+     * tail of the trend isn't dragged down by entrants who still have time to convert.
+     * @default false
+     */
+    hideIncompleteConversionWindowPeriods?: boolean
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -2077,6 +2104,8 @@ export interface AnalyticsQueryResponseBase {
     query_status?: QueryStatus
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponse
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponse
     /**
      * Warnings about data warehouse sources referenced by the query whose latest sync failed,
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
@@ -2251,6 +2280,41 @@ export interface GroupsQuery extends DataNode<GroupsQueryResponse> {
     search?: string
     properties?: AnyGroupScopeFilter[]
     group_type_index: integer
+    orderBy?: string[]
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedAccountsQueryResponse = CachedQueryResponse<AccountsQueryResponse>
+
+export interface AccountsQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[][]
+    kind: NodeKind.AccountsQuery
+    columns: any[]
+    types: string[]
+    hogql: string
+    hasMore?: boolean
+    limit: integer
+    offset: integer
+    /** When `metrics` is set on the query, the aggregated values in the same order. */
+    metricsResults?: (number | null)[]
+}
+
+export type AccountsRoleAssignmentFilter = integer | 'unassigned'
+
+export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
+    kind: NodeKind.AccountsQuery
+    select?: HogQLExpression[]
+    /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
+    metrics?: HogQLExpression[]
+    search?: string
+    tagNames?: string[]
+    csm?: AccountsRoleAssignmentFilter
+    accountExecutive?: AccountsRoleAssignmentFilter
+    accountOwner?: AccountsRoleAssignmentFilter
+    allRolesUnassigned?: boolean
+    /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
+    filterExpression?: HogQLExpression
     orderBy?: string[]
     limit?: integer
     offset?: integer
@@ -3015,6 +3079,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     /** Field to break down sparkline data by (used only by sparkline endpoint) */
     sparklineBreakdownBy?: LogsSparklineBreakdownBy
     resourceFingerprint?: string
+    /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
+    excludeAttributes?: boolean
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
@@ -3135,6 +3201,8 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     after?: string
     /** Prefetch up to this many spans per trace and include them in results */
     prefetchSpans?: integer
+    /** Omit the per-span `attributes` map from results to keep payloads compact */
+    excludeAttributes?: boolean
 }
 
 export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
@@ -3332,7 +3400,7 @@ export type FileSystemIconType =
     | 'settings'
     | 'health'
     | 'inbox'
-    | 'sdk_doctor'
+    | 'sdk_health'
     | 'pipeline_status'
     | 'llm_evaluations'
     | 'llm_tags'
@@ -3341,7 +3409,6 @@ export type FileSystemIconType =
     | 'llm_prompts'
     | 'llm_clusters'
     | 'exports'
-    | 'deployments'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -3636,6 +3703,8 @@ export interface ExperimentParameters {
     minimum_detectable_effect?: number
     /** Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100. */
     rollout_percentage?: number
+    /** Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. */
+    excluded_variants?: string[]
 }
 
 /** Slim exposure config for experiment API payloads. */
@@ -4297,6 +4366,8 @@ export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCom
     url_pattern: string
     schema?: DatabaseSchemaSchema
     source?: DatabaseSchemaSource
+    /** Alternate names the table is queryable by (e.g. the flat underscore form), in addition to `name`. */
+    search_aliases?: string[]
 }
 
 export interface DatabaseSchemaBatchExportTable extends DatabaseSchemaTableCommon {
@@ -5244,51 +5315,6 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
 
-export enum WebTrendsMetric {
-    UNIQUE_USERS = 'UniqueUsers',
-    PAGE_VIEWS = 'PageViews',
-    SESSIONS = 'Sessions',
-    BOUNCES = 'Bounces',
-    SESSION_DURATION = 'SessionDuration',
-    TOTAL_SESSIONS = 'TotalSessions',
-}
-
-export interface WebTrendsQuery extends WebAnalyticsQueryBase<WebTrendsQueryResponse> {
-    kind: NodeKind.WebTrendsQuery
-    interval: IntervalType
-    metrics: WebTrendsMetric[]
-    limit?: integer
-    offset?: integer
-}
-
-export interface WebTrendsItem {
-    bucket: string
-    metrics: Partial<Record<WebTrendsMetric, number>>
-}
-
-export interface WebTrendsQueryResponse extends AnalyticsQueryResponseBase {
-    results: WebTrendsItem[]
-    /** Input query string */
-    query?: string
-    /** Executed ClickHouse query */
-    clickhouse?: string
-    /** Returned columns */
-    columns?: any[]
-    /** Types of returned columns */
-    types?: any[]
-    /** Query explanation output */
-    explain?: string[]
-    /** Query metadata output */
-    metadata?: HogQLMetadataResponse
-    hasMore?: boolean
-    limit?: integer
-    offset?: integer
-    samplingRate?: SamplingRate
-    usedPreAggregatedTables?: boolean
-}
-
-export type CachedWebTrendsQueryResponse = CachedQueryResponse<WebTrendsQueryResponse>
-
 export interface WebNotableChangesQuery extends WebAnalyticsQueryBase<WebNotableChangesQueryResponse> {
     kind: NodeKind.WebNotableChangesQuery
     limit?: integer
@@ -5870,6 +5896,14 @@ export interface SourceConfig {
      * @default false
      */
     featured?: boolean
+
+    /**
+     * Whether the source-creation wizard should expose the per-column projection picker.
+     * Mirrors `SQLSource.supports_column_selection` so the wizard doesn't show a picker
+     * for drivers that ignore `enabled_columns` at sync time.
+     * @default false
+     */
+    supportsColumnSelection?: boolean
 }
 
 export const externalDataSources = [
@@ -5892,6 +5926,7 @@ export const externalDataSources = [
     'RevenueCat',
     'Polar',
     'GoogleAds',
+    'GoogleSearchConsole',
     'MetaAds',
     'Klaviyo',
     'Mailchimp',
@@ -6018,6 +6053,8 @@ export const externalDataSources = [
     'Plain',
     'Resend',
     'PgAnalyze',
+    'WorkOS',
+    'Custom',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -6168,7 +6205,7 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         statsTableName: 'campaign_performance_report',
         tableKeywords: ['campaigns'] as const,
         tableExclusions: ['performance'] as const,
-        defaultSources: ['bing', 'microsoft'] as const,
+        defaultSources: ['bing', 'microsoft', 'msads', 'bing_video'] as const,
         primarySource: 'bing',
         // At ad-group / ad level Bing's data import only ships performance *reports* —
         // no separate entity tables. The report embeds the entity columns, so it
@@ -6309,6 +6346,16 @@ export enum InfinityValue {
 
 export enum DashboardAutoRefreshInterval {
     SECONDS = 1800,
+}
+
+/** Subscriptions a free-tier team may create. */
+export enum SubscriptionFreeTierLimit {
+    COUNT = 5,
+}
+
+/** Maximum length, in characters, of an AI subscription prompt. */
+export enum SubscriptionAIPromptMaxLength {
+    CHARACTERS = 4000,
 }
 
 export type UsageMetricFormat = 'numeric' | 'currency'
@@ -6520,7 +6567,6 @@ export enum ProductKey {
     CUSTOMER_ANALYTICS = 'customer_analytics',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
-    DEPLOYMENTS = 'deployments',
     EARLY_ACCESS_FEATURES = 'early_access_features',
     ENDPOINTS = 'endpoints',
     ERROR_TRACKING = 'error_tracking',
@@ -6709,9 +6755,13 @@ export enum ProductIntentContext {
     VERCEL_INTEGRATION = 'vercel_integration',
 
     // Endpoints
+    ENDPOINTS_VIEWED = 'endpoints_viewed',
     ENDPOINT_CREATED = 'endpoint_created',
     ENDPOINT_CREATED_FROM_INSIGHT = 'endpoint_created_from_insight',
     ENDPOINT_CREATED_FROM_SQL_EDITOR = 'endpoint_created_from_sql_editor',
+
+    // Tracing
+    TRACING_DOCS_VIEWED = 'tracing_docs_viewed',
 }
 
 // Known prod_interest values from posthog.com

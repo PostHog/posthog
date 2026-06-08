@@ -1,5 +1,4 @@
 import * as PartialJSON from 'partial-json'
-import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -14,38 +13,26 @@ import type { EvaluationRun } from './evaluations/types'
 import {
     AnthropicDocumentMessage,
     AnthropicImageMessage,
-    AnthropicInputMessage,
-    AnthropicTextMessage,
-    AnthropicThinkingMessage,
     AnthropicToolCallMessage,
     AnthropicToolResultMessage,
     CompatMessage,
-    CompatToolCall,
     GeminiAudioMessage,
     GeminiDocumentMessage,
     GeminiImageMessage,
-    LiteLLMChoice,
-    LiteLLMResponse,
     OpenAIAudioMessage,
-    OpenAICompletionMessage,
     OpenAIFileMessage,
     OpenAIImageURLMessage,
     OpenAIResponsesBuiltinToolCall,
     OpenAIResponsesFunctionCall,
     OpenAIResponsesFunctionCallOutput,
-    OpenAIResponsesReasoning,
-    OpenAIToolCall,
     StringContentObject,
     TextContentItem,
-    VercelSDKImageMessage,
-    VercelSDKInputImageMessage,
     VercelSDKInputTextMessage,
     VercelSDKTextMessage,
     VercelSDKToolCallFunctionMessage,
     VercelSDKToolCallMessage,
     VercelSDKToolCallToolNameMessage,
     VercelSDKToolResultMessage,
-    MultiModalContentItem,
 } from './types'
 
 export interface PagedSearchOrderFilters {
@@ -363,75 +350,8 @@ export function getRecordingStatus(event: LLMTrace | LLMTraceEvent): string | nu
     return event.events.find((e) => e.properties.$recording_status !== null)?.properties.$recording_status || null
 }
 
-export function isOpenAICompatToolCall(input: unknown): input is OpenAIToolCall {
-    return (
-        input !== null &&
-        typeof input === 'object' &&
-        'type' in input &&
-        'function' in input &&
-        input.type === 'function' &&
-        typeof input.function === 'object' &&
-        input.function !== null
-    )
-}
-
-export function isOpenAICompatToolCallsArray(input: any): input is OpenAIToolCall[] {
-    return Array.isArray(input) && input.every(isOpenAICompatToolCall)
-}
-
-export function isOpenAICompatMessage(output: unknown): output is OpenAICompletionMessage {
-    return (
-        !!output &&
-        typeof output === 'object' &&
-        'role' in output &&
-        'content' in output &&
-        (typeof output.content === 'string' || output.content === null)
-    )
-}
-
-function parseToolArguments(args: string | Record<string, unknown>): Record<string, unknown> | string {
-    if (typeof args === 'string') {
-        try {
-            return JSON.parse(args)
-        } catch {
-            return args
-        }
-    }
-    return args
-}
-
-export function parseOpenAIToolCalls(toolCalls: OpenAIToolCall[]): CompatToolCall[] {
-    const toolsWithParsedArguments = toolCalls.map((toolCall) => {
-        let parsedArguments = toolCall.function.arguments
-
-        if (typeof toolCall.function.arguments === 'string') {
-            try {
-                parsedArguments = JSON.parse(toolCall.function.arguments)
-            } catch (e) {
-                console.warn('Failed to parse tool call arguments as JSON:', toolCall.function.arguments, e)
-                // Keep the original string if parsing fails
-                parsedArguments = toolCall.function.arguments
-            }
-        }
-
-        return {
-            ...toolCall,
-            function: {
-                ...toolCall.function,
-                arguments: parsedArguments,
-            },
-        }
-    })
-
-    return toolsWithParsedArguments
-}
-
 export function isTextContentItem(item: unknown): item is TextContentItem {
     return !!item && typeof item === 'object' && 'type' in item && item.type === 'text' && 'text' in item
-}
-
-export function isAnthropicTextMessage(output: unknown): output is AnthropicTextMessage {
-    return isTextContentItem(output)
 }
 
 export function hasStringContentField(value: unknown): value is StringContentObject {
@@ -455,8 +375,132 @@ export function extractTextContent(item: unknown): string | undefined {
     return undefined
 }
 
+// Pulls the user-visible text out of a whole message. Walks a content array (joining
+// per-part text), falls back to the `{type, content: string}` legacy wrapper, and
+// otherwise returns '' (caller decides what to do with an empty string).
+export function extractText(message: CompatMessage): string {
+    const content = message.content
+    if (typeof content === 'string') {
+        return content
+    }
+    if (Array.isArray(content)) {
+        const parts: string[] = []
+        for (const part of content) {
+            const text = extractTextContent(part)
+            if (text !== undefined) {
+                parts.push(text)
+            }
+        }
+        return parts.join('\n')
+    }
+    if (hasStringContentField(content)) {
+        return content.content
+    }
+    return ''
+}
+
+// Like `extractText`, but with one extra fallback for the custom function-shape
+// tool-result user message (`{role:'user', content:[{type:'function', tool_name, content}]}`).
+export function extractInternalContent(message: CompatMessage): string {
+    const text = extractText(message)
+    if (text.length > 0) {
+        return text
+    }
+    if (Array.isArray(message.content)) {
+        return message.content
+            .map((p) => (isObject(p) && isString(p.content) ? p.content : ''))
+            .filter(Boolean)
+            .join('\n')
+    }
+    return ''
+}
+
 export function isAnthropicToolCallMessage(output: unknown): output is AnthropicToolCallMessage {
     return !!output && typeof output === 'object' && 'type' in output && output.type === 'tool_use'
+}
+
+// There are more tags that point to an internal-only message, but these are the most common
+// ones, i.e. the ones we can most confidently hide by default.
+const INTERNAL_TAG_ALLOWLIST: ReadonlySet<string> = new Set([
+    'system-reminder',
+    'system_reminder',
+    'system_reminder_message',
+    'attached_context',
+    'voice_mode',
+])
+
+// Regex for the case where an entire message body consists of exactly one balanced XML wrapper.
+// We don't accept content that contains multiple top-level wrappers nor leading/trailing text
+const INTERNAL_WRAPPER_REGEX = /^\s*<([a-z][a-z0-9_-]*)>[\s\S]*?<\/\1>\s*$/
+
+// Reduces content to a single text body (flat string, single typed-parts text part,
+// or legacy `{content: string}`); returns `undefined` for multi-part / unknown shapes.
+function extractSoleTextContent(content: CompatMessage['content']): string | undefined {
+    if (typeof content === 'string') {
+        return content
+    }
+    if (Array.isArray(content)) {
+        if (content.length !== 1) {
+            return undefined
+        }
+        return extractTextContent(content[0])
+    }
+    if (hasStringContentField(content)) {
+        return content.content
+    }
+    return undefined
+}
+
+// Returns the matched internal tag iff `message` is a user-role message whose entire
+// content is one balanced wrapper from `INTERNAL_TAG_ALLOWLIST` (e.g.
+// `<system_reminder>foo</system_reminder>`)
+export function getInternalTagName(message: CompatMessage): string | undefined {
+    if (message.role !== 'user') {
+        return undefined
+    }
+    const body = extractSoleTextContent(message.content)
+    if (!body) {
+        return undefined
+    }
+    const match = INTERNAL_WRAPPER_REGEX.exec(body)
+    if (!match) {
+        return undefined
+    }
+    const tag = match[1]
+    return INTERNAL_TAG_ALLOWLIST.has(tag) ? tag : undefined
+}
+
+export function isInternalTagMessage(message: CompatMessage): boolean {
+    return getInternalTagName(message) !== undefined
+}
+
+// Matches tool-result-shaped content {type: 'function', tool_name: string, content: ...}`
+// with NO nested `function` object to distinguish from a tool call
+function isCustomFunctionToolResult(item: unknown): boolean {
+    return isObject(item) && item.type === 'function' && isString(item.tool_name) && !isObject(item.function)
+}
+
+export function isToolResult(item: unknown): boolean {
+    return (
+        isAnthropicToolResultMessage(item) ||
+        isVercelSDKToolResultMessage(item) ||
+        isOpenAIResponsesFunctionCallOutput(item) ||
+        isCustomFunctionToolResult(item)
+    )
+}
+
+// A user-role message whose content is exclusively tool-results is framework-emitted
+// noise (the user did not write it, their agent appended tool responses into the
+// conversation history).
+export function isInternalToolResultUserMessage(message: CompatMessage): boolean {
+    if (message.role !== 'user') {
+        return false
+    }
+    const { content } = message
+    if (!Array.isArray(content) || content.length === 0) {
+        return false
+    }
+    return content.every(isToolResult)
 }
 
 export function isToolStepItem(item: unknown): boolean {
@@ -481,46 +525,8 @@ export function isToolStepItem(item: unknown): boolean {
     )
 }
 
-export function isAnthropicThinkingMessage(output: unknown): output is AnthropicThinkingMessage {
-    return !!output && typeof output === 'object' && 'type' in output && output.type === 'thinking'
-}
-
 export function isAnthropicToolResultMessage(output: unknown): output is AnthropicToolResultMessage {
     return !!output && typeof output === 'object' && 'type' in output && output.type === 'tool_result'
-}
-
-export function isAnthropicRoleBasedMessage(input: unknown): input is AnthropicInputMessage {
-    return (
-        !!input &&
-        typeof input === 'object' &&
-        'role' in input &&
-        'content' in input &&
-        (typeof input.content === 'string' || Array.isArray(input.content))
-    )
-}
-
-// LangChain/LangGraph type guard
-// LangChain messages use `type` (human, ai, tool, system, context) instead of `role`
-const LANGCHAIN_MESSAGE_TYPES = new Set(['human', 'ai', 'tool', 'system', 'context'])
-
-interface LangChainMessage {
-    type: string
-    content: unknown
-    tool_calls?: unknown
-    tool_call_id?: string
-    [key: string]: unknown
-}
-
-export function isLangChainMessage(input: unknown): input is LangChainMessage {
-    return (
-        !!input &&
-        typeof input === 'object' &&
-        !('role' in input) &&
-        'type' in input &&
-        typeof input.type === 'string' &&
-        LANGCHAIN_MESSAGE_TYPES.has(input.type) &&
-        'content' in input
-    )
 }
 
 // OpenAI Responses API type guards
@@ -565,10 +571,6 @@ export function isOpenAIResponsesBuiltinToolCall(input: unknown): input is OpenA
     )
 }
 
-export function isOpenAIResponsesReasoning(input: unknown): input is OpenAIResponsesReasoning {
-    return !!input && typeof input === 'object' && 'type' in input && input.type === 'reasoning'
-}
-
 export function isVercelSDKTextMessage(input: unknown): input is VercelSDKTextMessage {
     return (
         !!input &&
@@ -577,31 +579,6 @@ export function isVercelSDKTextMessage(input: unknown): input is VercelSDKTextMe
         input.type === 'text' &&
         'content' in input &&
         typeof input.content === 'string'
-    )
-}
-
-export function isVercelSDKImageMessage(input: unknown): input is VercelSDKImageMessage {
-    return (
-        !!input &&
-        typeof input === 'object' &&
-        'type' in input &&
-        input.type === 'image' &&
-        'content' in input &&
-        typeof input.content === 'object' &&
-        input.content !== null &&
-        'image' in input.content &&
-        typeof input.content.image === 'string'
-    )
-}
-
-export function isVercelSDKInputImageMessage(input: unknown): input is VercelSDKInputImageMessage {
-    return (
-        !!input &&
-        typeof input === 'object' &&
-        'type' in input &&
-        input.type === 'input_image' &&
-        'image_url' in input &&
-        typeof input.image_url === 'string'
     )
 }
 
@@ -826,99 +803,6 @@ export function isOTelPartsMessage(input: unknown): input is OTelPartsMessage {
     )
 }
 
-function parseOTelToolCallArguments(args: unknown): Record<string, unknown> | string {
-    if (typeof args === 'string') {
-        try {
-            return JSON.parse(args)
-        } catch {
-            return args
-        }
-    }
-    return (args ?? {}) as Record<string, unknown>
-}
-
-function normalizeOTelPartsMessage(message: OTelPartsMessage, role: string): CompatMessage[] {
-    const { role: _role, parts, ...rest } = message
-
-    const textParts: string[] = []
-    const toolCalls: CompatToolCall[] = []
-    const toolResponses: CompatMessage[] = []
-
-    for (const part of parts) {
-        if (part.type === 'text' && typeof part.content === 'string') {
-            textParts.push(part.content)
-        } else if (part.type === 'tool_call' && typeof part.name === 'string') {
-            toolCalls.push({
-                type: 'function',
-                id: typeof part.id === 'string' ? part.id : undefined,
-                function: {
-                    name: part.name,
-                    arguments: parseOTelToolCallArguments(part.arguments),
-                },
-            })
-        } else if (part.type === 'tool_call_response') {
-            let resultContent: string
-            if (typeof part.result === 'string') {
-                resultContent = part.result
-            } else {
-                try {
-                    resultContent = JSON.stringify(part.result)
-                } catch {
-                    resultContent = String(part.result)
-                }
-            }
-            toolResponses.push({
-                role: 'tool',
-                content: resultContent,
-                tool_call_id: typeof part.id === 'string' ? part.id : undefined,
-            })
-        }
-    }
-
-    if (textParts.length === 0 && toolCalls.length === 0 && toolResponses.length > 0) {
-        return toolResponses
-    }
-
-    const content: CompatMessage['content'] =
-        textParts.length === 1
-            ? textParts[0]
-            : textParts.length > 1
-              ? textParts.map((text) => ({ type: 'text' as const, text }))
-              : ''
-
-    return [
-        {
-            ...rest,
-            role,
-            content,
-            ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
-        },
-        ...toolResponses,
-    ]
-}
-
-export function isLiteLLMChoice(input: unknown): input is LiteLLMChoice {
-    return (
-        !!input &&
-        typeof input === 'object' &&
-        'finish_reason' in input &&
-        'index' in input &&
-        'message' in input &&
-        typeof input.message === 'object' &&
-        input.message !== null
-    )
-}
-
-export function isLiteLLMResponse(input: unknown): input is LiteLLMResponse {
-    return (
-        !!input &&
-        typeof input === 'object' &&
-        'choices' in input &&
-        Array.isArray(input.choices) &&
-        input.choices.every(isLiteLLMChoice)
-    )
-}
-
 export const roleMap: Record<string, string> = {
     user: 'user',
     human: 'user',
@@ -941,537 +825,11 @@ export function normalizeRole(rawRole: unknown, fallback: string): string {
     return roleMap[lowercased] || lowercased
 }
 
-const STRUCTURED_CONTENT_TYPES = new Set([
-    'text',
-    'output_text',
-    'input_text',
-    'function',
-    'image',
-    'input_image',
-    'image_url',
-    'file',
-    'audio',
-    'document',
-])
-
-function parseStringifiedStructuredContent(content: string): string | MultiModalContentItem[] {
-    const trimmed = content.trim()
-    if (!trimmed.startsWith('[')) {
-        return content
-    }
-
-    try {
-        const parsed = JSON.parse(trimmed)
-        if (
-            Array.isArray(parsed) &&
-            (parsed.length === 0 ||
-                parsed.every(
-                    (item) =>
-                        item &&
-                        typeof item === 'object' &&
-                        'type' in item &&
-                        typeof item.type === 'string' &&
-                        STRUCTURED_CONTENT_TYPES.has(item.type)
-                ))
-        ) {
-            return parsed as MultiModalContentItem[]
-        }
-    } catch {
-        // Keep the original text when it's not valid JSON.
-    }
-
-    return content
-}
-
-/**
- * Normalizes a message from an LLM provider into a format that is compatible with the PostHog AI observability schema.
- *
- * @param rawMessage - Original message from an LLM provider.
- * @param defaultRole - The default role to use if the message doesn't have one.
- * @returns The normalized message.
- */
-export function normalizeMessage(rawMessage: unknown, defaultRole: string): CompatMessage[] {
-    // Extract the role from the message if it exists, otherwise use defaultRole
-    // This ensures we preserve roles when recursing into nested content
-    const roleToUse =
-        rawMessage && typeof rawMessage === 'object' && 'role' in rawMessage && typeof rawMessage.role === 'string'
-            ? normalizeRole(rawMessage.role, defaultRole)
-            : rawMessage &&
-                typeof rawMessage === 'object' &&
-                'type' in rawMessage &&
-                typeof rawMessage.type === 'string' &&
-                Object.hasOwn(roleMap, rawMessage.type)
-              ? normalizeRole(rawMessage.type, defaultRole)
-              : defaultRole
-
-    // Handle new array-based content format (unified format with structured objects)
-    // Only apply this if the array contains objects with 'type' field (not Anthropic-specific formats)
-    // Supported types include: text, output_text, input_text, function, image, input_image, document
-    if (
-        rawMessage &&
-        typeof rawMessage === 'object' &&
-        'role' in rawMessage &&
-        'content' in rawMessage &&
-        typeof rawMessage.role === 'string' &&
-        Array.isArray(rawMessage.content) &&
-        rawMessage.content.length > 0 &&
-        rawMessage.content.every(
-            (item) =>
-                item &&
-                typeof item === 'object' &&
-                'type' in item &&
-                (item.type === 'text' ||
-                    item.type === 'output_text' ||
-                    item.type === 'input_text' ||
-                    item.type === 'function' ||
-                    item.type === 'image' ||
-                    item.type === 'input_image' ||
-                    item.type === 'image_url' ||
-                    item.type === 'file' ||
-                    item.type === 'audio' ||
-                    item.type === 'document')
-        )
-    ) {
-        const toolCalls: CompatToolCall[] = []
-        const remainingContent: MultiModalContentItem[] = []
-        for (const item of rawMessage.content) {
-            if (
-                item &&
-                typeof item === 'object' &&
-                'type' in item &&
-                item.type === 'function' &&
-                'function' in item &&
-                item.function &&
-                typeof item.function === 'object' &&
-                'name' in item.function &&
-                typeof item.function.name === 'string'
-            ) {
-                const fn = item.function as { name: string; arguments?: string | Record<string, unknown> }
-                toolCalls.push({
-                    type: 'function',
-                    id: 'id' in item && typeof item.id === 'string' ? item.id : undefined,
-                    function: {
-                        name: fn.name,
-                        arguments: parseToolArguments(fn.arguments ?? {}),
-                    },
-                })
-            } else {
-                remainingContent.push(item as MultiModalContentItem)
-            }
-        }
-
-        if (toolCalls.length > 0) {
-            return [
-                {
-                    role: roleToUse,
-                    content: remainingContent.length > 0 ? remainingContent : '',
-                    tool_calls: toolCalls,
-                },
-            ]
-        }
-
-        return [
-            {
-                role: roleToUse,
-                content: rawMessage.content,
-            },
-        ]
-    }
-
-    if (isLiteLLMChoice(rawMessage)) {
-        return normalizeMessage(rawMessage.message, roleToUse)
-    }
-
-    // Vercel SDK
-    if (isVercelSDKTextMessage(rawMessage)) {
-        return [
-            {
-                role: roleToUse,
-                content: rawMessage.content,
-            },
-        ]
-    }
-
-    // Vercel SDK Input Image
-    if (isVercelSDKInputImageMessage(rawMessage)) {
-        return [
-            {
-                role: roleToUse,
-                content: [
-                    {
-                        type: 'image',
-                        image: rawMessage.image_url,
-                    },
-                ],
-            },
-        ]
-    }
-
-    // Vercel SDK Input Text
-    if (isVercelSDKInputTextMessage(rawMessage)) {
-        return [
-            {
-                role: roleToUse,
-                content: rawMessage.text,
-            },
-        ]
-    }
-
-    // OpenAI
-    if (isOpenAICompatMessage(rawMessage)) {
-        return [
-            {
-                ...rawMessage,
-                role: roleToUse,
-                content:
-                    typeof rawMessage.content === 'string'
-                        ? parseStringifiedStructuredContent(rawMessage.content)
-                        : rawMessage.content,
-                tool_calls: isOpenAICompatToolCallsArray(rawMessage.tool_calls)
-                    ? parseOpenAIToolCalls(rawMessage.tool_calls)
-                    : undefined,
-                tool_call_id: rawMessage.tool_call_id,
-            },
-        ]
-    }
-
-    // Anthropic
-    // Text object
-    if (isAnthropicTextMessage(rawMessage)) {
-        return [
-            {
-                role: roleToUse,
-                content: rawMessage.text,
-            },
-        ]
-    }
-    // Tool call completion
-    if (isAnthropicToolCallMessage(rawMessage)) {
-        return [
-            {
-                role: roleToUse,
-                content: '',
-                tool_calls: [
-                    {
-                        type: 'function',
-                        id: rawMessage.id,
-                        function: {
-                            name: rawMessage.name,
-                            arguments: rawMessage.input,
-                        },
-                    },
-                ],
-            },
-        ]
-    }
-    // Thinking
-    if (isAnthropicThinkingMessage(rawMessage)) {
-        return [
-            {
-                role: normalizeRole('assistant (thinking)', roleToUse),
-                content: rawMessage.thinking,
-            },
-        ]
-    }
-    // Tool result completion
-    if (isAnthropicToolResultMessage(rawMessage)) {
-        const toolResultRole = normalizeRole('assistant (tool result)', roleToUse)
-        if (Array.isArray(rawMessage.content)) {
-            return rawMessage.content
-                .map((content) => normalizeMessage(content, toolResultRole))
-                .flat()
-                .map((msg) => ({
-                    ...msg,
-                    tool_call_id: rawMessage.tool_use_id,
-                }))
-        }
-        return [
-            {
-                role: toolResultRole,
-                content: rawMessage.content,
-                tool_call_id: rawMessage.tool_use_id,
-            },
-        ]
-    }
-
-    // OpenAI Responses API
-    // Function call (role-less, uses `type` instead)
-    if (isOpenAIResponsesFunctionCall(rawMessage)) {
-        return [
-            {
-                role: 'assistant',
-                content: '',
-                tool_calls: [
-                    {
-                        type: 'function',
-                        id: rawMessage.call_id,
-                        function: {
-                            name: rawMessage.name,
-                            arguments: parseToolArguments(rawMessage.arguments),
-                        },
-                    },
-                ],
-            },
-        ]
-    }
-    // Function call output
-    if (isOpenAIResponsesFunctionCallOutput(rawMessage)) {
-        return [
-            {
-                role: normalizeRole('assistant (tool result)', roleToUse),
-                content: rawMessage.output,
-                tool_call_id: rawMessage.call_id,
-            },
-        ]
-    }
-    // Reasoning
-    if (isOpenAIResponsesReasoning(rawMessage)) {
-        let summaryText = ''
-        if (Array.isArray(rawMessage.summary)) {
-            summaryText = rawMessage.summary.map((s) => s.text).join('\n')
-        } else if (typeof rawMessage.text === 'string') {
-            summaryText = rawMessage.text
-        }
-        return [
-            {
-                role: normalizeRole('assistant (thinking)', roleToUse),
-                content: summaryText,
-            },
-        ]
-    }
-    // Vercel AI SDK tool call (function variant)
-    if (isVercelSDKToolCallFunctionMessage(rawMessage)) {
-        return [
-            {
-                role: roleToUse,
-                content: '',
-                tool_calls: [
-                    {
-                        type: 'function',
-                        id: rawMessage.id,
-                        function: {
-                            name: rawMessage.function.name,
-                            arguments: parseToolArguments(rawMessage.function.arguments),
-                        },
-                    },
-                ],
-            },
-        ]
-    }
-    // Vercel AI SDK tool call (toolName variant)
-    if (isVercelSDKToolCallToolNameMessage(rawMessage)) {
-        return [
-            {
-                role: roleToUse,
-                content: '',
-                tool_calls: [
-                    {
-                        type: 'function',
-                        id: rawMessage.toolCallId,
-                        function: {
-                            name: rawMessage.toolName,
-                            arguments: parseToolArguments(rawMessage.input ?? {}),
-                        },
-                    },
-                ],
-            },
-        ]
-    }
-    // Vercel AI SDK tool result
-    if (isVercelSDKToolResultMessage(rawMessage)) {
-        let content = ''
-        if (typeof rawMessage.output === 'string') {
-            content = rawMessage.output
-        } else if (rawMessage.output !== undefined) {
-            try {
-                content = JSON.stringify(rawMessage.output)
-            } catch {
-                content = String(rawMessage.output)
-            }
-        }
-        return [
-            {
-                role: normalizeRole('assistant (tool result)', roleToUse),
-                content,
-                tool_call_id: rawMessage.toolCallId,
-            },
-        ]
-    }
-    // Built-in tool calls (web_search_call, code_interpreter_call, etc.)
-    if (isOpenAIResponsesBuiltinToolCall(rawMessage)) {
-        // Prefer an explicit name (e.g. mcp_call.name), fall back to the item type.
-        const name =
-            'name' in rawMessage && typeof rawMessage.name === 'string' && rawMessage.name
-                ? rawMessage.name
-                : rawMessage.type
-
-        let functionArguments: Record<string, unknown> | string
-        if ('arguments' in rawMessage && rawMessage.arguments !== undefined && rawMessage.arguments !== null) {
-            const rawArgs = rawMessage.arguments
-            if (typeof rawArgs === 'string' || (typeof rawArgs === 'object' && !Array.isArray(rawArgs))) {
-                functionArguments = parseToolArguments(rawArgs as string | Record<string, unknown>)
-            } else {
-                functionArguments = { arguments: rawArgs }
-            }
-        } else {
-            // Strip `arguments` too in case it's explicitly null — it would otherwise leak into rest.
-            const { id: _id, type: _type, status: _status, name: _name, arguments: _args, ...rest } = rawMessage
-            functionArguments = rest
-        }
-
-        return [
-            {
-                role: 'assistant',
-                content: '',
-                tool_calls: [
-                    {
-                        type: 'function',
-                        id: rawMessage.id,
-                        function: {
-                            name,
-                            arguments: functionArguments,
-                        },
-                    },
-                ],
-            },
-        ]
-    }
-
-    // Input message
-    if (isAnthropicRoleBasedMessage(rawMessage)) {
-        // Check for top-level tool_calls (already normalized by SDK)
-        const topLevelToolCalls =
-            'tool_calls' in rawMessage && isOpenAICompatToolCallsArray(rawMessage.tool_calls)
-                ? parseOpenAIToolCalls(rawMessage.tool_calls)
-                : undefined
-
-        if (Array.isArray(rawMessage.content)) {
-            // If we have top-level tool_calls, skip tool_use blocks in content (they're duplicates with incomplete data)
-            const contentToProcess = topLevelToolCalls
-                ? rawMessage.content.filter((item) => !isAnthropicToolCallMessage(item))
-                : rawMessage.content
-
-            const contentMessages = contentToProcess.map((content) => normalizeMessage(content, roleToUse)).flat()
-
-            if (topLevelToolCalls && topLevelToolCalls.length > 0) {
-                contentMessages.push({
-                    role: roleToUse,
-                    content: '',
-                    tool_calls: topLevelToolCalls,
-                })
-            }
-
-            return contentMessages
-        }
-
-        return [
-            {
-                role: roleToUse,
-                content: rawMessage.content,
-            },
-        ]
-    }
-    // OTel parts format (from OpenTelemetry AI semantic conventions)
-    if (isOTelPartsMessage(rawMessage)) {
-        return normalizeOTelPartsMessage(rawMessage, roleToUse)
-    }
-
-    // LangChain/LangGraph format: uses `type` (human, ai, tool, system, context) instead of `role`
-    if (isLangChainMessage(rawMessage)) {
-        return [
-            {
-                role: roleToUse,
-                content:
-                    typeof rawMessage.content === 'string' ? rawMessage.content : JSON.stringify(rawMessage.content),
-                tool_calls:
-                    'tool_calls' in rawMessage && isOpenAICompatToolCallsArray(rawMessage.tool_calls)
-                        ? parseOpenAIToolCalls(rawMessage.tool_calls)
-                        : undefined,
-                tool_call_id:
-                    'tool_call_id' in rawMessage && typeof rawMessage.tool_call_id === 'string'
-                        ? rawMessage.tool_call_id
-                        : undefined,
-            },
-        ]
-    }
-
-    // Unsupported message — log at debug level to avoid flooding the console
-
-    posthog.capture('llma message normalization failed', {
-        message_keys: typeof rawMessage === 'object' && rawMessage !== null ? Object.keys(rawMessage) : [],
-        message_type: typeof rawMessage,
-    })
-    let cajoledContent: string // Let's do what we can
-    if (typeof rawMessage === 'string') {
-        cajoledContent = rawMessage
-    } else if (hasStringContentField(rawMessage)) {
-        cajoledContent = rawMessage.content
-    } else {
-        cajoledContent = JSON.stringify(rawMessage)
-    }
-    return [{ role: roleToUse, content: cajoledContent }]
-}
-
-// Synthetic role used by `normalizeMessages` to surface the `$ai_tools` payload
-// as a pseudo-message
+// Synthetic role used to surface the `$ai_tools` payload as a pseudo-message
 export const AVAILABLE_TOOLS_ROLE = 'available tools'
 
-// Returns the tool names invoked across events in chronological order (duplicates preserved)
-export function getToolNamesCalled(events: LLMTraceEvent[]): string[] {
-    const sorted = [...events].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-    const names: string[] = []
-    // Pulls from `$ai_span_name` on instrumented `$ai_span` events
-    // and from `tool_calls[].function.name` on normalized `$ai_generation` outputs
-    for (const event of sorted) {
-        if (event.event === '$ai_span') {
-            const spanName = event.properties.$ai_span_name
-            if (typeof spanName === 'string' && spanName) {
-                names.push(spanName)
-            }
-        } else if (event.event === '$ai_generation') {
-            for (const msg of normalizeMessages(event.properties.$ai_output_choices, 'assistant')) {
-                for (const tc of msg.tool_calls ?? []) {
-                    const name = tc.function?.name
-                    if (typeof name === 'string' && name) {
-                        names.push(name)
-                    }
-                }
-            }
-        }
-    }
-    return names
-}
-
-export function normalizeMessages(messages: unknown, defaultRole: string, tools?: unknown): CompatMessage[] {
-    const normalizedMessages: CompatMessage[] = []
-
-    if (tools) {
-        normalizedMessages.push({
-            role: AVAILABLE_TOOLS_ROLE,
-            content: '',
-            tools,
-        })
-    }
-
-    if (Array.isArray(messages)) {
-        normalizedMessages.push(...messages.map((message) => normalizeMessage(message, defaultRole)).flat())
-    } else if (isLiteLLMResponse(messages)) {
-        normalizedMessages.push(
-            ...(messages.choices || []).map((choice) => normalizeMessage(choice, defaultRole)).flat()
-        )
-    } else if (typeof messages === 'object' && messages && 'choices' in messages && Array.isArray(messages.choices)) {
-        normalizedMessages.push(...messages.choices.map((message) => normalizeMessage(message, defaultRole)).flat())
-    } else if (typeof messages === 'string') {
-        normalizedMessages.push({
-            role: defaultRole,
-            content: messages,
-        })
-    } else if (typeof messages === 'object' && messages !== null) {
-        normalizedMessages.push(...normalizeMessage(messages, defaultRole))
-    }
-
-    return normalizedMessages
-}
+export const INTERNAL_THINKING_ROLE = 'assistant (thinking)'
+export const INTERNAL_TOOL_RESULT_ROLE = 'assistant (tool result)'
 
 const JSON_PREVIEW_LENGTH = 300
 

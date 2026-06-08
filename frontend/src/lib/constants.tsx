@@ -172,6 +172,7 @@ export const FEATURE_FLAGS = {
     // Feature flags used to control opt-in for different behaviors, should not be removed
     AI_TRAINING: 'ai-training', // owner: @nicowaltz #team-replay #ai-research, gates the AI training opt-out UI and API enforcement
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features, used to control access to audit logs
+    AUTH_FLOW_VARIANT: 'auth-flow-variant', // owner: @fercgomes #team-growth multivariate=legacy,redesign-2026-06-02 — selects the signin/signup experience (login, signup, invited signup); legacy is the existing design
     BATCH_EXPORT_EARLIEST_BACKFILL: 'batch-export-earliest-backfill', // owner: #team-batch-exports, allow backfilling from beginning of time
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: #team-growth, used to enable custom CSS for teams who want to have fun
@@ -240,7 +241,6 @@ export const FEATURE_FLAGS = {
     APPROVALS: 'approvals', // owner: @yasen-posthog #team-platform-features
     AVERAGE_PAGE_VIEW_COLUMN: 'average-page-view-column', // owner: @jordanm-posthog #team-web-analytics
     BACKFILL_WORKFLOWS_DESTINATION: 'backfill-workflows-destination', // owner: #team-batch-exports
-    BATCH_EXPORTS_BIGQUERY_INTEGRATION: 'batch-exports-bigquery-integration', // owner: @tomasfarias #team-batch-exports
     BING_ADS_SOURCE: 'bing-ads-source', // owner: @jabahamondes #team-web-analytics
     CDP_ACTIVITY_LOG_NOTIFICATIONS: 'cdp-activity-log-notifications', // owner: #team-workflows-cdp
     CDP_DWH_TABLE_SOURCE: 'cdp-dwh-table-source', // owner: #team-workflows-cdp
@@ -251,6 +251,7 @@ export const FEATURE_FLAGS = {
     COHORT_CALCULATION_HISTORY: 'cohort-calculation-history', // owner: @gustavo #team-feature-flags
     COHORT_EMAIL_LOOKUP_CLICKHOUSE: 'cohort-email-lookup-clickhouse', // owner: @gustavo #team-feature-flags
     COHORT_INLINE_CALCULATION: 'inline-cohort-calculation', // owner: #team-analytics-platform, inlines fast dynamic cohort queries instead of using precomputed cohortpeople table
+    COHORTS_TAXONOMIC_BASIC_LIST: 'cohorts-taxonomic-basic-list', // owner: @adamleith, picker sends ?basic=true to the cohorts list endpoint (trimmed payload: no filters/query/groups)
     CONDENSED_FILTER_BAR: 'condensed_filter_bar', // owner: @jordanm-posthog #team-web-analytics
     CREATE_FORM_TOOL: 'phai-create-form-tool', // owner: @kappa90 #team-posthog-ai
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-customer-analytics
@@ -263,12 +264,12 @@ export const FEATURE_FLAGS = {
     DASHBOARD_LAYOUT_DISCARD_PROMPT: 'dashboard-layout-discard-prompt', // owner: @cory.s #team-analytics-platform
     DASHBOARD_QUICK_FILTERS_EXPERIMENT: 'dashboard-quick-filters-experiment', // owner: @vdekrijger #team-product-analytics multivariate=control,test
     DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT: 'dashboard-template-chooser-experiment', // owner: @mattp #team-analytics-platform multivariate=control,simple,new
+    DASHBOARD_WIDGETS: 'dashboard-widgets', // owner: @mattp #team-analytics-platform
     DATA_MODELING_BACKEND_V2: 'data-modeling-backend-v2', // owner: #team-data-modeling
     DATA_MODELING_MULTI_DAG: 'data-modeling-multi-dag', // owner: #team-data-modeling
     DATA_MODELING_TAB: 'data-modeling-tab', // owner: #team-data-modeling
     DATA_WAREHOUSE_SCENE: 'data-warehouse-scene', // owner: #team-data-modeling
     DEFAULT_EVALUATION_ENVIRONMENTS: 'default-evaluation-environments', // owner: @dmarticus #team-feature-flags
-    DEPLOYMENTS: 'deployments', // owner: @richardsolomou
     DROP_PERSON_LIST_ORDER_BY: 'drop-person-list-order-by', // owner: @arthurdedeus #team-customer-analytics
     DWH_FREE_SYNCS: 'dwh-free-syncs', // owner: @Gilbert09  #team-warehouse-sources
     DWH_JOIN_TABLE_PREVIEW: 'dwh-join-table-preview', // owner: @arthurdedeus #team-customer-analytics
@@ -285,6 +286,7 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_RATE_LIMITING_PER_ISSUE: 'error-tracking-rate-limiting-per-issue', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RECOMMENDATIONS: 'error-tracking-recommendations', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RELATED_ISSUES: 'error-tracking-related-issues', // owner: #team-error-tracking
+    ERROR_TRACKING_SOURCE_MAPS_BANNER: 'error-tracking-source-maps-banner', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_WEEKLY_DIGEST: 'error-tracking-weekly-digest', // owner: #team-error-tracking
     EVENT_MEDIA_PREVIEWS: 'event-media-previews', // owner: @alexlider
     EXPERIMENT_CUPED: 'experiment-cuped', // owner: @andehen #team-experiments
@@ -292,6 +294,8 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_FUNNEL_DWH_SUPPORT: 'experiment-funnel-dwh-support', // owner: @rodrigoi #team-experiments
     EXPERIMENT_SESSION_REPLAYS_SKILL: 'experiment-session-replays-skill', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_DW_AA_TEST: 'experiments-dw-aa-test', // owner: @rodrigoi #team-experiments
+    EXPERIMENTS_END_MODAL_CONCLUSION_FIRST: 'experiments-end-modal-conclusion-first', // owner: @ruby.c #team-experiments
+    EXPERIMENTS_EXCLUDED_VARIANTS: 'experiments-excluded-variants', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_LLM_PROMPTS: 'experiments-llm-prompts', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SYNC_QUERIES: 'experiments-sync-queries', // owner: @andehen #team-experiments
@@ -299,17 +303,18 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: #team-feature-flags
     FEATURE_FLAG_CREATION_INTENTS: 'feature-flag-creation-intents', // owner: #team-feature-flags
     FEATURE_FLAG_DRAG_DROP_CONDITIONS: 'feature-flag-drag-drop-conditions', // owner: @gustavo #team-feature-flags
+    FEATURE_FLAG_EARLY_EXIT: 'feature-flag-early-exit', // owner: @gustavo #team-feature-flags
     FEATURE_FLAG_MIXED_TARGETING: 'feature-flag-mixed-targeting', // owner: @dmarticus #team-feature-flags
     FEATURE_FLAG_NOTIFICATIONS: 'feature-flag-notifications', // owner: @reecejones #team-platform-features
     FEATURE_FLAG_USAGE_DASHBOARD_CHECKBOX: 'feature-flag-usage-dashboard-checkbox', // owner: #team-feature-flags, globally disabled, enables opt-out of auto dashboard creation
     FEATURE_FLAGS_ACROSS_PROJECTS_INDEX: 'feature-flags-across-projects-index', // owner: #team-platform-features
-    FEATURE_FLAGS_V2: 'feature-flags-v2', // owner: @dmarticus #team-feature-flags
     FLAG_EVALUATION_RUNTIMES: 'flag-evaluation-runtimes', // owner: @dmarticus #team-feature-flags
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
     GROUP_PROFILE_EXPERIMENT: 'group-profile-experiment', // owner: @arthurdedeus #team-customer-analytics
     HACKATHONS_SUBSCRIPTIONS: 'hackathons_subscriptions', // owner: #team-analytics-platform, gates listing subscription delivery history and AI change summaries
     HEALTH_ALERTS: 'health-alerts', // owner: #team-growth, gates the central /health/alerts scene and per-page Alerts buttons
+    HEALTH_ASK_AI: 'health-ask-ai', // owner: @jordanm-posthog #team-web-analytics, gates the "Ask PostHog AI" buttons on the Health overview
     INTER_PROJECT_TRANSFERS: 'inter-project-transfers', // owner: @reecejones #team-platform-features
     JS_SNIPPET_VERSIONING: 'js-snippet-versioning', // owner: #team-client-libraries
     LEGAL_DOCUMENTS: 'legal-documents', // owner: @rafaeelaudibert #team-growth
@@ -318,6 +323,7 @@ export const FEATURE_FLAGS = {
     LIVESTREAM_TUI: 'livestream-tui', // owner: @rafaeelaudibert #team-growth
     LLM_ANALYTICS_CLUSTERING_ADMIN: 'llm-analytics-clustering-admin', // owner: #team-ai-observability
     LLM_ANALYTICS_CLUSTERS_TAB: 'llm-analytics-clusters-tab', // owner: #team-ai-observability
+    LLM_ANALYTICS_CUSTOM_PARSERS: 'ai-observability-custom-parsers', // owner: #team-ai-observability
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-ai-observability #team-posthog-ai
     LLM_ANALYTICS_DISCUSSIONS: 'llm-analytics-discussions', // owner: #team-ai-observability
     LLM_ANALYTICS_EARLY_ADOPTERS: 'llm-analytics-early-adopters', // owner: #team-ai-observability
@@ -359,6 +365,7 @@ export const FEATURE_FLAGS = {
     MARKETING_ANALYTICS_AI: 'marketing-analytics-ai', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_DRILL_DOWN: 'marketing-analytics-drill-down', // owner: @jabahamondes  #team-web-analytics
     MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN: 'marketing-analytics-extended-drill-down', // owner: @jabahamondes  #team-web-analytics
+    MARKETING_ANALYTICS_MCP: 'marketing-analytics-mcp', // owner: @jabahamondes #team-web-analytics — gates MCP tool exposure (read-only marketing-analytics tools)
     MARKETING_ANALYTICS_MULTI_TOUCH_ATTRIBUTION: 'marketing-analytics-multi-touch-attribution', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_UTM_AUDIT: 'marketing-analytics-utm-audit', // owner: @jabahamondes  #team-web-analytics
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai
@@ -367,7 +374,7 @@ export const FEATURE_FLAGS = {
     MAX_HANDS_FREE: 'max-hands-free', // owner: #team-posthog-ai
     MCP_ANALYTICS: 'mcp-analytics', // owner: #project-mcp-analytics
     MCP_ANALYTICS_INTENT_ROUTING: 'mcp-analytics-intent-routing', // owner: #project-mcp-analytics
-    MCP_HINTS: 'mcp-hints', // owner: @rafaeelaudibert #team-growth, gates in-app MCP hint toasts and empty-state cards
+    MCP_HINTS: 'mcp-hints', // owner: @rafaeelaudibert #team-growth multivariate=control,test
     MCP_SERVERS: 'mcp-servers', // owner: #team-posthog-ai
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     METRICS: 'metrics', // owner: #team-apm (@jonmcwest, @frankh)
@@ -379,6 +386,7 @@ export const FEATURE_FLAGS = {
     NOTEBOOKS_COLLABORATION: 'notebooks-collaboration', // owner: #team-platform-features
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @benjackwhite
     ONBOARDING_DATA_WAREHOUSE_VALUE_PROP: 'onboarding-data-warehouse-value-prop', // owner: @fercgomes #team-growth multivariate=control,table,query
+    ONBOARDING_FLOW_VARIANT: 'onboarding-flow-variant', // owner: @fercgomes #team-growth multivariate=control — selects the whole onboarding experience; control is the existing flow
     ONBOARDING_HIDE_BREADCRUMBS: 'onboarding-hide-breadcrumbs', // owner: @fercgomes #team-growth, multivariate=true, hides breadcrumbs during onboarding to reduce distractions
     ONBOARDING_MOBILE_INSTALL_HELPER: 'onboarding-mobile-install-helper', // owner: @fercgomes #team-growth multivariate=control,test — target $device_type=Mobile at the flag level
     ONBOARDING_NAVBAR: 'onboarding-navbar', // owner: #team-growth, hides the navbar during onboarding to reduce distractions multivariate=true
@@ -388,7 +396,7 @@ export const FEATURE_FLAGS = {
     ONBOARDING_SKIP_INSTALL_STEP: 'onboarding-skip-install-step', // owner: @rafaeelaudibert #team-growth multivariate=true
     ONBOARDING_SOCIAL_PROOF_INFO: 'onboarding-social-proof-info', // owner: @fercgomes #team-growth, payload overrides social proof strings per product
     ONBOARDING_WIZARD_INSTALLATION_IMPROVED_COPY: 'onboarding-wizard-installation-improved-copy', // owner: @fercgomes #team-growth multivariate=control,test
-    ONBOARDING_WIZARD_PROMINENCE: 'onboarding-wizard-prominence', // owner: #team-growth multivariate=control,wizard-hero,wizard-tab,wizard-only
+    ONBOARDING_WIZARD_SYNC: 'onboarding-wizard-sync', // owner: @fercgomes #team-growth multivariate=control,test — gates the live wizard sync progress panel
     OWNER_ONLY_BILLING: 'owner-only-billing', // owner: @pawelcebula #team-billing
     PAGE_REPORTS_AVERAGE_PAGE_VIEW: 'page-reports-average-page-view', // owner: @jordanm-posthog #team-web-analytics
     PAGE_REPORTS_RANKED_URL_SEARCH: 'page-reports-ranked-url-search', // owner: @jordanm-posthog #team-web-analytics
@@ -407,7 +415,6 @@ export const FEATURE_FLAGS = {
     POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS: 'posthog-ai-conversation-feedback-llma-sessions', // owner: #team-posthog-ai
     POSTHOG_AI_QUEUE_MESSAGES_SYSTEM: 'posthog-ai-queue-messages-system', // owner: #team-posthog-ai
     POSTHOG_CODE_BILLING: 'posthog-code-billing', // owner: #team-posthog-code
-    POSTHOG_CODE_SLACK_AVAILABILITY: 'posthog-code-slack-availability', // owner: #team-posthog-code, gates the PostHog Code Slack integration UI
     PRODUCT_ANALYTICS_DASHBOARD_AI_ANALYSIS: 'product-analytics-dashboard-ai-analysis', // owner: @anirudhpillai #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS: 'product-analytics-dashboard-modal-smart-defaults', // owner: @sam #team-product-analytics
@@ -428,11 +435,13 @@ export const FEATURE_FLAGS = {
     PRODUCT_SUPPORT_CREATE_TICKET: 'product-support-create-ticket', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_GITHUB_CHANNEL: 'product-support-github-channel', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_SIDE_PANEL: 'product-support-side-panel', // owner: @veryayskiy #team-conversations
+    PRODUCT_SUPPORT_SLACK_NOTIFY_ON_MEMBERS: 'product-support-slack-notify-on-members', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_TEAMS_ENABLED: 'product-support-teams-enabled', // owner: @veryayskiy #team-conversations
     PRODUCT_TOURS: 'product-tours-2025', // owner: @adboio #team-surveys
     PRODUCT_TOURS_LOCALIZATION: 'product-tours-localization', // owner: @adboio #team-surveys
     PROJECT_SECRET_API_KEYS: 'project-secret-api-keys', // owner: #team-platform-features
     PROMOTED_EVENT_PROPERTIES_EDIT: 'promoted-event-properties-edit', // owner: @pauldambra #team-product-analytics, gates the primary-property picker on the event definition edit page (flag slug kept as `promoted-event-properties-edit` to avoid migrating teams that already toggled it on)
+    PROMOTED_PRODUCT: 'promoted-product', // owner: @pauldambra #team-growth multivariate=control,control_b,intent,intent_plus, experiment for surfacing the team's primary onboarding product directly under Home
     PROMPT_MANAGEMENT: 'prompt-management', // owner: #team-ai-observability
     PROPERTY_ACCESS_CONTROL: 'property-access-control', // owner: @reecejones #team-platform-features
     PROVISION_MANAGED_WAREHOUSE_BETA: 'provision-managed-warehouse-beta', // owner: @EDsCODE #team-managed-warehouse
@@ -450,10 +459,10 @@ export const FEATURE_FLAGS = {
     REPLAY_UI_REDESIGN_2026: 'replay-ui-redesign-2026', // owner: #team-replay, New UI layout for replay
     REPLAY_VIDEO_BASED_SUMMARIZATION: 'replay-video-based-summarization', // owner: #team-replay
     REPLAY_VISION: 'replay-vision', // owner: #team-replay
-    REPLAY_X_LLM_ANALYTICS_CONVERSATION_VIEW: 'replay-x-llm-analytics-conversation-view', // owner: @pauldambra #team-replay
     REVENUE_ANALYTICS: 'revenue-analytics', // owner: @rafaeelaudibert #team-customer-analytics
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
     SCENE_MENU_BAR: 'scene-menu-bar', // owner: @adamleithp #team-platform-ux, gates the per-scene MenuBar above SceneTitleSection
+    SCENE_SUBSCRIBE_LABEL_EXPERIMENT: 'scene-subscribe-label-experiment', // owner: @mattp #team-analytics-platform multivariate=control,recurring-updates,scheduled-notifications,scheduled-reports
     SCHEDULE_FEATURE_FLAG_VARIANTS_UPDATE: 'schedule-feature-flag-variants-update', // owner: @gustavo #team-feature-flags
     SCHEMA_ENFORCEMENT_REJECT: 'schema-enforcement-reject', // owner: @aspicer, gates the ability to set schema enforcement mode to "reject"
     SCHEMA_MANAGEMENT: 'schema-management', // owner: @aspicer
@@ -465,11 +474,12 @@ export const FEATURE_FLAGS = {
     SHOW_DATA_PIPELINES_NAV_ITEM: 'show-data-pipelines-nav-item', // owner: @raquelmsmith
     SHOW_REFERRER_FAVICON: 'show-referrer-favicon', // owner: @jordanm-posthog #team-web-analytics
     SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON: 'show-replay-filters-feedback-button', // owner: @ksvat #team-replay
-    SIGNUP_AA_TEST: 'signup-aa-test', // owner: @andehen #team-experiments multivariate=control,test
+    SIGNUP_AA_TEST_4_WAY: 'signup-aa-test-4-way', // owner: @andehen #team-experiments multivariate=control,test-1,test-2,test-3
     SLACK_DWH: 'slack-dwh', // owner: @MarconLP #team-warehouse-sources
     SNAPCHAT_ADS_SOURCE: 'snapchat-ads-source', // owner: @jabahamondes #team-web-analytics
     SQL_EDITOR_VIM_MODE: 'sql-editor-vim-mode', // owner: @arthurdedeus
     SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-analytics-platform
+    SUBSCRIPTION_AI_PROMPT: 'ai-subscriptions', // owner: #team-analytics-platform, gates AI prompt-based subscriptions
     SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE: 'subscription-ai-summary-prompt-guide', // owner: #team-analytics-platform, gates the per-subscription prompt guide textarea
     SURVEY_HEADLINE_SUMMARY: 'survey-headline-summary', // owner: @adboio #team-surveys
     SURVEYS_ERROR_TRACKING_CROSS_SELL: 'surveys-in-error-tracking', // owner: @adboio #team-surveys
@@ -481,44 +491,42 @@ export const FEATURE_FLAGS = {
     TASK_TOOL: 'phai-task-tool', // owner: @kappa90 #team-posthog-ai
     TASKS: 'tasks', // owner: #team-ai-observability
     TAXONOMIC_FILTER_CATEGORY_DROPDOWN: 'taxonomic-filter-category-dropdown', // owner: @pauldambra #team-product-analytics multivariate=control,pill
-    TAXONOMIC_FILTER_HEADLESS: 'taxonomic-filter-headless', // owner: @adamleith, opt-in to the headless useTaxonomicFilter rewrite
-    TAXONOMIC_FILTER_MENU_REBUILD: 'taxonomic-filter-menu-rebuild', // owner: @adamleith, opt-in to the new TaxonomicFilterMenu (column / preview-pane) for series row pickers
+    TAXONOMIC_FILTER_MENU_REBUILD: 'taxonomic-filter-menu-rebuild', // owner: @adamleith, opt-in to the rebuilt TaxonomicFilter — headless filter panel + new popover menu (column / preview-pane)
     TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-customer-analytics
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
     TRAFFIC_TYPE_VIRTUAL_PROPERTIES: 'traffic-type-virtual-properties', // owner: #team-web-analytics
-    UNIFIED_HEALTH_PAGE: 'unified-health-page', // owner: @jordanm-posthog #team-web-analytics
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
-    WAREHOUSE_SOURCE_WEBHOOKS: 'warehouse-source-webhooks', // owner: #team-warehouse-sources @Gilbert09
     WEB_ANALYTICS_BOT_ANALYSIS: 'web-analytics-bot-analysis', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_CONVERSION_GOAL_PREAGG: 'web-analytics-conversion-goal-preagg', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_DRAG_TO_ZOOM: 'web-analytics-drag-to-zoom', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_EMPTY_ONBOARDING: 'web-analytics-empty-onboarding', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_FILTERS_V2: 'web-analytics-filters-v2', // owner: @jordanm-posthog #team-web-analytics
-    WEB_ANALYTICS_HEALTH_TAB: 'web_analytics_health_tab', // owner: @jordanm-posthog #team-web-analytics
+    WEB_ANALYTICS_FOCUS_MODE: 'web-analytics-focus-mode', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_INCLUDE_HOST: 'web-analytics-include-host', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_LIVE_CITY_BREAKDOWN: 'web-analytics-live-city-breakdown', // owner: @jordanm-posthog #team-web-analytics
-    WEB_ANALYTICS_LIVE_EDIT_LAYOUT: 'web-analytics-live-edit-layout', // owner: @jordanm-posthog #team-web-analytics
-    WEB_ANALYTICS_LIVE_FILTERS: 'web-analytics-live-filters', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_LIVE_MAP: 'web-analytics-live-map', // owner: @jordanm-posthog #team-web-analytics
-    WEB_ANALYTICS_LIVE_METRICS: 'web-analytics-live-metrics', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_LIVE_PERSON_DRILLDOWN: 'web-analytics-live-person-drilldown', // owner: @jordanm-posthog #team-web-analytics
-    WEB_ANALYTICS_LIVE_REFERRERS: 'web-analytics-live-referrers', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_MARKETING: 'marketing-analytics', // owner: @jabahamondes #team-web-analytics
+    WEB_ANALYTICS_METRIC_CARDS: 'web-analytics-metric-cards', // owner: #team-web-analytics
     WEB_ANALYTICS_OPEN_URL: 'web-analytics-open-url', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_PRECOMPUTE_TOGGLE: 'web-analytics-precompute-toggle', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_REGIONS_MAP: 'web-analytics-regions-map', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_SESSION_PROPERTY_CHARTS: 'web-analytics-session-property-charts', // owner: @lricoy #team-web-analytics
+    WEB_ANALYTICS_SHARE_NUDGE: 'web-analytics-share-nudge', // owner: @pauldambra #team-web-analytics multivariate=control,banner,prompt,button
     WEB_ANALYTICS_TILE_HEADER_V2: 'web-analytics-tile-header-v2', // owner: @jordanm-posthog #team-web-analytics multivariate=control,test
     WEB_ANALYTICS_TILE_SKELETONS: 'web-analytics-tile-skeletons', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_TILE_TOGGLES: 'web-analytics-tile-toggles', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS: 'web-analytics-tooltip-comparison-labels', // owner: @lricoy #team-web-analytics
     WORKFLOWS_BATCH_TRIGGERS: 'workflows-batch-triggers', // owner: #team-workflows
+    WORKFLOWS_ENGAGEMENT_EVENTS: 'workflows-engagement-events', // owner: #team-workflows
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
     WORKFLOWS_PERSON_TIMEZONE: 'workflows-person-timezone', // owner: #team-workflows
     WORKFLOWS_PUSH_NOTIFICATIONS: 'workflows-push-notifications', // owner: @Odin #team-workflows
     WORKFLOWS_RECURRING_SCHEDULES: 'workflows-recurring-schedules', // owner: #team-workflows
+    WORKFLOWS_WAIT_UNTIL_EVENT: 'workflows-wait-until-event', // owner: #team-workflows
+    XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
@@ -651,6 +659,7 @@ export const LOGS_ALERT_FIRING_SUB_TEMPLATE_ID = 'logs-alert-firing'
 export const LOGS_ALERT_FIRING_EVENT_ID = '$logs_alert_firing'
 export const LOGS_ALERT_RESOLVED_EVENT_ID = '$logs_alert_resolved'
 export const LOGS_ALERT_AUTO_DISABLED_EVENT_ID = '$logs_alert_auto_disabled'
+export const LOGS_ALERT_ERRORED_EVENT_ID = '$logs_alert_errored'
 
 export const COHORT_PERSONS_QUERY_LIMIT = 10000
 

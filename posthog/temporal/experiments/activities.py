@@ -12,9 +12,6 @@ from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, Experim
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
-from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
@@ -30,6 +27,9 @@ from posthog.temporal.experiments.utils import (
     get_metric,
 )
 
+from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult as ExperimentMetricResultModel,
@@ -408,16 +408,18 @@ def _calculate_experiment_saved_metric_sync(
             error_message=f"Saved metric {metric_uuid} not found for experiment {experiment_id}",
         )
 
-    # The frontend wraps every saved metric with breakdownFilter.breakdowns from
-    # the link metadata before posting to /query (see sharedMetricsToExperimentMetrics
-    # in experimentLogic.tsx). The activity must apply the same wrapper or the
-    # response cache key diverges and the warmed entry is never read.
+    # The frontend receives saved metrics with two extra fields injected before
+    # they get posted back to /query: a breakdownFilter wrapper (from the link
+    # metadata, via sharedMetricsToExperimentMetrics in experimentLogic.tsx) and
+    # a fingerprint (added by the experiment API serializer). The activity must
+    # apply both or the response cache key diverges from /query's.
     query = {
         **saved_metric.query,
         "breakdownFilter": {
             **(saved_metric.query.get("breakdownFilter") or {}),
             "breakdowns": saved_metric_metadata.get("breakdowns") or [],
         },
+        "fingerprint": fingerprint,
     }
     metric_type = query.get("metric_type")
     metric_obj: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]

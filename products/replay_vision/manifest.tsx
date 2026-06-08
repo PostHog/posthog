@@ -13,13 +13,20 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/replay_scanners/ReplayScannersScene'),
             projectBased: true,
             description:
-                'Configure named scanners that PostHog applies to completed session recordings. Results land as queryable events.',
+                'Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event.',
             iconType: 'replay_vision',
             layout: 'app-container',
         },
         ReplayVisionScanner: {
             name: 'Replay vision scanner',
             import: () => import('./frontend/replay_scanners/ReplayScanner'),
+            projectBased: true,
+            iconType: 'replay_vision',
+            layout: 'app-container',
+        },
+        ReplayVisionTemplates: {
+            name: 'Replay vision templates',
+            import: () => import('./frontend/replay_scanners/ScannerTemplatesScene'),
             projectBased: true,
             iconType: 'replay_vision',
             layout: 'app-container',
@@ -35,6 +42,7 @@ export const manifest: ProductManifest = {
     routes: {
         '/replay-vision': ['ReplayVision', 'replayVision'],
         '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
+        '/replay-vision/templates': ['ReplayVisionTemplates', 'replayVisionTemplates'],
         '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     },
     redirects: {},
@@ -42,6 +50,7 @@ export const manifest: ProductManifest = {
         replayVision:
             /** @param id A UUID or 'new'. Omit for the scanner list page. */
             (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
+        replayVisionTemplates: (): string => '/replay-vision/templates',
         replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
     },
     fileSystemTypes: {},

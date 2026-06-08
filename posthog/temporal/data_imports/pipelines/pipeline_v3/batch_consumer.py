@@ -28,6 +28,7 @@ logger = structlog.get_logger(__name__)
 MAX_ATTEMPTS = 3
 POLL_INTERVAL_SECONDS = 2.0
 RECOVERY_INTERVAL_SECONDS = 30.0
+HEARTBEAT_INTERVAL_SECONDS = 5.0
 
 
 @dataclass
@@ -39,6 +40,7 @@ class BatchConsumerConfig:
     poll_limit: int = 50
     health_port: int = 8080
     health_timeout_seconds: float = 60.0
+    heartbeat_interval_seconds: float = HEARTBEAT_INTERVAL_SECONDS
     recovery_interval_seconds: float = RECOVERY_INTERVAL_SECONDS
 
 
@@ -114,6 +116,7 @@ class BatchConsumer:
         self._conn: psycopg.AsyncConnection[Any] | None = None
         self._recovery_conn: psycopg.AsyncConnection[Any] | None = None
         self._recovery_task: asyncio.Task[None] | None = None
+        self._heartbeat_task: asyncio.Task[None] | None = None
 
     async def run(self) -> None:
         self._install_signal_handlers()
@@ -131,6 +134,7 @@ class BatchConsumer:
         try:
             await self._recovery_sweep()
             self._recovery_task = asyncio.create_task(self._recovery_loop())
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
             while not self._shutdown.is_set():
                 if self._health_reporter:
@@ -218,9 +222,9 @@ class BatchConsumer:
 
         bound_keys = (
             "team_id",
-            "schema_id",
-            "source_id",
-            "job_id",
+            "external_data_schema_id",
+            "external_data_source_id",
+            "external_data_job_id",
             "run_uuid",
             "batch_id",
             "resource_name",
@@ -232,9 +236,9 @@ class BatchConsumer:
         )
         structlog.contextvars.bind_contextvars(
             team_id=batch.team_id,
-            schema_id=batch.schema_id,
-            source_id=batch.source_id,
-            job_id=batch.job_id,
+            external_data_schema_id=batch.schema_id,
+            external_data_source_id=batch.source_id,
+            external_data_job_id=batch.job_id,
             run_uuid=batch.run_uuid,
             batch_id=batch.id,
             resource_name=batch.resource_name,
@@ -344,6 +348,20 @@ class BatchConsumer:
             except Exception:
                 logger.exception(self._event("recovery_sweep_error"))
 
+    async def _heartbeat_loop(self) -> None:
+        """Report liveness on a fixed cadence, independent of batch processing.
+
+        A poll cycle can run far longer than the health timeout (e.g. large final-batch
+        compaction), so the main loop's per-poll health report is not enough on its own.
+        """
+        while not self._shutdown.is_set():
+            if self._health_reporter:
+                self._health_reporter()
+            try:
+                await asyncio.wait_for(self._shutdown.wait(), timeout=self._config.heartbeat_interval_seconds)
+            except TimeoutError:
+                pass
+
     async def _recovery_sweep(self) -> None:
         conn = self._recovery_conn or self._conn
         assert conn is not None
@@ -358,9 +376,9 @@ class BatchConsumer:
 
         recovery_bound_keys = (
             "team_id",
-            "schema_id",
-            "source_id",
-            "job_id",
+            "external_data_schema_id",
+            "external_data_source_id",
+            "external_data_job_id",
             "run_uuid",
             "batch_id",
             "resource_name",
@@ -372,9 +390,9 @@ class BatchConsumer:
             # _process_single), so no +1 needed here.
             structlog.contextvars.bind_contextvars(
                 team_id=batch.team_id,
-                schema_id=batch.schema_id,
-                source_id=batch.source_id,
-                job_id=batch.job_id,
+                external_data_schema_id=batch.schema_id,
+                external_data_source_id=batch.source_id,
+                external_data_job_id=batch.job_id,
                 run_uuid=batch.run_uuid,
                 batch_id=batch.id,
                 resource_name=batch.resource_name,
@@ -403,12 +421,13 @@ class BatchConsumer:
             loop.add_signal_handler(sig, self._shutdown.set)
 
     async def _close(self) -> None:
-        if self._recovery_task is not None:
-            self._recovery_task.cancel()
-            try:
-                await self._recovery_task
-            except asyncio.CancelledError:
-                pass
+        for task in (self._recovery_task, self._heartbeat_task):
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
         if self._recovery_conn is not None and not self._recovery_conn.closed:
             await self._recovery_conn.close()

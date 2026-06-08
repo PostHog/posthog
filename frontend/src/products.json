@@ -57,6 +57,13 @@
             "intents": ["llm_prompts"]
         },
         {
+            "path": "Business knowledge",
+            "category": "AI engineering",
+            "iconType": "conversations",
+            "type": null,
+            "intents": ["conversations"]
+        },
+        {
             "path": "Web scripts",
             "category": "Tools",
             "iconType": "data_pipeline",
@@ -97,13 +104,6 @@
             "iconType": "data_warehouse",
             "type": null,
             "intents": ["data_warehouse", "data_warehouse_saved_queries"]
-        },
-        {
-            "path": "Deployments",
-            "category": "Tools",
-            "iconType": null,
-            "type": "deployments",
-            "intents": ["deployments"]
         },
         {
             "path": "Early access features",
@@ -295,6 +295,7 @@
             "type": null,
             "intents": []
         },
+        { "path": "Exports", "category": "Pipeline", "iconType": "exports", "type": null, "intents": [] },
         { "path": "Endpoints", "category": "Tools", "iconType": null, "type": null, "intents": [] },
         {
             "path": "Event definitions",

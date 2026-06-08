@@ -8,30 +8,205 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-const ACCOUNTS_ENDPOINT = 'api/environments/:team_id/accounts/'
-const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/environments/:team_id/accounts/:account_id/notebooks/'
+const QUERY_ENDPOINT = '/api/environments/:team_id/query/:kind/'
+const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
+const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
+const WAREHOUSE_VIEW_LINK_ENDPOINT = 'api/environments/:team_id/warehouse_view_link/'
+const INSIGHTS_ENDPOINT = 'api/environments/:team_id/insights/'
 
-const SINGLE_ACCOUNT_RESULTS = [
-    {
-        id: 'acc-1',
-        name: 'Acme Inc',
-        external_id: 'cust_acme_001',
-        properties: {
-            csm: { id: 1, email: 'alice@posthog.com' },
-            account_executive: { id: 2, email: 'bob@posthog.com' },
-            account_owner: null,
-        },
-        tags: ['enterprise', 'priority'],
-        created_at: '2026-05-01T00:00:00Z',
-        created_by: 1,
-        updated_at: '2026-05-20T00:00:00Z',
-    },
+type AccountNameCell = { name: string; external_id: string | null; id: string }
+type AccountRoleCell = [number, string] | null
+type AccountRow = [AccountNameCell, string[], number, AccountRoleCell, AccountRoleCell, AccountRoleCell]
+
+function buildAccountsQueryResponse(rows: AccountRow[]): Record<string, unknown> {
+    return {
+        kind: 'AccountsQuery',
+        columns: ['name', 'tag_names', 'notebook_count', 'csm', 'account_executive', 'account_owner'],
+        results: rows,
+        types: [],
+        hogql: '',
+        timings: [],
+        modifiers: {},
+        hasMore: false,
+        limit: 100,
+        offset: 0,
+    }
+}
+
+const SAMPLE_ROWS: AccountRow[] = [
+    [
+        { name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1' },
+        ['enterprise', 'priority'],
+        0,
+        [1, 'alice@posthog.com'],
+        [2, 'bob@posthog.com'],
+        null,
+    ],
+    [{ name: 'Globex', external_id: 'cust_globex_002', id: 'acc-2' }, [], 0, null, null, null],
+    [
+        { name: 'Hooli', external_id: null, id: 'acc-3' },
+        ['scaleup'],
+        0,
+        [1, 'alice@posthog.com'],
+        null,
+        [3, 'carol@posthog.com'],
+    ],
 ]
 
-async function expandFirstRow(canvasElement: HTMLElement): Promise<void> {
+const SINGLE_ROW: AccountRow[] = [
+    [
+        { name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1' },
+        ['enterprise', 'priority'],
+        1,
+        [1, 'alice@posthog.com'],
+        [2, 'bob@posthog.com'],
+        null,
+    ],
+]
+
+const ACCOUNT_WITH_LINKS = {
+    id: 'acc-1',
+    name: 'Acme Inc',
+    external_id: 'cust_acme_001',
+    properties: {
+        billing_id: 'cus_acme_123',
+        slack_channel_id: 'C0123456789',
+        usage_dashboard_link: 'https://us.posthog.com/project/2/dashboard/12345',
+    },
+    tags: [],
+    notebooks: [],
+    created_at: '2026-05-15T10:30:00Z',
+    created_by: null,
+    updated_at: '2026-05-15T10:30:00Z',
+}
+
+const ACCOUNT_WITHOUT_LINKS = {
+    id: 'acc-1',
+    name: 'Acme Inc',
+    external_id: null,
+    properties: {},
+    tags: [],
+    notebooks: [],
+    created_at: '2026-05-15T10:30:00Z',
+    created_by: null,
+    updated_at: '2026-05-15T10:30:00Z',
+}
+
+const EMPTY_INSIGHTS = { count: 0, next: null, previous: null, results: [] }
+
+function insightsResponse(insight: Record<string, unknown>): Record<string, unknown> {
+    return { count: 1, next: null, previous: null, results: [insight] }
+}
+
+const BILLING_VARIABLES = {
+    'var-org': { variableId: 'var-org', code_name: 'billing_org_id', value: '' },
+    'var-start': { variableId: 'var-start', code_name: 'billing_start_date', value: '2026-04-21' },
+    'var-end': { variableId: 'var-end', code_name: 'billing_end_date', value: '2026-05-21' },
+}
+
+const USAGE_INSIGHT = {
+    id: 9050931,
+    short_id: 'fiJDsKLp',
+    name: 'Billing usage by type (warehouse)',
+    filters: {},
+    saved: true,
+    deleted: false,
+    query: {
+        kind: 'DataVisualizationNode',
+        display: 'ActionsLineGraph',
+        source: {
+            kind: 'HogQLQuery',
+            query: 'SELECT date, ... FROM postgres.prod.billing_usagereport',
+            variables: BILLING_VARIABLES,
+        },
+    },
+}
+
+const USAGE_QUERY_RESPONSE = {
+    error: '',
+    hasMore: false,
+    is_cached: true,
+    query_status: null,
+    columns: ['date', 'Events', 'Recordings'],
+    types: [
+        ['date', 'Date'],
+        ['Events', 'Nullable(Float64)'],
+        ['Recordings', 'Nullable(Float64)'],
+    ],
+    results: [
+        ['2026-05-01', 1200, 30],
+        ['2026-05-08', 1800, 45],
+        ['2026-05-15', 1500, 38],
+        ['2026-05-21', 2100, 52],
+    ],
+}
+
+// Dispatches the shared query endpoint: account rows for the list, billing chart data for the embedded insight.
+function mockAccountsAndBillingQuery(
+    rows: AccountRow[],
+    billingResponse: Record<string, unknown>
+): (req: { body: unknown }) => [number, unknown] | undefined {
+    return (req) => {
+        const kind = (req.body as { query?: { kind?: string } })?.query?.kind
+        if (kind === 'AccountsQuery') {
+            return [200, buildAccountsQueryResponse(rows)]
+        }
+        if (kind === 'HogQLQuery') {
+            return [200, billingResponse]
+        }
+        return undefined
+    }
+}
+
+// Billing tab stories share the same account + notebooks mocks; they differ only in the insight and query responses.
+function billingTabDecorators(
+    insightsGet: Record<string, unknown>,
+    queryPost: (req: { body: unknown }) => [number, unknown] | undefined
+): ReturnType<typeof mswDecorator>[] {
+    return [
+        mswDecorator({
+            get: {
+                [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
+                [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
+                [INSIGHTS_ENDPOINT]: insightsGet,
+            },
+            post: {
+                [QUERY_ENDPOINT]: queryPost,
+            },
+        }),
+    ]
+}
+
+// Expanding a row mounts UsefulLinks (loads the account async) and the notes table
+// (loads notebooks async). Both start as skeletons and resolve later, which changes
+// the expansion's width and height. Awaiting the settled content here keeps the
+// snapshot deterministic — otherwise it races the loads and the Useful links sidebar
+// is sometimes absent, sometimes present (the flaky ~7% height/width diff).
+async function expandFirstRow(canvasElement: HTMLElement, notesLoadedText: string): Promise<void> {
     const canvas = within(canvasElement)
-    const expandBtn = await canvas.findByTitle('Show more')
-    await userEvent.click(expandBtn)
+    await userEvent.click(await canvas.findByTitle('Show more'))
+    await canvas.findByText('Useful links')
+    await canvas.findByText('Organization')
+    await canvas.findByText(notesLoadedText)
+}
+
+// Expands the first row and switches to a billing tab. Awaits the settled sidebar first to avoid layout races.
+async function expandAndOpenTab(canvasElement: HTMLElement, tab: 'Usage' | 'Spend'): Promise<void> {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByTitle('Show more'))
+    await canvas.findByText('Useful links')
+    await canvas.findByText('Organization')
+    await userEvent.click(await canvas.findByRole('tab', { name: tab }))
+}
+
+function mockAccountsQuery(rows: AccountRow[]): (req: { body: unknown }) => [number, unknown] | undefined {
+    return (req) => {
+        const kind = (req.body as { query?: { kind?: string } })?.query?.kind
+        if (kind === 'AccountsQuery') {
+            return [200, buildAccountsQueryResponse(rows)]
+        }
+        return undefined
+    }
 }
 
 const meta: Meta = {
@@ -50,51 +225,10 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                [ACCOUNTS_ENDPOINT]: {
-                    count: 3,
-                    next: null,
-                    previous: null,
-                    results: [
-                        {
-                            id: 'acc-1',
-                            name: 'Acme Inc',
-                            external_id: 'cust_acme_001',
-                            properties: {
-                                csm: { id: 1, email: 'alice@posthog.com' },
-                                account_executive: { id: 2, email: 'bob@posthog.com' },
-                                account_owner: null,
-                            },
-                            tags: ['enterprise', 'priority'],
-                            created_at: '2026-05-01T00:00:00Z',
-                            created_by: 1,
-                            updated_at: '2026-05-20T00:00:00Z',
-                        },
-                        {
-                            id: 'acc-2',
-                            name: 'Globex',
-                            external_id: 'cust_globex_002',
-                            properties: {},
-                            tags: [],
-                            created_at: '2026-05-02T00:00:00Z',
-                            created_by: 1,
-                            updated_at: '2026-05-19T00:00:00Z',
-                        },
-                        {
-                            id: 'acc-3',
-                            name: 'Hooli',
-                            external_id: null,
-                            properties: {
-                                csm: { id: 1, email: 'alice@posthog.com' },
-                                account_executive: null,
-                                account_owner: { id: 3, email: 'carol@posthog.com' },
-                            },
-                            tags: ['scaleup'],
-                            created_at: '2026-05-03T00:00:00Z',
-                            created_by: 1,
-                            updated_at: '2026-05-18T00:00:00Z',
-                        },
-                    ],
-                },
+                [WAREHOUSE_VIEW_LINK_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
+            },
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsQuery(SAMPLE_ROWS),
             },
         }),
     ],
@@ -111,8 +245,8 @@ export const Empty: Story = {
     render: () => <App />,
     decorators: [
         mswDecorator({
-            get: {
-                [ACCOUNTS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsQuery([]),
             },
         }),
     ],
@@ -135,18 +269,16 @@ export const RowExpandedEmpty: Story = {
     decorators: [
         mswDecorator({
             get: {
-                [ACCOUNTS_ENDPOINT]: {
-                    count: SINGLE_ACCOUNT_RESULTS.length,
-                    next: null,
-                    previous: null,
-                    results: SINGLE_ACCOUNT_RESULTS,
-                },
+                [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
                 [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
+            },
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsQuery(SINGLE_ROW),
             },
         }),
     ],
     play: async ({ canvasElement }) => {
-        await expandFirstRow(canvasElement)
+        await expandFirstRow(canvasElement, 'No notes linked to this account yet.')
     },
 }
 
@@ -155,12 +287,7 @@ export const RowExpandedWithNote: Story = {
     decorators: [
         mswDecorator({
             get: {
-                [ACCOUNTS_ENDPOINT]: {
-                    count: SINGLE_ACCOUNT_RESULTS.length,
-                    next: null,
-                    previous: null,
-                    results: SINGLE_ACCOUNT_RESULTS,
-                },
+                [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
                 [ACCOUNT_NOTEBOOKS_ENDPOINT]: {
                     count: 1,
                     next: null,
@@ -195,9 +322,55 @@ export const RowExpandedWithNote: Story = {
                     ],
                 },
             },
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsQuery(SINGLE_ROW),
+            },
         }),
     ],
     play: async ({ canvasElement }) => {
-        await expandFirstRow(canvasElement)
+        await expandFirstRow(canvasElement, 'Q2 expansion call')
+    },
+}
+
+export const RowExpandedLinksDisabled: Story = {
+    render: () => <App />,
+    decorators: [
+        mswDecorator({
+            get: {
+                [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITHOUT_LINKS,
+                [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
+            },
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsQuery(SINGLE_ROW),
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await expandFirstRow(canvasElement, 'No notes linked to this account yet.')
+    },
+}
+
+export const RowExpandedUsageNotFound: Story = {
+    render: () => <App />,
+    decorators: billingTabDecorators(EMPTY_INSIGHTS, mockAccountsQuery(SINGLE_ROW)),
+    play: async ({ canvasElement }) => {
+        await expandAndOpenTab(canvasElement, 'Usage')
+        await within(canvasElement).findByText('No billing usage insight here')
+    },
+}
+
+export const RowExpandedUsagePopulated: Story = {
+    render: () => <App />,
+    parameters: {
+        testOptions: {
+            waitForSelector: ['[data-attr="accounts-refresh"]', '.DataVisualization canvas'],
+        },
+    },
+    decorators: billingTabDecorators(
+        insightsResponse(USAGE_INSIGHT),
+        mockAccountsAndBillingQuery(SINGLE_ROW, USAGE_QUERY_RESPONSE)
+    ),
+    play: async ({ canvasElement }) => {
+        await expandAndOpenTab(canvasElement, 'Usage')
     },
 }

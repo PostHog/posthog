@@ -47,18 +47,16 @@ export class ToolExecutor {
         }
 
         const nameSet = new Set(state.allTools.map((t) => t.name))
-        let filteredTools = this.catalog.getPreBuiltEntries().filter((e) => nameSet.has(e.name))
+        const filteredTools = this.catalog.getPreBuiltEntries().filter((e) => nameSet.has(e.name))
 
-        if (state.version === 2) {
-            filteredTools = filteredTools.map((entry) => {
-                if (entry.name === 'execute-sql') {
-                    return { ...entry, description: this.instructionsBuilder.formatExecuteSqlDescription() }
-                }
-                return entry
-            })
-        }
+        const withSqlDescription = filteredTools.map((entry) => {
+            if (entry.name === 'execute-sql') {
+                return { ...entry, description: this.instructionsBuilder.formatExecuteSqlDescription() }
+            }
+            return entry
+        })
 
-        return { tools: filteredTools }
+        return { tools: withSqlDescription }
     }
 
     async handleToolCall(params: Record<string, unknown> | undefined, state: ResolvedState): Promise<unknown> {
@@ -194,7 +192,11 @@ export class ToolExecutor {
             void trackToolCall('exec', Date.now() - startMs, true, state)
 
             const sessionUuid = await state.reqCtx.getSessionUuid(state.requestContext.sessionId)
-            return handleToolError(error, 'exec', state.distinctId, sessionUuid)
+            // Attribute the failure to the inner tool that actually ran (e.g. `query-logs`),
+            // not the `exec` wrapper — so the agent-facing `[tool]` label and the 5xx
+            // exception fingerprint point at the real source instead of collapsing every
+            // exec-routed failure into one opaque `exec` bucket.
+            return handleToolError(error, metricTool, state.distinctId, sessionUuid)
         }
     }
 
@@ -226,7 +228,8 @@ export class ToolExecutor {
             this.instructionsBuilder.buildExecToolDescription(),
             commandReference,
             clientContext.mcpConsumer,
-            trackInnerCall
+            trackInnerCall,
+            state.scopeGatedTools
         )
 
         return {

@@ -82,51 +82,53 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                     {/* User Selection */}
                     <div className="space-y-3">
                         <LemonLabel>Select person</LemonLabel>
-                        <TaxonomicPopover
-                            groupType={TaxonomicFilterGroupType.Persons}
-                            value={selectedPerson ? selectedPerson.distinct_ids[0] : ''}
-                            onChange={(_, __, person) => {
-                                if (person) {
-                                    setSelectedPerson(person as PersonType)
-                                    setTestFormData({
-                                        person_id: person.uuid || '',
-                                    })
-                                } else {
-                                    setSelectedPerson(null)
-                                    setTestFormData({
-                                        person_id: '',
-                                    })
-                                }
-                            }}
-                            groupTypes={[TaxonomicFilterGroupType.Persons]}
-                            placeholder="Search for a person by name, email, or ID..."
-                            allowClear
-                            fullWidth
-                            renderValue={() => {
-                                if (selectedPerson) {
-                                    return (
-                                        <span>
-                                            {selectedPerson.name || selectedPerson.distinct_ids[0] || 'Unknown person'}
-                                        </span>
-                                    )
-                                }
-                                return null
-                            }}
-                        />
+                        {/* Wrapper keeps the control on its own line — both LemonLabel and the
+                            TaxonomicPopover render as inline-flex, so without a block wrapper a
+                            narrow selected value would sit beside the label instead of below it. */}
+                        <div>
+                            <TaxonomicPopover
+                                groupType={TaxonomicFilterGroupType.Persons}
+                                value={formData.distinct_id || ''}
+                                onChange={(value, _, person) => {
+                                    // `value` is the person's distinct_id for every Persons-tab
+                                    // source, including the recent tab — which only carries a
+                                    // name + distinct_id, not the full person (no uuid/distinct_ids).
+                                    const distinctId = typeof value === 'string' ? value : ''
+                                    if (distinctId) {
+                                        setSelectedPerson((person as Partial<PersonType>) ?? null)
+                                        setTestFormData({ distinct_id: distinctId })
+                                    } else {
+                                        setSelectedPerson(null)
+                                        setTestFormData({ distinct_id: '' })
+                                    }
+                                }}
+                                groupTypes={[TaxonomicFilterGroupType.Persons]}
+                                placeholder="Search for a person by name, email, or ID..."
+                                allowClear
+                                fullWidth
+                                renderValue={() => {
+                                    if (formData.distinct_id) {
+                                        return (
+                                            <span>
+                                                {selectedPerson?.name ||
+                                                    selectedPerson?.distinct_ids?.[0] ||
+                                                    formData.distinct_id}
+                                            </span>
+                                        )
+                                    }
+                                    return null
+                                }}
+                            />
+                        </div>
                         <p className="text-xs text-muted">
                             Search and select a person from your PostHog instance. You can search by name, email, or
                             distinct ID.
                         </p>
 
-                        {selectedPerson && (
+                        {formData.distinct_id && (
                             <div className="text-xs text-muted space-y-1 p-2 bg-bg-3000 rounded">
                                 <div>
-                                    <strong>Person ID:</strong> {formData.person_id || 'Not available'}
-                                </div>
-                                <div>
-                                    <strong>Distinct IDs:</strong> {selectedPerson.distinct_ids.slice(0, 3).join(', ')}
-                                    {selectedPerson.distinct_ids.length > 3 &&
-                                        ` (+${selectedPerson.distinct_ids.length - 3} more)`}
+                                    <strong>Distinct ID:</strong> {formData.distinct_id}
                                 </div>
                             </div>
                         )}
