@@ -17,6 +17,7 @@ from posthog.api.sdk_health import SdkHealthViewSet
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
 from posthog.settings import EE_AVAILABLE
+from products.managed_migrations.backend.api.batch_imports import BatchImportViewSet
 
 from ee.api.quota_limits import QuotaLimitsViewSet
 from ee.api.session_summaries import SessionGroupSummaryViewSet, SingleSessionSummaryViewSet
