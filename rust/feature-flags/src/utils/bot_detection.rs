@@ -196,10 +196,10 @@ const YANDEX_FALLBACK_CIDRS: &[(&str, BotCategory)] = &[
 /// per-IP metadata.
 ///
 /// `min_v4_prefix` / `min_v6_prefix` tighten the global [`MIN_V4_PREFIX`] /
-/// [`MIN_V6_PREFIX`] floors to a provider-realistic ceiling, one bit looser
-/// than the widest entry currently published. An upstream refresh that
-/// suddenly widens past this floor fails the test suite (and server start)
-/// before it can ship.
+/// [`MIN_V6_PREFIX`] floors to each provider's realistic ceiling — the widest
+/// prefix it currently publishes per family. An upstream refresh that widens
+/// past this floor fails the test suite (and server start) before it can ship;
+/// bump the floor deliberately once the wider range is confirmed genuine.
 struct Provider {
     name: &'static str,
     blob: &'static str,
@@ -214,7 +214,7 @@ const PROVIDERS: &[Provider] = &[
         name: "googlebot",
         blob: include_str!("bot_ips/googlebot.json"),
         category: BotCategory::Google,
-        min_v4_prefix: 23,
+        min_v4_prefix: 27,
         min_v6_prefix: 64,
     },
     // Bingbot: widest currently published `/22`.
@@ -902,8 +902,9 @@ mod tests {
         }
 
         /// Per-provider floor: each provider's published CIDRs must fit
-        /// within its own declared min-prefix. Tighter than the global floor,
-        /// catches upstream drift earlier.
+        /// within its own declared min-prefix. Exercises the real
+        /// [`enforce_provider_floor`] (rather than re-deriving its arithmetic)
+        /// so a bug in that check is caught here, not just at `LazyLock` init.
         #[test]
         fn each_provider_respects_its_own_width_floor() {
             for provider in PROVIDERS {
@@ -914,19 +915,9 @@ mod tests {
                         .ipv4_prefix
                         .or(entry.ipv6_prefix)
                         .expect("entry has exactly one prefix");
-                    let parsed = parse_cidr(&cidr).expect("provider CIDR parses");
-                    let host_bits = (parsed.end - parsed.start + 1).trailing_zeros();
-                    let (max_host_bits, floor) = if parsed.is_v4 {
-                        (32 - provider.min_v4_prefix, provider.min_v4_prefix)
-                    } else {
-                        (128 - provider.min_v6_prefix, provider.min_v6_prefix)
-                    };
-                    assert!(
-                        host_bits <= max_host_bits,
-                        "{} CIDR {cidr} exceeds its per-provider floor (/{})",
-                        provider.name,
-                        floor,
-                    );
+                    // Panics (failing the test) if the entry is wider than the
+                    // provider's declared floor.
+                    enforce_provider_floor(provider, &cidr);
                 }
             }
         }
