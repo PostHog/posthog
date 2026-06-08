@@ -83,13 +83,22 @@ The config list is unpaginated — it comes back as `{ results: [...] }` (a bare
   running. Tell the user which scouts exist and that they're all off.
 - **At least one `enabled: true`** — the fleet is registered and that scout is allowed to run. For
   each enabled scout note its `run_interval_minutes` (cadence), `emit` (false = **dry-run**, runs
-  but writes nothing to the inbox), and `last_run_at` (when it last fired — `null` means it has
-  never run). One caveat before reporting "it's live": runs are gated by the `signals-scout` feature
-  flag, not by `enabled`. A project that was enrolled and later drained from the flag keeps its
-  `enabled: true` rows, but the coordinator no longer plans runs for it — so a stale or `null`
-  `last_run_at` on an enabled scout usually means the project is no longer enrolled, not that the
-  scout is idle. When `last_run_at` is recent, the scout is genuinely running; proceed to the user's
-  actual question.
+  but writes nothing to the inbox), and `last_run_at`. One caveat before reporting "it's live": runs
+  are gated by the `signals-scout` feature flag, not by `enabled`. A project that was enrolled and
+  later drained from the flag keeps its `enabled: true` rows, but the coordinator no longer plans
+  runs for it — so a stale or `null` `last_run_at` on an enabled scout usually means the project is
+  no longer enrolled, not that the scout is idle.
+
+  **`last_run_at` is a _dispatch_ stamp, not proof a run executed.** The coordinator advances it the
+  moment it _enqueues_ a child workflow for a due scout — before any worker picks the run up. Child
+  dispatch is fire-and-forget, so if workers are saturated or down the children just queue and no
+  run ever materializes, yet `last_run_at` keeps marching forward each tick. So a recent
+  `last_run_at` means "dispatched this tick," **not** "a run is genuinely happening." The
+  authoritative liveness signal is the newest actual **run row** in `signals-scout-runs-list`, not
+  the config stamp. Cross-check them: if `last_run_at` is fresh (minutes ago) but no run row has
+  appeared for that scout in well over its `run_interval_minutes`, the fleet is **dispatching but
+  not running** — workers backed up / down, or runs stranded — a real reliability problem, not a
+  live scout. Don't report "it's running" off `last_run_at` alone.
 
 A scout that is `enabled: true` but `emit: false` is the most common source of "my scout isn't
 doing anything" confusion: it _is_ running and reasoning every tick, it just isn't allowed to post
@@ -262,7 +271,11 @@ below. The full playbook, including how to read each signal and the common failu
 [`references/assessing-performance.md`](references/assessing-performance.md).
 
 - **Cadence adherence** — are runs landing roughly every `run_interval_minutes`? Large gaps mean
-  the coordinator is skipping it (disabled, drained from the flag, or capped out on busy ticks).
+  the coordinator is skipping it (disabled, drained from the flag, or capped out on busy ticks) —
+  _or_ it's dispatching but the runs aren't materializing. Tell the two apart with `last_run_at`: if
+  the config's `last_run_at` is also stale, the coordinator stopped planning it; if `last_run_at` is
+  fresh but the newest run row is hours old, it's the dispatch-vs-execution divergence above (workers
+  backed up / down, or runs stranded), which `runs-list` alone hides.
 - **Success rate** — how many runs reach a clean `status` vs. error out? A run of errors is a
   broken scout, not a quiet one.
 - **Emit rate** — what fraction of runs emitted vs. closed out empty. Near-zero over a long window
