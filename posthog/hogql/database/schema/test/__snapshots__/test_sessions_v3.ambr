@@ -590,8 +590,7 @@
   '''
   SELECT events__session.`$channel_type` AS `$channel_type`
   FROM
-    (SELECT events.`$session_id` AS `$session_id`,
-            events.`$session_id_uuid` AS `$session_id_uuid`
+    (SELECT events.`$session_id_uuid` AS `$session_id_uuid`
      FROM events
      WHERE and(equals(events.team_id, 99999), equals(events.`$session_id_uuid`, toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID'))))
      LIMIT 100) AS events

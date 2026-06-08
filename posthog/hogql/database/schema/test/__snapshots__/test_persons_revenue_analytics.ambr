@@ -195,7 +195,7 @@
                        subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
            GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id))
      GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
-  WHERE ifNull(equals(persons.id, '00000000-0000-0000-0000-000000000000'), 0)
+  WHERE equals(persons.id, '00000000-0000-0000-0000-000000000000')
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2403,7 +2403,7 @@
                        subscription_id ASC) AS `stripe.posthog_test.mrr_revenue_view`
            GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id))
      GROUP BY person_id) AS persons_revenue_analytics
-  WHERE ifNull(equals(persons_revenue_analytics.person_id, toUUIDOrNull('00000000-0000-4000-8000-000000000000')), 0)
+  WHERE equals(persons_revenue_analytics.person_id, toUUIDOrNull('00000000-0000-4000-8000-000000000000'))
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
@@ -2866,8 +2866,8 @@
   GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id,
                                              mrr_agg.customer_id))
   GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
-  WHERE ifNull(equals(persons.id,
-                      toUUIDOrNull('00000000-0000-4000-8000-000000000000')), 0)
+  WHERE equals(persons.id,
+               toUUIDOrNull('00000000-0000-4000-8000-000000000000'))
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
@@ -3523,7 +3523,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_mrr_events_revenue_view/revenue_analytics.events.purchase.mrr_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`mrr` Nullable(Decimal64(10)), `customer_id` Nullable(String), `source_label` Nullable(String), `subscription_id` Nullable(String)') AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
            GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id))
      GROUP BY person_id) AS persons__revenue_analytics ON equals(toString(persons.persons___id), toString(persons__revenue_analytics.person_id))
-  WHERE ifNull(equals(persons.id, '00000000-0000-0000-0000-000000000000'), 0)
+  WHERE equals(persons.id, '00000000-0000-0000-0000-000000000000')
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,

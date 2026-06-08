@@ -74,7 +74,7 @@
            GROUP BY actor_id)
         GROUP BY start_of_period,
                  status)
-     WHERE and(ifNull(lessOrEquals(start_of_period, toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1))), 0), ifNull(greaterOrEquals(start_of_period, toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'UTC')), toIntervalDay(1))), 0))
+     WHERE and(lessOrEquals(start_of_period, toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1))), greaterOrEquals(start_of_period, toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'UTC')), toIntervalDay(1))))
      GROUP BY start_of_period,
               status
      ORDER BY start_of_period ASC)
@@ -245,7 +245,7 @@
            GROUP BY actor_id)
         GROUP BY start_of_period,
                  status)
-     WHERE and(ifNull(lessOrEquals(start_of_period, toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1))), 0), ifNull(greaterOrEquals(start_of_period, toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'UTC')), toIntervalDay(1))), 0))
+     WHERE and(lessOrEquals(start_of_period, toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1))), greaterOrEquals(start_of_period, toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'UTC')), toIntervalDay(1))))
      GROUP BY start_of_period,
               status
      ORDER BY start_of_period ASC)
@@ -326,7 +326,7 @@
            GROUP BY actor_id)
         GROUP BY start_of_period,
                  status)
-     WHERE and(ifNull(lessOrEquals(start_of_period, toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1))), 0), ifNull(greaterOrEquals(start_of_period, toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'UTC')), toIntervalDay(1))), 0))
+     WHERE and(lessOrEquals(start_of_period, toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1))), greaterOrEquals(start_of_period, toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'UTC')), toIntervalDay(1))))
      GROUP BY start_of_period,
               status
      ORDER BY start_of_period ASC)
@@ -407,7 +407,7 @@
            GROUP BY actor_id)
         GROUP BY start_of_period,
                  status)
-     WHERE and(ifNull(lessOrEquals(start_of_period, toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific')), toIntervalDay(1))), 0), ifNull(greaterOrEquals(start_of_period, toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'US/Pacific')), toIntervalDay(1))), 0))
+     WHERE and(lessOrEquals(start_of_period, toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific')), toIntervalDay(1))), greaterOrEquals(start_of_period, toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 00:00:00', 'US/Pacific')), toIntervalDay(1))))
      GROUP BY start_of_period,
               status
      ORDER BY start_of_period ASC)

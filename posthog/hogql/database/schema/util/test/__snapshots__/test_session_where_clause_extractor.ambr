@@ -119,15 +119,14 @@
       events__session.`$session_duration` AS duration
   FROM
       (SELECT
-          events.`$session_id` AS `$session_id`,
-          toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp
+          events.`$session_id` AS `$session_id`
       FROM
           events
       WHERE
           and(equals(events.team_id, <TEAM_ID>), less(events.timestamp, today()))
       LIMIT 50000) AS events
       LEFT JOIN (SELECT
-          dateDiff(%(hogql_val_1)s, min(toTimeZone(sessions.min_timestamp, %(hogql_val_2)s)), max(toTimeZone(sessions.max_timestamp, %(hogql_val_3)s))) AS `$session_duration`,
+          dateDiff(%(hogql_val_0)s, min(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
           sessions.session_id AS session_id
       FROM
           sessions

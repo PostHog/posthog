@@ -551,12 +551,12 @@
               CROSS JOIN
                 (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
                  FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-11 23:59:59', 'UTC')))) AS numbers) AS d
-              WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+              WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
               GROUP BY d.timestamp,
                        e.actor_id,
                        breakdown_value
               ORDER BY d.timestamp ASC)
-           WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-11 23:59:59', 'UTC'))), 0))
+           WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-11 23:59:59', 'UTC'))))
            GROUP BY breakdown_value)
         GROUP BY breakdown_value
         ORDER BY breakdown_value ASC)
@@ -708,11 +708,11 @@
               CROSS JOIN
                 (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
                  FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')))) AS numbers) AS d
-              WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+              WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
               GROUP BY d.timestamp,
                        breakdown_value
               ORDER BY d.timestamp ASC)
-           WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), 0)))
+           WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')))))
         GROUP BY day_start,
                  breakdown_value
         ORDER BY day_start ASC,
@@ -1445,11 +1445,11 @@
               CROSS JOIN
                 (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
                  FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(30)), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')))) AS numbers) AS d
-              WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(30))), 0))
+              WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(30))))
               GROUP BY d.timestamp,
                        breakdown_value
               ORDER BY d.timestamp ASC)
-           WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), 0)))
+           WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')))))
         GROUP BY day_start,
                  breakdown_value
         ORDER BY day_start ASC,
@@ -1525,11 +1525,11 @@
               CROSS JOIN
                 (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
                  FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(30)), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')))) AS numbers) AS d
-              WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(30))), 0))
+              WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(30))))
               GROUP BY d.timestamp,
                        breakdown_value_1
               ORDER BY d.timestamp ASC)
-           WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), 0)))
+           WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')))))
         GROUP BY day_start,
                  breakdown_value_1
         ORDER BY day_start ASC,
@@ -2426,10 +2426,10 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+           WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
-        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC'))), 0)))
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-29 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-05 23:59:59', 'UTC')))))
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
@@ -3654,10 +3654,10 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(30)), assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(30))), 0))
+           WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(30))))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
-        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), 0)))
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')))))
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
@@ -3698,10 +3698,10 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+           WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
-        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), 0)))
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC')))))
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
@@ -6127,10 +6127,10 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+           WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
-        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC'))), 0)))
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')))))
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
@@ -6254,11 +6254,11 @@
      CROSS JOIN
        (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
         FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')))) AS numbers) AS d
-     WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+     WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
      GROUP BY d.timestamp,
               e.actor_id
      ORDER BY d.timestamp ASC)
-  WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), 0))
+  WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-11 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))))
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -6295,11 +6295,11 @@
      CROSS JOIN
        (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
         FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC')))) AS numbers) AS d
-     WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+     WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
      GROUP BY d.timestamp,
               e.actor_id
      ORDER BY d.timestamp ASC)
-  WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC'))), 0))
+  WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC'))))
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -6336,11 +6336,11 @@
      CROSS JOIN
        (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
         FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC')))) AS numbers) AS d
-     WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+     WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
      GROUP BY d.timestamp,
               e.actor_id
      ORDER BY d.timestamp ASC)
-  WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC'))), 0))
+  WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-18 23:59:59', 'UTC'))))
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1,
@@ -6385,10 +6385,10 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+           WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
-        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC'))), 0)))
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-08 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-19 23:59:59', 'UTC')))))
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
@@ -6544,10 +6544,10 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+           WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
-        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), 0)))
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC')))))
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
@@ -6654,10 +6654,10 @@
            CROSS JOIN
              (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 17:00:00', 'UTC')), toIntervalHour(1)), toIntervalHour(numbers.number)) AS timestamp
               FROM numbers(dateDiff('hour', minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 06:00:00', 'UTC')), toIntervalHour(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2020-01-09 17:00:00', 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, d.timestamp), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))), 0))
+           WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
-        WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 06:00:00', 'UTC')), toIntervalHour(1))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-09 17:00:00', 'UTC'))), 0)))
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 06:00:00', 'UTC')), toIntervalHour(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2020-01-09 17:00:00', 'UTC')))))
      GROUP BY day_start
      ORDER BY day_start ASC)
   ORDER BY arraySum(total) DESC
