@@ -135,6 +135,13 @@ mentioned. Diff against history only after the independent pass is done.
    was recommended, a team to watch, a pipeline to make incremental). For each prior follow-up, state
    whether it is resolved, still open, or regressed, with the current numbers as evidence. Doing this
    last is deliberate: it keeps the fresh analysis unbiased while still closing the loop on history.
+   **Make the windows comparable before quoting a delta:** confirm the previous report used the same
+   window length (both reports here use a trailing `now() - INTERVAL N DAY`, so equal length but with
+   overlapping and partial edge days). Headline totals between two trailing windows are usually dominated
+   by whichever one-off incident sits inside one window and not the other, so a large drop is rarely a
+   structural improvement. Always also compare an **incident-excluded baseline** (e.g. OOMs/day with the
+   spike days removed) so the delta is not misread, and say explicitly when a total moved because an
+   incident aged into or out of the window.
 
 ## Interpreting the results
 
