@@ -102,7 +102,7 @@ LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/
 LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
 
 
-_image_ref_cache: TTLCache = TTLCache(maxsize=2, ttl=300)
+_image_ref_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
 _image_ref_lock = threading.Lock()
 
 
@@ -215,7 +215,7 @@ def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) 
     return image
 
 
-_template_image_cache: TTLCache = TTLCache(maxsize=2, ttl=300)
+_template_image_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
 _template_image_lock = threading.Lock()
 
 
@@ -238,7 +238,7 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
     return _attach_local_package_mounts(image, template)
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=3)
 def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, str]:
     dockerfile_relative_path = LOCAL_MODAL_DOCKERFILES.get(template)
     if dockerfile_relative_path is None:
