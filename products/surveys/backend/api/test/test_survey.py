@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 import pytest
 from freezegun.api import freeze_time
@@ -141,18 +141,20 @@ class TestSurvey(APIBaseTest):
         assert questions[0]["translations"]["fr"]["question"] == "Êtes-vous satisfait?"
         assert questions[1]["translations"]["es"]["choices"] == ["Analítica", "Feature Flags"]
 
-    @pytest.mark.parametrize(
-        "translation_link,expect_link_present",
+    @parameterized.expand(
         [
-            ("", False),
-            (None, False),
-            ("https://posthog.com/docs", True),
-        ],
+            ("empty_string", "", False),
+            ("absent", None, False),
+            ("valid_url", "https://posthog.com/docs", True),
+        ]
     )
-    def test_link_question_translation_allows_empty_link(self, translation_link, expect_link_present):
+    def test_link_question_translation_allows_empty_link(
+        self, _name: str, translation_link: Optional[str], expect_link_present: bool
+    ) -> None:
         """Empty/null links in a translation are treated as absent, matching the base question (regression)."""
         translation: dict[str, Any] = {"question": "Mira nuestra documentación"}
-        if translation_link is not None or translation_link == "":
+        # None models a translation that omits the link field entirely.
+        if translation_link is not None:
             translation["link"] = translation_link
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
