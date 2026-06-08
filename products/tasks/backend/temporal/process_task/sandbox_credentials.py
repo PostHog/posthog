@@ -162,6 +162,9 @@ class GitHubSandboxCredential:
             task=task,
             github_user_integration_id=ctx.github_user_integration_id,
             repository=ctx.repository,
+            # Renew via the server-side identity rather than re-injecting the static
+            # caller token, which cannot be refreshed once it expires mid-run.
+            prefer_refreshable=True,
         )
         if not token:
             return CredentialRefreshOutcome(

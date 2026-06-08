@@ -567,3 +567,160 @@ class TestGetSandboxGitHubToken(TestCase):
         )
 
         assert result == "ghs_team"
+
+    @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
+    def test_prefer_refreshable_renews_via_integration_over_cached_token(
+        self,
+        mock_cached: MagicMock,
+        mock_get_identity: MagicMock,
+        mock_get_github_token: MagicMock,
+    ) -> None:
+        mock_cached.return_value = "ghu_cached_stale"
+        identity = MagicMock()
+        identity.get_usable_user_access_token.return_value = "ghu_fresh"
+        mock_get_identity.return_value = identity
+
+        result = get_sandbox_github_token(
+            123,
+            run_id="run-1",
+            state={"pr_authorship_mode": "user"},
+            created_by=MagicMock(name="creator"),
+            prefer_refreshable=True,
+        )
+
+        assert result == "ghu_fresh"
+        identity.get_usable_user_access_token.assert_called_once()
+        mock_get_github_token.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
+    def test_prefer_refreshable_falls_back_to_cached_without_refreshable_identity(
+        self,
+        mock_cached: MagicMock,
+        mock_get_identity: MagicMock,
+        mock_get_github_token: MagicMock,
+    ) -> None:
+        mock_cached.return_value = "ghu_cached"
+        mock_get_identity.return_value = None
+
+        result = get_sandbox_github_token(
+            123,
+            run_id="run-1",
+            state={"pr_authorship_mode": "user"},
+            created_by=MagicMock(name="creator"),
+            prefer_refreshable=True,
+        )
+
+        assert result == "ghu_cached"
+        mock_get_github_token.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("reauthorization",),
+            ("empty_token",),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
+    def test_prefer_refreshable_falls_back_to_cached_when_integration_unusable(
+        self,
+        error_case: str,
+        mock_cached: MagicMock,
+        mock_get_identity: MagicMock,
+        mock_get_github_token: MagicMock,
+    ) -> None:
+        from posthog.models.user_integration import ReauthorizationRequired
+
+        mock_cached.return_value = "ghu_cached"
+        identity = MagicMock()
+        if error_case == "reauthorization":
+            identity.get_usable_user_access_token.side_effect = ReauthorizationRequired("reauthorize GitHub")
+        else:
+            identity.get_usable_user_access_token.return_value = None
+        mock_get_identity.return_value = identity
+
+        result = get_sandbox_github_token(
+            123,
+            run_id="run-1",
+            state={"pr_authorship_mode": "user"},
+            created_by=MagicMock(name="creator"),
+            prefer_refreshable=True,
+        )
+
+        # Cached caller token beats the team installation token in the fallback order.
+        assert result == "ghu_cached"
+        mock_get_github_token.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("reauthorization",),
+            ("empty_token",),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
+    def test_prefer_refreshable_no_team_falls_back_to_cached(
+        self,
+        error_case: str,
+        mock_cached: MagicMock,
+        mock_get_identity: MagicMock,
+    ) -> None:
+        from posthog.models.user_integration import ReauthorizationRequired
+
+        mock_cached.return_value = "ghu_cached"
+        identity = MagicMock()
+        if error_case == "reauthorization":
+            identity.get_usable_user_access_token.side_effect = ReauthorizationRequired("reauthorize GitHub")
+        else:
+            identity.get_usable_user_access_token.return_value = None
+        mock_get_identity.return_value = identity
+
+        # No team installation (github_integration_id=None): an unusable refreshable token
+        # falls back to the cached caller token instead of raising.
+        result = get_sandbox_github_token(
+            None,
+            run_id="run-1",
+            state={"pr_authorship_mode": "user"},
+            created_by=MagicMock(name="creator"),
+            prefer_refreshable=True,
+        )
+
+        assert result == "ghu_cached"
+
+    @parameterized.expand(
+        [
+            ("reauthorization",),
+            ("empty_token",),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
+    def test_prefer_refreshable_no_team_no_cache_still_raises(
+        self,
+        error_case: str,
+        mock_cached: MagicMock,
+        mock_get_identity: MagicMock,
+    ) -> None:
+        from posthog.models.user_integration import ReauthorizationRequired
+
+        mock_cached.return_value = None
+        identity = MagicMock()
+        if error_case == "reauthorization":
+            identity.get_usable_user_access_token.side_effect = ReauthorizationRequired("reauthorize GitHub")
+        else:
+            identity.get_usable_user_access_token.return_value = None
+        mock_get_identity.return_value = identity
+
+        # No team installation and no cached token: reauthorization must still surface.
+        with self.assertRaises(ReauthorizationRequired):
+            get_sandbox_github_token(
+                None,
+                run_id="run-1",
+                state={"pr_authorship_mode": "user"},
+                created_by=MagicMock(name="creator"),
+                prefer_refreshable=True,
+            )

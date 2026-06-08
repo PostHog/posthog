@@ -515,6 +515,7 @@ def get_sandbox_github_token(
     task: Task | None = None,
     github_user_integration_id: str | None = None,
     repository: str | None = None,
+    prefer_refreshable: bool = False,
 ) -> str | None:
     """Resolve the GitHub token used inside a task sandbox.
 
@@ -526,6 +527,13 @@ def get_sandbox_github_token(
     3. Team ``Integration`` token for legacy runs that predate persisted user identity.
 
     ``BOT`` authorship falls through to the team's ``Integration`` installation token.
+
+    Set ``prefer_refreshable`` on the periodic credential-refresh path: the cached
+    caller token is static and cannot be renewed, so re-injecting it is a no-op once
+    it expires. With this flag the refreshable server-side ``UserIntegration`` (2) is
+    tried first and the cached token (1) is used only as a fallback when no refreshable
+    identity exists. The default order (cache wins) is kept for initial provisioning so
+    self-managed CLI tokens still author the first writes.
     """
     pr_authorship_mode: PrAuthorshipMode | None
     if task is not None:
@@ -541,7 +549,10 @@ def get_sandbox_github_token(
 
     if pr_authorship_mode == PrAuthorshipMode.USER:
         cached = get_cached_github_user_token(run_id)
-        if cached:
+        # The cached token wins for provisioning, but never on the refresh path — there it
+        # is re-applied via the refreshable integration below, falling back to cache only
+        # when no refreshable identity is available.
+        if cached and not prefer_refreshable:
             return cached
         if task is not None:
             user_github_integration = resolve_user_github_integration_for_task(
@@ -557,24 +568,33 @@ def get_sandbox_github_token(
                 allow_refresh=True,
             )
         if user_github_integration is None:
+            if cached:
+                return cached
             if github_integration_id is None:
                 raise ReauthorizationRequired(
                     f"User-authored run {run_id} requires a linked GitHub account with repo access."
                 )
             return get_github_token(github_integration_id)
         if github_integration_id is None:
-            no_team_token: str | None = user_github_integration.get_usable_user_access_token()
-            if no_team_token is None:
-                raise ReauthorizationRequired(
-                    f"User-authored run {run_id} requires a linked GitHub account with repo access."
-                )
-            return no_team_token
+            try:
+                no_team_token: str | None = user_github_integration.get_usable_user_access_token()
+            except ReauthorizationRequired:
+                no_team_token = None
+            if no_team_token is not None:
+                return no_team_token
+            if cached:
+                return cached
+            raise ReauthorizationRequired(
+                f"User-authored run {run_id} requires a linked GitHub account with repo access."
+            )
         try:
             token: str | None = user_github_integration.get_usable_user_access_token()
         except ReauthorizationRequired:
             token = None
         if token is not None:
             return token
+        if cached:
+            return cached
         return get_github_token(github_integration_id)
     elif pr_authorship_mode == PrAuthorshipMode.BOT:
         if github_integration_id is not None:
