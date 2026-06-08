@@ -106,20 +106,43 @@ detect_minio_volume() {
     done
 }
 
+# Image of the running objectstorage container, empty if none is running.
+running_objectstorage_image() {
+    local container
+    container=$(docker ps --filter "label=com.docker.compose.service=objectstorage" --format "{{.ID}}" | head -1)
+    [ -z "$container" ] && return
+    docker inspect "$container" --format '{{.Config.Image}}' 2>/dev/null || true
+}
+
+# The destination must be SeaweedFS. If the old MinIO objectstorage is still running
+# (branch checked out but `hogli up` not run yet), copying into it would silently
+# no-op — the data is already there — and never populate SeaweedFS. Recreate it as
+# SeaweedFS first; that orphans the old volume, which is exactly what we salvage from.
 ensure_objectstorage_running() {
     local COMPOSE_FILE="$1"
-    if [ -n "$(docker ps --filter "label=com.docker.compose.service=objectstorage" --format "{{.ID}}")" ]; then
+    local image
+    image=$(running_objectstorage_image)
+
+    if [ -n "$image" ] && [[ "$image" != *minio* ]]; then
         return
     fi
-    echo "Starting objectstorage (SeaweedFS) as the copy destination..."
-    docker compose -f "$COMPOSE_FILE" up -d objectstorage
+
+    if [ -n "$image" ]; then
+        echo "objectstorage is still the old MinIO — recreating it as SeaweedFS first..."
+        docker compose -f "$COMPOSE_FILE" up -d --force-recreate objectstorage
+    else
+        echo "Starting objectstorage (SeaweedFS) as the copy destination..."
+        docker compose -f "$COMPOSE_FILE" up -d objectstorage
+    fi
+
     for _ in $(seq 1 30); do
-        if [ -n "$(docker ps --filter "label=com.docker.compose.service=objectstorage" --format "{{.ID}}")" ]; then
+        image=$(running_objectstorage_image)
+        if [ -n "$image" ] && [[ "$image" != *minio* ]]; then
             return
         fi
         sleep 1
     done
-    echo "❌ objectstorage did not come up"
+    echo "❌ objectstorage is not running as SeaweedFS. Run 'hogli up' to swap it, then re-run."
     exit 1
 }
 

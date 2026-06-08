@@ -798,7 +798,11 @@ services:
             db:
                 condition: service_healthy
             objectstorage:
-                condition: service_started
+                # Wait for the bucket-bootstrap sentinel, not just the process: DuckLake
+                # targets s3://ducklake-dev/, which SeaweedFS creates asynchronously after
+                # startup. service_started would race the bootstrap loop (see the
+                # objectstorage healthcheck rationale above).
+                condition: service_healthy
         command: ['--config', '/app/config.yaml']
 
 networks:
