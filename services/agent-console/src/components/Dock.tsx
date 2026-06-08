@@ -1,15 +1,10 @@
 /**
  * Adapter: dock-context → `<AgentChat />`.
  *
- * Two runners, picked by mode:
- *   - **Playground** → `useRealRunner` against `context.agent.slug`,
- *     talking to agent-ingress over SSE.
- *   - **Concierge** → `useRealRunner` against the slug declared by
- *     the route layout via `useSetDockConciergeAgent({ slug })`. If
- *     the agent isn't deployed (yet) or the slug doesn't resolve
- *     against the project, we fall back to `useFakeRunner` with
- *     the canned concierge scripts so the dock still has something
- *     to show.
+ * Always real-runner-only — the dock talks to agent-ingress over SSE
+ * for both playground and concierge modes. Fixture scripts only ship
+ * in Storybook (`packages/agent-chat/src/fixtures/`); they are never
+ * imported from production paths.
  *
  * Owns the `@posthog/ui/focus` handler — pure URL mapper. The agent
  * calls focus, the handler pushes the matching route, and the
@@ -24,7 +19,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { AgentChat, useFakeRunner, type ClientToolHandler, type TransportError } from '@posthog/agent-chat'
+import { AgentChat, type ClientToolHandler, type TransportError } from '@posthog/agent-chat'
 import type {
     AgentApplicationRef,
     AssistantTurnPart,
@@ -35,7 +30,6 @@ import type {
     ToastArgs,
     ToastResult,
 } from '@posthog/agent-chat'
-import { conciergeScripts, fallbackScript, waitingSession } from '@posthog/agent-chat/fixtures'
 
 import { IngressError } from '@/lib/agentIngressClient'
 import { ApiError, getAgent, setEnvKey } from '@/lib/apiClient'
@@ -580,22 +574,13 @@ function ConciergeDock(): React.ReactElement {
         )
     }
     if (resolution.kind === 'not_deployed') {
-        return <FixtureConciergeDock />
+        return <ConciergeStub message={`No concierge deployed for "${slug}" in this project.`} />
     }
-    return <ConciergeResolvingDock />
+    return <ConciergeStub message="Loading concierge…" />
 }
 
-/**
- * Placeholder shown while the concierge agent is being resolved. Keeps the
- * dock visible (so layout doesn't jump) but disables sending — the user can't
- * type into a mock by accident before the real runner is wired.
- */
-function ConciergeResolvingDock(): React.ReactElement {
-    return (
-        <div className="flex h-full items-center justify-center px-4 text-xs text-muted-foreground">
-            Loading concierge…
-        </div>
-    )
+function ConciergeStub({ message }: { message: string }): React.ReactElement {
+    return <div className="flex h-full items-center justify-center px-4 text-xs text-muted-foreground">{message}</div>
 }
 
 /**
@@ -776,50 +761,5 @@ function RealConciergeDock({
                 onContinue={onContinueWithSeed}
             />
         </>
-    )
-}
-
-function FixtureConciergeDock(): React.ReactElement {
-    const { context } = useDockStore()
-    const focus = useFocusStore()
-    const handlers = useDockHandlers(context)
-    const [renderMarkdown, setRenderMarkdown] = useRenderMarkdownPreference()
-
-    const runner = useFakeRunner({
-        initialSession: waitingSession,
-        scripts: conciergeScripts,
-        fallbackScript,
-        handlers,
-    })
-
-    const sending = runner.session.state === 'streaming' || runner.session.state === 'awaiting_client_tool'
-    const { layout, setMode, setVisible, embedSlot } = useDockLayout()
-    const renderToolSummary = useToolSummaryRenderer()
-    const isEmbedded = embedSlot != null
-
-    return (
-        <AgentChat
-            context={context}
-            session={runner.session}
-            handlers={handlers}
-            renderToolSummary={renderToolSummary}
-            headerSlot={
-                <DockHeader
-                    context={context}
-                    followingEnabled={focus.enabled}
-                    onFollowingChange={focus.setEnabled}
-                    onNewSession={() => runner.reset()}
-                    busy={sending}
-                    renderMarkdown={renderMarkdown}
-                    onRenderMarkdownChange={setRenderMarkdown}
-                    dockMode={layout.mode}
-                    onChangeDockMode={isEmbedded ? undefined : setMode}
-                    onHideDock={isEmbedded ? undefined : () => setVisible(false)}
-                    hideShortcutHint={DOCK_HIDE_HINT}
-                />
-            }
-            onSend={runner.send}
-            renderMarkdown={renderMarkdown}
-        />
     )
 }

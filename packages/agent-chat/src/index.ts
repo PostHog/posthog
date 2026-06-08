@@ -26,8 +26,9 @@ export type { ClientToolOutcome, PartRendererProps, PartTextVariant, ToolCallCar
 export { describeContext, getStarterPrompts } from './context'
 export type { ChatContext, ConciergePageContext, StarterPrompt } from './context'
 
-export { useFakeRunner } from './fake-runner'
-export type { FakeRunnerControls, Script, ScriptStep, UseFakeRunnerOpts } from './fake-runner'
+// `useFakeRunner` is intentionally *not* exported from the main entry —
+// it lives under `@posthog/agent-chat/fixtures` so production paths
+// can't accidentally pull mock script handling into the runtime bundle.
 
 export { isRenderHandler } from './types'
 export type {
