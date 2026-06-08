@@ -86,7 +86,7 @@ pub struct LengthCaps {
     #[envconfig(default = "400")]
     pub max_property_key_len: usize,
 
-    #[envconfig(default = "255")]
+    #[envconfig(default = "10000")]
     pub max_property_value_len: usize,
 }
 
@@ -204,7 +204,7 @@ mod tests {
     fn length_caps_default_when_env_unset() {
         let caps = LengthCaps::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
         assert_eq!(caps.max_property_key_len, 400);
-        assert_eq!(caps.max_property_value_len, 255);
+        assert_eq!(caps.max_property_value_len, 10000);
     }
 
     #[test]

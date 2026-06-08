@@ -1,3 +1,4 @@
+import { expect, test } from '@playwright-utils/playwright-test-base'
 import { Page } from '@playwright/test'
 
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
