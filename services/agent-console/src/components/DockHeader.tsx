@@ -134,9 +134,13 @@ export function DockHeader({
     // confuse "talking *to* the agent" with the ambient concierge chat.
     // Horizontal padding lives on each row (not the container) so the
     // divider between rows runs edge-to-edge instead of being inset.
+    // When focus mode is on in concierge mode, the header sports a
+    // primary top border to visually join up with the page-top focus
+    // indicator stripe (both bg-primary) — same colour, same signal.
+    const focusJoinClass = !isPlayground && followingEnabled ? 'border-t border-primary' : ''
     const containerClass = isPlayground
         ? 'flex flex-col border-b-2 border-primary bg-primary/10'
-        : 'flex flex-col border-b border-border'
+        : `flex flex-col border-b border-border ${focusJoinClass}`
     const rowDividerClass = isPlayground ? 'border-b border-primary/30' : 'border-b border-border/60'
 
     return (
@@ -523,7 +527,7 @@ function FocusToggle({
             }
             className={
                 (enabled
-                    ? 'border-info/40 bg-info/10 text-info-foreground'
+                    ? 'border-primary bg-primary text-primary-foreground shadow-sm'
                     : 'border-border bg-background text-muted-foreground hover:text-foreground') +
                 ' inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border transition-colors'
             }

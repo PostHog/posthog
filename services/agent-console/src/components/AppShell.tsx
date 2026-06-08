@@ -150,7 +150,7 @@ function ConciergeFocusIndicator(): React.ReactElement | null {
             onClick={() => setEnabled(false)}
             aria-label="Concierge is following you — click to pause focus mode"
             title="Concierge is following you. Click to pause focus mode."
-            className="fixed inset-x-0 top-0 z-50 h-1 cursor-pointer bg-info transition-opacity hover:opacity-80"
+            className="fixed inset-x-0 top-0 z-50 h-1 cursor-pointer bg-primary transition-opacity hover:opacity-80"
         />
     )
 }
