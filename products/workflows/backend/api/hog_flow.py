@@ -997,7 +997,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             after=after_date,
             before=before_date,
         )
-        rows = [
+        rows: list[dict[str, object]] = [
             {
                 "workflow_id": workflow_id,
                 "succeeded": counts.get("succeeded", 0),
@@ -1006,7 +1006,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             for workflow_id, counts in totals.items()
         ]
         # Surface the most-failing workflows first — this is the at-a-glance triage view.
-        rows.sort(key=lambda row: row["failed"], reverse=True)
+        rows.sort(key=lambda row: cast(int, row["failed"]), reverse=True)
         return Response(WorkflowStatsRowSerializer(rows, many=True).data)
 
     @action(methods=["POST"], detail=False)
