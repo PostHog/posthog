@@ -58,10 +58,14 @@ def get_person_and_distinct_ids_for_identifier(
     if person_id is not None and not person_id:
         raise ValueError("person_id must be a non-empty value")
 
-    from posthog.models.person.util import get_person_by_distinct_id, get_person_by_uuid
+    from posthog.models.person.util import get_person_by_uuid, get_persons_by_distinct_ids
 
     if distinct_id is not None:
-        person = get_person_by_distinct_id(team_id, distinct_id)
+        # Plural lookup: index-friendly __in query that also prefetches distinct_ids_cache,
+        # which the person.distinct_ids return below relies on. The singular
+        # get_person_by_distinct_id times out on large teams.
+        persons = get_persons_by_distinct_ids(team_id, [distinct_id])
+        person = persons[0] if persons else None
     else:
         assert person_id is not None
         person = get_person_by_uuid(team_id, person_id)
