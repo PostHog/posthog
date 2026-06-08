@@ -1,23 +1,28 @@
 //! The leaf membership predicate over [`Stage1State`], centralised so the worker's transition
 //! detection, the sweep, and Stage 2 all read the same definition.
 
+use metrics::counter;
+
+use crate::observability::metrics::STAGE1_STATE_DECODE_ERROR;
 use crate::stage1::compressed_history::compressed_sum;
 use crate::stage1::pick_state::PredicateOp;
 use crate::stage1::state::Stage1State;
 
-/// Whether `state` currently satisfies its leaf predicate. `op` is the bucket variants' count
-/// comparator (from the leaf's [`LeafStateMeta`](crate::filters::reverse_index::LeafStateMeta)); it
-/// is `None` for the op-less variants. A bucket state with `op == None` is a meta desync and reads as
-/// a non-member rather than panicking.
-pub fn predicate(state: &Stage1State, op: Option<PredicateOp>) -> bool {
+/// Whether `state` currently satisfies its leaf predicate, for the **op-less** variants
+/// (`BehavioralSingle`, `PersonProperty`). The bucket variants carry a count comparator and must be
+/// evaluated via [`daily_predicate`] / [`compressed_predicate`] with their leaf's [`PredicateOp`] —
+/// every real caller already does (the worker's `mutate_behavioral_daily` and the sweep call those
+/// directly). Reaching a bucket variant here is a dispatch desync: the `LeafStateKey` pins the
+/// variant, so this can only happen on a coding error, and it is counted via
+/// `STAGE1_STATE_DECODE_ERROR` and read as a non-member — loud, never a silently-dropped member.
+pub fn predicate(state: &Stage1State) -> bool {
     match state {
         Stage1State::BehavioralSingle { has_match, .. } => *has_match,
         Stage1State::PersonProperty { matches, .. } => *matches,
-        Stage1State::BehavioralDailyBuckets { buckets, .. } => {
-            op.is_some_and(|op| daily_predicate(buckets, op))
-        }
-        Stage1State::BehavioralCompressedHistory { entries, .. } => {
-            op.is_some_and(|op| compressed_predicate(entries, op))
+        Stage1State::BehavioralDailyBuckets { .. }
+        | Stage1State::BehavioralCompressedHistory { .. } => {
+            counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
+            false
         }
     }
 }
@@ -55,8 +60,8 @@ mod tests {
             last_event_at_ms: 1,
             earliest_eviction_at_ms: 2,
         };
-        assert!(predicate(&matched, None));
-        assert!(!predicate(&unmatched, None));
+        assert!(predicate(&matched));
+        assert!(!predicate(&unmatched));
     }
 
     #[test]
@@ -71,8 +76,8 @@ mod tests {
             last_updated_at_ms: 1,
             last_updated_offset: 2,
         };
-        assert!(predicate(&matched, None));
-        assert!(!predicate(&unmatched, None));
+        assert!(predicate(&matched));
+        assert!(!predicate(&unmatched));
     }
 
     #[test]
@@ -121,16 +126,25 @@ mod tests {
     }
 
     #[test]
-    fn predicate_dispatches_bucket_variant_through_the_op() {
-        let state = Stage1State::BehavioralDailyBuckets {
+    fn bucket_variants_through_op_less_predicate_read_as_non_member() {
+        // Buckets must be evaluated via daily_predicate/compressed_predicate with their op; reaching
+        // the op-less `predicate` is a dispatch desync. Both states below WOULD be members under
+        // Gte(3) (sum 3), so this proves the desync reads as a non-member rather than silently a
+        // member. The op-carrying dispatch is covered by daily_predicate_/compressed_predicate_ above.
+        let daily = Stage1State::BehavioralDailyBuckets {
             buckets: vec![1, 2, 0],
             window_start_day: 20_600,
             last_event_at_ms: 1,
             earliest_eviction_at_ms: 2,
         };
-        assert!(predicate(&state, Some(PredicateOp::Gte(3))), "sum 3 ≥ 3");
-        assert!(!predicate(&state, Some(PredicateOp::Gte(4))));
-        assert!(!predicate(&state, None), "missing op reads as a non-member");
+        assert!(!predicate(&daily));
+        let compressed = Stage1State::BehavioralCompressedHistory {
+            entries: vec![(20_240, 1), (20_400, 2)],
+            window_start_day: 20_240,
+            last_event_at_ms: 1,
+            earliest_eviction_at_ms: 2,
+        };
+        assert!(!predicate(&compressed));
     }
 
     #[test]
@@ -156,18 +170,5 @@ mod tests {
         assert!(compressed_predicate(&one, PredicateOp::Lte(5)));
         assert!(compressed_predicate(&one, PredicateOp::Eq(1)));
         assert!(!compressed_predicate(&one, PredicateOp::Eq(0)));
-    }
-
-    #[test]
-    fn predicate_dispatches_compressed_variant_through_the_op() {
-        let state = Stage1State::BehavioralCompressedHistory {
-            entries: vec![(20_240, 1), (20_400, 2)],
-            window_start_day: 20_240,
-            last_event_at_ms: 1,
-            earliest_eviction_at_ms: 2,
-        };
-        assert!(predicate(&state, Some(PredicateOp::Gte(3))), "sum 3 ≥ 3");
-        assert!(!predicate(&state, Some(PredicateOp::Gte(4))));
-        assert!(!predicate(&state, None), "missing op reads as a non-member");
     }
 }

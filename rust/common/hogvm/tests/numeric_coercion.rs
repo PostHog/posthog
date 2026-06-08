@@ -30,7 +30,10 @@ fn compare(left: &[Value], right: &[Value], op: i64) -> Vec<Value> {
 
 fn run_result(bytecode: Vec<Value>) -> Result<Value, VmFailure> {
     let program = Program::new(bytecode).expect("valid program");
-    let ctx = ExecutionContext::with_defaults(program).with_globals(json!({}));
+    // Cohort comparison semantics are opt-in; this corpus asserts that coercing path.
+    let ctx = ExecutionContext::with_defaults(program)
+        .with_globals(json!({}))
+        .with_coercing_comparisons();
     sync_execute(&ctx, false)
 }
 
@@ -154,10 +157,71 @@ fn bool_number_coercion_maps_true_one_false_zero() {
 }
 
 #[test]
+fn bool_vs_non_numeric_string_matches_python() {
+    // Python's `unify_comparison_types` coerces a string to bool as `bool(s)`: "true"/"false" map
+    // literally, every other non-empty string is truthy, "" is falsy. So `true > "yes"` is 1 > 1.
+    assert_eq!(
+        run(compare(&boolean(true), &string("yes"), OP_GT)),
+        Value::Bool(false),
+    );
+    assert_eq!(
+        run(compare(&boolean(true), &string("yes"), OP_GT_EQ)),
+        Value::Bool(true),
+    );
+    // "false" → 0, so `true > "false"` is 1 > 0.
+    assert_eq!(
+        run(compare(&boolean(true), &string("false"), OP_GT)),
+        Value::Bool(true),
+    );
+    // "" → 0 (falsy), so `true > ""` is 1 > 0.
+    assert_eq!(
+        run(compare(&boolean(true), &string(""), OP_GT)),
+        Value::Bool(true),
+    );
+    // `false < "yes"` is 0 < 1.
+    assert_eq!(
+        run(compare(&boolean(false), &string("yes"), OP_LT)),
+        Value::Bool(true),
+    );
+}
+
+#[test]
 fn number_vs_unparseable_string_errors() {
     // An unparseable string errors (Python raises, TS yields NaN); the cohort executor coerces it to `false`.
     assert!(run_result(compare(&int(5), &string("abc"), OP_GT)).is_err());
     assert!(run_result(compare(&string("abc"), &int(5), OP_LT)).is_err());
+}
+
+/// Build + run WITHOUT opting into coercing comparisons — the default every non-cohort consumer
+/// (e.g. cymbal) gets.
+fn run_legacy(bytecode: Vec<Value>) -> Result<Value, VmFailure> {
+    let program = Program::new(bytecode).expect("valid program");
+    let ctx = ExecutionContext::with_defaults(program).with_globals(json!({}));
+    sync_execute(&ctx, false)
+}
+
+#[test]
+fn legacy_default_keeps_strict_comparisons_for_other_consumers() {
+    // The coercion is opt-in: without it a non-number operand ERRORS rather than coercing, exactly
+    // as on master. This is the contract cymbal relies on to auto-disable a malformed rule, so the
+    // shadow cohort work must not change it.
+    assert!(
+        run_legacy(compare(&int(5), &string("10"), OP_GT)).is_err(),
+        "number vs numeric-string must error on the legacy path, not coerce",
+    );
+    assert!(
+        run_legacy(compare(&boolean(true), &int(0), OP_GT)).is_err(),
+        "bool vs number must error on the legacy path, not coerce",
+    );
+    // Pure numeric comparisons are identical on both paths.
+    assert_eq!(
+        run_legacy(compare(&int(20), &int(10), OP_GT)).unwrap(),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        run_legacy(compare(&int(5), &int(10), OP_GT)).unwrap(),
+        Value::Bool(false)
+    );
 }
 
 #[test]

@@ -11,13 +11,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::{ArcSwap, Guard};
+use common_types::cohort::TeamAllowlist;
 use lifecycle::Handle;
 use metrics::gauge;
 use rand::Rng;
 use sqlx::PgPool;
 use tracing::{debug, info, warn};
 
-use crate::config::TeamAllowlist;
 use crate::filters::loader::{build_catalog_from_rows, load_realtime_cohorts, retain_allowlisted};
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::{FilterError, TeamId};

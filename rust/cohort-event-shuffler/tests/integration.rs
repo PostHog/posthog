@@ -5,12 +5,13 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use cohort_event_shuffler::config::{Config, TeamAllowlist};
+use cohort_event_shuffler::config::Config;
 use cohort_event_shuffler::consumer::EventShuffler;
 use cohort_event_shuffler::event::CohortStreamEvent;
 use cohort_event_shuffler::filter_team_index::TeamIndex;
 use cohort_event_shuffler::producer::CohortStreamProducer;
 use common_kafka::kafka_consumer::SingleTopicConsumer;
+use common_types::cohort::TeamAllowlist;
 use common_types::{ClickHouseEvent, PersonMode};
 use lifecycle::{ComponentOptions, Manager};
 use rdkafka::consumer::{Consumer, StreamConsumer};

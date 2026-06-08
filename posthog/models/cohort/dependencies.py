@@ -266,9 +266,27 @@ def _walk_filter_leaves(node: object):
 
 
 def _extract_leaf_state_keys(cohort: Cohort) -> str:
-    """Stable hash of the leaf fields that define the Stage 1 LeafStateKey, so a behavioral window edit
-    (which leaves `conditionHash` unchanged) is still detectable. Mirrors `rust/cohort-stream-processor/src/stage1/key.rs`:
-    behavioral excludes `negation` (negated and positive leaves share state); cohort-ref includes it.
+    """Structural fingerprint of the leaf fields that feed the Stage 1 `LeafStateKey`, used as a
+    change-detector so a behavioral window/operator edit (which leaves `conditionHash` unchanged) is
+    still seen as a change at save time.
+
+    This is NOT the real 16-byte `LeafStateKey` and is deliberately not byte-comparable to it: the
+    Rust key (`rust/cohort-stream-processor/src/stage1/key.rs`, `LeafStateKey::for_behavioral`) is a
+    delimiter-free little-endian hash of the raw config values, whereas this returns a hex SHA-256
+    over JSON descriptors of the whole leaf set. The two share a *field set*, not a byte layout, so a
+    golden vector cannot guard them — only that the field set stays in sync.
+
+    Mirrored field set (must match the Rust key):
+      - behavioral: conditionHash, value, time_value, time_interval, explicit_datetime,
+        explicit_datetime_to, operator, operator_value. `negation` is EXCLUDED (negated and positive
+        leaves share state; the output is inverted at Stage 2).
+      - person: conditionHash only (the bytecode already encodes key/value/operator).
+      - cohort ref: value and negation.
+
+    Drift risk: if a field is added to the Rust `LeafStateKey` without mirroring it here, an edit to
+    that field changes Stage 1 state without changing this fingerprint, so the orphan-on-edit detector
+    misses it and Stage 1 state is silently orphaned — with no failing test, because the two encodings
+    are not byte-comparable. Keep this field set and the Rust one in lockstep.
     """
     if not cohort.filters:
         return ""

@@ -173,7 +173,7 @@ fn evict_single(
     }
     // Defensive: a stored single is always a member; gate the Left to avoid a spurious emit.
     let transition =
-        predicate(&record.state, None).then(|| transition_for(key, meta, TransitionKind::Left));
+        predicate(&record.state).then(|| transition_for(key, meta, TransitionKind::Left));
     Ok(EvictionResult {
         key,
         variant: StateVariant::BehavioralSingle,

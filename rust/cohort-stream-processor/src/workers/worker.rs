@@ -10,8 +10,12 @@
 //! Per drained sub-batch the worker produces membership changes, awaits all acks, and only then
 //! marks the sub-batch's offset processed. The per-partition offset is tracked over **all**
 //! messages — including skipped/errored ones — so a poison event advances rather than wedges the
-//! partition; **only a produce failure holds the offset back**, since the shadow output must be
-//! durable before its offset commits. Re-produce on replay is idempotent for the parity diff.
+//! partition; **only a produce failure holds the offset back**, since the shadow output should be
+//! durable before its offset commits. Holding the offset is best-effort, not self-healing: the
+//! state already committed during `process_event`, so the replay hits the `is_replay` guard and
+//! skips the transition — a produce-failed flip is dropped at-most-once, the same envelope as a
+//! crash here. Acceptable while shadow-only; the at-least-once cutover must commit state *after*
+//! the produce ack so a replay can re-emit.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -159,7 +163,10 @@ async fn run_worker(
                     errors,
                     "produce to cohort_membership_changed_shadow failed; holding offset for replay",
                 );
-                continue; // hold the offset; Kafka replays and re-produce is idempotent
+                // A produce failure drops these flips for good, same as a crash here: the state
+                // already committed, so the replay hits the `is_replay` guard and won't re-emit
+                // them. Fine while shadow-only (at-most-once).
+                continue;
             }
             if entered > 0 {
                 counter!(OUTPUT_MEMBERSHIP_CHANGES_EMITTED, "status" => MembershipStatus::Entered.as_str())

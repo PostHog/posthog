@@ -128,12 +128,10 @@ impl HogValue {
     }
 
     pub fn equals(&self, rhs: &HogValue, heap: &VmHeap) -> Result<HogLiteral, VmError> {
+        // Legacy structural equality, shared by every consumer. The cohort evaluator's temporal
+        // epoch-equality lives behind the opt-in flag in `HogVM::eq_op`, not here, so `Eq`/`in`/`has`
+        // stay unchanged for `cymbal` and other shared-crate users.
         let (lhs, rhs) = (self.deref(heap)?, rhs.deref(heap)?);
-        // Two Hog temporals compare equal by epoch seconds to match ClickHouse (`is_date_exact`);
-        // inert unless *both* are temporal, so `Eq` is unchanged for every other type.
-        if let (Some(a), Some(b)) = (lhs.as_temporal_seconds(heap), rhs.as_temporal_seconds(heap)) {
-            return Ok((a == b).into());
-        }
         lhs.equals(rhs)
     }
 
@@ -334,6 +332,12 @@ impl HogLiteral {
 
 /// Ordering comparison (`Gt`/`Lt`/`GtEq`/`LtEq`) for two literals, two concerns in order:
 ///
+/// OPT-IN ONLY: this is reached exclusively from the coercing `compare_op` path, which the VM takes
+/// only when the context sets [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons)
+/// — today just the realtime-cohort evaluator. Every other shared-crate consumer (e.g. `cymbal`)
+/// keeps the legacy path where a non-number operand errors, so this coercion does NOT change their
+/// behavior. The semantics here match the Python/TS reference VMs (and ClickHouse for temporals).
+///
 /// 1. If *both* operands are temporal ([`HogLiteral::as_temporal_seconds`]) they are ordered by
 ///    epoch seconds to match ClickHouse — the reference Python/TS HogVMs can't and so always return
 ///    `false`; see the [`crate::stl`] module note.
@@ -392,9 +396,18 @@ fn bool_to_num(b: bool) -> Num {
     Num::Integer(i64::from(b))
 }
 
-/// Matches `coerce_types` / Python's `right.lower() == "true"`: only `"true"` (any case) is truthy.
+/// String→bool coercion for the ordering path, matching Python's `unify_comparison_types`:
+/// `"true"`/`"false"` (any case) map literally and every other non-empty string is truthy
+/// (`bool(s)`), with the empty string falsy. NOTE: the `Eq` path's [`HogLiteral::coerce_types`]
+/// still uses the narrower `== "true"` rule, so `true == "yes"` and `true > "yes"` disagree — a
+/// residual, off-the-cohort-path divergence (cohort leaves compare number-vs-string, not
+/// bool-vs-string).
 fn str_is_true(s: &str) -> bool {
-    s.to_lowercase() == "true"
+    match s.to_lowercase().as_str() {
+        "true" => true,
+        "false" => false,
+        other => !other.is_empty(),
+    }
 }
 
 /// Lexicographic ordering of two strings. Only ordering ops reach here; other variants → `false`.

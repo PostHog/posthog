@@ -19,6 +19,7 @@ chrono = { workspace = true }
 chrono-tz = { workspace = true }
 common-alloc = { path = "../common/alloc" }
 common-database = { path = "../common/database" }
+common-types = { path = "../common/types" }
 # Shadow-topic output producer: `create_kafka_producer` + `send_keyed_iter_to_kafka_*`
 # and the `KafkaConfig`/`KafkaProduceError` types, shared with `cohort-event-shuffler`.
 common-kafka = { path = "../common/kafka" }

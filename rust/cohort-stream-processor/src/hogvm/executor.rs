@@ -31,13 +31,25 @@ pub fn evaluate_detailed(bytecode: &[Value], globals: Value) -> EvalOutcome {
     with_return.extend_from_slice(bytecode);
     with_return.push(Value::from(OP_RETURN));
 
-    // `with_defaults` rebuilds the stl maps and `Program` is not `Clone`, so a per-event
-    // `Program::new` + `with_defaults` is the only API path.
+    // PERF: `with_defaults` rebuilds the full STL (~26 boxed native closures + 2 HashMaps + the hog
+    // module symbol table) on every call — once per conditionHash per event. Building it once per
+    // worker thread and reusing it is blocked by the shared `hogvm` API: `NativeFunction` is
+    // `Box<dyn Fn>` (not `Clone`), `ExecutionContext` owns its native_fns/symbol_table, and there is
+    // no program setter, so a thread_local context can't swap programs in place without a
+    // shared-crate change (cymbal also depends on `common/hogvm`). Likewise each caller clones the
+    // full globals JSON per condition because `with_globals` takes an owned value (`ExecutionContext`
+    // already carries a standing TODO to borrow it). Flamegraph before leaving shadow mode; revisit
+    // with the shared-crate owners if hot.
     let program = match Program::new(with_return) {
         Ok(program) => program,
         Err(error) => return classify_failure(error),
     };
-    let context = ExecutionContext::with_defaults(program).with_globals(globals);
+    // Opt into coercing comparison semantics (cross-type ordering + epoch temporal ordering/equality)
+    // so cohort leaves match the Python/TS/ClickHouse reference. This path is exclusive to the cohort
+    // evaluator; other shared-crate consumers (e.g. cymbal) keep the legacy strict comparisons.
+    let context = ExecutionContext::with_defaults(program)
+        .with_globals(globals)
+        .with_coercing_comparisons();
 
     match sync_execute(&context, false) {
         Ok(result) => EvalOutcome::Matched(result.as_bool().unwrap_or(false)),

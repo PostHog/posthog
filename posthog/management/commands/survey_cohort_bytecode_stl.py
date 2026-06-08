@@ -145,6 +145,22 @@ def iter_instructions(bytecode: list[Any]) -> Iterator[tuple[Operation, list[Any
             if not isinstance(upvalue_count, int):
                 raise ValueError(f"CLOSURE upvalue count is not an int at index {ip + 1}")
             consumed = 1 + 2 * upvalue_count
+        elif op == Operation.CALLABLE:
+            # 4 fixed operands; operand[3] (bytecode[ip+4]) is the inline body length the VM skips.
+            if ip + 4 >= n:
+                raise ValueError(f"truncated CALLABLE at index {ip}")
+            body_length = bytecode[ip + 4]
+            if not isinstance(body_length, int):
+                raise ValueError(f"CALLABLE body length is not an int at index {ip + 4}")
+            consumed = 4 + body_length
+        elif op == Operation.DECLARE_FN:
+            # 3 fixed operands; operand[2] (bytecode[ip+3]) is the inline body length the VM skips.
+            if ip + 3 >= n:
+                raise ValueError(f"truncated DECLARE_FN at index {ip}")
+            body_len = bytecode[ip + 3]
+            if not isinstance(body_len, int):
+                raise ValueError(f"DECLARE_FN body length is not an int at index {ip + 3}")
+            consumed = 3 + body_len
         else:
             consumed = FIXED_OPERAND_COUNTS[op]
 

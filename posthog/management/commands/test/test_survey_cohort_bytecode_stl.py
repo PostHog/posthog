@@ -21,6 +21,7 @@ from common.hogvm.python.operation import Operation
 GET_GLOBAL, CALL_GLOBAL, AND, PLUS = 1, 2, 3, 6
 GT, IN_COHORT = 13, 27
 TRUE, NULL, STRING, INTEGER, RETURN = 29, 31, 32, 33, 38
+DECLARE_FN, CALLABLE = 41, 52
 
 
 class TestBytecodeWalker(BaseTest):
@@ -74,6 +75,22 @@ class TestBytecodeWalker(BaseTest):
                 ["_h", TRUE, RETURN],
                 [(Operation.TRUE, []), (Operation.RETURN, [])],
             ),
+            (
+                "callable_body_skipped_and_next_opcode_reached",
+                ["_H", 1, CALLABLE, "fn", 0, 0, 2, TRUE, RETURN, STRING, "after"],
+                [
+                    (Operation.CALLABLE, ["fn", 0, 0, 2, TRUE, RETURN]),
+                    (Operation.STRING, ["after"]),
+                ],
+            ),
+            (
+                "declare_fn_body_skipped_and_next_opcode_reached",
+                ["_H", 1, DECLARE_FN, "fn", 0, 2, TRUE, RETURN, STRING, "after"],
+                [
+                    (Operation.DECLARE_FN, ["fn", 0, 2, TRUE, RETURN]),
+                    (Operation.STRING, ["after"]),
+                ],
+            ),
         ]
     )
     def test_iter_instructions_disassembles(self, _name, bytecode, expected):
@@ -83,6 +100,16 @@ class TestBytecodeWalker(BaseTest):
         [
             ("truncated_operand", ["_H", 1, STRING], "truncated operands for STRING"),
             ("unknown_opcode", ["_H", 1, 9999], "unknown opcode 9999"),
+            (
+                "declare_fn_non_int_body_length",
+                ["_H", 1, DECLARE_FN, "fn", 0, "notanint"],
+                "DECLARE_FN body length is not an int",
+            ),
+            (
+                "callable_non_int_body_length",
+                ["_H", 1, CALLABLE, "fn", 0, 0, "notanint"],
+                "CALLABLE body length is not an int",
+            ),
         ]
     )
     def test_iter_instructions_raises_on_malformed(self, _name, bytecode, expected_msg):
@@ -212,6 +239,39 @@ class TestAggregateSurvey(BaseTest):
 
         self.assertEqual(len(result["walk_failures"]), 1)
         self.assertEqual(result["walk_failures"][0]["cohort_id"], 5)
+
+    def test_declare_fn_body_is_walked_ok_and_flagged_as_not_implemented(self):
+        # A leaf with an inline DECLARE_FN body must walk OK (body skipped, not mis-walked) so the
+        # survey counts the DECLARE_FN opcode in not_implemented_opcodes_used instead of recording
+        # the whole leaf as a walk failure.
+        rows = [
+            (
+                1,
+                2,
+                {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "person",
+                                "conditionHash": "h1",
+                                "bytecode": ["_H", 1, DECLARE_FN, "fn", 0, 2, TRUE, RETURN, TRUE, RETURN],
+                            },
+                        ],
+                    }
+                },
+            ),
+        ]
+
+        result = aggregate_survey(rows)
+
+        self.assertEqual(result["totals"]["leaves_walked_ok"], 1)
+        self.assertEqual(result["totals"]["leaves_walk_failed"], 0)
+        self.assertEqual(result["walk_failures"], [])
+
+        opcode_names = {entry["opcode"] for entry in result["opcodes"]}
+        self.assertIn("DECLARE_FN", opcode_names)
+        self.assertIn("DECLARE_FN", result["rust_gaps"]["not_implemented_opcodes_used"])
 
     def test_real_compiler_bytecode_is_walked_and_isnull_is_supported(self):
         from posthog.api.cohort import generate_cohort_filter_bytecode

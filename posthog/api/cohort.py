@@ -655,9 +655,12 @@ class CohortSerializer(serializers.ModelSerializer):
         # Loop-check serialized with the advisory lock; a detected loop rolls the insert back. No
         # irreversible side effect may run inside the block — ATOMIC_REQUESTS is off.
         with transaction.atomic():
-            _acquire_cohort_save_lock(self.context["get_team"]().project_id)
+            project_id = self.context["get_team"]().project_id
+            _acquire_cohort_save_lock(project_id)
             cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
-            if will_create_loops(cohort):
+            cohorts_by_id = {c.pk: c for c in Cohort.objects.filter(team__project_id=project_id)}
+            cohorts_by_id[cohort.pk] = cohort
+            if will_create_loops_in_memory(cohort, cohorts_by_id):
                 raise ValidationError("Cohorts cannot reference other cohorts in a loop.")
 
         if cohort.is_static:
@@ -922,17 +925,54 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def _reject_unsupported_realtime_intervals(self, raw: dict) -> None:
         """Reject `performed_event_multiple` + `minute` here, not in the pydantic validator: that
-        raise is swallowed by `validate_filters_and_compute_realtime_support`'s broad try/except."""
+        raise is swallowed by `validate_filters_and_compute_realtime_support`'s broad try/except.
+        Only reject leaves this request newly introduces or changes — a cohort that already stored
+        such a leaf (only reachable via direct API/import) stays editable for unrelated edits."""
+        existing_minute_leaves = self._minute_performed_event_multiple_leaf_keys(
+            getattr(self.instance, "filters", None)
+        )
         for leaf in _iter_filter_leaves(raw.get("properties")):
-            if (
-                leaf.get("type") == "behavioral"
-                and leaf.get("value") == "performed_event_multiple"
-                and leaf.get("time_interval") == "minute"
-            ):
-                raise ValidationError(
-                    detail="A 'minute' time interval is not supported for performed_event_multiple cohorts.",
-                    code="minute_interval_not_supported",
-                )
+            if not self._is_minute_performed_event_multiple(leaf):
+                continue
+            if self._leaf_identity(leaf) in existing_minute_leaves:
+                continue  # unchanged, pre-existing leaf — leave editable
+            raise ValidationError(
+                detail="A 'minute' time interval is not supported for performed_event_multiple cohorts.",
+                code="minute_interval_not_supported",
+            )
+
+    @staticmethod
+    def _is_minute_performed_event_multiple(leaf: dict) -> bool:
+        return (
+            leaf.get("type") == "behavioral"
+            and leaf.get("value") == "performed_event_multiple"
+            and leaf.get("time_interval") == "minute"
+        )
+
+    @staticmethod
+    def _leaf_identity(leaf: dict) -> tuple:
+        # Identity over user-meaningful fields; ignores bytecode/conditionHash noise.
+        return (
+            leaf.get("type"),
+            leaf.get("value"),
+            leaf.get("key"),
+            leaf.get("event_type"),
+            leaf.get("time_interval"),
+            leaf.get("time_value"),
+            leaf.get("operator"),
+            leaf.get("operator_value"),
+            leaf.get("negation"),
+        )
+
+    @classmethod
+    def _minute_performed_event_multiple_leaf_keys(cls, filters: dict | None) -> set[tuple]:
+        if not isinstance(filters, dict):
+            return set()
+        return {
+            cls._leaf_identity(leaf)
+            for leaf in _iter_filter_leaves(filters.get("properties"))
+            if cls._is_minute_performed_event_multiple(leaf)
+        }
 
     @staticmethod
     def _cohort_error_message(exc: PydanticValidationError) -> str:
@@ -1152,8 +1192,13 @@ class CohortSerializer(serializers.ModelSerializer):
 
         # Narrow block: the calculation enqueue and analytics below run after commit (no irreversible work inside).
         with transaction.atomic():
-            _acquire_cohort_save_lock(cohort.team.project_id)
-            if will_create_loops(cohort):
+            project_id = cohort.team.project_id
+            _acquire_cohort_save_lock(project_id)
+            cohorts_by_id = {c.pk: c for c in Cohort.objects.filter(team__project_id=project_id)}
+            # cohort.save() runs below, so the prefetched row is stale — overlay the in-memory
+            # instance (which already carries its new filters) so the new edges are walked.
+            cohorts_by_id[cohort.pk] = cohort
+            if will_create_loops_in_memory(cohort, cohorts_by_id):
                 raise ValidationError("Cohorts cannot reference other cohorts in a loop.")
             cohort.save()
 
@@ -1640,6 +1685,31 @@ def will_create_loops(cohort: Cohort) -> bool:
                         return True
 
         cohorts_on_path.remove(current_cohort.pk)
+        return False
+
+    return dfs_loop_helper(cohort, set(), set())
+
+
+def will_create_loops_in_memory(cohort: Cohort, cohorts_by_id: dict[int, Cohort]) -> bool:
+    """In-memory variant of will_create_loops: walks the cohort reference graph without per-node DB
+    round-trips. `cohorts_by_id` must hold every cohort in the project, overlaid with the cohort
+    being saved so its new edges are walked."""
+
+    def dfs_loop_helper(current: Cohort, seen: set[int], on_path: set[int]) -> bool:
+        seen.add(current.pk)
+        on_path.add(current.pk)
+        for prop in current.properties.flat:
+            if prop.type == "cohort" and not isinstance(prop.value, list):
+                ref_id = int(prop.value)
+                if ref_id in on_path:
+                    return True
+                if ref_id not in seen:
+                    nested = cohorts_by_id.get(ref_id)
+                    if nested is None:
+                        raise ValidationError("Invalid Cohort ID in filter")
+                    if dfs_loop_helper(nested, seen, on_path):
+                        return True
+        on_path.remove(current.pk)
         return False
 
     return dfs_loop_helper(cohort, set(), set())

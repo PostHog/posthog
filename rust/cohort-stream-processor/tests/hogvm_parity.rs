@@ -1,7 +1,16 @@
-//! Cross-runtime HogVM parity goldens. Each fixture's `expected_result` is what the Python oracle
-//! (`common/hogvm/python/execute.py::execute_bytecode`) produced for that `bytecode` + `globals`
-//! pair; the test asserts the Rust executor agrees, proving the two runtimes match on the supported
-//! cohort bytecode surface.
+//! HogVM regression goldens for the supported cohort bytecode surface. Each fixture's
+//! `expected_result` is a committed oracle snapshot — the value the Python
+//! `common/hogvm/python/execute.py::execute_bytecode` runtime produced when the fixture was
+//! authored — and the test asserts the Rust executor still agrees with that snapshot. This guards
+//! Rust against regression; it does NOT re-run Python/Node in CI, so on its own it is not a live
+//! three-way parity proof (a mis-transcribed `expected_result` would enshrine a wrong answer). The
+//! optional shared corpus (`../common/hogvm/__tests__/cohort_bytecode`) is not committed yet, so
+//! today only the in-crate fixtures run.
+//!
+//! Provenance caveat: the temporal fixtures (`toDateTime`/`toDate` ordering) are a Rust-vs-ClickHouse
+//! oracle, NOT a Python one — the reference Python/TS VMs can't order Hog temporals (they return
+//! `false`), so their `expected_result` is the ClickHouse/instant-ordering answer the Rust VM
+//! deliberately matches; see `rust/common/hogvm/tests/datetime.rs`.
 
 use std::fs;
 use std::path::{Path, PathBuf};

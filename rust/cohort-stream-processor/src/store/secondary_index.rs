@@ -8,6 +8,17 @@
 //! - **Operand** — a 17-byte `[tag u8][lsk 16]` ([`IndexOp`]); a concatenation of several is itself
 //!   a valid operand.
 //!
+//! ## Why populate it now, before anything reads it
+//!
+//! Through M2 there is no production *reader* of `cf_person_index` — `process_event` only ever
+//! stages `IndexOp::Append`, and `get_person_index`/`IndexOp::Remove` have only test callers. The
+//! M2 sweep evicts via the in-memory `EvictionQueue<Stage1Key>` and per-key `cf_stage1` reads, not
+//! this index; Stage 2 (the eventual reader) is still a stub. It is written now on purpose: (1) the
+//! non-associative merge operator gets production bake time on real compaction/flush threads before
+//! a reader depends on it, and (2) Stage 2 inherits a fully-built person → leaf-state index with no
+//! historical backfill pass. The cost is one small merge per first-seen `(person, leaf_state_key)`;
+//! the correctness surface is fenced by the two rules below.
+//!
 //! Two correctness rules:
 //!
 //! 1. **Never panic.** The merge fns run on RocksDB compaction/flush threads; a panic across that

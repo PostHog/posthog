@@ -35,6 +35,9 @@ impl LeafStateKey {
 
     /// Hash the full predicate config per the cross-runtime contract at the module level — do not
     /// reorder fields or insert separators without updating the Python port.
+    // Drift guard: the Python change-detector `_extract_leaf_state_keys`
+    // (posthog/models/cohort/dependencies.py) mirrors THIS field set to detect window/operator
+    // edits at save time. Add any new field there too, or such an edit silently orphans state.
     pub fn for_behavioral(leaf: &BehavioralLeafConfig) -> Self {
         let mut h = Sha256::new();
         h.update(leaf.condition_hash);

@@ -427,7 +427,7 @@ fn mutate_behavioral(
         None => (i64::MIN, false, AppliedOffsets::default()),
         Some(record) => {
             // `BehavioralSingle` is op-less, so no `PredicateOp` is needed.
-            let predicate_before = predicate(&record.state, None);
+            let predicate_before = predicate(&record.state);
             match record.state {
                 Stage1State::BehavioralSingle {
                     last_event_at_ms, ..
@@ -508,6 +508,8 @@ fn mutate_behavioral_daily(
     // Taken by value so the prior bucket array and offset map move into the new record instead of
     // cloning on this per-event hot path.
     let (prior_buckets, prior_window_start_day, prev_last_event, mut applied) = match prev {
+        // The `0` window_start_day is a throwaway: a `None` prior yields empty buckets, so the
+        // `buckets.is_empty()` seed below recomputes window_start_day and this value is never read.
         None => (None, 0_i32, i64::MIN, AppliedOffsets::default()),
         Some(record) => match record.state {
             Stage1State::BehavioralDailyBuckets {

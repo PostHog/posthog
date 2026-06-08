@@ -119,7 +119,11 @@ impl Stage1State {
 /// the shadow diff stays byte-stable; the container is private behind the newtype so a later perf
 /// swap is a one-file change. Bounded by the source topic's partition count
 /// (`clickhouse_events_json` = 512), realistically a handful per person — **no eviction**, since
-/// evicting an entry would re-open the very replay window this closes.
+/// evicting an entry would re-open the very replay window this closes. Even a person whose events
+/// fan across all 512 source partitions caps this map at 512 entries (~12 KB serialized), so
+/// unbounded-in-principle is bounded-and-small in practice; a time-based "drop partitions unseen for
+/// N days" policy is intentionally *not* offered because it would re-open the window for a late
+/// redelivery from a dropped partition.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct AppliedOffsets(BTreeMap<i32, i64>);

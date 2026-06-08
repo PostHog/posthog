@@ -14,13 +14,13 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use arc_swap::ArcSwap;
+use common_types::cohort::TeamAllowlist;
 use lifecycle::Handle;
 use metrics::gauge;
 use rand::Rng;
 use sqlx::PgPool;
 use tracing::{debug, info, warn};
 
-use crate::config::TeamAllowlist;
 use crate::observability::metrics::ACTIVE_TEAMS;
 
 /// Must match the Node filter manager's predicate (`cohort_type='realtime'`, not deleted, non-null

@@ -12,6 +12,7 @@ from posthog.models.cohort.cohort import CohortType
 from posthog.models.cohort.dependencies import (
     COHORT_BACKFILL_DEBOUNCE_SECONDS,
     COHORT_DEPENDENCY_CACHE_COUNTER,
+    COHORT_REALTIME_STATE_ORPHANED_COUNTER,
     DEPENDENCY_CACHE_TIMEOUT,
     _extract_leaf_state_keys,
     _extract_person_property_filters,
@@ -1322,3 +1323,98 @@ class TestLeafStateKeys(BaseTest):
     def test_leaf_state_keys_changed_is_false_without_a_snapshot(self) -> None:
         cohort = self._cohort(self._behavioral())
         self.assertFalse(_leaf_state_keys_changed(cohort))
+
+    @parameterized.expand(
+        [
+            ("condition_hash", "conditionHash", "ffffffffffffffff"),
+            ("value", "value", "performed_event_multiple"),
+            ("time_value", "time_value", 30),
+            ("time_interval", "time_interval", "week"),
+            ("explicit_datetime", "explicit_datetime", "2026-01-01T00:00:00Z"),
+            ("explicit_datetime_to", "explicit_datetime_to", "2026-02-01T00:00:00Z"),
+            ("operator", "operator", "lte"),
+            ("operator_value", "operator_value", 5),
+        ]
+    )
+    def test_each_behavioral_field_independently_changes_the_fingerprint(self, _name, field, changed_value) -> None:
+        # Mirrors the Rust `each_discriminating_field_changes_the_key` test: every field the Rust
+        # LeafStateKey hashes must move the Python change-detector fingerprint, or a window/operator
+        # edit silently orphans Stage 1 state.
+        base_overrides = {"operator": "gte", "operator_value": 3}
+        self.assertNotEqual(
+            _extract_leaf_state_keys(self._cohort(self._behavioral(**base_overrides))),
+            _extract_leaf_state_keys(self._cohort(self._behavioral(**{**base_overrides, field: changed_value}))),
+        )
+
+
+class TestCohortRealtimeStateClearOnEdit(BaseTest):
+    BEHAVIORAL_HASH = "cd0863735b457170"
+
+    @fixture(autouse=True)
+    def mock_transaction(self):
+        with mock.patch("django.db.transaction.on_commit", side_effect=lambda func: func()):
+            yield
+
+    def _orphan_count(self) -> float:
+        return COHORT_REALTIME_STATE_ORPHANED_COUNTER.labels(reason="leaf_state_key_changed")._value._value
+
+    def _behavioral_filters(self, time_value: int, **leaf_overrides) -> dict:
+        leaf = {
+            "type": "behavioral",
+            "key": "$pageview",
+            "value": "performed_event",
+            "time_value": time_value,
+            "time_interval": "day",
+            "conditionHash": self.BEHAVIORAL_HASH,
+        }
+        leaf.update(leaf_overrides)
+        return {"properties": {"type": "AND", "values": [leaf]}}
+
+    def _create_realtime_cohort(self, time_value: int = 7, **leaf_overrides) -> Cohort:
+        return Cohort.objects.create(
+            name="Realtime behavioral cohort",
+            team=self.team,
+            cohort_type=CohortType.REALTIME,
+            filters=self._behavioral_filters(time_value, **leaf_overrides),
+        )
+
+    def test_realtime_window_edit_increments_orphan_counter_once(self) -> None:
+        cohort = self._create_realtime_cohort(time_value=7)
+
+        before = self._orphan_count()
+        cohort.filters = self._behavioral_filters(time_value=14)
+        cohort.save()
+
+        self.assertEqual(self._orphan_count(), before + 1)
+
+    def test_recalculation_only_save_does_not_increment_orphan_counter(self) -> None:
+        cohort = self._create_realtime_cohort(time_value=7)
+
+        before = self._orphan_count()
+        cohort.save(update_fields=["is_calculating", "last_calculation", "count"])
+
+        self.assertEqual(self._orphan_count(), before)
+
+    def test_non_realtime_window_edit_does_not_increment_orphan_counter(self) -> None:
+        cohort = Cohort.objects.create(
+            name="Static behavioral cohort",
+            team=self.team,
+            filters=self._behavioral_filters(time_value=7),
+        )
+
+        before = self._orphan_count()
+        cohort.filters = self._behavioral_filters(time_value=14)
+        cohort.save()
+
+        self.assertEqual(self._orphan_count(), before)
+
+    def test_realtime_edit_with_unchanged_leaf_state_keys_does_not_increment(self) -> None:
+        # Flipping `negation` on a behavioral leaf changes `filters` (so the receiver runs and pre_save
+        # snapshots) but is excluded from the leaf-state-key set, so no state is orphaned.
+        cohort = self._create_realtime_cohort(time_value=7, negation=False)
+
+        before = self._orphan_count()
+        cohort.filters = self._behavioral_filters(time_value=7, negation=True)
+        cohort.save()
+
+        self.assertEqual(self._orphan_count(), before)

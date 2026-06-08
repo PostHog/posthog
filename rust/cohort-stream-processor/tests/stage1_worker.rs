@@ -10,7 +10,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use chrono_tz::UTC;
+use chrono_tz::Asia::Kolkata;
+use chrono_tz::{Tz, UTC};
 use cohort_stream_processor::consumers::CohortStreamEvent;
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFilters, TeamFiltersBuilder, TeamId,
@@ -137,13 +138,19 @@ fn cohort(values: Vec<Value>) -> Value {
 }
 
 fn build_team_filters(cohorts: Vec<(CohortId, Value)>) -> TeamFilters {
+    build_team_filters_tz(cohorts, UTC)
+}
+
+/// Like [`build_team_filters`] but freezes under an explicit team timezone, so the bucket folds run
+/// their `day_idx_in_tz(event_ms, tz)` path against a non-UTC zone.
+fn build_team_filters_tz(cohorts: Vec<(CohortId, Value)>, tz: Tz) -> TeamFilters {
     let mut builder = TeamFiltersBuilder::default();
     for (id, filters) in cohorts {
         builder
             .add_cohort(id, TeamId(TEAM), &filters)
             .expect("add cohort");
     }
-    builder.freeze(UTC)
+    builder.freeze(tz)
 }
 
 fn catalog_of(filters: TeamFilters) -> Arc<CatalogHandle> {
@@ -1410,6 +1417,129 @@ fn daily_multiple_stores_eviction_deadline_at_oldest_bucket_day_boundary() {
         deadline,
         start_of_day_ms_in_tz(event_day + window_days as i32 + 1, UTC),
         "oldest non-zero bucket leaves at start of day event_day + window_days + 1",
+    );
+}
+
+#[test]
+fn daily_multiple_buckets_by_team_timezone_day_not_utc_day() {
+    // The other daily-bucket tests freeze under UTC, so the fold's `day_idx_in_tz(event_ms, tz)` path
+    // is only ever exercised against UTC. Freeze under Asia/Kolkata (+05:30, no DST) and fold an event
+    // at 20:00 UTC — which is 01:30 the *next* calendar day in Kolkata — so its team-tz day is one
+    // greater than its UTC day. The window must anchor on the Kolkata day, not the UTC day.
+    let (_dir, store) = temp_store();
+    let window_days = 7;
+    let filters = build_team_filters_tz(
+        vec![(
+            CohortId(1),
+            cohort(vec![behavioral_leaf_multiple(window_days, "gte", 1)]),
+        )],
+        Kolkata,
+    );
+    let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    let alice = person(1);
+
+    let ts = "2026-05-26 20:00:00.000000"; // 20:00 UTC = 01:30 next-day Kolkata
+    let event_ms = clickhouse_timestamp_to_millis(ts).unwrap();
+    let kolkata_day = day_idx_in_tz(event_ms, Kolkata);
+    let utc_day = day_idx_in_tz(event_ms, UTC);
+    assert_eq!(
+        kolkata_day,
+        utc_day + 1,
+        "the chosen instant lands on different UTC and Kolkata calendar days",
+    );
+
+    let out = process_event(PARTITION_ID, &store, &filters, &event_at(alice, ts, 1, 0)).unwrap();
+    assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
+
+    let state = state_at(&store, lsk, alice).unwrap();
+    let (_, window_start_day, deadline) = daily_state(&state);
+    assert_eq!(
+        window_start_day,
+        kolkata_day - window_days as i32,
+        "the fresh window anchors on the team-tz (Kolkata) now-day",
+    );
+    assert_ne!(
+        window_start_day,
+        utc_day - window_days as i32,
+        "a UTC-hardcoded fold would anchor one day earlier — this is the discriminating assertion",
+    );
+    // The deadline is the Kolkata local-midnight the lone bucket leaves the window, and that instant
+    // differs from the UTC anchoring (Kolkata midnight is 18:30 UTC the prior day).
+    assert_eq!(
+        deadline,
+        start_of_day_ms_in_tz(kolkata_day + window_days as i32 + 1, Kolkata),
+        "eviction anchors on Kolkata local midnight",
+    );
+    assert_ne!(
+        deadline,
+        start_of_day_ms_in_tz(utc_day + window_days as i32 + 1, UTC),
+        "a UTC-hardcoded fold would compute a different deadline",
+    );
+}
+
+#[test]
+fn daily_multiple_event_on_window_start_day_counts_in_bucket_zero() {
+    // Sibling of `daily_multiple_late_behind_event_records_offset_without_counting`: that test covers
+    // an event strictly *before* `window_start_day` (the BEHIND branch, `event_day < window_start_day`,
+    // which drops it). This pins the inclusive lower bound — an event landing *exactly* on
+    // `window_start_day` is WITHIN, not BEHIND, so it must count in bucket 0.
+    let (_dir, store) = temp_store();
+    let window_days = 2;
+    let filters = build_team_filters(vec![(
+        CohortId(1),
+        cohort(vec![behavioral_leaf_multiple(window_days, "gte", 1)]),
+    )]);
+    let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    let alice = person(1);
+
+    // Newest event first (offset 10) on 05-27 → window covers [05-25 ..= 05-27], so window_start_day is
+    // 05-25 and this event lands in the last bucket (the now-day), leaving bucket 0 empty.
+    let out = process_event(
+        PARTITION_ID,
+        &store,
+        &filters,
+        &event_at(alice, "2026-05-27 12:00:00.000000", 1, 10),
+    )
+    .unwrap();
+    assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
+    let before = state_at(&store, lsk, alice).unwrap();
+    let (buckets_before, window_start_day, _) = daily_state(&before);
+    assert_eq!(
+        window_start_day,
+        day_of("2026-05-25 00:00:00.000000"),
+        "window_start_day is the inclusive lower bound, day 05-25",
+    );
+    assert_eq!(buckets_before[0], 0, "the boundary bucket starts empty");
+    assert_eq!(window_count(&before), 1);
+
+    // An event landing exactly on window_start_day (05-25): event_day == window_start_day, so it is
+    // WITHIN (not the strict `event_day < window_start_day` BEHIND drop) and counts in bucket 0.
+    let out = process_event(
+        PARTITION_ID,
+        &store,
+        &filters,
+        &event_at(alice, "2026-05-25 23:00:00.000000", 1, 11),
+    )
+    .unwrap();
+    assert!(
+        out.transitions.is_empty(),
+        "already a member (count 1 → 2) → no transition",
+    );
+
+    let after = state_at(&store, lsk, alice).unwrap();
+    let (buckets_after, window_start_after, _) = daily_state(&after);
+    assert_eq!(
+        window_start_after, window_start_day,
+        "an in-window event does not slide the window",
+    );
+    assert_eq!(
+        buckets_after[0], 1,
+        "the boundary-day event counts in bucket 0 (inclusive lower bound)",
+    );
+    assert_eq!(
+        window_count(&after),
+        2,
+        "the boundary event is counted, not dropped as behind",
     );
 }
 

@@ -14,7 +14,9 @@ from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -2495,6 +2497,195 @@ email@example.org,
             Cohort.objects.filter(team=self.team, name="loop C").exists(),
             "the looping create must roll back, not leave a half-saved cohort",
         )
+
+    @staticmethod
+    def _cohort_ref_groups(cohort_id: int) -> list:
+        return [{"properties": [{"type": "cohort", "value": cohort_id, "key": "id"}]}]
+
+    @parameterized.expand(["create", "update"])
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_two_node_loop_is_rejected(self, mode: str, _patch_calc, _patch_capture, _patch_on_commit):
+        a = Cohort.objects.create(team=self.team, name="A", groups=[])
+        b = Cohort.objects.create(team=self.team, name="B", groups=self._cohort_ref_groups(a.id))
+
+        if mode == "create":
+            # B already references A; creating C that closes B -> A -> ... has no cycle, so close it
+            # directly: make A reference B via the ORM, then a create that references A forms A<->B.
+            a.groups = self._cohort_ref_groups(b.id)
+            a.save()
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts",
+                data={"name": "C", "groups": self._cohort_ref_groups(a.id)},
+            )
+        else:
+            # Point A at B; B already points at A -> A -> B -> A cycle.
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{a.id}",
+                data={"groups": self._cohort_ref_groups(b.id)},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertLessEqual(
+            {"detail": "Cohorts cannot reference other cohorts in a loop."}.items(),
+            response.json().items(),
+        )
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_self_reference_on_update_is_rejected(self, _patch_calc, _patch_capture, _patch_on_commit):
+        a = Cohort.objects.create(team=self.team, name="self", groups=[])
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{a.id}",
+            data={"groups": self._cohort_ref_groups(a.id)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertLessEqual(
+            {"detail": "Cohorts cannot reference other cohorts in a loop."}.items(),
+            response.json().items(),
+        )
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_diamond_reference_is_not_a_loop(self, _patch_calc, _patch_capture, _patch_on_commit):
+        # C -> A, C -> B, B -> A: a diamond, no cycle. Guards against a false-positive loop verdict.
+        # Calculation is patched out: the loop check (not membership computation) is what's under test.
+        a = Cohort.objects.create(team=self.team, name="A", groups=[])
+        b = Cohort.objects.create(team=self.team, name="B", groups=self._cohort_ref_groups(a.id))
+        with patch("posthog.models.cohort.cohort.Cohort.enqueue_calculation"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts",
+                data={
+                    "name": "C",
+                    "groups": [
+                        {
+                            "properties": [
+                                {"type": "cohort", "value": a.id, "key": "id"},
+                                {"type": "cohort", "value": b.id, "key": "id"},
+                            ]
+                        }
+                    ],
+                },
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_reference_to_nonexistent_cohort_is_rejected(self, _patch_calc, _patch_capture, _patch_on_commit):
+        a = Cohort.objects.create(team=self.team, name="A", groups=[])
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{a.id}",
+            data={"groups": self._cohort_ref_groups(99999)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertLessEqual(
+            {"detail": "Invalid Cohort ID in filter"}.items(),
+            response.json().items(),
+        )
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_loop_check_does_not_scale_db_queries_with_graph_depth(self, _patch_calc, _patch_capture, _patch_on_commit):
+        # The loop check now prefetches the project's cohorts once and walks them in memory, so the
+        # under-lock query count must not grow with the length of the referenced chain.
+        def build_chain(length: int) -> Cohort:
+            head: Optional[Cohort] = None
+            for i in range(length):
+                groups = self._cohort_ref_groups(head.id) if head is not None else []
+                head = Cohort.objects.create(team=self.team, name=f"chain {length}-{i}", groups=groups)
+            assert head is not None
+            return head
+
+        short_head = build_chain(2)
+        long_head = build_chain(8)
+
+        # Patch out calculation: it expands the whole chain (depth-dependent), which would confound a
+        # measurement aimed at the loop check alone.
+        with patch("posthog.models.cohort.cohort.Cohort.enqueue_calculation"):
+            # Warm process-global lazy loads (e.g. constance settings) so the measured counts reflect
+            # the per-request loop check, not a one-time first-touch cache fill.
+            self.client.patch(f"/api/projects/{self.team.id}/cohorts/{short_head.id}", data={"name": "warmup"})
+
+            with CaptureQueriesContext(connection) as short_ctx:
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/cohorts/{short_head.id}",
+                    data={"name": "short renamed"},
+                )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+            with CaptureQueriesContext(connection) as long_ctx:
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/cohorts/{long_head.id}",
+                    data={"name": "long renamed"},
+                )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        # Identical query counts ⇒ the loop check walks the prefetched graph in memory (one query)
+        # instead of one query per referenced cohort, so a deeper chain costs no extra round-trips.
+        self.assertEqual(
+            len(short_ctx.captured_queries),
+            len(long_ctx.captured_queries),
+            "the loop check must not issue more queries for a longer reference chain",
+        )
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_unrelated_edit_on_cohort_with_stored_minute_leaf_is_allowed(
+        self, _patch_calc, _patch_capture, _patch_on_commit
+    ):
+        # negation defaults to False on BehavioralFilter, so a re-validated leaf carries it; mirror
+        # the normalized shape a real pre-existing cohort would have stored so the identity matches.
+        minute_leaf = {
+            "type": "behavioral",
+            "key": "$pageview",
+            "value": "performed_event_multiple",
+            "event_type": "events",
+            "time_value": 5,
+            "time_interval": "minute",
+            "operator": "gte",
+            "operator_value": 3,
+            "negation": False,
+        }
+        stored_filters = {"properties": {"type": "AND", "values": [minute_leaf]}}
+        # Seed via the model layer to bypass the serializer gate — only reachable via direct API/import.
+        cohort = Cohort.objects.create(team=self.team, name="legacy minute", filters=stored_filters)
+
+        # The edit UI re-sends the full filters even on a rename; FIX 1 must allow the unchanged leaf.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}",
+            data={"name": "renamed, leaf untouched", "filters": stored_filters},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.name, "renamed, leaf untouched")
+
+    @parameterized.expand(
+        [
+            (
+                "non_behavioral",
+                {"properties": {"type": "AND", "values": [{"key": "x", "value": "y", "type": "person"}]}},
+            ),
+            ("empty_realtime", {"properties": {"type": "AND", "values": []}}),
+        ]
+    )
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_unrelated_cohort_update_is_allowed(
+        self, _name: str, filters: dict, _patch_calc, _patch_capture, _patch_on_commit
+    ):
+        cohort = Cohort.objects.create(team=self.team, name="ok", filters=filters)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}",
+            data={"name": "renamed"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
     @parameterized.expand(["create", "update"])
     @patch("posthog.api.cohort.report_user_action")

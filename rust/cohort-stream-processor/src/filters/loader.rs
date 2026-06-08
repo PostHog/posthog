@@ -4,12 +4,12 @@
 use std::collections::HashMap;
 
 use chrono_tz::{Tz, UTC};
+use common_types::cohort::TeamAllowlist;
 use metrics::counter;
 use serde_json::Value;
 use sqlx::PgPool;
 use tracing::warn;
 
-use crate::config::TeamAllowlist;
 use crate::filters::manager::FilterCatalog;
 use crate::filters::reverse_index::TeamFiltersBuilder;
 use crate::filters::{CohortId, FilterError, TeamId};

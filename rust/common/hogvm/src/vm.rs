@@ -221,11 +221,13 @@ impl<'a> HogVM<'a> {
             }
             Operation::Eq => {
                 let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(a.equals(&b, &self.heap)?)?;
+                let result = self.eq_op(&a, &b)?;
+                self.push_stack(result)?;
             }
             Operation::NotEq => {
                 let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(a.not_equals(&b, &self.heap)?)?;
+                let result = self.eq_op(&a, &b)?.not()?;
+                self.push_stack(result)?;
             }
             Operation::Gt => self.compare_op(NumOp::Gt)?,
             Operation::GtEq => self.compare_op(NumOp::Gte)?,
@@ -716,9 +718,19 @@ impl<'a> HogVM<'a> {
         }
     }
 
-    /// Shared `Gt`/`GtEq`/`Lt`/`LtEq` arm. Pops operands raw (not `pop_stack_as`) so a non-`Number`
-    /// reaches [`compare_values`]' coercion instead of erroring first. `a` is the top of the stack.
+    /// `Gt`/`GtEq`/`Lt`/`LtEq` arm. The default (legacy) path requires numeric operands and errors
+    /// otherwise — the behavior `cymbal` and every other existing shared-crate consumer relies on
+    /// (a non-number operand erroring is what lets cymbal auto-disable a malformed rule). Only when
+    /// the context opts into coercing comparisons (the realtime-cohort evaluator, via
+    /// [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons))
+    /// does a non-`Number` operand reach [`compare_values`]' coercion instead of erroring. `a` is the
+    /// top of the stack.
     fn compare_op(&mut self, op: NumOp) -> Result<(), VmError> {
+        if !self.context.coerce_comparisons {
+            // Legacy/reference path (master): both operands must be `Number` or this errors.
+            let (a, b): (Num, Num) = (self.pop_stack_as()?, self.pop_stack_as()?);
+            return self.push_stack(Num::binary_op(op, &a, &b)?);
+        }
         let a = self.pop_stack()?;
         let b = self.pop_stack()?;
         // Scope the immutable heap borrows so the result is owned before the `&mut self` push.
@@ -728,6 +740,23 @@ impl<'a> HogVM<'a> {
             compare_values(op, a_lit, b_lit, &self.heap)?
         };
         self.push_stack(result)
+    }
+
+    /// `Eq`/`NotEq` core. The default path is the legacy structural equality every existing
+    /// shared-crate consumer relies on. Only when the context opts into coercing comparisons (the
+    /// realtime-cohort evaluator) do two Hog temporals compare by epoch seconds to match ClickHouse
+    /// (`is_date_exact`); every non-temporal pair is unchanged either way.
+    fn eq_op(&self, a: &HogValue, b: &HogValue) -> Result<HogLiteral, VmError> {
+        if self.context.coerce_comparisons {
+            let (lhs, rhs) = (a.deref(&self.heap)?, b.deref(&self.heap)?);
+            if let (Some(x), Some(y)) = (
+                lhs.as_temporal_seconds(&self.heap),
+                rhs.as_temporal_seconds(&self.heap),
+            ) {
+                return Ok((x == y).into());
+            }
+        }
+        a.equals(b, &self.heap)
     }
 
     // Move a value from the stack onto the heap, replacing it with a reference to the heap value,

@@ -16,7 +16,10 @@ const OP_RETURN: i64 = 38;
 
 fn run(bytecode: Vec<Value>) -> Value {
     let program = Program::new(bytecode).expect("valid program");
-    let ctx = ExecutionContext::with_defaults(program).with_globals(json!({}));
+    // Temporal ordering/equality is opt-in; this corpus asserts that coercing path.
+    let ctx = ExecutionContext::with_defaults(program)
+        .with_globals(json!({}))
+        .with_coercing_comparisons();
     sync_execute(&ctx, false).expect("execution succeeds")
 }
 
@@ -144,6 +147,33 @@ fn datetime_equality_is_by_instant() {
     assert_eq!(run(compare(&naive, &other, OP_EQ)), Value::Bool(false));
 }
 
+/// Run WITHOUT opting into coercing comparisons — the default every non-cohort consumer gets.
+fn run_legacy(bytecode: Vec<Value>) -> Value {
+    let program = Program::new(bytecode).expect("valid program");
+    let ctx = ExecutionContext::with_defaults(program).with_globals(json!({}));
+    sync_execute(&ctx, false).expect("execution succeeds")
+}
+
+#[test]
+fn legacy_default_compares_temporals_structurally_not_by_epoch() {
+    // Same instant (05:30 Kolkata == 00:00 UTC), different zone: epoch-equal but structurally
+    // distinct objects. The opt-in coercing path treats them as equal (ClickHouse `is_date_exact`);
+    // the default path every other consumer (e.g. cymbal) gets keeps the legacy structural
+    // comparison, so they are NOT equal — proving the temporal `Eq` change is gated.
+    let kolkata = to_datetime_zoned("2026-01-01 05:30:00", "Asia/Kolkata");
+    let utc = to_datetime("2026-01-01 00:00:00");
+    assert_eq!(
+        run(compare(&kolkata, &utc, OP_EQ)),
+        Value::Bool(true),
+        "coercing: epoch-equal"
+    );
+    assert_eq!(
+        run_legacy(compare(&kolkata, &utc, OP_EQ)),
+        Value::Bool(false),
+        "legacy: structurally distinct (zone differs)",
+    );
+}
+
 #[test]
 fn date_and_datetime_are_mutually_comparable() {
     let date = vec![
@@ -188,7 +218,8 @@ fn full_compiled_shape_to_string_to_datetime_lt() {
     ] {
         let program = Program::new(bytecode()).expect("valid program");
         let ctx = ExecutionContext::with_defaults(program)
-            .with_globals(json!({ "person": { "properties": { "signup_date": signup } } }));
+            .with_globals(json!({ "person": { "properties": { "signup_date": signup } } }))
+            .with_coercing_comparisons();
         assert_eq!(
             sync_execute(&ctx, false).expect("execution succeeds"),
             Value::Bool(expected),
