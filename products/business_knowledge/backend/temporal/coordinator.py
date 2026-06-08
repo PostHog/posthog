@@ -21,6 +21,7 @@ no bespoke concurrency cap here.
 import json
 import asyncio
 import dataclasses
+from collections import defaultdict
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
@@ -186,17 +187,28 @@ async def reconcile_embeddings_activity() -> dict[str, Any]:
     chunk the worker legitimately skips can't drive an endless re-emit loop.
     """
     docs = await database_sync_to_async(logic.list_documents_for_embedding_reconciliation, thread_sensitive=False)()
-    re_nulled = 0
+
+    # One ClickHouse query per team, not per doc: HogQL auto-scopes to a single
+    # team so we can't batch across teams, but within a team we union every doc's
+    # chunk_ids into one IN-list and compare the returned present-set in Python.
+    docs_by_team: dict[int, list[logic.EmittedDocument]] = defaultdict(list)
     for doc in docs:
+        docs_by_team[doc.team_id].append(doc)
+
+    re_nulled = 0
+    for team_id, team_docs in docs_by_team.items():
+        chunk_ids = [chunk_id for doc in team_docs for chunk_id in doc.chunk_ids]
         present = await database_sync_to_async(_present_chunk_ids_in_clickhouse, thread_sensitive=False)(
-            doc.team_id, doc.chunk_ids
+            team_id, chunk_ids
         )
-        if present:
-            continue
-        await database_sync_to_async(logic.clear_document_embeddings_emitted, thread_sensitive=False)(
-            team_id=doc.team_id, document_id=doc.document_id
-        )
-        re_nulled += 1
+        for doc in team_docs:
+            # Conservative: only re-null when NONE of the doc's chunks landed.
+            if any(str(chunk_id) in present for chunk_id in doc.chunk_ids):
+                continue
+            await database_sync_to_async(logic.clear_document_embeddings_emitted, thread_sensitive=False)(
+                team_id=team_id, document_id=doc.document_id
+            )
+            re_nulled += 1
     return {"reconciled": len(docs), "re_nulled": re_nulled}
 
 

@@ -1812,12 +1812,23 @@ class EmittedDocument:
 def _embeddable_documents_qs() -> QuerySet[KnowledgeDocument]:
     """Base queryset of docs eligible to be embedded: SAFE, live, READY source,
     and an org that approved AI data processing (we must not send content to the
-    embedding service otherwise — same gate as classification). Cross-team."""
-    return KnowledgeDocument.objects.unscoped().filter(
-        safety_verdict=SafetyVerdict.SAFE,
-        tombstoned_at__isnull=True,
-        source__status=SourceStatus.READY,
-        team__organization__is_ai_data_processing_approved=True,
+    embedding service otherwise — same gate as classification). Cross-team.
+
+    Zero-chunk docs are excluded: there's nothing to embed, and letting one
+    through would loop forever — emit stamps it with no produce, then
+    reconciliation finds no vectors in ClickHouse and clears the stamp, putting
+    it right back in the pending queue. A SAFE doc with no chunks is unlikely but
+    reachable (e.g. whitespace-only content), so we filter it out at the source.
+    """
+    return (
+        KnowledgeDocument.objects.unscoped()
+        .filter(
+            safety_verdict=SafetyVerdict.SAFE,
+            tombstoned_at__isnull=True,
+            source__status=SourceStatus.READY,
+            team__organization__is_ai_data_processing_approved=True,
+        )
+        .filter(Exists(KnowledgeChunk.objects.unscoped().filter(document_id=OuterRef("pk"))))
     )
 
 
