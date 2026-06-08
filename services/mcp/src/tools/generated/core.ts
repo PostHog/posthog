@@ -368,6 +368,9 @@ const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, S
         if (params.customer_analytics_config !== undefined) {
             body['customer_analytics_config'] = params.customer_analytics_config
         }
+        if (params.workflows_config !== undefined) {
+            body['workflows_config'] = params.workflows_config
+        }
         if (params.base_currency !== undefined) {
             body['base_currency'] = params.base_currency
         }

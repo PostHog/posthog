@@ -34,6 +34,7 @@ from posthog.api.team import (
     TeamMarketingAnalyticsConfigSerializer,
     TeamRevenueAnalyticsConfigSerializer,
     TeamSerializer,
+    TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _format_serializer_errors,
     get_or_mint_live_events_token,
@@ -234,6 +235,25 @@ def update_team_customer_analytics_config(team: Team, validated_data: dict[str, 
         for field in TeamCustomerAnalyticsConfigSerializer.Meta.fields
     }
     capture_team_config_diff(team, "customer_analytics_config", old_config, new_config, context=context)
+
+
+def update_team_workflows_config(team: Team, validated_data: dict[str, Any], *, context: dict) -> None:
+    user_access_control = context.get("user_access_control")
+    old_config = {field: getattr(team.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields}
+
+    serializer = TeamWorkflowsConfigSerializer(
+        team.workflows_config,
+        data=validated_data,
+        partial=True,
+        context={**context, "user_access_control": user_access_control},
+    )
+    if not serializer.is_valid():
+        raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+    serializer.save()
+
+    new_config = {field: getattr(team.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields}
+    capture_team_config_diff(team, "workflows_config", old_config, new_config, context=context)
 
 
 def verify_team_session_recording_retention_period(team: Team, new_retention_period: str) -> None:
@@ -496,6 +516,7 @@ class ProjectBackwardCompatSerializer(
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
+    workflows_config = TeamWorkflowsConfigSerializer(required=False)  # Compat with TeamSerializer
     base_currency = serializers.ChoiceField(
         choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY
     )  # Compat with TeamSerializer
@@ -597,6 +618,7 @@ class ProjectBackwardCompatSerializer(
             "revenue_analytics_config",  # Compat with TeamSerializer
             "marketing_analytics_config",  # Compat with TeamSerializer
             "customer_analytics_config",  # Compat with TeamSerializer
+            "workflows_config",  # Compat with TeamSerializer
             "base_currency",  # Compat with TeamSerializer
             "capture_dead_clicks",  # Compat with TeamSerializer
             "cookieless_server_hash_mode",  # Compat with TeamSerializer
@@ -706,6 +728,7 @@ class ProjectBackwardCompatSerializer(
             "revenue_analytics_config",
             "marketing_analytics_config",
             "customer_analytics_config",
+            "workflows_config",
         }
 
         # help_text entries flow into the generated OpenAPI spec, frontend types, and MCP tool schemas.
@@ -818,6 +841,10 @@ class ProjectBackwardCompatSerializer(
     @staticmethod
     def validate_customer_analytics_config(value):
         return TeamSerializer.validate_customer_analytics_config(value)
+
+    @staticmethod
+    def validate_workflows_config(value):
+        return TeamSerializer.validate_workflows_config(value)
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
         team = project.teams.get(pk=project.pk)
@@ -933,7 +960,12 @@ class ProjectBackwardCompatSerializer(
     def create(self, validated_data: dict[str, Any], **kwargs) -> Project:
         # Analytics config sub-objects are created with the Team's defaults and only mutated via update;
         # drop any provided at creation so they don't reach create_with_team (matches TeamSerializer.create).
-        for config_field in ("revenue_analytics_config", "marketing_analytics_config", "customer_analytics_config"):
+        for config_field in (
+            "revenue_analytics_config",
+            "marketing_analytics_config",
+            "customer_analytics_config",
+            "workflows_config",
+        ):
             validated_data.pop(config_field, None)
 
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
@@ -999,6 +1031,8 @@ class ProjectBackwardCompatSerializer(
             update_team_marketing_analytics_config(team, config_data, context=config_context)
         if config_data := validated_data.pop("customer_analytics_config", None):
             update_team_customer_analytics_config(team, config_data, context=config_context)
+        if config_data := validated_data.pop("workflows_config", None):
+            update_team_workflows_config(team, config_data, context=config_context)
 
         if "session_recording_retention_period" in validated_data:
             verify_team_session_recording_retention_period(team, validated_data["session_recording_retention_period"])

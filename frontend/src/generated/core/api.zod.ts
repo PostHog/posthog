@@ -690,6 +690,16 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
                     ),
             })
             .optional(),
+        workflows_config: zod
+            .object({
+                capture_workflows_engagement_events: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+            })
+            .optional(),
         base_currency: zod
             .enum([
                 'AED',
@@ -1279,6 +1289,16 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
                     .nullish()
                     .describe(
                         'Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.'
+                    ),
+            })
+            .optional(),
+        workflows_config: zod
+            .object({
+                capture_workflows_engagement_events: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
                     ),
             })
             .optional(),
@@ -1873,6 +1893,16 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                     .nullish()
                     .describe(
                         'Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.'
+                    ),
+            })
+            .optional(),
+        workflows_config: zod
+            .object({
+                capture_workflows_engagement_events: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
                     ),
             })
             .optional(),
@@ -2484,6 +2514,16 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
                     ),
             })
             .optional(),
+        workflows_config: zod
+            .object({
+                capture_workflows_engagement_events: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+            })
+            .optional(),
         base_currency: zod
             .enum([
                 'AED',
@@ -3081,6 +3121,16 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
                     .nullish()
                     .describe(
                         'Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.'
+                    ),
+            })
+            .optional(),
+        workflows_config: zod
+            .object({
+                capture_workflows_engagement_events: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
                     ),
             })
             .optional(),
@@ -3704,6 +3754,16 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
                     ),
             })
             .optional(),
+        workflows_config: zod
+            .object({
+                capture_workflows_engagement_events: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+            })
+            .optional(),
         base_currency: zod
             .enum([
                 'AED',
@@ -4312,6 +4372,16 @@ export const OrganizationsProjectsDefaultEvaluationContextsCreateBody = /* @__PU
                     ),
             })
             .optional(),
+        workflows_config: zod
+            .object({
+                capture_workflows_engagement_events: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+            })
+            .optional(),
         base_currency: zod
             .enum([
                 'AED',
@@ -4917,6 +4987,16 @@ export const OrganizationsProjectsDefaultReleaseConditionsUpdateBody = /* @__PUR
                     .nullish()
                     .describe(
                         'Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.'
+                    ),
+            })
+            .optional(),
+        workflows_config: zod
+            .object({
+                capture_workflows_engagement_events: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
                     ),
             })
             .optional(),
@@ -5536,6 +5616,16 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
                     ),
             })
             .optional(),
+        workflows_config: zod
+            .object({
+                capture_workflows_engagement_events: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+            })
+            .optional(),
         base_currency: zod
             .enum([
                 'AED',
@@ -6141,6 +6231,16 @@ export const OrganizationsProjectsExperimentsConfigPartialUpdateBody = /* @__PUR
                     .nullish()
                     .describe(
                         'Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.'
+                    ),
+            })
+            .optional(),
+        workflows_config: zod
+            .object({
+                capture_workflows_engagement_events: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
                     ),
             })
             .optional(),
@@ -6764,6 +6864,16 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
                     ),
             })
             .optional(),
+        workflows_config: zod
+            .object({
+                capture_workflows_engagement_events: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+            })
+            .optional(),
         base_currency: zod
             .enum([
                 'AED',
@@ -7362,6 +7472,16 @@ export const OrganizationsProjectsLogsConfigPartialUpdateBody = /* @__PURE__ */ 
                     ),
             })
             .optional(),
+        workflows_config: zod
+            .object({
+                capture_workflows_engagement_events: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+            })
+            .optional(),
         base_currency: zod
             .enum([
                 'AED',
@@ -7955,6 +8075,16 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
                     .nullish()
                     .describe(
                         'Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.'
+                    ),
+            })
+            .optional(),
+        workflows_config: zod
+            .object({
+                capture_workflows_engagement_events: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
                     ),
             })
             .optional(),
@@ -8563,6 +8693,16 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
                     .nullish()
                     .describe(
                         'Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.'
+                    ),
+            })
+            .optional(),
+        workflows_config: zod
+            .object({
+                capture_workflows_engagement_events: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
                     ),
             })
             .optional(),

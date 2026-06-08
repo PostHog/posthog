@@ -940,6 +940,11 @@ export interface TeamCustomerAnalyticsConfigApi {
     account_group_type_index?: number | null
 }
 
+export interface TeamWorkflowsConfigApi {
+    /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
+    capture_workflows_engagement_events?: boolean
+}
+
 /**
  * * `0` - Disabled
  * `1` - Stateless
@@ -1745,6 +1750,7 @@ export interface ProjectBackwardCompatApi {
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
+    workflows_config?: TeamWorkflowsConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
      * Enables capturing clicks that had no effect (rage-click detection).
@@ -2584,6 +2590,7 @@ export interface PatchedProjectBackwardCompatApi {
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
+    workflows_config?: TeamWorkflowsConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
      * Enables capturing clicks that had no effect (rage-click detection).

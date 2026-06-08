@@ -441,6 +441,16 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                     ),
             })
             .optional(),
+        workflows_config: zod
+            .object({
+                capture_workflows_engagement_events: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics.'
+                    ),
+            })
+            .optional(),
         base_currency: zod
             .enum([
                 'AED',

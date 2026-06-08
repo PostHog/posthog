@@ -204,6 +204,7 @@ FIELD_VALUES: dict[str, Any] = {
     "revenue_analytics_config": {"filter_test_accounts": True},
     "marketing_analytics_config": {"attribution_window_days": 14},
     "customer_analytics_config": {"activity_event": "$pageview"},
+    "workflows_config": {"capture_workflows_engagement_events": True},
     "onboarding_tasks": {"task_x": "completed"},
     "base_currency": "EUR",
     "web_analytics_pre_aggregated_tables_enabled": True,
