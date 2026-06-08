@@ -342,6 +342,30 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with self.assertNumQueries(10), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
+    def test_listing_actions_supports_limit_offset_and_search(self) -> None:
+        for name in ["alpha", "beta", "gamma", "delta"]:
+            Action.objects.create(team=self.team, name=name)
+
+        # No params returns every action (unchanged default the actions page relies on).
+        all_response = self.client.get(f"/api/projects/{self.team.id}/actions/")
+        self.assertEqual(all_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(all_response.json()["results"]), 4)
+
+        # limit caps the number of results.
+        limited = self.client.get(f"/api/projects/{self.team.id}/actions/?limit=2")
+        limited_names = [a["name"] for a in limited.json()["results"]]
+        self.assertEqual(len(limited_names), 2)
+
+        # offset pages past earlier results without overlap.
+        offset = self.client.get(f"/api/projects/{self.team.id}/actions/?limit=2&offset=2")
+        offset_names = [a["name"] for a in offset.json()["results"]]
+        self.assertEqual(len(offset_names), 2)
+        self.assertEqual(set(limited_names) & set(offset_names), set())
+
+        # search filters by case-insensitive name substring.
+        searched = self.client.get(f"/api/projects/{self.team.id}/actions/?search=ALph")
+        self.assertEqual([a["name"] for a in searched.json()["results"]], ["alpha"])
+
     def test_get_tags_returns_list(self):
         action = Action.objects.create(team=self.team, name="bla")
         tag = Tag.objects.create(name="random", team_id=self.team.id)
