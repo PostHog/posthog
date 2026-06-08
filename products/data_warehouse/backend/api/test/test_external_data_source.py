@@ -5665,36 +5665,6 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200
         assert payload is not None
 
-    def test_create_custom_source_rejected_when_team_ineligible(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/external_data_sources/",
-            data={
-                "source_type": "Custom",
-                "prefix": "custom_",
-                "payload": {"manifest_json": "{}"},
-            },
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["message"] == "Custom REST source is not available for this team."
-
-    def test_create_custom_source_allowed_when_team_eligible(self):
-        with patch(
-            "products.data_warehouse.backend.api.external_data_source.is_custom_source_available_for_team",
-            return_value=True,
-        ):
-            response = self.client.post(
-                f"/api/environments/{self.team.pk}/external_data_sources/",
-                data={
-                    "source_type": "Custom",
-                    "prefix": "custom_",
-                    "payload": {"manifest_json": "{}"},
-                },
-            )
-        # Past the team gate, the request fails later on the (empty) manifest rather
-        # than on availability — i.e. the eligibility check no longer blocks it.
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["message"] != "Custom REST source is not available for this team."
-
     @parameterized.expand(
         [
             # name, seed sources soft-deleted?, seed for a different team?, expect the limit error
@@ -5720,21 +5690,17 @@ class TestExternalDataSource(APIBaseTest):
                 deleted=deleted,
             )
 
-        with patch(
-            "products.data_warehouse.backend.api.external_data_source.is_custom_source_available_for_team",
-            return_value=True,
-        ):
-            response = self.client.post(
-                f"/api/environments/{self.team.pk}/external_data_sources/",
-                data={
-                    "source_type": "Custom",
-                    "prefix": "custom_new_",
-                    "payload": {"manifest_json": "{}"},
-                },
-            )
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Custom",
+                "prefix": "custom_new_",
+                "payload": {"manifest_json": "{}"},
+            },
+        )
 
         # Every case 400s; only the at-limit case is blocked *by the per-team limit* — the
-        # excluded cases pass the gate and fail later on the (empty) manifest instead.
+        # excluded cases stay under the limit and fail later on the (empty) manifest instead.
         limit_message = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         if expect_blocked:
