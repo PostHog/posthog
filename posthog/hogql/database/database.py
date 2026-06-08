@@ -100,6 +100,7 @@ from posthog.hogql.database.schema.log_entries import (
     ReplayConsoleLogsLogEntriesTable,
 )
 from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
+from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
 from posthog.hogql.database.schema.metrics import MetricAttributesTable, MetricsKafkaMetricsTable, MetricsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
@@ -148,13 +149,17 @@ from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreagg
 from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.errors import QueryError, ResolutionError
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.group_type_mapping import get_group_types_for_project
-from posthog.models.team.team import WeekStartDay
+from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import Team, WeekStartDay
+from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.sync_status import get_warehouse_sync_warnings
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
@@ -166,8 +171,9 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable, 
 if TYPE_CHECKING:
     from posthog.schema import DataWarehouseSyncWarning
 
-    from posthog.models import Team, User
-    from posthog.rbac.user_access_control import UserAccessControl
+    from posthog.models import User
+
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 tracer = trace.get_tracer(__name__)
 
@@ -181,6 +187,31 @@ class SerializedField:
     fields: list[str] | None = None
     table: str | None = None
     chain: list[str | int] | None = None
+
+
+@dataclasses.dataclass
+class HogQLDatabaseSources:
+    """All I/O Database._build_from_sources needs, fetched up front by Database._fetch_sources so the
+    build phase runs without any queries."""
+
+    team: "Team"
+    user: Optional["User"]
+    connection_id: str | None
+    modifiers: HogQLQueryModifiers
+    is_managed_viewset_enabled: bool
+    is_hogql_access_control_enabled: bool
+    direct_connection_metadata: dict[str, Any] | None
+    # Access-control decision, computed from a warmed UserAccessControl so build does no AC queries.
+    user_access_control: Optional["UserAccessControl"]
+    denied_system_table_names: set[str]  # node names under the "system" node to remove during build
+    group_types: list[dict[str, Any]]
+    saved_queries: list["DataWarehouseSavedQuery"]
+    endpoint_saved_queries: list["DataWarehouseSavedQuery"]
+    revenue_views: list["RevenueAnalyticsBaseView"]
+    warehouse_tables: list["DataWarehouseTable"]  # filtered to what build needs, schemas preloaded
+    data_warehouse_joins: list["DataWarehouseJoin"]
+    # dataWarehouseEventsModifiers path: saved query per modifier table name (None if no matching row).
+    event_modifier_saved_queries: dict[str, Optional["DataWarehouseSavedQuery"]]
 
 
 type DatabaseSchemaTable = (
@@ -310,6 +341,10 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                         name="conversion_goal_attributed_preaggregated",
                         table=ConversionGoalAttributedPreaggregatedTable(),
                     ),
+                    "marketing_touchpoints_preaggregated": TableNode(
+                        name="marketing_touchpoints_preaggregated",
+                        table=MarketingTouchpointsPreaggregatedTable(),
+                    ),
                     "web_stats_paths_preaggregated": TableNode(
                         name="web_stats_paths_preaggregated", table=WebStatsPathsPreaggregatedTable()
                     ),
@@ -332,6 +367,41 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
         }
 
     return TableNode(children=children)
+
+
+def _compute_system_table_access_decision(
+    team: "Team", user: Optional["User"]
+) -> tuple[Optional["UserAccessControl"], set[str]]:
+    """Decide which scoped system tables to hide, doing the access-control I/O here so the build phase
+    can apply the result without querying. Returns the warmed UserAccessControl (whose membership/role/
+    access-control caches make later reads query-free) and the system-node table names to remove."""
+    system_children = SystemTables().children
+
+    # No user: remove every access-controlled system table.
+    if user is None:
+        return None, {
+            name
+            for name, table_node in system_children.items()
+            if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
+        }
+
+    user_access_control = UserAccessControl(user=user, team=team)
+
+    org_membership = user_access_control._organization_membership
+    if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
+        return user_access_control, set()
+
+    denied: set[str] = set()
+    for name, table_node in system_children.items():
+        table = table_node.table
+        if not isinstance(table, PostgresTable) or table.access_scope is None:
+            continue  # Not access-controlled, keep it
+        access_level = user_access_control.access_level_for_resource(table.access_scope)
+        if access_level and access_level != NO_ACCESS_LEVEL:
+            continue  # User has access, keep it
+        denied.add(name)
+
+    return user_access_control, denied
 
 
 class Database(BaseModel):
@@ -592,53 +662,25 @@ class Database(BaseModel):
             name for name in self._warehouse_table_names if name not in hidden_direct_name_collisions
         ]
 
-    def _filter_system_tables_for_user(self, user: "User", team: "Team") -> None:
-        """Remove system tables user doesn't have resource access to."""
-        from posthog.models import OrganizationMembership
-        from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
+    def _apply_system_table_access(
+        self, user_access_control: Optional["UserAccessControl"], denied_system_table_names: set[str]
+    ) -> None:
+        """Apply the precomputed access-control decision from _compute_system_table_access_decision,
+        without querying."""
+        if user_access_control is not None:
+            self.user_access_control = user_access_control
 
-        self.user_access_control = UserAccessControl(user=user, team=team)
+        # Record only denials we actually applied, so a database with no "system" node denies nothing.
+        removed: set[str] = set()
+        if denied_system_table_names:
+            system_node = self.tables.children.get("system")
+            if system_node is not None and hasattr(system_node, "children"):
+                for name in denied_system_table_names:
+                    if name in system_node.children:
+                        del system_node.children[name]
+                        removed.add(name)
 
-        org_membership = self.user_access_control._organization_membership
-        if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
-            return
-
-        system_node = self.tables.children.get("system")
-        if not system_node or not hasattr(system_node, "children"):
-            return
-
-        denied: set[str] = set()
-        for table_node in list(system_node.children.values()):
-            table = table_node.table
-            if not isinstance(table, PostgresTable) or table.access_scope is None:
-                continue  # Not access-controlled, keep it
-
-            access_level = self.user_access_control.access_level_for_resource(table.access_scope)
-            if access_level and access_level != NO_ACCESS_LEVEL:
-                continue  # User has access, keep it
-
-            # No access - remove from schema
-            del system_node.children[table_node.name]
-            denied.add(f"system.{table_node.name}")
-
-        self._denied_tables = denied
-
-    def _filter_all_scoped_system_tables(self) -> None:
-        """Remove ALL access-controlled system tables"""
-        system_node = self.tables.children.get("system")
-        if not system_node or not hasattr(system_node, "children"):
-            return
-
-        denied: set[str] = set()
-        for table_node in list(system_node.children.values()):
-            table = table_node.table
-            if not isinstance(table, PostgresTable) or table.access_scope is None:
-                continue  # Not access-controlled, keep it
-
-            del system_node.children[table_node.name]
-            denied.add(f"system.{table_node.name}")
-
-        self._denied_tables = denied
+        self._denied_tables = {f"system.{name}" for name in removed}
 
     def serialize(
         self,
@@ -647,7 +689,6 @@ class Database(BaseModel):
         include_hidden_posthog_tables: bool = False,
     ) -> dict[str, DatabaseSchemaTable]:
         from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-        from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 
         tables: dict[str, DatabaseSchemaTable] = {}
 
@@ -703,8 +744,13 @@ class Database(BaseModel):
                     to_attr="latest_completed_job",
                 ),
             )
-            .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id)
-            .order_by("external_data_source__prefix", "external_data_source__source_type", "name")
+            # `queryable()` drops soft-deleted tables and orphans of a soft-deleted source, so an
+            # orphan can't shadow the live table sharing its name in the SQL editor catalog.
+            .queryable()
+            .filter(team_id=context.team_id)
+            # The catalog is built last-write-wins per table key, so order created_at ascending to
+            # land the newest row last when two live tables share a name — matching tree resolution.
+            .order_by("external_data_source__prefix", "external_data_source__source_type", "name", "created_at")
         )
         if self._is_direct_query():
             warehouse_tables_query = warehouse_tables_query.filter(external_data_source_id=self._connection_id)
@@ -883,12 +929,34 @@ class Database(BaseModel):
         if timings is None:
             timings = HogQLTimings()
 
-        from posthog.hogql.query import create_default_modifiers_for_team
+        sources = Database._fetch_sources(
+            team_id,
+            team=team,
+            user=user,
+            modifiers=modifiers,
+            timings=timings,
+            connection_id=connection_id,
+        )
+        return Database._build_from_sources(sources, timings=timings)
 
-        from posthog.models import Team
+    @staticmethod
+    def _fetch_sources(
+        team_id: int | None = None,
+        *,
+        team: Optional["Team"] = None,
+        user: Optional["User"] = None,
+        modifiers: HogQLQueryModifiers | None = None,
+        timings: HogQLTimings | None = None,
+        connection_id: str | None = None,
+    ) -> HogQLDatabaseSources:
+        """Run every Postgres query / feature-flag check / external request needed to build the
+        database, returning a bundle that Database._build_from_sources turns into tables with no I/O."""
+        if timings is None:
+            timings = HogQLTimings()
+
+        db_span = trace.get_current_span()
 
         from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-        from products.data_tools.backend.models.join import DataWarehouseJoin
 
         with timings.measure("team", emit_span=True):
             if team_id is None and team is None:
@@ -903,9 +971,9 @@ class Database(BaseModel):
             # Team is definitely not None at this point, make mypy believe that
             team = cast("Team", team)
 
-            # Set team_id for the create_hogql_database tracing span
-            span = trace.get_current_span()
-            span.set_attribute("team_id", team.pk)
+            db_span.set_attribute("team_id", team.pk)
+
+        is_direct_query = connection_id is not None
 
         with timings.measure("feature_flags", emit_span=True):
             is_managed_viewset_enabled = posthoganalytics.feature_enabled(
@@ -927,13 +995,8 @@ class Database(BaseModel):
             )
 
         with timings.measure("database", emit_span=True):
-            database = Database(
-                timezone=team.timezone,
-                week_start_day=team.week_start_day,
-                include_posthog_tables=connection_id is None,
-            )
+            direct_connection_metadata: dict[str, Any] | None = None
             if connection_id is not None:
-                database._connection_id = connection_id
                 direct_source = (
                     ExternalDataSource.objects.filter(
                         team_id=team.pk,
@@ -945,29 +1008,170 @@ class Database(BaseModel):
                     .first()
                 )
                 if direct_source is not None:
-                    database._direct_connection_metadata = direct_source.connection_metadata
+                    direct_connection_metadata = direct_source.connection_metadata
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
-            if team is not None:
-                is_hogql_access_control_enabled = posthoganalytics.feature_enabled(
-                    "hogql-access-control",
-                    str(team.uuid),
-                    groups={"organization": str(team.organization_id), "project": str(team.id)},
-                    group_properties={
-                        "organization": {"id": str(team.organization_id)},
-                        "project": {"id": str(team.id)},
-                    },
-                    send_feature_flag_events=False,
-                )
-                if is_hogql_access_control_enabled:
-                    if user is not None:
-                        database._filter_system_tables_for_user(user, team)
-                    else:
-                        database._filter_all_scoped_system_tables()
+            is_hogql_access_control_enabled = posthoganalytics.feature_enabled(
+                "hogql-access-control",
+                str(team.uuid),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id)},
+                },
+                send_feature_flag_events=False,
+            )
+            user_access_control: Optional[UserAccessControl] = None
+            denied_system_table_names: set[str] = set()
+            if is_hogql_access_control_enabled:
+                user_access_control, denied_system_table_names = _compute_system_table_access_decision(team, user)
 
         with timings.measure("modifiers", emit_span=True):
             modifiers = create_default_modifiers_for_team(team, modifiers)
 
+        with timings.measure("group_type_mapping", emit_span=True):
+            group_types: list[dict[str, Any]] = (
+                [] if is_direct_query else list(get_group_types_for_project(team.project_id))
+            )
+
+        with timings.measure("data_warehouse_saved_query", emit_span=True):
+            saved_queries: list[DataWarehouseSavedQuery] = []
+            # Direct-connection queries do not expose saved queries.
+            if not is_direct_query:
+                with timings.measure("select"):
+                    queryset = (
+                        DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+                        .exclude(deleted=True)
+                        .order_by("name")
+                        .select_related("table", "table__credential", "managed_viewset")
+                    )
+                    if not is_managed_viewset_enabled:
+                        queryset = queryset.filter(managed_viewset__isnull=True)
+                    saved_queries = list(queryset)
+
+        with timings.measure("endpoint_saved_query", emit_span=True):
+            endpoint_saved_queries: list[DataWarehouseSavedQuery] = []
+            if not is_direct_query:
+                try:
+                    endpoint_saved_queries = list(
+                        DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+                        .filter(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
+                        .exclude(deleted=True)
+                        .select_related("table", "table__credential")
+                    )
+                except Exception as e:
+                    capture_exception(e)
+
+        with timings.measure("revenue_analytics_views", emit_span=True):
+            revenue_views: list[RevenueAnalyticsBaseView] = []
+            if not is_direct_query:
+                try:
+                    if not is_managed_viewset_enabled:
+                        revenue_views = list(build_all_revenue_analytics_views(team, timings))
+                except Exception as e:
+                    capture_exception(e)
+
+        with timings.measure("data_warehouse_tables", emit_span=True):
+            with timings.measure("select", emit_span=True):
+                tables_query = (
+                    # `queryable()` drops soft-deleted tables and orphans left by a soft-deleted
+                    # source, so an orphan can't shadow the live table sharing its name.
+                    DataWarehouseTable.raw_objects.filter(team_id=team.pk)
+                    .queryable()
+                    .select_related("credential", "external_data_source")
+                    # Deterministic tiebreak when two live tables share a name: newest wins, since
+                    # name collisions resolve first-come-first-served when added to the table tree.
+                    .order_by("-created_at")
+                )
+                if is_direct_query:
+                    tables_query = tables_query.filter(external_data_source_id=connection_id)
+                else:
+                    tables_query = tables_query.exclude(
+                        external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT
+                    )
+
+                warehouse_tables: list[DataWarehouseTable] = list(tables_query)
+                _preload_active_external_data_schemas(warehouse_tables)
+                if is_direct_query:
+                    warehouse_tables = [
+                        table
+                        for table in warehouse_tables
+                        if _should_include_connection_table(
+                            table,
+                            connection_id=cast(str, connection_id),
+                        )
+                    ]
+
+        with timings.measure("data_warehouse_joins", emit_span=True):
+            data_warehouse_joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
+
+        # Prefetch the saved query each modifier may resolve against; the table models come from the
+        # warehouse_tables fetch.
+        event_modifier_saved_queries: dict[str, Optional[DataWarehouseSavedQuery]] = {}
+        if modifiers.dataWarehouseEventsModifiers:
+            with timings.measure("data_warehouse_event_modifiers_fetch", emit_span=True):
+                for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
+                    name = warehouse_modifier.table_name
+                    if name in event_modifier_saved_queries:
+                        continue
+                    try:
+                        event_modifier_saved_queries[name] = (
+                            DataWarehouseSavedQuery.objects.exclude(deleted=True)
+                            .filter(team_id=team.pk, name=name)
+                            .latest("created_at")
+                        )
+                    except DataWarehouseSavedQuery.DoesNotExist:
+                        event_modifier_saved_queries[name] = None
+
+        return HogQLDatabaseSources(
+            team=team,
+            user=user,
+            connection_id=connection_id,
+            modifiers=modifiers,
+            is_managed_viewset_enabled=is_managed_viewset_enabled,
+            is_hogql_access_control_enabled=is_hogql_access_control_enabled,
+            direct_connection_metadata=direct_connection_metadata,
+            user_access_control=user_access_control,
+            denied_system_table_names=denied_system_table_names,
+            group_types=group_types,
+            saved_queries=saved_queries,
+            endpoint_saved_queries=endpoint_saved_queries,
+            revenue_views=revenue_views,
+            warehouse_tables=warehouse_tables,
+            data_warehouse_joins=data_warehouse_joins,
+            event_modifier_saved_queries=event_modifier_saved_queries,
+        )
+
+    @staticmethod
+    def _build_from_sources(sources: HogQLDatabaseSources, timings: HogQLTimings | None = None) -> "Database":
+        """Construct the HogQL Database purely from already-fetched sources. Performs no I/O: every
+        Postgres query and feature-flag check was done up front in Database._fetch_sources."""
+        if timings is None:
+            timings = HogQLTimings()
+
+        db_span = trace.get_current_span()
+
+        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+        team = sources.team
+        team_id = team.pk
+        modifiers = sources.modifiers
+
+        with timings.measure("database", emit_span=True):
+            database = Database(
+                timezone=team.timezone,
+                week_start_day=team.week_start_day,
+                include_posthog_tables=sources.connection_id is None,
+            )
+            if sources.connection_id is not None:
+                database._connection_id = sources.connection_id
+                if sources.direct_connection_metadata is not None:
+                    database._direct_connection_metadata = sources.direct_connection_metadata
+
+        with timings.measure("filter_system_tables_for_user", emit_span=True):
+            database._apply_system_table_access(sources.user_access_control, sources.denied_system_table_names)
+
+        with timings.measure("modifiers", emit_span=True):
             if not database._is_direct_query():
                 events_table = database.get_table("events")
                 poe = cast(VirtualTable, events_table.fields["poe"])
@@ -1064,7 +1268,7 @@ class Database(BaseModel):
 
         with timings.measure("group_type_mapping", emit_span=True):
             if not database._is_direct_query():
-                group_types = get_group_types_for_project(team.project_id)
+                group_types = sources.group_types
                 _setup_group_key_fields(database, group_types)
                 events_table = database.get_table("events")
                 for mapping in group_types:
@@ -1078,45 +1282,22 @@ class Database(BaseModel):
         self_managed_warehouse_tables: TableNode = TableNode()
         views: TableNode = TableNode()
         warehouse_tables_to_process: list[tuple[Table, DataWarehouseTable]] = []
+
         with timings.measure("data_warehouse_saved_query", emit_span=True):
-            if database._is_direct_query():
-                queryset = DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True)
-                if not is_managed_viewset_enabled:
-                    queryset = queryset.filter(managed_viewset__isnull=True)
-            else:
-                with timings.measure("select"):
-                    queryset = (
-                        DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
-                        .exclude(deleted=True)
-                        .order_by("name")
-                        .select_related("table", "table__credential", "managed_viewset")
+            for saved_query in sources.saved_queries:
+                with timings.measure(f"saved_query_{saved_query.name}"):
+                    views.add_child(
+                        TableNode.create_nested_for_chain(
+                            saved_query.name.split("."),
+                            table=saved_query.hogql_definition(modifiers),
+                        ),
+                        table_conflict_mode="ignore",
                     )
-                    if not is_managed_viewset_enabled:
-                        queryset = queryset.filter(managed_viewset__isnull=True)
-
-                    saved_queries = list(queryset)
-
-                for saved_query in saved_queries:
-                    with timings.measure(f"saved_query_{saved_query.name}"):
-                        views.add_child(
-                            TableNode.create_nested_for_chain(
-                                saved_query.name.split("."),
-                                table=saved_query.hogql_definition(modifiers),
-                            ),
-                            table_conflict_mode="ignore",
-                        )
 
         with timings.measure("endpoint_saved_query", emit_span=True):
             if not database._is_direct_query():
-                endpoint_saved_queries = []
                 try:
-                    endpoint_saved_queries = list(
-                        DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
-                        .filter(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
-                        .exclude(deleted=True)
-                        .select_related("table", "table__credential")
-                    )
-                    for endpoint_saved_query in endpoint_saved_queries:
+                    for endpoint_saved_query in sources.endpoint_saved_queries:
                         with timings.measure(f"endpoint_saved_query_{endpoint_saved_query.name}"):
                             views.add_child(
                                 TableNode(
@@ -1130,19 +1311,12 @@ class Database(BaseModel):
 
         with timings.measure("revenue_analytics_views", emit_span=True):
             if not database._is_direct_query():
-                revenue_views: list[RevenueAnalyticsBaseView] = []
-                try:
-                    if not is_managed_viewset_enabled:
-                        revenue_views = list(build_all_revenue_analytics_views(team, timings))
-                except Exception as e:
-                    capture_exception(e)
-
                 # Each view will have a name similar to `stripe.<prefix>.<table_name>`
                 # We want to create a nested table group where `stripe` is the parent,
                 # `<prefix>` is the child of `stripe`, and `<table_name>` is the child of `<prefix>`
                 # allowing you to access the table as `stripe[prefix][table_name]` in a dict fashion
                 # but still allowing the bare `stripe.prefix.table_name` string access
-                for view in revenue_views:
+                for view in sources.revenue_views:
                     try:
                         views.add_child(TableNode.create_nested_for_chain(view.name.split("."), view))
                     except Exception as e:
@@ -1161,92 +1335,82 @@ class Database(BaseModel):
                 def to_printed_clickhouse(self, context):
                     return self.parent_table.to_printed_clickhouse(context)
 
-            with timings.measure("select"):
-                tables_query = (
-                    DataWarehouseTable.raw_objects.filter(team_id=team.pk)
-                    .exclude(deleted=True)
-                    .select_related("credential", "external_data_source")
-                )
-                if database._is_direct_query():
-                    tables_query = tables_query.filter(external_data_source_id=database._connection_id)
-                else:
-                    tables_query = tables_query.exclude(
-                        external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT
-                    )
+            with timings.measure("build_tables", emit_span=True):
+                sync_warnings_now = datetime.now(UTC)
+                for table in sources.warehouse_tables:
+                    if (
+                        not database._is_direct_query()
+                        and table.external_data_source
+                        and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
+                    ):
+                        continue
 
-                tables: list[DataWarehouseTable] = list(tables_query)
-                _preload_active_external_data_schemas(tables)
-                if database._is_direct_query():
-                    tables = [
-                        table
-                        for table in tables
-                        if _should_include_connection_table(
-                            table,
-                            connection_id=cast(str, database._connection_id),
-                        )
-                    ]
-            sync_warnings_now = datetime.now(UTC)
-            for table in tables:
-                if (
-                    not database._is_direct_query()
-                    and table.external_data_source
-                    and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
-                ):
-                    continue
+                    with timings.measure(f"table_{table.name}"):
+                        s3_table = table.hogql_definition(modifiers)
 
-                with timings.measure(f"table_{table.name}"):
-                    s3_table = table.hogql_definition(modifiers)
+                        sync_warnings = get_warehouse_sync_warnings(table, now=sync_warnings_now)
+                        if sync_warnings:
+                            database._data_warehouse_sync_warnings[str(table.id)] = sync_warnings
+                        primary_table = s3_table
 
-                    sync_warnings = get_warehouse_sync_warnings(table, now=sync_warnings_now)
-                    if sync_warnings:
-                        database._data_warehouse_sync_warnings[str(table.id)] = sync_warnings
-                    primary_table = s3_table
-
-                    # If the warehouse table has no _properties_ field, then set it as a virtual table
-                    if s3_table.fields.get("properties") is None:
-                        s3_table.fields["properties"] = WarehousePropertiesVirtualTable(
-                            fields=s3_table.fields, parent_table=s3_table, hidden=True
-                        )
-
-                    if table.external_data_source:
-                        if not database._is_direct_query():
-                            warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
-                    else:
-                        self_managed_warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
-
-                    if table.external_data_source:
-                        for index, table_key in enumerate(
-                            _get_warehouse_table_keys(table, direct_query=database._is_direct_query())
-                        ):
-                            table_for_key = s3_table if index == 0 else s3_table.model_copy(deep=True)
-                            table_chain = table_key.split(".")
-                            table_conflict_mode: Literal["override", "ignore"] = (
-                                "override"
-                                if database._is_direct_query()
-                                and table.external_data_source
-                                and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
-                                else "ignore"
+                        # If the warehouse table has no _properties_ field, then set it as a virtual table
+                        if s3_table.fields.get("properties") is None:
+                            s3_table.fields["properties"] = WarehousePropertiesVirtualTable(
+                                fields=s3_table.fields, parent_table=s3_table, hidden=True
                             )
 
-                            # For a chain of type a.b.c, we want to create a nested table node
-                            # where a is the parent, b is the child of a, and c is the child of b
-                            # where a.b.c will contain the table
-                            warehouse_tables.add_child(
-                                TableNode.create_nested_for_chain(table_chain, table_for_key),
-                                table_conflict_mode=table_conflict_mode,
-                            )
+                        if table.external_data_source:
+                            if not database._is_direct_query():
+                                warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
+                        else:
+                            self_managed_warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
 
-                            joined_table_chain = ".".join(table_chain)
-                            table_for_key.name = joined_table_chain
-                            warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
-                            if table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT:
-                                database._direct_access_warehouse_table_names.add(joined_table_chain)
-                            if index == 0:
-                                primary_table = table_for_key
+                        if table.external_data_source:
+                            for index, table_key in enumerate(
+                                _get_warehouse_table_keys(table, direct_query=database._is_direct_query())
+                            ):
+                                table_for_key = s3_table if index == 0 else s3_table.model_copy(deep=True)
+                                table_chain = table_key.split(".")
+                                table_conflict_mode: Literal["override", "ignore"] = (
+                                    "override"
+                                    if database._is_direct_query()
+                                    and table.external_data_source
+                                    and table.external_data_source.access_method
+                                    == ExternalDataSource.AccessMethod.DIRECT
+                                    else "ignore"
+                                )
 
-                    warehouse_tables_to_process.append((primary_table, table))
+                                # For a chain of type a.b.c, we want to create a nested table node
+                                # where a is the parent, b is the child of a, and c is the child of b
+                                # where a.b.c will contain the table
+                                warehouse_tables.add_child(
+                                    TableNode.create_nested_for_chain(table_chain, table_for_key),
+                                    table_conflict_mode=table_conflict_mode,
+                                )
 
-        def define_mappings(root_node: TableNode, get_table: Callable):
+                                joined_table_chain = ".".join(table_chain)
+                                table_for_key.name = joined_table_chain
+                                warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
+                                if table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+                                    database._direct_access_warehouse_table_names.add(joined_table_chain)
+                                if index == 0:
+                                    primary_table = table_for_key
+
+                        warehouse_tables_to_process.append((primary_table, table))
+
+        db_span.set_attribute("warehouse_table_count", len(sources.warehouse_tables))
+
+        # Index warehouse table models by name, newest wins, mirroring the eager path's `.latest()`.
+        warehouse_table_models_by_name: dict[str, DataWarehouseTable] = {}
+        for warehouse_table_model in sources.warehouse_tables:
+            existing = warehouse_table_models_by_name.get(warehouse_table_model.name)
+            if existing is None or warehouse_table_model.created_at > existing.created_at:
+                warehouse_table_models_by_name[warehouse_table_model.name] = warehouse_table_model
+
+        def define_mappings(
+            root_node: TableNode,
+            get_table: Callable[[Any], Union[DataWarehouseTable, "DataWarehouseSavedQuery"]],
+        ) -> TableNode:
             table: Table | None = None
 
             if root_node.has_child([warehouse_modifier.table_name]):
@@ -1278,7 +1442,8 @@ class Database(BaseModel):
             timestamp_field_is_datetime = isinstance(table.fields.get("timestamp"), DateTimeDatabaseField)
 
             if table_has_no_timestamp_field or not timestamp_field_is_datetime:
-                table_model = get_table(team=team, warehouse_modifier=warehouse_modifier)
+                # get_table raises (rather than skipping) when no backing row exists — see resolvers below.
+                table_model = get_table(warehouse_modifier)
                 timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
                 modifier_timestamp_field_is_timestamp = warehouse_modifier.timestamp_field == "timestamp"
 
@@ -1310,14 +1475,14 @@ class Database(BaseModel):
                 )
 
             if "person_id" not in table.fields.keys():
-                events_join = (
-                    DataWarehouseJoin.objects.filter(
-                        team_id=team.pk,
-                        source_table_name=warehouse_modifier.table_name,
-                        joining_table_name="events",
-                    )
-                    .exclude(deleted=True)
-                    .first()
+                events_join = next(
+                    (
+                        join
+                        for join in sources.data_warehouse_joins
+                        if join.source_table_name == warehouse_modifier.table_name
+                        and join.joining_table_name == "events"
+                    ),
+                    None,
                 )
                 if events_join:
                     table.fields["person_id"] = FieldTraverser(chain=[events_join.field_name, "person_id"])
@@ -1329,36 +1494,43 @@ class Database(BaseModel):
 
             return root_node
 
+        # Resolve a modifier's table model from already-fetched sources, raising DoesNotExist when no
+        # row matches just as the eager path's `.latest()` did.
+        def _saved_query_model_for(wm: Any) -> "DataWarehouseSavedQuery":
+            saved_query = sources.event_modifier_saved_queries.get(wm.table_name)
+            if saved_query is None:
+                raise DataWarehouseSavedQuery.DoesNotExist(
+                    f"No DataWarehouseSavedQuery for dataWarehouseEventsModifier table '{wm.table_name}'"
+                )
+            return saved_query
+
+        def _warehouse_table_model_for(wm: Any) -> DataWarehouseTable:
+            name = warehouse_tables_dot_notation_mapping.get(wm.table_name, wm.table_name)
+            warehouse_table = warehouse_table_models_by_name.get(name)
+            if warehouse_table is None:
+                raise DataWarehouseTable.DoesNotExist(
+                    f"No DataWarehouseTable for dataWarehouseEventsModifier table '{wm.table_name}'"
+                )
+            return warehouse_table
+
+        def _self_managed_table_model_for(wm: Any) -> DataWarehouseTable:
+            warehouse_table = warehouse_table_models_by_name.get(wm.table_name)
+            if warehouse_table is None:
+                raise DataWarehouseTable.DoesNotExist(
+                    f"No DataWarehouseTable for dataWarehouseEventsModifier table '{wm.table_name}'"
+                )
+            return warehouse_table
+
         if modifiers.dataWarehouseEventsModifiers:
             with timings.measure("data_warehouse_event_modifiers", emit_span=True):
                 for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
                     with timings.measure(f"data_warehouse_event_modifier_{warehouse_modifier.table_name}"):
                         # Apply mappings to every matching namespace. A saved query and a warehouse table can share a
                         # name, and the final database may resolve that name to the table even if a view exists too.
-                        views = define_mappings(
-                            views,
-                            lambda team, warehouse_modifier: DataWarehouseSavedQuery.objects.exclude(deleted=True)
-                            .filter(team_id=team.pk, name=warehouse_modifier.table_name)
-                            .latest("created_at"),
-                        )
-                        warehouse_tables = define_mappings(
-                            warehouse_tables,
-                            lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
-                            .filter(
-                                team_id=team.pk,
-                                name=warehouse_tables_dot_notation_mapping[warehouse_modifier.table_name]
-                                if warehouse_modifier.table_name in warehouse_tables_dot_notation_mapping
-                                else warehouse_modifier.table_name,
-                            )
-                            .select_related("credential", "external_data_source")
-                            .latest("created_at"),
-                        )
+                        views = define_mappings(views, _saved_query_model_for)
+                        warehouse_tables = define_mappings(warehouse_tables, _warehouse_table_model_for)
                         self_managed_warehouse_tables = define_mappings(
-                            self_managed_warehouse_tables,
-                            lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
-                            .filter(team_id=team.pk, name=warehouse_modifier.table_name)
-                            .select_related("credential", "external_data_source")
-                            .latest("created_at"),
+                            self_managed_warehouse_tables, _self_managed_table_model_for
                         )
 
         database._add_warehouse_tables(warehouse_tables)
@@ -1375,7 +1547,7 @@ class Database(BaseModel):
                 )
 
         with timings.measure("data_warehouse_joins", emit_span=True):
-            for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
+            for join in sources.data_warehouse_joins:
                 # Skip if either table is not present. This can happen if the table was deleted after the join was created.
                 # User will be prompted on UI to resolve missing tables underlying the JOIN
                 if not database.has_table(join.source_table_name) or not database.has_table(join.joining_table_name):

@@ -2,9 +2,12 @@ import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { retryIfRetriable } from '../../utils/retries'
 import { BatchProcessingStep } from './base-batch-pipeline'
+import { pipelineRetryAttemptsHistogram } from './metrics'
 import { dlq } from './results'
 
 export interface BatchRetryOptions {
+    /** Identifies the retry site in the `ingestion_pipeline_retry_attempts` metric. Defaults to the step name. */
+    name?: string
     tries?: number
     sleepMs?: number
 }
@@ -26,9 +29,20 @@ export function withBatchRetry<T, U, R extends string = never>(
     step: BatchProcessingStep<T, U, R>,
     options: BatchRetryOptions = {}
 ): BatchProcessingStep<T, U, R> {
+    const name = options.name ?? step.name ?? 'unknown'
     const wrappedStep: BatchProcessingStep<T, U, R> = async (values: T[]) => {
+        let attempts = 0
         try {
-            return await retryIfRetriable(() => step(values), options.tries ?? 3, options.sleepMs ?? 100)
+            const result = await retryIfRetriable(
+                () => {
+                    attempts++
+                    return step(values)
+                },
+                options.tries ?? 3,
+                options.sleepMs ?? 100
+            )
+            pipelineRetryAttemptsHistogram.labels({ name, outcome: 'completed' }).observe(attempts)
+            return result
         } catch (error) {
             const isRetriable = (error as any)?.isRetriable
 
@@ -40,10 +54,12 @@ export function withBatchRetry<T, U, R extends string = never>(
             })
 
             if (isRetriable === false) {
+                pipelineRetryAttemptsHistogram.labels({ name, outcome: 'non_retriable' }).observe(attempts)
                 captureException(error as Error)
                 return values.map(() => dlq('Processing error - non-retriable', error))
             }
 
+            pipelineRetryAttemptsHistogram.labels({ name, outcome: 'exhausted' }).observe(attempts)
             throw error
         }
     }

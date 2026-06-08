@@ -35,22 +35,13 @@ export const scene: SceneExport = {
     productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
-export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
-    if (!tabId) {
-        // TODO: sometimes when opening a property filter on a scene, the tabId is suddently empty.
-        // If I remove the "{closable && !disabledReason && ...}" block from within
-        // "frontend/src/lib/components/PropertyFilters/components/PropertyFilterButton.tsx"
-        // ... then the issue goes away. We should still figure out why this happens.
-        // Throwing seems to make it go away.
-        throw new Error('PersonsScene rendered with no tabId')
-    }
-
+export function PersonsScene(): JSX.Element {
     const { query } = useValues(personsSceneLogic)
     const { setQuery } = useActions(personsSceneLogic)
     const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
     const { currentTeam, baseCurrency } = useValues(teamLogic)
     const { loadConfigs } = useActions(customerProfileConfigLogic({ scope: CustomerProfileScope.PERSON }))
-    const queryUniqueKey = `persons-query-${tabId}`
+    const queryUniqueKey = 'persons-query'
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
 
     useOnMountEffect(() => {
@@ -146,7 +137,7 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 
             <Query
                 uniqueKey={queryUniqueKey}
-                attachTo={personsSceneLogic({ tabId })}
+                attachTo={personsSceneLogic()}
                 query={{ ...query, showCount: true, showTableViews: true }}
                 setQuery={setQuery}
                 context={{

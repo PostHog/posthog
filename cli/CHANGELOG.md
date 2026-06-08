@@ -1,5 +1,24 @@
 # posthog-cli
 
+## 0.7.21 — 2026-06-05
+
+### Patch changes
+
+- [c3ee0a34e1](https://github.com/PostHog/posthog/commit/c3ee0a34e1134e8697cabe9c69bafb07ccffd28f) Clarify the ProGuard map ID help text. — Thanks @cat-ph!
+
+## 0.7.20 — 2026-06-05
+
+### Patch changes
+
+- [81b679f143](https://github.com/PostHog/posthog/commit/81b679f14324668be61e6a3f55df04a60427ab75) Clarify the Hermes upload help text. — Thanks @cat-ph!
+
+## 0.7.19 — 2026-06-04
+
+### Patch changes
+
+- [51fc41a92dd](https://github.com/PostHog/posthog/commit/51fc41a92dd46c8a6840152b1647dd6da6894cb9) Add help text for the SSL verification flag. — Thanks @cat-ph!
+- [867f88d1e9f](https://github.com/PostHog/posthog/commit/867f88d1e9f00b922ff98f8be475f4e2839d8f7b) Clarify the CLI release tag format in the release docs. — Thanks @cat-ph!
+
 ## 0.7.18
 
 - fix: rename `--env-file` to `--dotenv-file`. The npm package runs the CLI binary through a `node` wrapper script, and Node has its own built-in `--env-file` flag — so Node intercepted the flag before it reached the binary, failing with `node: .env: not found` for a missing file. `--env-file` still works as an alias for native installs.

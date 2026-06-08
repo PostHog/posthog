@@ -46,6 +46,7 @@ export type SettingSectionId =
     | 'environment-secret-api-keys'
     | 'environment-surveys'
     | 'environment-web-analytics'
+    | 'environment-workflows'
     | 'environment-danger-zone'
     // Project (backward compat – remove when Environments are rolled out)
     | 'project-details'
@@ -90,6 +91,7 @@ export type SettingId =
     | 'activity-log-org-level-settings'
     | 'activity-log-settings'
     | 'ai-observability-byok'
+    | 'ai-observability-parser-recipes'
     | 'allow-impersonation'
     | 'approval-policies'
     | 'authentication-domains'
@@ -172,6 +174,7 @@ export type SettingId =
     | 'js-snippet-version'
     | 'logs'
     | 'logs-alerting'
+    | 'logs-distinct-id-attribute-key'
     | 'logs-drop-rules'
     | 'logs-json-parse'
     | 'logs-pii-scrub'
@@ -196,6 +199,7 @@ export type SettingId =
     | 'organization-proxy'
     | 'organization-roles'
     | 'organization-security'
+    | 'organization-personal-api-keys'
     | 'passkeys'
     | 'path-cleaning'
     | 'person-display-name'
@@ -241,6 +245,7 @@ export type SettingId =
     | 'web-analytics-pre-aggregated-tables'
     | 'web-revenue-events'
     | 'web-vitals-autocapture'
+    | 'workflows-engagement-events'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

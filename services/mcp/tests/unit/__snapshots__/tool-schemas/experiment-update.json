@@ -45,6 +45,159 @@
             ],
             "description": "Description of the experiment hypothesis and expected outcomes."
         },
+        "exposure_criteria": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "exposure_config": {
+                            "anyOf": [
+                                {
+                                    "properties": {
+                                        "event": {
+                                            "description": "Custom exposure event name.",
+                                            "type": "string"
+                                        },
+                                        "kind": {
+                                            "const": "ExperimentEventExposureConfig",
+                                            "default": "ExperimentEventExposureConfig",
+                                            "type": "string"
+                                        },
+                                        "properties": {
+                                            "description": "Event property filters. Pass an empty array if no filters needed.",
+                                            "items": {
+                                                "properties": {
+                                                    "key": {
+                                                        "type": "string"
+                                                    },
+                                                    "label": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "operator": {
+                                                        "anyOf": [
+                                                            {
+                                                                "enum": [
+                                                                    "exact",
+                                                                    "is_not",
+                                                                    "icontains",
+                                                                    "not_icontains",
+                                                                    "regex",
+                                                                    "not_regex",
+                                                                    "gt",
+                                                                    "gte",
+                                                                    "lt",
+                                                                    "lte",
+                                                                    "is_set",
+                                                                    "is_not_set",
+                                                                    "is_date_exact",
+                                                                    "is_date_before",
+                                                                    "is_date_after",
+                                                                    "between",
+                                                                    "not_between",
+                                                                    "min",
+                                                                    "max",
+                                                                    "in",
+                                                                    "not_in",
+                                                                    "is_cleaned_path_exact",
+                                                                    "flag_evaluates_to",
+                                                                    "semver_eq",
+                                                                    "semver_neq",
+                                                                    "semver_gt",
+                                                                    "semver_gte",
+                                                                    "semver_lt",
+                                                                    "semver_lte",
+                                                                    "semver_tilde",
+                                                                    "semver_caret",
+                                                                    "semver_wildcard",
+                                                                    "icontains_multi",
+                                                                    "not_icontains_multi"
+                                                                ],
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "default": "exact"
+                                                    },
+                                                    "type": {
+                                                        "const": "event",
+                                                        "default": "event",
+                                                        "description": "Event properties",
+                                                        "type": "string"
+                                                    },
+                                                    "value": {
+                                                        "anyOf": [
+                                                            {
+                                                                "items": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "type": "boolean"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                "type": "array"
+                                                            },
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "boolean"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                "required": ["key"],
+                                                "type": "object"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "required": ["event", "properties"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "filterTestAccounts": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Exposure configuration including filter test accounts and custom exposure events."
+        },
         "holdout_id": {
             "anyOf": [
                 {

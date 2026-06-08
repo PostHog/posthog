@@ -8,9 +8,11 @@ import { WidgetCardBody } from '../../components/WidgetCard/WidgetCardBody'
 import { WidgetCardHeader, widgetCardShouldHideMoreButton } from '../../components/WidgetCard/WidgetCardHeader'
 import {
     mockMoreOverlay,
+    widgetStorybookParameters,
     widgetTileFrameDecorator,
     withErrorTrackingProjectState,
 } from '../../components/WidgetCard/widgetCardStoryFixtures'
+import { errorTrackingSampleIssues } from '../../components/WidgetCard/widgetOverviewStoryFixtures'
 import { getDashboardWidgetCatalogEntry, getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { ErrorTrackingWidget } from './ErrorTrackingWidget'
@@ -56,67 +58,13 @@ function ErrorTrackingWidgetTileStory({
     )
 }
 
-const sampleIssues = [
-    {
-        id: 'issue-1',
-        name: 'TypeError: Cannot read properties of undefined',
-        description: 'User profile settings fail to load when the session cache is empty.',
-        function: 'loadProfile',
-        source: 'https://app.example.test/static/js/settings.js',
-        library: 'web',
-        status: 'active',
-        assignee: null,
-        first_seen: '2026-05-01T10:00:00.000Z',
-        last_seen: '2026-05-26T08:00:00.000Z',
-        aggregations: {
-            occurrences: 42,
-            sessions: 18,
-            users: 12,
-            volume_buckets: [
-                { label: '2026-05-20T00:00:00.000Z', value: 2 },
-                { label: '2026-05-21T00:00:00.000Z', value: 4 },
-                { label: '2026-05-22T00:00:00.000Z', value: 8 },
-                { label: '2026-05-23T00:00:00.000Z', value: 12 },
-                { label: '2026-05-24T00:00:00.000Z', value: 6 },
-                { label: '2026-05-25T00:00:00.000Z', value: 5 },
-                { label: '2026-05-26T00:00:00.000Z', value: 5 },
-            ],
-        },
-    },
-    {
-        id: 'issue-2',
-        name: 'NetworkError: Failed to fetch',
-        description: 'Checkout requests fail when the payment API is unavailable.',
-        function: 'fetch',
-        source: 'https://app.example.test/static/js/api.js',
-        library: 'web',
-        status: 'pending_release',
-        assignee: null,
-        first_seen: '2026-05-10T10:00:00.000Z',
-        last_seen: '2026-05-25T12:00:00.000Z',
-        aggregations: {
-            occurrences: 18,
-            sessions: 9,
-            users: 7,
-            volume_buckets: [
-                { label: '2026-05-20T00:00:00.000Z', value: 1 },
-                { label: '2026-05-21T00:00:00.000Z', value: 2 },
-                { label: '2026-05-22T00:00:00.000Z', value: 3 },
-                { label: '2026-05-23T00:00:00.000Z', value: 2 },
-                { label: '2026-05-24T00:00:00.000Z', value: 4 },
-                { label: '2026-05-25T00:00:00.000Z', value: 3 },
-                { label: '2026-05-26T00:00:00.000Z', value: 3 },
-            ],
-        },
-    },
-]
-
 // Storybook CSF requires a string literal `title` derived from catalog groupLabel/label.
 const meta: Meta<typeof ErrorTrackingWidgetTileStory> = {
     title: 'Dashboards/Dashboard Widgets/Widget types/Error tracking/Top issues',
     component: ErrorTrackingWidgetTileStory,
     parameters: {
         layout: 'padded',
+        ...widgetStorybookParameters,
     },
     decorators: [...widgetTileFrameDecorator],
     args: {
@@ -140,7 +88,7 @@ export const Populated: Story = {
         config: { ...DEFAULT_CONFIG, orderBy: 'occurrences' },
         loading: false,
         result: {
-            results: sampleIssues,
+            results: errorTrackingSampleIssues,
             hasMore: true,
             limit: 10,
         },

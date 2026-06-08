@@ -69,7 +69,7 @@ import {
 } from '~/types'
 
 import { teamLogic } from '../teamLogic'
-import { insightDataLogic } from './insightDataLogic'
+import { insightDataLogic, isInsightSceneInstance } from './insightDataLogic'
 import type { insightLogicType } from './insightLogicType'
 import { getInsightId } from './utils'
 import { insightsApi } from './utils/api'
@@ -621,7 +621,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     action: () => router.actions.push(urls.savedInsights()),
                 },
             })
-            tryShowMCPHint('insights.create')
+            const insightName = savedInsight.name || savedInsight.derived_name
+            tryShowMCPHint('insights.create', {
+                derivedPrompt: insightName ? `Build an insight called ${insightName}` : undefined,
+            })
 
             dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
 
@@ -659,12 +662,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     // redirect new insights added to dashboard to the dashboard
                     router.actions.push(urls.dashboard(dashboards[0], savedInsight.short_id))
                 } else if (insightNumericId) {
-                    if (props.tabId) {
-                        const mountedInsightSceneLogic = insightSceneLogic.findMounted({ tabId: props.tabId })
-                        mountedInsightSceneLogic?.actions.setInsightMode(
-                            ItemMode.View,
-                            InsightEventSource.InsightHeader
-                        )
+                    if (isInsightSceneInstance(props)) {
+                        insightSceneLogic
+                            .findMounted()
+                            ?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                     }
                 } else {
                     router.actions.push(urls.insightView(savedInsight.short_id))
