@@ -4,8 +4,10 @@ import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 
-import type { TrendsChartDisplayOptions } from 'products/product_analytics/frontend/insights/trends/shared/trendsChartDisplayOptions'
-import { buildTrendsLineChartProps } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
+import {
+    buildTrendsLineTimeSeriesConfig,
+    buildTrendsSeries,
+} from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
 
 import { BarChart, BigNumber, Select, type Series } from './charts'
 import { CHART_COLORS, CHART_THEME } from './charts/theme'
@@ -88,22 +90,24 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         return <BigNumber value={total} label={label} />
     }
 
-    const lineDisplayOptions: TrendsChartDisplayOptions = {
-        isArea: displayType === 'ActionsAreaGraph',
-        yFormatterFields: query?.trendsFilter,
-        yAxisLabel: results.length === 1 && results[0] ? getSeriesLabel(results[0], 0) : undefined,
-        showCrosshair: true,
-    }
+    const lineResults = results.map((item, i) => ({
+        id: i,
+        label: getSeriesLabel(item, i),
+        data: item.data ?? [],
+        days: item.days,
+    }))
 
-    const { series: lineSeries, config: lineConfig } = buildTrendsLineChartProps({
-        results: results.map((item, i) => ({
-            id: i,
-            label: getSeriesLabel(item, i),
-            data: item.data ?? [],
-            days: item.days,
-        })),
-        displayOptions: lineDisplayOptions,
+    const lineSeries = buildTrendsSeries(lineResults, {
+        isArea: displayType === 'ActionsAreaGraph',
         getColor: (_, index) => CHART_COLORS[index % CHART_COLORS.length]!,
+    })
+
+    const lineConfig = buildTrendsLineTimeSeriesConfig({
+        results: lineResults,
+        trendsFilter: query?.trendsFilter,
+        yAxisLabel: results.length === 1 && results[0] ? getSeriesLabel(results[0], 0) : undefined,
+        isPercentStackView: false,
+        showCrosshair: true,
         xAxisTickFormatter: (value) => formatDate(value),
     })
 

@@ -6,8 +6,11 @@ import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { ChartTheme } from '@posthog/quill-charts'
 
-import type { TrendsChartDisplayOptions } from '../../frontend/insights/trends/shared/trendsChartDisplayOptions'
-import { buildTrendsLineChartProps, type TrendsResultLike } from '../../frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
+import {
+    buildTrendsLineTimeSeriesConfig,
+    buildTrendsSeries,
+    type TrendsResultLike,
+} from '../../frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
 
 // PostHog brand palette — mirrors services/mcp/src/ui-apps/components/charts/theme.ts
 const CHART_COLORS = ['#1d4aff', '#621da6', '#00d683', '#f54e00', '#f7a501', '#dc2626']
@@ -43,14 +46,9 @@ type Story = StoryObj<{}>
 // them to quill's TimeSeriesLineChart. Fixed pixel size, not width:100% — the chart sizes its canvas
 // off a ResizeObserver, which measures 0 for a percentage width at mount in the headless snapshot
 // runner and draws nothing.
-function TrendsLineChartDemo({
-    results,
-    displayOptions,
-}: {
-    results: TrendsResultLike[]
-    displayOptions?: TrendsChartDisplayOptions
-}): ReactElement {
-    const { series, config } = buildTrendsLineChartProps({ results, displayOptions, getColor })
+function TrendsLineChartDemo({ results, isArea }: { results: TrendsResultLike[]; isArea?: boolean }): ReactElement {
+    const series = buildTrendsSeries(results, { isArea, getColor })
+    const config = buildTrendsLineTimeSeriesConfig({ results, isPercentStackView: false })
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div style={{ display: 'flex', flexDirection: 'column', width: 640, height: 300 }}>
@@ -88,7 +86,7 @@ export const AreaChart: Story = {
                 { id: 1, label: 'Pageviews', data: [420, 380, 510, 490, 630, 580, 720], days: DAYS },
                 { id: 2, label: 'Signups', data: [42, 38, 51, 49, 63, 58, 72], days: DAYS },
             ]}
-            displayOptions={{ isArea: true }}
+            isArea
         />
     ),
     name: 'Area chart',

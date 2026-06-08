@@ -26,10 +26,9 @@ import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
-import type { TrendsChartDisplayOptions } from '../shared/trendsChartDisplayOptions'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
-import { buildTrendsLineChartProps } from './trendsChartTransforms'
+import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
 
 interface TrendsLineChartProps {
     context?: QueryContext<InsightVizNode>
@@ -85,46 +84,6 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         indexedResults &&
         indexedResults[0]?.data &&
         indexedResults.filter((result: IndexedTrendResult) => result.count !== 0).length > 0
-
-    const displayOptions: TrendsChartDisplayOptions = useMemo(
-        () => ({
-            isArea: display === ChartDisplayType.ActionsAreaGraph,
-            showMultipleYAxes: showMultipleYAxes ?? undefined,
-            isPercentStackView,
-            yAxisScaleType,
-            interval,
-            timezone,
-            allDays: currentPeriodResult?.days ?? [],
-            xAxisLabel: trendsFilter?.xAxisLabel,
-            yAxisLabel: trendsFilter?.yAxisLabel,
-            yFormatterFields: trendsFilter,
-            baseCurrency,
-            showValuesOnSeries: showValuesOnSeries ?? undefined,
-            showCrosshair: true,
-            showConfidenceIntervals: showConfidenceIntervals ?? undefined,
-            confidenceLevel: confidenceLevel ?? undefined,
-            showMovingAverage: showMovingAverage ?? undefined,
-            movingAverageIntervals: movingAverageIntervals ?? undefined,
-            showTrendLines: showTrendLines ?? undefined,
-        }),
-        [
-            display,
-            showMultipleYAxes,
-            isPercentStackView,
-            yAxisScaleType,
-            interval,
-            timezone,
-            currentPeriodResult?.days,
-            trendsFilter,
-            baseCurrency,
-            showValuesOnSeries,
-            showConfidenceIntervals,
-            confidenceLevel,
-            showMovingAverage,
-            movingAverageIntervals,
-            showTrendLines,
-        ]
-    )
 
     const valueLabelFormatter = useCallback(
         (value: number) => {
@@ -228,29 +187,74 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         ]
     )
 
-    const { series, config } = useMemo(
+    const series = useMemo(
         () =>
-            buildTrendsLineChartProps<IndexedTrendResult, TrendsSeriesMeta>({
-                results: indexedResults ?? [],
-                displayOptions,
+            buildTrendsSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
+                isArea: display === ChartDisplayType.ActionsAreaGraph,
+                showMultipleYAxes: showMultipleYAxes ?? undefined,
+                incompletenessOffsetFromEnd,
+                isStickiness,
                 getColor: getTrendsColor,
                 getHidden: getTrendsHidden,
                 buildMeta: buildTrendsSeriesMeta,
-                goalLines,
-                ciRanges,
-                incompletenessOffsetFromEnd,
-                isStickiness,
-                valueLabelFormatter,
-                tooltipConfig: TOOLTIP_CONFIG,
             }),
         [
             indexedResults,
-            displayOptions,
-            getTrendsColor,
-            getTrendsHidden,
-            goalLines,
+            display,
+            showMultipleYAxes,
             incompletenessOffsetFromEnd,
             isStickiness,
+            getTrendsColor,
+            getTrendsHidden,
+        ]
+    )
+
+    const config = useMemo(
+        () =>
+            buildTrendsLineTimeSeriesConfig<IndexedTrendResult>({
+                results: indexedResults ?? [],
+                trendsFilter,
+                baseCurrency,
+                isPercentStackView,
+                isStickiness,
+                yAxisScaleType,
+                interval,
+                timezone,
+                allDays: currentPeriodResult?.days ?? [],
+                xAxisLabel: trendsFilter?.xAxisLabel,
+                yAxisLabel: trendsFilter?.yAxisLabel,
+                goalLines,
+                incompletenessOffsetFromEnd,
+                getHidden: getTrendsHidden,
+                showConfidenceIntervals: showConfidenceIntervals ?? undefined,
+                confidenceLevel: confidenceLevel ?? undefined,
+                ciRanges,
+                showMovingAverage: showMovingAverage ?? undefined,
+                movingAverageIntervals: movingAverageIntervals ?? undefined,
+                showTrendLines: showTrendLines ?? undefined,
+                valueLabels: showValuesOnSeries && valueLabelFormatter ? { formatter: valueLabelFormatter } : false,
+                showCrosshair: true,
+                tooltip: TOOLTIP_CONFIG,
+            }),
+        [
+            indexedResults,
+            trendsFilter,
+            baseCurrency,
+            isPercentStackView,
+            isStickiness,
+            yAxisScaleType,
+            interval,
+            timezone,
+            currentPeriodResult?.days,
+            goalLines,
+            incompletenessOffsetFromEnd,
+            getTrendsHidden,
+            showConfidenceIntervals,
+            confidenceLevel,
+            showMovingAverage,
+            movingAverageIntervals,
+            showTrendLines,
+            showValuesOnSeries,
             valueLabelFormatter,
         ]
     )
