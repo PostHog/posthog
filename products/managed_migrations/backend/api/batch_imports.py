@@ -17,16 +17,16 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.activity_logging.batch_import_utils import (
-    extract_batch_import_info,
-    get_batch_import_created_by_info,
-    get_batch_import_detail_name,
-)
 from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
-from products.batch_exports.backend.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
+from products.managed_migrations.backend.models.batch_import_utils import (
+    extract_batch_import_info,
+    get_batch_import_created_by_info,
+    get_batch_import_detail_name,
+)
+from products.managed_migrations.backend.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
 
 
 class BatchImportSerializer(serializers.ModelSerializer):

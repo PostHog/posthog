@@ -185,7 +185,7 @@ _RELOCATED_RECEIVERS = [
     "products.data_warehouse.backend.activity_logging.handle_external_data_schema_change",
     "products.ai_observability.backend.activity_logging.handle_evaluation_change",
     "products.batch_exports.backend.api.batch_export.handle_batch_export_change",
-    "products.batch_exports.backend.api.batch_imports.handle_batch_import_change",
+    "products.managed_migrations.backend.api.batch_imports.handle_batch_import_change",
     "products.actions.backend.api.action.handle_action_change",
     "products.annotations.backend.api.annotation.handle_annotation_change",
     "products.alerts.backend.api.alert.handle_alert_configuration_change",
