@@ -17,7 +17,7 @@ ISSUE_LIMIT = 10
 
 class LongRunningIssuesRecommendation(Recommendation):
     type = "long_running_issues"
-    refresh_interval = timedelta(hours=1)
+    refresh_interval = timedelta(hours=6)
 
     def compute(self, team: Team) -> dict[str, Any]:
         from posthog.hogql.query import execute_hogql_query

@@ -125,7 +125,7 @@ def refresh_team_recommendations(team_id: int) -> int:
 
     Staleness is governed by each recommendation's ``refresh_interval``, so an hourly
     caller only recomputes the types that have actually gone stale (e.g. source_maps
-    every 6h, long_running_issues every hour). Used by the on-demand API path, which
+    and long_running_issues every 6h). Used by the on-demand API path, which
     must not block on compute.
 
     Returns the number of recommendations kicked.
