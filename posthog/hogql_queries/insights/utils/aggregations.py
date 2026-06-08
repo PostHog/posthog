@@ -92,9 +92,9 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         )
 
         min_timestamp_expr = (
-            ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])
-            if not self._is_first_matching_event or self._filters is None
-            else ast.Call(name="minIf", args=[ast.Field(chain=["timestamp"]), self._filters])
+            ast.Call(name="minIf", args=[ast.Field(chain=["timestamp"]), self._filters])
+            if self._uses_conditional_aggregation()
+            else ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])
         )
 
         return [
@@ -115,16 +115,13 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         sample_value = ast.SampleExpr(sample_value=ratio) if ratio is not None else None
         return ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e", sample=sample_value)
 
+    def _uses_conditional_aggregation(self) -> bool:
+        # first_matching_event_for_user wraps the series filters in conditional aggregates (minIf/argMinIf).
+        return self._is_first_matching_event and self._filters is not None
+
     def _matching_event_prefilter(self) -> ast.Expr | None:
-        """
-        For `first_matching_event_for_user`, only events that match the series filters can ever be a
-        user's first *matching* event, so the filters can be applied in WHERE to prune the scan. For
-        plain `first_time_for_user` we must look at the user's whole event history to know which event
-        was first, so the filters stay inside the conditional aggregates and WHERE is left untouched.
-        """
-        if self._is_first_matching_event and self._filters is not None:
-            return self._filters
-        return None
+        # Only a first_matching_event can push series filters into WHERE; plain first_time must scan full history.
+        return self._filters if self._uses_conditional_aggregation() else None
 
     def _where_expr(
         self,
@@ -163,12 +160,12 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
 
     def _transform_column(self, column: ast.Expr):
         return (
-            ast.Call(name="argMin", args=[column, ast.Field(chain=["timestamp"])])
-            if not self._is_first_matching_event or self._filters is None
-            else ast.Call(
+            ast.Call(
                 name="argMinIf",
                 args=[column, ast.Field(chain=["timestamp"]), self._filters],
             )
+            if self._uses_conditional_aggregation()
+            else ast.Call(name="argMin", args=[column, ast.Field(chain=["timestamp"])])
         )
 
     def append_select(self, expr: ast.Expr, aggregate: bool = False):

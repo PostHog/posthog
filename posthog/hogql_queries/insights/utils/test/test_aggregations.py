@@ -1,7 +1,5 @@
 from typing import cast
 
-from parameterized import parameterized
-
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
@@ -150,43 +148,40 @@ class TestFirstTimeForUserEventsQueryAlternator:
         assert query.where.exprs[0] == date_to
         assert query.where.exprs[1] == event_filter
 
-    @parameterized.expand(
-        [
-            # first_matching_event_for_user: only matching events can be the first match, so the filters
-            # are pushed into WHERE to prune the scan, and min_timestamp uses minIf over the same filters.
-            ("first_matching_event", True, True),
-            # plain first_time_for_user must inspect the whole history, so filters stay out of WHERE.
-            ("first_time_for_user", False, False),
-        ]
-    )
-    def test_filters_pushed_into_where_only_for_first_matching_event(
-        self, _name, is_first_matching_event, expect_filters_in_where
-    ):
+    def test_filters_pushed_into_where_for_first_matching_event(self):
         query = ast.SelectQuery(select=[])
         date_from, date_to, filters = parse_expr("1 = 1"), parse_expr("2 = 2"), parse_expr("3 = 3")
 
         builder = FirstTimeForUserEventsQueryAlternator(
-            query, date_from, date_to, filters=filters, is_first_matching_event=is_first_matching_event
+            query, date_from, date_to, filters=filters, is_first_matching_event=True
         )
         builder.build()
+
+        assert isinstance(query.where, ast.And)
+        assert filters in query.where.exprs
 
         assert isinstance(query.select[0], ast.Alias)
         assert query.select[0].alias == "min_timestamp"
         assert isinstance(query.select[0].expr, ast.Call)
+        assert query.select[0].expr.name == "minIf"
 
-        if expect_filters_in_where:
-            assert isinstance(query.where, ast.And)
-            assert filters in query.where.exprs
-            # min_timestamp uses minIf over the same filters (unchanged semantics)
-            assert query.select[0].expr.name == "minIf"
-        else:
-            assert query.where == date_to
-            assert query.select[0].expr.name == "min"
+    def test_filters_stay_out_of_where_for_first_time_for_user(self):
+        query = ast.SelectQuery(select=[])
+        date_from, date_to, filters = parse_expr("1 = 1"), parse_expr("2 = 2"), parse_expr("3 = 3")
+
+        builder = FirstTimeForUserEventsQueryAlternator(
+            query, date_from, date_to, filters=filters, is_first_matching_event=False
+        )
+        builder.build()
+
+        assert query.where == date_to
+
+        assert isinstance(query.select[0], ast.Alias)
+        assert query.select[0].alias == "min_timestamp"
+        assert isinstance(query.select[0].expr, ast.Call)
+        assert query.select[0].expr.name == "min"
 
     def test_first_matching_event_pushes_only_filters_not_breakdown_into_where(self):
-        # On the actors/breakdown path the alternator receives both `filters` and `filters_with_breakdown`
-        # (= filters AND breakdown_condition). Only the unbreakdowned `filters` may be pushed into WHERE to
-        # prune the scan; min_timestamp_with_condition still aggregates over the breakdown-narrowed filters.
         query = ast.SelectQuery(select=[])
         date_from, date_to, filters, filters_with_breakdown = (
             parse_expr("1 = 1"),
@@ -205,12 +200,10 @@ class TestFirstTimeForUserEventsQueryAlternator:
         )
         builder.build()
 
-        # WHERE prunes the scan using only `filters`, never the breakdown-narrowed condition
         assert isinstance(query.where, ast.And)
         assert filters in query.where.exprs
         assert filters_with_breakdown not in query.where.exprs
 
-        # min_timestamp_with_condition still aggregates over the breakdown-narrowed filters
         assert isinstance(query.select[1], ast.Alias)
         assert query.select[1].alias == "min_timestamp_with_condition"
         assert isinstance(query.select[1].expr, ast.Call)
