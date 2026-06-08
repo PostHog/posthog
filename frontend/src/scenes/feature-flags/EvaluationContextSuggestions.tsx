@@ -12,8 +12,7 @@ import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic
 
 export function EvaluationContextSuggestions(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { availableContexts, hiddenContexts, defaultEvaluationContextsLoading } =
-        useValues(defaultEvaluationContextsLogic)
+    const { availableContexts, hiddenContexts, pendingContextName } = useValues(defaultEvaluationContextsLogic)
     const { hideContext, unhideContext } = useActions(defaultEvaluationContextsLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -28,7 +27,8 @@ export function EvaluationContextSuggestions(): JSX.Element | null {
         <div className="space-y-4">
             <p className="text-sm text-muted">
                 These names are suggested when scoping a flag to evaluation contexts. Hiding a name only removes it from
-                the suggestion list — flags already using it keep working, and the name reappears if it's used again.
+                the suggestion list — flags already using it keep working, and hidden names stay hidden until restored
+                from this settings page.
             </p>
 
             <div className="flex flex-col gap-2">
@@ -47,7 +47,7 @@ export function EvaluationContextSuggestions(): JSX.Element | null {
                                         tooltip={`Hide "${name}" from suggestions`}
                                         onClick={() => hideContext(name)}
                                         disabledReason={restrictedReason}
-                                        loading={defaultEvaluationContextsLoading}
+                                        loading={pendingContextName === name}
                                     />
                                 </span>
                             </LemonTag>
@@ -70,7 +70,7 @@ export function EvaluationContextSuggestions(): JSX.Element | null {
                                         tooltip="Restore to suggestions"
                                         onClick={() => unhideContext(name)}
                                         disabledReason={restrictedReason}
-                                        loading={defaultEvaluationContextsLoading}
+                                        loading={pendingContextName === name}
                                     />
                                 </span>
                             </LemonTag>

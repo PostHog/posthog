@@ -5,6 +5,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team
+from posthog.models.organization import OrganizationMembership
 
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,
@@ -217,6 +218,8 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
 class TestEvaluationContextSuggestions(APIBaseTest):
     def setUp(self):
         super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         self.url = "/api/environments/@current/evaluation_context_suggestions/"
         self.get_url = "/api/environments/@current/default_evaluation_contexts/"
 
@@ -306,6 +309,8 @@ class TestEvaluationContextRootTeamScoping(APIBaseTest):
 
     def setUp(self):
         super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         # self.team is the project root (no parent_team); add a sibling child environment.
         self.child_env = Team.objects.create(
             organization=self.organization,

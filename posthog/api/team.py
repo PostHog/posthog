@@ -12,7 +12,8 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from pydantic import TypeAdapter
@@ -1614,8 +1615,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     # Team-config actions any project member may edit via the UI, across all their HTTP methods
     # (including DELETE). These rely on AccessControlPermission rather than the admin-for-DELETE
     # gate in TeamMemberLightManagementPermission.
-    MEMBER_EDITABLE_CONFIG_ACTIONS = (
-        "default_release_conditions",
+    MEMBER_EDITABLE_CONFIG_ACTIONS = ("default_release_conditions",)
+
+    # Read-only actions that any project member can call. Mutating methods on these actions are
+    # NOT downgraded — they stay on the default project:write / admin path.
+    MEMBER_READABLE_ACTIONS = (
         "default_evaluation_contexts",
         "evaluation_context_suggestions",
     )
@@ -1665,6 +1669,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             if is_session_auth:
                 return ["project:read"]
 
+        # Read-only access for member-readable actions — only downgrade GET, not writes.
+        if self.action in self.MEMBER_READABLE_ACTIONS and request.method == "GET":
+            is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
+            if is_session_auth:
+                return ["project:read"]
+
         # Fall back to the default behavior
         return None
 
@@ -1693,7 +1703,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                 # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer.
                 # Member-editable config actions are gated by AccessControlPermission instead, so their DELETE
                 # methods aren't forced behind the admin-only gate in TeamMemberLightManagementPermission.
-                permissions.append(TeamMemberLightManagementPermission)
+                # Member-readable actions skip the admin gate only for GETs; writes stay admin-gated.
+                if self.action in self.MEMBER_READABLE_ACTIONS and self.request.method == "GET":
+                    pass
+                else:
+                    permissions.append(TeamMemberLightManagementPermission)
 
         return [permission() for permission in permissions]
 
@@ -1917,16 +1931,13 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         if request.method == "GET":
             defaults = TeamDefaultEvaluationContext.objects.filter(team=root_team).select_related("evaluation_context")
             defaults_data = [{"id": d.id, "name": d.evaluation_context.name} for d in defaults]
-            all_contexts = list(
-                EvaluationContext.objects.filter(team=root_team, hidden_from_suggestions=False)
-                .values_list("name", flat=True)
+            all_contexts_qs = (
+                EvaluationContext.objects.filter(team=root_team)
+                .values_list("name", "hidden_from_suggestions")
                 .order_by("name")
             )
-            hidden_contexts = list(
-                EvaluationContext.objects.filter(team=root_team, hidden_from_suggestions=True)
-                .values_list("name", flat=True)
-                .order_by("name")
-            )
+            all_contexts = [name for name, hidden in all_contexts_qs if not hidden]
+            hidden_contexts = [name for name, hidden in all_contexts_qs if hidden]
             return response.Response(
                 {
                     "default_evaluation_contexts": defaults_data,
@@ -1996,8 +2007,22 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                     return response.Response({"error": "Evaluation context not found"}, status=404)
 
     @extend_schema(
-        methods=["POST", "DELETE"],
+        methods=["POST"],
         request=EvaluationContextSuggestionRequestSerializer,
+        responses={200: EvaluationContextSuggestionResponseSerializer},
+        extensions={"x-product": "feature_flags"},
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        parameters=[
+            OpenApiParameter(
+                name="context_name",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Name of the evaluation context to restore to suggestions.",
+            )
+        ],
         responses={200: EvaluationContextSuggestionResponseSerializer},
         extensions={"x-product": "feature_flags"},
     )

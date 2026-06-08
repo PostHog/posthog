@@ -53,6 +53,17 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                 addContext: () => false,
             },
         ],
+        pendingContextName: [
+            null as string | null,
+            {
+                hideContext: (_, { contextName }) => contextName,
+                unhideContext: (_, { contextName }) => contextName,
+                hideContextSuccess: () => null,
+                hideContextFailure: () => null,
+                unhideContextSuccess: () => null,
+                unhideContextFailure: () => null,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
