@@ -59,18 +59,18 @@ describe('evaluationReportLogic', () => {
         createBodies = []
         useMocks({
             get: {
-                '/api/environments/:teamId/llm_analytics/evaluation_reports/': () => [200, { results: reports }],
-                '/api/environments/:teamId/llm_analytics/evaluation_reports/:id/runs/': { results: [] },
+                '/api/projects/:teamId/llm_analytics/evaluation_reports/': () => [200, { results: reports }],
+                '/api/projects/:teamId/llm_analytics/evaluation_reports/:id/runs/': { results: [] },
             },
             post: {
-                '/api/environments/:teamId/llm_analytics/evaluation_reports/': async (req) => {
+                '/api/projects/:teamId/llm_analytics/evaluation_reports/': async (req) => {
                     const body = (await req.json()) as Record<string, unknown>
                     createBodies.push(body)
                     return [201, makeReport({ id: 'created-report', ...body })]
                 },
             },
             patch: {
-                '/api/environments/:teamId/llm_analytics/evaluation_reports/:id/': async (req) => {
+                '/api/projects/:teamId/llm_analytics/evaluation_reports/:id/': async (req) => {
                     const body = (await req.json()) as Record<string, unknown>
                     patchBodies.push(body)
                     const id = req.params.id as string
