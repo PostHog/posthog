@@ -8,6 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use chrono_tz::{Tz, UTC};
 use metrics::counter;
 use serde_json::Value;
 
@@ -30,8 +31,9 @@ pub struct LeafStateMeta {
     pub window: Option<EvictionWindow>,
 }
 
-/// A team's frozen filter view: two reverse indices, the dedup set, and the parsed trees.
-#[derive(Debug, Default)]
+/// A team's frozen filter view: two reverse indices, the dedup set, the parsed trees, and the
+/// resolved team timezone.
+#[derive(Debug)]
 pub struct TeamFilters {
     /// `conditionHash → [LeafStateKey]`. On a HogVM match, Stage 1 enumerates which leaf states to
     /// update — one conditionHash can fan out to several windows/thresholds.
@@ -63,6 +65,28 @@ pub struct TeamFilters {
     pub by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>>,
     /// Parsed trees by cohort, retained for the Stage 2 re-walk.
     pub cohorts: HashMap<CohortId, CohortTree>,
+    /// The team's resolved IANA timezone (`posthog_team.timezone`), the zone the bucket variants
+    /// compute calendar days in (TDD D9). `Tz` is `Copy`, so the worker reads it free off the
+    /// `&TeamFilters` it already holds.
+    pub timezone: Tz,
+}
+
+/// Hand-written (not derived) because [`Tz`] has no [`Default`]; an empty filter set is UTC.
+impl Default for TeamFilters {
+    fn default() -> Self {
+        Self {
+            by_condition_to_lsk: HashMap::new(),
+            by_condition_to_cohorts: HashMap::new(),
+            by_condition_to_bytecode: HashMap::new(),
+            unique_condition_hashes: HashSet::new(),
+            by_lsk: HashMap::new(),
+            behavioral_conditions: HashSet::new(),
+            person_property_conditions: HashSet::new(),
+            by_lsk_to_single_leaf_cohorts: HashMap::new(),
+            cohorts: HashMap::new(),
+            timezone: UTC,
+        }
+    }
 }
 
 /// Accumulates a team's filters across its cohorts (deduping index values via `HashSet`), then
@@ -121,7 +145,8 @@ impl TeamFiltersBuilder {
 
     /// Freeze into an immutable [`TeamFilters`]: sort the dedup `HashSet`s into `Vec`s for
     /// deterministic iteration and derive the per-leaf worker indices by walking the parsed trees.
-    pub fn freeze(self) -> TeamFilters {
+    /// `timezone` is the team's resolved zone (the loader supplies it; tests pass `UTC`).
+    pub fn freeze(self, timezone: Tz) -> TeamFilters {
         let mut by_lsk = HashMap::new();
         let mut behavioral_conditions = HashSet::new();
         let mut person_property_conditions = HashSet::new();
@@ -159,6 +184,7 @@ impl TeamFiltersBuilder {
             person_property_conditions,
             by_lsk_to_single_leaf_cohorts,
             cohorts: self.cohorts,
+            timezone,
         }
     }
 }
@@ -296,6 +322,25 @@ mod tests {
     }
 
     #[test]
+    fn freeze_carries_the_timezone_and_default_is_utc() {
+        use chrono_tz::America::New_York;
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7)]),
+            )
+            .unwrap();
+        assert_eq!(builder.freeze(New_York).timezone, New_York);
+        assert_eq!(
+            TeamFilters::default().timezone,
+            UTC,
+            "an empty filter set defaults to UTC",
+        );
+    }
+
+    #[test]
     fn identical_leaves_dedupe_to_single_entries() {
         let mut builder = TeamFiltersBuilder::default();
         let filters = wrap(vec![
@@ -305,7 +350,7 @@ mod tests {
         builder
             .add_cohort(CohortId(1), TeamId(7), &filters)
             .unwrap();
-        let frozen = builder.freeze();
+        let frozen = builder.freeze(UTC);
 
         assert_eq!(frozen.by_condition_to_lsk[&HASH].len(), 1);
         assert_eq!(frozen.by_condition_to_cohorts[&HASH], vec![CohortId(1)]);
@@ -329,7 +374,7 @@ mod tests {
                 &wrap(vec![behavioral_performed_event(30)]),
             )
             .unwrap();
-        let frozen = builder.freeze();
+        let frozen = builder.freeze(UTC);
 
         assert_eq!(frozen.by_condition_to_lsk[&HASH].len(), 2);
         assert_eq!(
@@ -350,7 +395,7 @@ mod tests {
                 &wrap(vec![behavioral_performed_event(7)]),
             )
             .unwrap();
-        let frozen = builder.freeze();
+        let frozen = builder.freeze(UTC);
 
         let bytecode = frozen
             .by_condition_to_bytecode
@@ -369,7 +414,7 @@ mod tests {
                 &wrap(vec![behavioral_performed_event(7), person_leaf()]),
             )
             .unwrap();
-        let frozen = builder.freeze();
+        let frozen = builder.freeze(UTC);
 
         assert_eq!(frozen.by_lsk.len(), 2);
 
@@ -399,7 +444,7 @@ mod tests {
                 &wrap(vec![behavioral_performed_event(7), person_leaf()]),
             )
             .unwrap();
-        let frozen = builder.freeze();
+        let frozen = builder.freeze(UTC);
 
         assert_eq!(
             frozen.behavioral_conditions,
@@ -432,7 +477,7 @@ mod tests {
         builder
             .add_cohort(CohortId(1), TeamId(7), &filters)
             .unwrap();
-        let frozen = builder.freeze();
+        let frozen = builder.freeze(UTC);
 
         assert_eq!(frozen.by_lsk.len(), 1);
         assert_eq!(frozen.behavioral_conditions, HashSet::from([HASH]));
@@ -452,7 +497,7 @@ mod tests {
                 &wrap(vec![behavioral_performed_event(7)]),
             )
             .unwrap();
-        let frozen = builder.freeze();
+        let frozen = builder.freeze(UTC);
 
         let lsk = frozen.by_condition_to_lsk[&HASH][0];
         assert_eq!(
@@ -480,7 +525,7 @@ mod tests {
                 &wrap(vec![behavioral_performed_event(30)]),
             )
             .unwrap();
-        let frozen = builder.freeze();
+        let frozen = builder.freeze(UTC);
 
         assert_eq!(
             frozen.by_condition_to_cohorts[&HASH],
@@ -515,7 +560,7 @@ mod tests {
                 &wrap(vec![behavioral_performed_event(7)]),
             )
             .unwrap();
-        let frozen = builder.freeze();
+        let frozen = builder.freeze(UTC);
 
         let lsk = frozen.by_condition_to_lsk[&HASH][0];
         assert_eq!(
@@ -534,7 +579,7 @@ mod tests {
                 &wrap(vec![behavioral_performed_event(7), person_leaf()]),
             )
             .unwrap();
-        let frozen = builder.freeze();
+        let frozen = builder.freeze(UTC);
 
         assert!(
             frozen.by_lsk_to_single_leaf_cohorts.is_empty(),
@@ -548,7 +593,7 @@ mod tests {
         builder
             .add_cohort(CohortId(1), TeamId(7), &wrap(vec![cohort_ref()]))
             .unwrap();
-        let frozen = builder.freeze();
+        let frozen = builder.freeze(UTC);
 
         assert!(frozen.by_lsk_to_single_leaf_cohorts.is_empty());
     }
@@ -565,7 +610,7 @@ mod tests {
         builder
             .add_cohort(CohortId(1), TeamId(7), &filters)
             .unwrap();
-        let frozen = builder.freeze();
+        let frozen = builder.freeze(UTC);
 
         let lsk = frozen.by_condition_to_lsk[&HASH][0];
         assert_eq!(
@@ -583,7 +628,7 @@ mod tests {
         builder
             .add_cohort(CohortId(1), TeamId(7), &wrap(vec![dropped]))
             .unwrap();
-        let frozen = builder.freeze();
+        let frozen = builder.freeze(UTC);
 
         assert!(frozen.by_lsk_to_single_leaf_cohorts.is_empty());
         assert!(

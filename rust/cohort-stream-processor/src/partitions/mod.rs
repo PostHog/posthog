@@ -10,7 +10,7 @@ pub mod rebalance;
 pub mod router;
 pub mod shuffle_message;
 
-pub use offset_tracker::{is_replay, MarkOutcome, OffsetTracker};
+pub use offset_tracker::{MarkOutcome, OffsetTracker};
 pub use rebalance::{
     run_rebalance_worker, CohortConsumerContext, ConsumerCommand, ConsumerCommandReceiver,
     ConsumerCommandSender, RebalanceEvent, RebalanceEventReceiver,

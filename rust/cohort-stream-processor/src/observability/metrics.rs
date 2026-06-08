@@ -12,6 +12,9 @@ pub const FILTER_CATALOG_UNIQUE_CONDITIONS: &str = "filter_catalog_unique_condit
 pub const FILTER_CATALOG_SKIPPED_LEAVES: &str = "filter_catalog_skipped_leaves_total";
 /// Cohorts skipped because their filter tree failed to parse (counter).
 pub const FILTER_CATALOG_COHORT_PARSE_ERRORS: &str = "filter_catalog_cohort_parse_errors_total";
+/// Teams whose `posthog_team.timezone` did not parse as an IANA zone and fell back to UTC (counter).
+/// Label-free on purpose — the raw timezone string goes only to the `warn!`, never a metric label.
+pub const FILTER_CATALOG_TZ_FALLBACK: &str = "filter_catalog_tz_fallback_total";
 
 // ── Store ──────────────────────────────────────────────────────────────────────
 /// RocksDB batch commits, labelled by `op` (counter).

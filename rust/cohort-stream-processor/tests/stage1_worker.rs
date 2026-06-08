@@ -10,6 +10,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use chrono_tz::UTC;
 use cohort_stream_processor::consumers::CohortStreamEvent;
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFilters, TeamFiltersBuilder, TeamId,
@@ -17,8 +18,8 @@ use cohort_stream_processor::filters::{
 use cohort_stream_processor::partitions::{OffsetTracker, ShuffleMessage};
 use cohort_stream_processor::producer::{CaptureSink, MembershipStatus};
 use cohort_stream_processor::stage1::{
-    clickhouse_timestamp_to_millis, LeafTransition, Stage1State, StateVariant, StatefulRecord,
-    TransitionKind,
+    clickhouse_timestamp_to_millis, AppliedOffsets, LeafTransition, Stage1State, StateVariant,
+    StatefulRecord, TransitionKind,
 };
 use cohort_stream_processor::store::{
     CohortStore, LeafStateKey, PersonIndexKey, Stage1Key, StoreConfig,
@@ -122,7 +123,7 @@ fn build_team_filters(cohorts: Vec<(CohortId, Value)>) -> TeamFilters {
             .add_cohort(id, TeamId(TEAM), &filters)
             .expect("add cohort");
     }
-    builder.freeze()
+    builder.freeze(UTC)
 }
 
 fn catalog_of(filters: TeamFilters) -> Arc<CatalogHandle> {
@@ -186,10 +187,30 @@ fn person_index_key(person: Uuid) -> PersonIndexKey {
 }
 
 fn state_at(store: &CohortStore, lsk: LeafStateKey, person: Uuid) -> Option<Stage1State> {
+    record_at(store, lsk, person).map(|record| record.state)
+}
+
+/// The full persisted record (state + per-source-partition applied offsets), for the cross-partition
+/// replay-dedup assertions.
+fn record_at(store: &CohortStore, lsk: LeafStateKey, person: Uuid) -> Option<StatefulRecord> {
     store
         .get_stage1(&stage1_key(lsk, person))
         .unwrap()
-        .map(|bytes| StatefulRecord::decode(&bytes).unwrap().state)
+        .map(|bytes| StatefulRecord::decode(&bytes).unwrap())
+}
+
+/// Assert `offset` is the recorded high-water mark for `partition` — probed via the public
+/// `is_replay` (the inner map is intentionally private): `offset` is a replay, `offset + 1` is new.
+fn assert_high_water(applied: &AppliedOffsets, partition: i32, offset: i64) {
+    assert!(
+        applied.is_replay(partition, offset),
+        "offset {offset} on partition {partition} should be ≤ the high-water mark",
+    );
+    assert!(
+        !applied.is_replay(partition, offset + 1),
+        "offset {} on partition {partition} should be above the high-water mark",
+        offset + 1,
+    );
 }
 
 fn behavioral_deadline(state: &Stage1State) -> i64 {
@@ -413,6 +434,144 @@ fn snapshot_state(store: &CohortStore, filters: &TeamFilters, persons: &[Uuid]) 
     map
 }
 
+// ── Cross-source-partition replay dedup (L11) ────────────────────────────────────
+// The shuffler re-keys by `hash(team_id, person_id)`, so one person's events span multiple source
+// partitions. These exercise the per-source-partition `AppliedOffsets` map — the cases a single
+// local source partition (M1) could not reach.
+
+#[test]
+fn cross_partition_low_offset_is_not_masked_by_a_high_offset_elsewhere() {
+    // The per-partition map must isolate partitions: a low offset on a newly-seen source partition
+    // must apply even when another partition already recorded a much higher offset. A single global
+    // high-water mark would wrongly skip this flip — loudly observable as a missing `Left`.
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
+    let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+    let p = person(1);
+
+    // Enter from source partition 10 at a high offset.
+    let enter = person_event(p, "u@p.com", "2026-05-26 12:00:00.000000", 10, 100);
+    let out = process_event(PARTITION_ID, &store, &filters, &enter).unwrap();
+    assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
+
+    // Leave from source partition 20 at a low offset, with a newer event time so argMax applies it.
+    let leave = person_event(p, "nope@x.com", "2026-05-26 13:00:00.000000", 20, 3);
+    let out = process_event(PARTITION_ID, &store, &filters, &leave).unwrap();
+    assert_eq!(
+        out.transitions.len(),
+        1,
+        "the low-offset event on a new partition must apply"
+    );
+    assert_eq!(out.transitions[0].kind, TransitionKind::Left);
+
+    let applied = record_at(&store, lsk, p).unwrap().applied_offsets;
+    assert_high_water(&applied, 10, 100);
+    assert_high_water(&applied, 20, 3);
+}
+
+#[test]
+fn cross_partition_replay_does_not_double_apply_or_disturb_other_partitions() {
+    // The core L11 fix: a replayed event from one source partition is skipped even after a later
+    // event from a *different* source partition advanced the record — where the old single-scalar
+    // guard would have re-applied it. For today's idempotent folds skip and re-apply are
+    // state-identical, so byte-identity is the observable proof; the `AppliedOffsets` unit tests pin
+    // that `is_replay` actually fires.
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
+    let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    let p = person(1);
+
+    // Event from partition 10 (offset 5), then a later event from partition 20 (offset 10).
+    process_event(PARTITION_ID, &store, &filters, &event(p, 10, 5)).unwrap();
+    let later_b = CohortStreamEvent {
+        timestamp: "2026-05-27 12:34:56.789000".to_string(),
+        ..event(p, 20, 10)
+    };
+    process_event(PARTITION_ID, &store, &filters, &later_b).unwrap();
+
+    let before = record_at(&store, lsk, p).unwrap();
+    assert_high_water(&before.applied_offsets, 10, 5);
+    assert_high_water(&before.applied_offsets, 20, 10);
+
+    // Replay partition 10's original event: is_replay(10, 5) is true (5 ≤ 5) even though the most
+    // recent activity is on partition 20.
+    let out = process_event(PARTITION_ID, &store, &filters, &event(p, 10, 5)).unwrap();
+    assert!(out.transitions.is_empty(), "a replay flips nothing");
+
+    let after = record_at(&store, lsk, p).unwrap();
+    assert_eq!(
+        after, before,
+        "the replay neither double-applied nor disturbed partition 20's high-water mark",
+    );
+}
+
+#[test]
+fn cross_partition_person_replay_leaves_state_and_other_partitions_intact() {
+    // Person-property replay before the argMax tiebreaker, across partitions: Guard 1 (`is_replay`)
+    // skips the redelivered partition-10 match without touching partition 20's mark.
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
+    let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+    let p = person(1);
+
+    let from_a = person_event(p, "u@p.com", "2026-05-26 12:00:00.000000", 10, 5);
+    process_event(PARTITION_ID, &store, &filters, &from_a).unwrap();
+    let later_b = person_event(p, "u@p.com", "2026-05-26 13:00:00.000000", 20, 10);
+    process_event(PARTITION_ID, &store, &filters, &later_b).unwrap();
+
+    let before = record_at(&store, lsk, p).unwrap();
+    assert_high_water(&before.applied_offsets, 10, 5);
+    assert_high_water(&before.applied_offsets, 20, 10);
+
+    let out = process_event(PARTITION_ID, &store, &filters, &from_a).unwrap();
+    assert!(
+        out.transitions.is_empty(),
+        "the person replay flips nothing"
+    );
+
+    assert_eq!(
+        record_at(&store, lsk, p).unwrap(),
+        before,
+        "the person replay left state and partition 20 untouched",
+    );
+}
+
+#[test]
+fn argmax_stale_event_still_advances_applied_offsets_across_partitions() {
+    // A late (argMax-stale) event from a newly-seen source partition is NOT a replay, so it must
+    // still record its source offset — otherwise a later true replay of *it* would be re-applied.
+    // Also pins that offset 0 is a valid first offset (seen-ness is key presence, not a sentinel).
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
+    let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+    let p = person(1);
+
+    // Newest write from partition 10 (offset 5).
+    let newest = person_event(p, "u@p.com", "2026-05-26 13:00:00.000000", 10, 5);
+    process_event(PARTITION_ID, &store, &filters, &newest).unwrap();
+
+    // An older event from partition 20 at offset 0: argMax-stale, but a genuine first sighting of
+    // partition 20 that must be recorded.
+    let older_b = person_event(p, "nope@x.com", "2026-05-26 12:00:00.000000", 20, 0);
+    let out = process_event(PARTITION_ID, &store, &filters, &older_b).unwrap();
+    assert!(out.transitions.is_empty(), "a stale event flips nothing");
+
+    let record = record_at(&store, lsk, p).unwrap();
+    match record.state {
+        Stage1State::PersonProperty {
+            matches,
+            last_updated_offset,
+            ..
+        } => {
+            assert!(matches, "the stale event kept the newer match");
+            assert_eq!(last_updated_offset, 5, "argMax kept partition 10's offset");
+        }
+        other => panic!("expected PersonProperty, got {other:?}"),
+    }
+    assert_high_water(&record.applied_offsets, 10, 5);
+    assert_high_water(&record.applied_offsets, 20, 0);
+}
+
 #[test]
 fn out_of_order_person_events_keep_the_latest_by_event_time() {
     let (_dir, store) = temp_store();
@@ -490,7 +649,7 @@ fn whole_event_skips_carry_distinct_reasons() {
         assert!(out.transitions.is_empty(), "{name}");
     }
 
-    let empty = TeamFiltersBuilder::default().freeze();
+    let empty = TeamFiltersBuilder::default().freeze(UTC);
     let out = process_event(PARTITION_ID, &store, &empty, &event(person(1), 1, 0)).unwrap();
     assert_eq!(out.skipped, Some(SkipReason::NoConditions));
 }

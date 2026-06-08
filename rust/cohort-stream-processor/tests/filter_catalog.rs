@@ -14,6 +14,7 @@ fn row(id: i32, team_id: i32, filters: Value) -> CohortRow {
         id,
         team_id,
         filters,
+        timezone: "UTC".to_string(),
     }
 }
 

@@ -2,6 +2,7 @@
 //! when a leaf predicate flips. State is keyed by a derived `leaf_state_key`, not `condition_hash`
 //! alone, because the bytecode omits the window and threshold.
 
+pub mod bucket_tz;
 pub mod key;
 pub mod pick_state;
 pub mod predicate;
@@ -11,6 +12,6 @@ pub mod transition;
 
 pub use pick_state::{pick_state_variant, EvictionWindow, TimeInterval, UnsupportedVariant};
 pub use predicate::predicate;
-pub use state::{Stage1State, StateCodecError, StateVariant, StatefulRecord};
+pub use state::{AppliedOffsets, Stage1State, StateCodecError, StateVariant, StatefulRecord};
 pub use time::clickhouse_timestamp_to_millis;
 pub use transition::{LeafTransition, TransitionKind};

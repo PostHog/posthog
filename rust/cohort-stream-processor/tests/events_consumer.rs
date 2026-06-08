@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use chrono_tz::UTC;
 use cohort_stream_processor::consumers::{CohortStreamEventsConsumer, EventDispatcher};
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFiltersBuilder, TeamId,
@@ -69,7 +70,7 @@ fn behavioral_catalog() -> CatalogHandle {
         .expect("add cohort");
     CatalogHandle::from_catalog(FilterCatalog::from_teams([(
         TeamId(TEAM),
-        builder.freeze(),
+        builder.freeze(UTC),
     )]))
 }
 

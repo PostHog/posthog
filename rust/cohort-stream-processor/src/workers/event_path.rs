@@ -17,10 +17,9 @@ use crate::observability::metrics::{
     STAGE1_REPLAY_SKIPPED, STAGE1_STATE_DECODE_ERROR, STAGE1_STATE_WRITES,
     STAGE1_UNSUPPORTED_VARIANT_SKIPPED,
 };
-use crate::partitions::offset_tracker::is_replay;
 use crate::stage1::key::{LeafStateKey, Stage1Key};
 use crate::stage1::predicate::predicate;
-use crate::stage1::state::{Stage1State, StateVariant, StatefulRecord};
+use crate::stage1::state::{AppliedOffsets, Stage1State, StateVariant, StatefulRecord};
 use crate::stage1::time::clickhouse_timestamp_to_millis;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::{CohortStore, IndexOp, PersonIndexKey, StoreError};
@@ -347,17 +346,12 @@ fn mutate_behavioral(
     event_ms: i64,
     prev: Option<&StatefulRecord>,
 ) -> Option<(StatefulRecord, Option<LeafTransition>)> {
-    let (prev_last_event, last_partition, last_offset) = match prev {
-        // Sentinel offset below any real one, so the first real event is never seen as a replay.
-        None => (i64::MIN, event.source_partition, i64::MIN),
+    let (prev_last_event, mut applied) = match prev {
+        None => (i64::MIN, AppliedOffsets::default()),
         Some(record) => match &record.state {
             Stage1State::BehavioralSingle {
                 last_event_at_ms, ..
-            } => (
-                *last_event_at_ms,
-                record.last_applied_partition,
-                record.last_applied_offset,
-            ),
+            } => (*last_event_at_ms, record.applied_offsets.clone()),
             // The LSK pins the variant; a non-behavioral value here means corruption, skip it.
             _ => {
                 counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
@@ -366,16 +360,12 @@ fn mutate_behavioral(
         },
     };
 
-    if is_replay(
-        last_partition,
-        last_offset,
-        event.source_partition,
-        event.source_offset,
-    ) {
+    if applied.is_replay(event.source_partition, event.source_offset) {
         counter!(STAGE1_REPLAY_SKIPPED, "variant" => StateVariant::BehavioralSingle.as_str())
             .increment(1);
         return None;
     }
+    applied.record(event.source_partition, event.source_offset);
 
     let predicate_before = prev.is_some_and(|record| predicate(&record.state));
     let last_event_at_ms = prev_last_event.max(event_ms);
@@ -390,8 +380,7 @@ fn mutate_behavioral(
             last_event_at_ms,
             earliest_eviction_at_ms,
         },
-        last_applied_partition: event.source_partition,
-        last_applied_offset: event.source_offset,
+        applied_offsets: applied,
     };
     let transition = if predicate_before {
         None
@@ -419,38 +408,35 @@ fn mutate_person(
     event_ms: i64,
     prev: Option<&StatefulRecord>,
 ) -> Option<(StatefulRecord, Option<LeafTransition>)> {
-    let (prev_matches, prev_updated_at, prev_updated_offset, last_partition, last_offset) =
-        match prev {
-            None => (false, i64::MIN, i64::MIN, event.source_partition, i64::MIN),
-            Some(record) => match &record.state {
-                Stage1State::PersonProperty {
-                    matches,
-                    last_updated_at_ms,
-                    last_updated_offset,
-                } => (
-                    *matches,
-                    *last_updated_at_ms,
-                    *last_updated_offset,
-                    record.last_applied_partition,
-                    record.last_applied_offset,
-                ),
-                _ => {
-                    counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
-                    return None;
-                }
-            },
-        };
+    let (prev_matches, prev_updated_at, prev_updated_offset, mut applied) = match prev {
+        None => (false, i64::MIN, i64::MIN, AppliedOffsets::default()),
+        Some(record) => match &record.state {
+            Stage1State::PersonProperty {
+                matches,
+                last_updated_at_ms,
+                last_updated_offset,
+            } => (
+                *matches,
+                *last_updated_at_ms,
+                *last_updated_offset,
+                record.applied_offsets.clone(),
+            ),
+            _ => {
+                counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
+                return None;
+            }
+        },
+    };
 
-    if is_replay(
-        last_partition,
-        last_offset,
-        event.source_partition,
-        event.source_offset,
-    ) {
+    if applied.is_replay(event.source_partition, event.source_offset) {
         counter!(STAGE1_REPLAY_SKIPPED, "variant" => StateVariant::PersonProperty.as_str())
             .increment(1);
         return None;
     }
+    // Recorded before the argMax branch so a stale-but-not-replay event still advances the applied
+    // offset on both paths. The argMax key's `source_offset` is a within-partition tiebreaker only
+    // (cross-partition replays are already caught by `is_replay` above).
+    applied.record(event.source_partition, event.source_offset);
 
     // Event-time argMax: an event no newer than the last write keeps the prior `matches` but still
     // advances the applied offset, so the same offset isn't reprocessed.
@@ -462,8 +448,7 @@ fn mutate_person(
                 last_updated_at_ms: prev_updated_at,
                 last_updated_offset: prev_updated_offset,
             },
-            last_applied_partition: event.source_partition,
-            last_applied_offset: event.source_offset,
+            applied_offsets: applied,
         };
         return Some((record, None));
     }
@@ -474,8 +459,7 @@ fn mutate_person(
             last_updated_at_ms: event_ms,
             last_updated_offset: event.source_offset,
         },
-        last_applied_partition: event.source_partition,
-        last_applied_offset: event.source_offset,
+        applied_offsets: applied,
     };
     let transition = if matches == prev_matches {
         None

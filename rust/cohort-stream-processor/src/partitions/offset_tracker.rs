@@ -1,12 +1,10 @@
-//! Offset-tracking primitives. Two independent concerns, each unit-tested on its own:
+//! [`OffsetTracker`] — per-partition commit tracking: the next offset to consume after a partition's
+//! batch is durably processed ([`OffsetTracker::committable_offsets`]) and the offset Kafka last
+//! acked (the recovery point on restart). No batch-ID ordering checks: the single per-partition
+//! channel plus serial worker already guarantee in-partition order.
 //!
-//! 1. [`OffsetTracker`] — per-partition commit tracking: the next offset to consume after a
-//!    partition's batch is durably processed ([`OffsetTracker::committable_offsets`]) and the
-//!    offset Kafka last acked (the recovery point on restart). No batch-ID ordering checks: the
-//!    single per-partition channel plus serial worker already guarantee in-partition order.
-//!
-//! 2. [`is_replay`] — the per-key replay primitive. Counter increments aren't idempotent, so a
-//!    replayed offset already folded into a key's state must be skipped.
+//! Per-key replay dedup is a separate concern, owned by
+//! [`AppliedOffsets`](crate::stage1::state::AppliedOffsets) on each `cf_stage1` record.
 
 use std::collections::HashMap;
 
@@ -114,89 +112,9 @@ impl OffsetTracker {
     }
 }
 
-/// `true` ⇒ this `(partition, offset)` was already folded into the key's state, so the caller must
-/// **skip** the (non-idempotent) increment.
-///
-/// Replay is detected only within the *same* source partition (offset `≤` last-applied). A
-/// different source partition is never a replay: after a rebalance/re-key a key may begin receiving
-/// a new partition whose offsets are unrelated and must all apply. The caller feeds the upstream
-/// coordinates ([`source_partition`][src_p] / [`source_offset`][src_o]), **not** the
-/// `cohort_stream_events` offset, which changes on every reshuffle.
-///
-/// Known limitation: with a single last-applied pair per `StatefulRecord`, a person whose events
-/// span multiple source partitions is not fully replay-deduped across them.
-///
-/// [src_p]: crate::consumers::events::CohortStreamEvent::source_partition
-/// [src_o]: crate::consumers::events::CohortStreamEvent::source_offset
-pub fn is_replay(
-    last_partition: i32,
-    last_offset: i64,
-    msg_partition: i32,
-    msg_offset: i64,
-) -> bool {
-    last_partition == msg_partition && msg_offset <= last_offset
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn is_replay_blocks_only_same_partition_at_or_below_last_offset() {
-        let (last_partition, last_offset) = (5, 100);
-
-        let cases = [
-            (5, 100, true, "exact offset is already applied → skip"),
-            (
-                5,
-                99,
-                true,
-                "lower offset on the same partition is a replay → skip",
-            ),
-            (
-                5,
-                101,
-                false,
-                "higher offset on the same partition is new → apply",
-            ),
-            (
-                6,
-                50,
-                false,
-                "different partition is never a replay → apply",
-            ),
-            (
-                6,
-                100,
-                false,
-                "different partition, equal offset, still applies",
-            ),
-            (
-                6,
-                0,
-                false,
-                "different partition, lowest offset, still applies",
-            ),
-        ];
-
-        for (msg_partition, msg_offset, expected, why) in cases {
-            assert_eq!(
-                is_replay(last_partition, last_offset, msg_partition, msg_offset),
-                expected,
-                "is_replay({last_partition}, {last_offset}, {msg_partition}, {msg_offset}): {why}",
-            );
-        }
-    }
-
-    #[test]
-    fn is_replay_handles_a_below_range_sentinel_last_offset() {
-        // `last_offset = -1` seeds "nothing applied yet".
-        assert!(!is_replay(5, -1, 5, 0), "offset 0 > sentinel -1 → apply");
-        assert!(
-            is_replay(5, -1, 5, -1),
-            "re-seeing the sentinel itself → skip"
-        );
-    }
 
     #[test]
     fn mark_processed_advances_and_never_regresses() {

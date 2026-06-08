@@ -200,6 +200,7 @@ fn next_interval(interval: Duration, jitter: Duration) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono_tz::UTC;
     use serde_json::json;
 
     use crate::filters::reverse_index::TeamFiltersBuilder;
@@ -224,7 +225,7 @@ mod tests {
         builder
             .add_cohort(CohortId(1), TeamId(7), &filters)
             .unwrap();
-        builder.freeze()
+        builder.freeze(UTC)
     }
 
     #[test]

@@ -70,9 +70,10 @@ pub struct CohortStreamEvent {
 /// One event consumed from `cohort_stream_events`, paired with its position on that topic.
 ///
 /// These `partition`/`offset` are the consumer's commit coordinates (drive router affinity + the
-/// [`OffsetTracker`]) — distinct from the event's upstream `source_partition`/`source_offset`,
-/// which drive per-key replay idempotence in Stage 1 ([`is_replay`](crate::partitions::is_replay)).
-/// The two never mix.
+/// [`OffsetTracker`]) — distinct from the event's upstream `source_partition`/`source_offset`, which
+/// drive per-key replay idempotence in Stage 1
+/// ([`AppliedOffsets::is_replay`](crate::stage1::state::AppliedOffsets::is_replay)). The two never
+/// mix.
 #[derive(Debug)]
 pub struct ConsumedEvent {
     pub event: CohortStreamEvent,
@@ -609,6 +610,7 @@ fn commit_offsets<C: ConsumerContext>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono_tz::UTC;
     use serde_json::json;
     use tempfile::TempDir;
     use uuid::Uuid;
@@ -753,7 +755,7 @@ mod tests {
         builder
             .add_cohort(CohortId(1), TeamId(TEAM), &cohort)
             .expect("add cohort");
-        let filters = builder.freeze();
+        let filters = builder.freeze(UTC);
         Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([(
             TeamId(TEAM),
             filters,

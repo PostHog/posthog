@@ -3,6 +3,8 @@
 //! The internal `#[serde(tag = "v")]` discriminator makes adding the `performed_event_multiple`
 //! bucket variants a purely additive change to the on-disk form.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 /// Which state representation a leaf uses; recorded per [`crate::stage1::key::LeafStateKey`] so the
@@ -57,19 +59,49 @@ impl Stage1State {
     }
 }
 
-/// The persisted `cf_stage1` value: a [`Stage1State`] plus the source `(partition, offset)` of the
-/// last event folded in, which makes non-idempotent folds replay-safe via
-/// [`crate::partitions::offset_tracker::is_replay`].
+/// Per-source-partition last-applied offsets: `source_partition → last_applied_offset`.
 ///
-/// Limitation: one `(partition, offset)` pair only dedups within a single source partition. The
-/// shuffler re-keys by `hash(team_id, person_id)`, so a replay from a *different* source partition
-/// is re-applied. Harmless for the current idempotent folds, but a future non-idempotent
-/// `buckets[i] += 1` would need a per-source-partition last-applied map.
+/// The shuffler re-keys events by `hash(team_id, person_id)`, so one person's events span multiple
+/// source partitions. A single scalar pair would only dedup replays *within* one source partition;
+/// a non-idempotent fold (`buckets[i] += 1`) would then double-count on a Kafka replay arriving from
+/// a *different* source partition. One high-water mark per source partition closes that window (L11).
+///
+/// `BTreeMap` (not `HashMap`/`SmallVec`) so the serialized form has deterministic, sorted keys and
+/// the shadow diff stays byte-stable; the container is private behind the newtype so a later perf
+/// swap is a one-file change. Bounded by the source topic's partition count
+/// (`clickhouse_events_json` = 512), realistically a handful per person — **no eviction**, since
+/// evicting an entry would re-open the very replay window this closes.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AppliedOffsets(BTreeMap<i32, i64>);
+
+impl AppliedOffsets {
+    /// `true` ⇒ this `(source_partition, source_offset)` was already folded into the key's state, so
+    /// a non-idempotent fold must **skip** it. An absent partition key means "never seen" — not a
+    /// replay — so offset `0` is a valid first offset (seen-ness is key presence, not a sentinel
+    /// value).
+    pub fn is_replay(&self, source_partition: i32, source_offset: i64) -> bool {
+        self.0
+            .get(&source_partition)
+            .is_some_and(|&last| source_offset <= last)
+    }
+
+    /// Advance the high-water mark for `source_partition` to cover `source_offset`. Monotonic per
+    /// partition: a lower offset for an already-recorded partition never regresses it.
+    pub fn record(&mut self, source_partition: i32, source_offset: i64) {
+        self.0
+            .entry(source_partition)
+            .and_modify(|last| *last = (*last).max(source_offset))
+            .or_insert(source_offset);
+    }
+}
+
+/// The persisted `cf_stage1` value: a [`Stage1State`] plus the per-source-partition offsets already
+/// folded into it, which makes non-idempotent folds replay-safe via [`AppliedOffsets::is_replay`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StatefulRecord {
     pub state: Stage1State,
-    pub last_applied_partition: i32,
-    pub last_applied_offset: i64,
+    pub applied_offsets: AppliedOffsets,
 }
 
 /// A failure decoding a stored [`StatefulRecord`]; surfaced (never panicked) so a single corrupt
@@ -95,6 +127,14 @@ impl StatefulRecord {
 mod tests {
     use super::*;
 
+    fn applied(entries: &[(i32, i64)]) -> AppliedOffsets {
+        let mut applied = AppliedOffsets::default();
+        for &(partition, offset) in entries {
+            applied.record(partition, offset);
+        }
+        applied
+    }
+
     fn behavioral() -> StatefulRecord {
         StatefulRecord {
             state: Stage1State::BehavioralSingle {
@@ -102,8 +142,7 @@ mod tests {
                 last_event_at_ms: 1_700_000_000_000,
                 earliest_eviction_at_ms: 1_700_000_000_000 + 7 * 86_400 * 1000,
             },
-            last_applied_partition: 17,
-            last_applied_offset: 42,
+            applied_offsets: applied(&[(17, 42)]),
         }
     }
 
@@ -114,8 +153,7 @@ mod tests {
                 last_updated_at_ms: 1_700_000_000_123,
                 last_updated_offset: 99,
             },
-            last_applied_partition: 3,
-            last_applied_offset: 100,
+            applied_offsets: applied(&[(3, 100)]),
         }
     }
 
@@ -136,14 +174,154 @@ mod tests {
     #[test]
     fn unknown_variant_tag_is_a_decode_error() {
         // Forward-compat: a future variant tag must surface as Err, not deserialize into the wrong
-        // shape.
+        // shape. `applied_offsets` is present and valid so the error is the *inner* unknown variant,
+        // not an accidental missing-outer-field error.
         let forward = serde_json::json!({
             "state": { "v": "BehavioralDailyBuckets", "buckets": [1, 2, 3] },
-            "last_applied_partition": 0,
-            "last_applied_offset": 0,
+            "applied_offsets": { "0": 0 },
         });
         let bytes = serde_json::to_vec(&forward).unwrap();
         assert!(StatefulRecord::decode(&bytes).is_err());
+    }
+
+    #[test]
+    fn old_scalar_format_fails_to_decode_rather_than_silently_defaulting() {
+        // Migration guard: the pre-L11 `{last_applied_partition, last_applied_offset}` shape must
+        // fail-decode (worker skips + counts, rewrites on the next event) — NOT deserialize into an
+        // empty `applied_offsets`. A silent default would drop the high-water marks and re-open the
+        // exact double-count L11 closes, so `applied_offsets` must never carry `#[serde(default)]`.
+        let old = serde_json::json!({
+            "state": {
+                "v": "BehavioralSingle",
+                "has_match": true,
+                "last_event_at_ms": 1_700_000_000_000_i64,
+                "earliest_eviction_at_ms": 1_700_000_000_000_i64,
+            },
+            "last_applied_partition": 17,
+            "last_applied_offset": 42,
+        });
+        let bytes = serde_json::to_vec(&old).unwrap();
+        assert!(
+            StatefulRecord::decode(&bytes).is_err(),
+            "the old scalar format must fail-decode, not default applied_offsets to empty",
+        );
+    }
+
+    #[test]
+    fn applied_offsets_is_replay_table() {
+        let applied = applied(&[(5, 100), (6, 50)]);
+        let cases = [
+            (
+                5,
+                100,
+                true,
+                "exact offset on a seen partition is a replay → skip",
+            ),
+            (
+                5,
+                99,
+                true,
+                "lower offset on a seen partition is a replay → skip",
+            ),
+            (
+                5,
+                101,
+                false,
+                "higher offset on a seen partition is new → apply",
+            ),
+            (
+                6,
+                50,
+                true,
+                "exact offset on the other seen partition → skip",
+            ),
+            (6, 51, false, "higher offset on the other partition → apply"),
+            (7, 0, false, "an unseen partition is never a replay → apply"),
+            (
+                7,
+                i64::MAX,
+                false,
+                "an unseen partition is never a replay, any offset → apply",
+            ),
+        ];
+        for (partition, offset, expected, why) in cases {
+            assert_eq!(
+                applied.is_replay(partition, offset),
+                expected,
+                "is_replay({partition}, {offset}): {why}",
+            );
+        }
+    }
+
+    #[test]
+    fn applied_offsets_empty_is_never_a_replay() {
+        let applied = AppliedOffsets::default();
+        assert!(!applied.is_replay(0, 0), "empty map: nothing seen yet");
+        assert!(!applied.is_replay(3, 100));
+    }
+
+    #[test]
+    fn applied_offsets_offset_zero_is_a_valid_first_offset() {
+        // Seen-ness is key presence, not a sentinel value: a *re*-seen 0 is a replay.
+        let mut applied = AppliedOffsets::default();
+        assert!(
+            !applied.is_replay(5, 0),
+            "0 before recording is not a replay"
+        );
+        applied.record(5, 0);
+        assert!(applied.is_replay(5, 0), "0 after recording is a replay");
+        assert!(!applied.is_replay(5, 1), "1 is still new");
+    }
+
+    #[test]
+    fn applied_offsets_record_is_monotonic_per_partition() {
+        let mut applied = AppliedOffsets::default();
+        applied.record(5, 100);
+        applied.record(5, 50); // lower → ignored
+        assert!(applied.is_replay(5, 100));
+        assert!(!applied.is_replay(5, 101), "high-water mark stayed at 100");
+        applied.record(5, 150); // higher → advances
+        assert!(applied.is_replay(5, 150));
+        assert!(!applied.is_replay(5, 151));
+    }
+
+    #[test]
+    fn applied_offsets_tracks_partitions_independently() {
+        let applied = applied(&[(5, 100), (6, 10)]);
+        // Partition 6 far behind 5 must neither mask a new event on 6 nor a replay on 5.
+        assert!(applied.is_replay(5, 100));
+        assert!(!applied.is_replay(6, 11));
+        assert!(applied.is_replay(6, 10));
+    }
+
+    #[test]
+    fn applied_offsets_serializes_with_sorted_partition_keys() {
+        // Inserted out of order; the BTreeMap must serialize keys in ascending integer order so the
+        // shadow diff is byte-stable regardless of arrival order.
+        let applied = applied(&[(17, 1), (2, 2), (5, 3)]);
+        assert_eq!(
+            serde_json::to_string(&applied).unwrap(),
+            r#"{"2":2,"5":3,"17":1}"#,
+        );
+    }
+
+    #[test]
+    fn multi_entry_record_round_trips_with_sorted_keys() {
+        let record = StatefulRecord {
+            state: Stage1State::BehavioralSingle {
+                has_match: true,
+                last_event_at_ms: 1_700_000_000_000,
+                earliest_eviction_at_ms: i64::MAX,
+            },
+            applied_offsets: applied(&[(3, 100), (7, 5), (1, 0)]),
+        };
+        let bytes = record.encode();
+        assert_eq!(StatefulRecord::decode(&bytes).unwrap(), record);
+        let text = String::from_utf8(bytes).unwrap();
+        assert!(
+            text.contains(r#""applied_offsets":{"1":0,"3":100,"7":5}"#),
+            "applied_offsets must serialize with sorted partition keys, got: {text}",
+        );
     }
 
     #[test]

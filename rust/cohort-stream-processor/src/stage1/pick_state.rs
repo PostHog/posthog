@@ -32,6 +32,13 @@ impl TimeInterval {
         }
     }
 
+    /// The fixed number of whole days in this interval (`seconds / 86_400`): `day = 1`, `week = 7`,
+    /// `month = 30`, `year = 365`, and `0` for sub-day `hour`/`minute`. Gives the D8 year/day
+    /// equivalence (`365 day` ≡ `1 year`) for free.
+    pub fn to_days(self) -> u32 {
+        (self.seconds() / 86_400) as u32
+    }
+
     /// Parse the wire string, or [`None`] for an unrecognized one.
     pub fn from_wire(s: &str) -> Option<Self> {
         Some(match s {
@@ -161,6 +168,21 @@ mod tests {
         assert_eq!(TimeInterval::Week.seconds(), 604_800);
         assert_eq!(TimeInterval::Month.seconds(), 2_592_000);
         assert_eq!(TimeInterval::Year.seconds(), 31_536_000);
+    }
+
+    #[test]
+    fn to_days_floors_each_interval_and_gives_year_day_equivalence() {
+        assert_eq!(TimeInterval::Minute.to_days(), 0);
+        assert_eq!(TimeInterval::Hour.to_days(), 0);
+        assert_eq!(TimeInterval::Day.to_days(), 1);
+        assert_eq!(TimeInterval::Week.to_days(), 7);
+        assert_eq!(TimeInterval::Month.to_days(), 30);
+        assert_eq!(TimeInterval::Year.to_days(), 365);
+        // D8: 365 days ≡ 1 year.
+        assert_eq!(
+            TimeInterval::Year.to_days(),
+            365 * TimeInterval::Day.to_days()
+        );
     }
 
     #[test]

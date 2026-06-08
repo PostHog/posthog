@@ -182,6 +182,7 @@ impl MembershipSink for CaptureSink {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono_tz::UTC;
     use serde_json::{json, Value};
     use uuid::Uuid;
 
@@ -234,7 +235,7 @@ mod tests {
         builder
             .add_cohort(CohortId(91204), TeamId(42), &wrap(vec![behavioral_leaf(7)]))
             .unwrap();
-        let filters = builder.freeze();
+        let filters = builder.freeze(UTC);
         let lsk = filters.by_condition_to_lsk[&HASH][0];
 
         let changes: Vec<_> =
@@ -257,7 +258,7 @@ mod tests {
         builder
             .add_cohort(CohortId(1), TeamId(42), &wrap(vec![person_leaf()]))
             .unwrap();
-        let filters = builder.freeze();
+        let filters = builder.freeze(UTC);
         let lsk = LeafStateKey::for_person_property(b"fedcba9876543210");
 
         let changes: Vec<_> =
@@ -276,7 +277,7 @@ mod tests {
         builder
             .add_cohort(CohortId(2), TeamId(42), &wrap(vec![behavioral_leaf(7)]))
             .unwrap();
-        let filters = builder.freeze();
+        let filters = builder.freeze(UTC);
         let lsk = filters.by_condition_to_lsk[&HASH][0];
 
         let mut cohorts: Vec<i32> =
@@ -297,7 +298,7 @@ mod tests {
                 &wrap(vec![behavioral_leaf(7), person_leaf()]),
             )
             .unwrap();
-        let filters = builder.freeze();
+        let filters = builder.freeze(UTC);
         let lsk = filters.by_condition_to_lsk[&HASH][0];
 
         let changes: Vec<_> =

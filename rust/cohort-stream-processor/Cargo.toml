@@ -14,6 +14,9 @@ arc-swap = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
+# Team-timezone-aware calendar-day bucket math (`stage1::bucket_tz`): `Tz` resolves
+# `posthog_team.timezone` and is `Copy`, so it rides on the hot path inside the frozen `TeamFilters`.
+chrono-tz = { workspace = true }
 common-alloc = { path = "../common/alloc" }
 common-database = { path = "../common/database" }
 # Shadow-topic output producer: `create_kafka_producer` + `send_keyed_iter_to_kafka_*`
@@ -57,5 +60,8 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 uuid = { workspace = true }
 
 [dev-dependencies]
+# Integration tests in `tests/` build `TeamFilters` via `freeze(UTC)`, so they name `chrono_tz::UTC`
+# directly (a normal dependency is not in scope for the separate integration-test crates).
+chrono-tz = { workspace = true }
 serde_json = { workspace = true }
 tempfile = "3"

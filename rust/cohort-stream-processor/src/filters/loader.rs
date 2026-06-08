@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use chrono_tz::{Tz, UTC};
 use metrics::counter;
 use serde_json::Value;
 use sqlx::PgPool;
@@ -12,13 +13,17 @@ use crate::config::TeamAllowlist;
 use crate::filters::manager::FilterCatalog;
 use crate::filters::reverse_index::TeamFiltersBuilder;
 use crate::filters::{CohortId, FilterError, TeamId};
-use crate::observability::metrics::FILTER_CATALOG_COHORT_PARSE_ERRORS;
+use crate::observability::metrics::{
+    FILTER_CATALOG_COHORT_PARSE_ERRORS, FILTER_CATALOG_TZ_FALLBACK,
+};
 
 /// Realtime cohorts to load, mirroring the Node filter manager's predicate
-/// (`realtime-supported-filter-manager-cdp.ts`).
-pub const REALTIME_COHORTS_SQL: &str = "SELECT id, team_id, filters \
-     FROM posthog_cohort \
-     WHERE cohort_type = 'realtime' AND deleted = false AND filters IS NOT NULL";
+/// (`realtime-supported-filter-manager-cdp.ts`), joined to `posthog_team` for the team timezone the
+/// bucket variants compute calendar days in (TDD D9).
+pub const REALTIME_COHORTS_SQL: &str = "SELECT c.id, c.team_id, c.filters, t.timezone \
+     FROM posthog_cohort c \
+     JOIN posthog_team t ON t.id = c.team_id \
+     WHERE c.cohort_type = 'realtime' AND c.deleted = false AND c.filters IS NOT NULL";
 
 /// One realtime cohort row; `filters` is the `jsonb` column decoded to a `Value`.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -26,6 +31,8 @@ pub struct CohortRow {
     pub id: i32,
     pub team_id: i32,
     pub filters: Value,
+    /// `posthog_team.timezone` — a non-null IANA zone name (default `"UTC"`).
+    pub timezone: String,
 }
 
 pub async fn load_realtime_cohorts(pool: &PgPool) -> Result<Vec<CohortRow>, FilterError> {
@@ -44,14 +51,21 @@ pub(crate) fn retain_allowlisted(rows: &mut Vec<CohortRow>, allowlist: &TeamAllo
 }
 
 /// Group rows by team into a catalog. A cohort that fails to parse is counted, warned, and skipped
-/// rather than poisoning the rest of the catalog.
+/// rather than poisoning the rest of the catalog. Stays DB-free so the grouping logic is unit-tested
+/// without Postgres.
 pub fn build_catalog_from_rows(rows: Vec<CohortRow>) -> FilterCatalog {
-    let mut builders: HashMap<TeamId, TeamFiltersBuilder> = HashMap::new();
+    let mut builders: HashMap<TeamId, (TeamFiltersBuilder, Tz)> = HashMap::new();
 
     for row in rows {
         let team_id = TeamId(row.team_id);
         let cohort_id = CohortId(row.id);
-        let builder = builders.entry(team_id).or_default();
+        // The timezone is a team-level column, so resolve it once on the team's first row.
+        let (builder, _tz) = builders.entry(team_id).or_insert_with(|| {
+            (
+                TeamFiltersBuilder::default(),
+                resolve_team_tz(&row.timezone, team_id),
+            )
+        });
 
         if let Err(err) = builder.add_cohort(cohort_id, team_id, &row.filters) {
             counter!(FILTER_CATALOG_COHORT_PARSE_ERRORS).increment(1);
@@ -67,8 +81,24 @@ pub fn build_catalog_from_rows(rows: Vec<CohortRow>) -> FilterCatalog {
     FilterCatalog::from_teams(
         builders
             .into_iter()
-            .map(|(team, builder)| (team, builder.freeze())),
+            .map(|(team, (builder, tz))| (team, builder.freeze(tz))),
     )
+}
+
+/// Resolve a team's `posthog_team.timezone`, falling back to UTC for an unrecognized zone. The
+/// observability wrapper around [`bucket_tz::resolve_tz_or_utc`](crate::stage1::bucket_tz::resolve_tz_or_utc):
+/// it counts and logs the fallback with the offending `team_id`. The raw string goes only to the
+/// `warn!`, never the (label-free) counter.
+fn resolve_team_tz(raw: &str, team_id: TeamId) -> Tz {
+    raw.parse::<Tz>().unwrap_or_else(|_| {
+        counter!(FILTER_CATALOG_TZ_FALLBACK).increment(1);
+        warn!(
+            team_id = team_id.0,
+            timezone = raw,
+            "unrecognized team timezone; falling back to UTC",
+        );
+        UTC
+    })
 }
 
 #[cfg(test)]
@@ -79,10 +109,15 @@ mod tests {
     use serde_json::json;
 
     fn row(id: i32, team_id: i32, filters: Value) -> CohortRow {
+        row_with_tz(id, team_id, filters, "UTC")
+    }
+
+    fn row_with_tz(id: i32, team_id: i32, filters: Value, timezone: &str) -> CohortRow {
         CohortRow {
             id,
             team_id,
             filters,
+            timezone: timezone.to_string(),
         }
     }
 
@@ -107,6 +142,22 @@ mod tests {
     fn empty_rows_build_an_empty_catalog() {
         let catalog = build_catalog_from_rows(vec![]);
         assert_eq!(catalog.team_count(), 0);
+    }
+
+    #[test]
+    fn build_catalog_resolves_team_timezone_and_falls_back_to_utc() {
+        use chrono_tz::America::New_York;
+        let rows = vec![
+            row_with_tz(1, 7, behavioral_cohort(), "America/New_York"),
+            row_with_tz(2, 9, behavioral_cohort(), "not a real zone"),
+        ];
+        let catalog = build_catalog_from_rows(rows);
+        assert_eq!(catalog.team(TeamId(7)).expect("team 7").timezone, New_York);
+        assert_eq!(
+            catalog.team(TeamId(9)).expect("team 9").timezone,
+            UTC,
+            "an unrecognized zone falls back to UTC",
+        );
     }
 
     #[test]
