@@ -158,6 +158,8 @@ def run_session_replay_list_widget(
                 payload["totalCountCapped"] = total_count_capped
             except Exception:
                 logger.exception("session_replay_widget_total_count_failed")
+                payload["totalCount"] = shown
+                payload["totalCountCapped"] = True
     else:
         payload["totalCount"] = shown
         payload["totalCountCapped"] = False

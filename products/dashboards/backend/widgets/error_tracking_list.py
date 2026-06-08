@@ -197,6 +197,8 @@ def run_error_tracking_list_widget(
             except Exception:
                 # Count is best-effort — never fail the tile when the listing query succeeded.
                 logger.exception("error_tracking_widget_total_count_failed")
+                payload["totalCount"] = shown
+                payload["totalCountCapped"] = True
     else:
         payload["totalCount"] = shown
         payload["totalCountCapped"] = False
