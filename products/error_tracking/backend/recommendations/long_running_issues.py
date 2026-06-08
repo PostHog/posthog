@@ -12,7 +12,7 @@ from products.error_tracking.backend.models import ErrorTrackingIssue
 
 from .base import Recommendation
 
-ISSUE_LIMIT = 10
+ISSUE_LIMIT = 5
 
 
 class LongRunningIssuesRecommendation(Recommendation):

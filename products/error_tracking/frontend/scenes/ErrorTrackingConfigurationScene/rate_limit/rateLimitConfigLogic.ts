@@ -203,7 +203,7 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
                     const payload = { project_rate_limit_value, project_rate_limit_bucket_size_minutes }
                     await api.errorTracking.updateSettings(payload)
                     actions.resetConfigForm(payload)
-                    posthog.capture('error_tracking_settings_updated', payload)
+                    posthog.capture('error_tracking_project_rate_limit_updated', payload)
                     lemonToast.success('Settings saved')
                 } catch (e) {
                     lemonToast.error('Failed to save settings')

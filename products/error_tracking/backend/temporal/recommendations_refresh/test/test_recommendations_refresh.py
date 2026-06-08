@@ -108,7 +108,7 @@ class TestRefreshRecommendationsBatchActivity(NonAtomicBaseTest):
 
         second = asyncio.run(ActivityEnvironment().run(refresh_recommendations_batch_activity, batch))
         # Only `alerts` has no refresh_interval, so it recomputes for both teams; long_running_issues
-        # (1h) and source_maps (6h) are still fresh and are skipped.
+        # and source_maps (both 6h) are still fresh and are skipped.
         assert second.recommendations_kicked == 2
 
 
