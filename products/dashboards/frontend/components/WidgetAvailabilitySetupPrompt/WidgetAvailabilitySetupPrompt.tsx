@@ -19,6 +19,8 @@ export function WidgetAvailabilitySetupPrompt({
     return (
         <WidgetCardContent className={className}>
             <WidgetCardProductIntroduction
+                stacked
+                className="border-none mb-0 mt-0 p-4"
                 productName={presentation.productName}
                 productKey={presentation.productKey}
                 thingName={presentation.thingName}
@@ -27,9 +29,11 @@ export function WidgetAvailabilitySetupPrompt({
                 isEmpty
                 docsURL={availability.docsHref}
                 actionElementOverride={
-                    <LemonButton type="primary" to={presentation.settingsUrl}>
-                        {availability.setupActionLabel}
-                    </LemonButton>
+                    <div className="flex flex-col items-center gap-4">
+                        <LemonButton type="primary" to={presentation.settingsUrl}>
+                            {availability.setupActionLabel}
+                        </LemonButton>
+                    </div>
                 }
             />
         </WidgetCardContent>

@@ -5,7 +5,7 @@ import type { CommonConfig } from '../../common/config'
 import { HealthCheckResult, PluginServerService, TeamId } from '../../types'
 import { GeoIPService } from '../../utils/geoip'
 import { logger } from '../../utils/logger'
-import { GroupRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
+import { GroupReadRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonReadRepository } from '../../worker/ingestion/persons/repositories/person-repository'
 import {
     CdpCoreServicesConfig,
@@ -27,6 +27,7 @@ import { HogFunctionManagerService } from '../services/managers/hog-function-man
 import { HogFunctionTemplateManagerService } from '../services/managers/hog-function-template-manager.service'
 import { PersonsManagerService } from '../services/managers/persons-manager.service'
 import { RecipientsManagerService } from '../services/managers/recipients-manager.service'
+import { EmailService } from '../services/messaging/email.service'
 import { RecipientPreferencesService } from '../services/messaging/recipient-preferences.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
@@ -41,7 +42,7 @@ export type CdpConsumerBaseConfig = CdpCoreServicesConfig &
 export interface CdpConsumerBaseDeps extends CdpCoreServicesDeps {
     personRepository: PersonReadRepository
     geoipService: GeoIPService
-    groupRepository: GroupRepository
+    groupRepository: GroupReadRepository
     quotaLimiting: QuotaLimiting
 }
 
@@ -70,6 +71,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     personsManager: PersonsManagerService
     recipientsManager: RecipientsManagerService
 
+    emailService: EmailService
     hogFunctionMonitoringService: HogFunctionMonitoringService
     invocationResultsService: InvocationResultsService
     nativeDestinationExecutorService: NativeDestinationExecutorService
@@ -99,6 +101,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.recipientsManager = services.recipientsManager
         this.recipientPreferencesService = services.recipientPreferencesService
         this.hogFlowExecutor = services.hogFlowExecutor
+        this.emailService = services.emailService
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
         this.invocationResultsService = services.invocationResultsService
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService

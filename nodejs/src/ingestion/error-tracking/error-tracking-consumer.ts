@@ -17,8 +17,8 @@ import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-re
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
-import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
+import { PersonReadRepository } from '../../worker/ingestion/persons/repositories/person-repository'
+import { ReadOnlyGroupTypeManager } from '../../worker/ingestion/readonly-group-type-manager'
 import { OverflowOutput } from '../common/outputs'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
@@ -100,10 +100,10 @@ export interface ErrorTrackingConsumerDeps {
     /** Only required when the rate limiter is enabled; constructed alongside it. */
     errorTrackingSettingsManager?: ErrorTrackingSettingsManager
     hogTransformer: ErrorTrackingHogTransformer
-    groupTypeManager: GroupTypeManager
+    groupTypeManager: ReadOnlyGroupTypeManager
     cookielessManager: CookielessManager
     redisPool: GenericPool<Redis>
-    personRepository: PersonRepository
+    personRepository: PersonReadRepository
 }
 
 // Batch processing status - useful for tracking failures (batch sizes already tracked by KafkaConsumer)

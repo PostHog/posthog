@@ -6,7 +6,12 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.llm_prompt import LLMPrompt, get_prompt_outline, normalize_prompt_to_string
+
+from products.ai_observability.backend.models.llm_prompt import (
+    LLMPrompt,
+    get_prompt_outline,
+    normalize_prompt_to_string,
+)
 
 
 class LLMPromptOutlineEntrySerializer(serializers.Serializer):

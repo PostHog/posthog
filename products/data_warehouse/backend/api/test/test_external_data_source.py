@@ -4010,6 +4010,122 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["password"] == "new_password"
         mock_validate_credentials.assert_called_once()
 
+    @patch(
+        "posthog.temporal.data_imports.sources.freshdesk.source.FreshdeskSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_freshdesk_subdomain_change_without_api_key_is_rejected(self, mock_validate_credentials):
+        # Freshdesk's connection target is `subdomain`, not `host`. Changing it without re-supplying
+        # the API key must be rejected so the stored key can't be redirected to another tenant.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Freshdesk",
+            created_by=self.user,
+            prefix="test_freshdesk_subdomain",
+            job_inputs={"source_type": "Freshdesk", "subdomain": "acme", "api_key": "original_key"},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"subdomain": "attacker"}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        source.refresh_from_db()
+        assert source.job_inputs["subdomain"] == "acme"
+        assert source.job_inputs["api_key"] == "original_key"
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.freshdesk.source.FreshdeskSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_freshdesk_subdomain_change_with_api_key_succeeds(self, mock_validate_credentials):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Freshdesk",
+            created_by=self.user,
+            prefix="test_freshdesk_subdomain_creds",
+            job_inputs={"source_type": "Freshdesk", "subdomain": "acme", "api_key": "original_key"},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"subdomain": "newco", "api_key": "new_key"}},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["subdomain"] == "newco"
+        assert source.job_inputs["api_key"] == "new_key"
+        mock_validate_credentials.assert_called_once()
+
+    def _servicenow_source(self) -> ExternalDataSource:
+        # ServiceNow's connection target is `instance_url` (not a top-level `host`) and its
+        # secret lives nested inside the `auth_method` container.
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="ServiceNow",
+            created_by=self.user,
+            prefix="servicenow_src",
+            job_inputs={
+                "instance_url": "https://acme.service-now.com",
+                "auth_method": {"selection": "api_key", "api_key": "sk_existing"},
+            },
+        )
+
+    @patch(
+        "posthog.temporal.data_imports.sources.servicenow.source.ServiceNowSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_servicenow_instance_url_change_without_credentials_is_rejected(self, mock_validate_credentials):
+        source = self._servicenow_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"instance_url": "https://attacker.example.com"}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        source.refresh_from_db()
+        assert source.job_inputs["instance_url"] == "https://acme.service-now.com"
+        assert source.job_inputs["auth_method"]["api_key"] == "sk_existing"
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.servicenow.source.ServiceNowSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_servicenow_instance_url_change_with_credentials_succeeds(self, mock_validate_credentials):
+        source = self._servicenow_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "instance_url": "https://new-instance.service-now.com",
+                    "auth_method": {"selection": "api_key", "api_key": "sk_new"},
+                },
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["instance_url"] == "https://new-instance.service-now.com"
+        assert source.job_inputs["auth_method"]["api_key"] == "sk_new"
+        mock_validate_credentials.assert_called_once()
+
     def _custom_source(self, base_url: str, resource_paths: list[str] | None = None) -> ExternalDataSource:
         paths = resource_paths if resource_paths is not None else ["/users"]
         manifest = {
@@ -4193,6 +4309,62 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200, response.json()
         source.refresh_from_db()
         assert source.job_inputs["auth_api_key"] == "sk_existing"
+        mock_validate_credentials.assert_called_once()
+
+    def _okta_source(self) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Okta",
+            created_by=self.user,
+            prefix="okta_src",
+            job_inputs={"okta_domain": "company.okta.com", "api_key": "existing_token"},
+        )
+
+    @parameterized.expand([("without_token", {}, 400), ("with_token", {"api_key": "new_token"}, 200)])
+    @patch(
+        "posthog.temporal.data_imports.sources.okta.source.OktaSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_okta_source_domain_change_requires_token(
+        self, _name, extra_creds, expected_status, mock_validate_credentials
+    ):
+        # `okta_domain` is the connection target for Okta. Retargeting it without re-supplying the API
+        # token would send the preserved token to a host the editor chose, so the change is rejected.
+        source = self._okta_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"okta_domain": "attacker.example.com", **extra_creds}},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert ("re-entering your credentials" in str(response.json())) == (expected_status == 400)
+        source.refresh_from_db()
+        expected_domain = "attacker.example.com" if expected_status == 200 else "company.okta.com"
+        assert source.job_inputs["okta_domain"] == expected_domain
+        assert source.job_inputs["api_key"] == ("new_token" if expected_status == 200 else "existing_token")
+        # The credential probe only runs once the re-entry gate has passed.
+        assert mock_validate_credentials.called == (expected_status == 200)
+
+    @patch(
+        "posthog.temporal.data_imports.sources.okta.source.OktaSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_okta_source_same_domain_keeps_token(self, mock_validate_credentials):
+        # Re-saving the source without changing the domain must not force the user to re-enter the token.
+        source = self._okta_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"okta_domain": "company.okta.com"}},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["api_key"] == "existing_token"
         mock_validate_credentials.assert_called_once()
 
     @patch(
