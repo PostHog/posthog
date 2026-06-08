@@ -116,9 +116,14 @@ describe('logsViewerModalLogic', () => {
     })
 
     describe('closes on navigation', () => {
-        it('closes the modal when navigating to a new scene', async () => {
-            logic.actions.openLogsViewerModal()
-            await expectLogic(logic).toFinishAllListeners()
+        it.each([
+            { description: 'when open', openFirst: true },
+            { description: 'when already closed', openFirst: false },
+        ])('modal is closed after scene navigation ($description)', async ({ openFirst }) => {
+            if (openFirst) {
+                logic.actions.openLogsViewerModal()
+                await expectLogic(logic).toFinishAllListeners()
+            }
 
             await expectLogic(logic, () => {
                 router.actions.push('/project/1/dashboard')
@@ -135,12 +140,6 @@ describe('logsViewerModalLogic', () => {
             await expectLogic(logic, () => {
                 router.actions.push('/project/1/logs', { search: 'foo' })
             }).toMatchValues({ isOpen: true })
-        })
-
-        it('stays closed when navigating while not open', async () => {
-            await expectLogic(logic, () => {
-                router.actions.push('/project/1/dashboard')
-            }).toMatchValues({ isOpen: false })
         })
     })
 
