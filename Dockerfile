@@ -21,6 +21,11 @@
 #
 
 
+# Single source of truth for the runtime Python. Shared by the dependency build, the
+# Nginx Unit build, and the final runtime image so the interpreter can never drift.
+# Bumping Python is a one-line change here; keep it equal to pyproject.toml's requires-python.
+ARG PYTHON_RUNTIME_IMAGE=python:3.12.12-slim-bookworm@sha256:78e702aee4d693e769430f0d7b4f4858d8ea3f1118dc3f57fee3f757d0ca64b1
+
 #
 # ---------------------------------------------------------
 #
@@ -107,7 +112,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
 FROM ghcr.io/astral-sh/uv:0.11.14 AS uv
 
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
-FROM python:3.12.12-slim-bookworm@sha256:78e702aee4d693e769430f0d7b4f4858d8ea3f1118dc3f57fee3f757d0ca64b1 AS posthog-build
+FROM ${PYTHON_RUNTIME_IMAGE} AS posthog-build
 COPY --from=uv /uv /uvx /bin/
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
@@ -183,11 +188,12 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-# NOTE: v1.32 is running bullseye, v1.33+ is running bookworm
-FROM unit:1.34.2-python3.12
-WORKDIR /code
+# Build the Nginx Unit daemon and its Python language module from source against the exact
+# pinned interpreter. Upstream's unit:* images are archived and frozen to whatever python:3.x
+# patch nginx shipped at release time, so we own the build — the runtime Python is then always
+# the version we pin in PYTHON_RUNTIME_IMAGE, and bumping it is a single change there.
+FROM ${PYTHON_RUNTIME_IMAGE} AS unit-build
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
-ENV PYTHONUNBUFFERED 1
 ARG UNIT_GIT_TAG=1.35.0
 ARG UNIT_GIT_REF=28404105810f53c570523c3e70006ad0ca210e58
 
@@ -195,8 +201,11 @@ ARG UNIT_GIT_REF=28404105810f53c570523c3e70006ad0ca210e58
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "build-essential" \
+    "ca-certificates" \
     "git" \
     "libpcre2-dev" \
+    "libssl-dev" \
+    "pkg-config" \
     "zlib1g-dev" \
     && \
     git clone --depth 1 --branch "$UNIT_GIT_TAG" https://github.com/nginx/unit.git /tmp/unit && \
@@ -221,12 +230,32 @@ RUN apt-get update && \
     make -j "$NCPU" unitd && \
     install -pm755 build/sbin/unitd /usr/sbin/unitd && \
     make clean && \
+    mkdir -p /usr/lib/unit/modules && \
     ./configure $CONFIGURE_ARGS && \
     ./configure python --config=/usr/local/bin/python3-config && \
-    make -j "$NCPU" python3-install && \
-    rm -rf /tmp/unit && \
-    apt-get purge -y --auto-remove "build-essential" "git" "libpcre2-dev" "zlib1g-dev" && \
-    rm -rf /var/lib/apt/lists/*
+    make -j "$NCPU" python3-install
+
+
+#
+# ---------------------------------------------------------
+#
+FROM ${PYTHON_RUNTIME_IMAGE}
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+ENV PYTHONUNBUFFERED 1
+
+# Install the Unit daemon + Python module built above, and recreate the scaffolding the
+# upstream unit image used to provide: the `unit` user, the config drop-in dir, and the
+# docker-entrypoint.sh (vendored from nginx/unit, Apache-2.0, since upstream is archived).
+# bin/docker-server-unit invokes /usr/local/bin/docker-entrypoint.sh on the non-preload path.
+COPY --from=unit-build /usr/sbin/unitd /usr/sbin/unitd
+COPY --from=unit-build /usr/lib/unit/modules/ /usr/lib/unit/modules/
+COPY bin/unit-docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN groupadd --gid 999 unit && \
+    useradd --uid 999 --gid unit --no-create-home --home /nonexistent --comment "unit user" --shell /bin/false unit && \
+    mkdir -p /var/lib/unit /docker-entrypoint.d /usr/lib/unit/modules && \
+    ln -sf /dev/stderr /var/log/unit.log && \
+    chmod 755 /usr/local/bin/docker-entrypoint.sh
 
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
@@ -234,7 +263,10 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
     "chromium" \
     "chromium-driver" \
+    "curl" \
+    "dirmngr" \
     "gettext-base" \
+    "gnupg" \
     "libpq-dev" \
     "libxmlsec1=1.2.37-2" \
     "libxmlsec1-dev=1.2.37-2" \
@@ -242,6 +274,8 @@ RUN apt-get update && \
     "libssl-dev=3.0.19-1~deb12u2" \
     "libssl3=3.0.19-1~deb12u2" \
     "libjemalloc2" \
+    "libpcre2-8-0" \
+    "xz-utils" \
     && \
     rm -rf /var/lib/apt/lists/*
 

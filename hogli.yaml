@@ -13,6 +13,8 @@ config:
         - mprocs-test.yaml
         - sandbox-entrypoint.py
         - lint-feature-flag-sorting.mjs
+        # Vendored nginx/unit entrypoint COPY'd into the Docker image, not a hogli command.
+        - unit-docker-entrypoint.sh
         # Locally-built, gitignored binary (tools/phrocs). Referenced via cmd:/process
         # name, not bin_script:, so exclude it from auto-discovery to stop the manifest
         # regenerating a stub entry on every hogli run.
