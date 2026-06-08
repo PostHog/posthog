@@ -166,12 +166,16 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
     def _role_filter_expr(self, json_key: str, value: object) -> ast.Expr | None:
         if not value:
             return None
+        raw_values = value if isinstance(value, list) else [value]
         user_ids: list[int] = []
-        for raw in value if isinstance(value, list) else [value]:
-            try:
-                user_ids.append(int(raw))  # type: ignore[call-overload]
-            except (TypeError, ValueError):
-                continue
+        for raw in raw_values:
+            if isinstance(raw, int):
+                user_ids.append(raw)
+            elif isinstance(raw, str):
+                try:
+                    user_ids.append(int(raw))
+                except ValueError:
+                    continue
         if not user_ids:
             return None
         return parse_expr(
