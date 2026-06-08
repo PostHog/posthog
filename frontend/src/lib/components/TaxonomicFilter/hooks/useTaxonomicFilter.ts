@@ -161,8 +161,7 @@ function indexAfterLastMetaGroup(filtered: TaxonomicFilterGroupType[]): number {
  *    1. Dropping types that aren't available in the current `groups`
  *    2. Resolving mutually-exclusive shortcut pairs (e.g. PageviewUrls vs
  *       PageviewEvents — keep the first, drop the second)
- *    3. Auto-injecting `RecentFilters` and `PinnedFilters` after the meta
- *       group block (Suggested → Recent → Pinned)
+ *    3. Auto-injecting Recent/Pinned meta tabs when available.
  *    4. Promoting shortcut groups (PageviewUrls / Screens / EmailAddresses
  *       / Elements when `$autocapture` is in `eventNames`) to right after
  *       the meta block.
@@ -197,7 +196,7 @@ function resolveTaxonomicGroupTypes(
     }
     const filtered = requested.filter((t) => !excluded.has(t) && available.has(t))
 
-    // 2. Auto-inject Recent / Pinned (Suggested stays opt-in)
+    // 2. Auto-inject Recent/Pinned meta tabs when available and not already present.
     for (const metaType of AUTO_INJECT_META_GROUPS) {
         if (available.has(metaType) && !filtered.includes(metaType)) {
             filtered.splice(indexAfterLastMetaGroup(filtered), 0, metaType)

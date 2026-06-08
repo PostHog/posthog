@@ -1,8 +1,8 @@
 import { type ScaleLinear, type ScaleLogarithmic } from 'd3-scale'
 
-import { barColorAt } from './color-utils'
+import { barColorAt, mixColors } from './color-utils'
 import { yTickCountForHeight } from './scales'
-import type { ChartDimensions, ChartDrawArgs, DrawHoverResult, ResolvedSeries } from './types'
+import type { BarFillStyle, ChartDimensions, ChartDrawArgs, DrawHoverResult, ResolvedSeries } from './types'
 
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
@@ -486,13 +486,49 @@ export interface BarShadow {
     offsetY?: number
 }
 
+const BAR_FILL_LIGHTEN = 0.22
+const BAR_FILL_DARKEN = 0.16
+
+/** Bar fill for a given style. `gradient` is a diagonal (top-left → bottom-right) light→dark sheen
+ *  matching the PostHog logo's light direction; `gloss` is a curved radial highlight. */
+function makeBarFill(
+    ctx: CanvasRenderingContext2D,
+    color: string,
+    bar: BarRect,
+    style: BarFillStyle
+): string | CanvasGradient {
+    if (style === 'flat') {
+        return color
+    }
+    const light = mixColors(color, '#ffffff', BAR_FILL_LIGHTEN)
+    const dark = mixColors(color, '#000000', BAR_FILL_DARKEN)
+    if (style === 'gloss') {
+        // Curved highlight: a radial sheen rising from a focus near the top, so the light falls off
+        // in arcs for a glassy, rounded look rather than a flat linear band.
+        const cx = bar.x + bar.width * 0.5
+        const cy = bar.y + bar.height * 0.12
+        const radius = Math.max(bar.width, bar.height) * 0.95
+        const radial = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius)
+        radial.addColorStop(0, light)
+        radial.addColorStop(0.45, color)
+        radial.addColorStop(1, dark)
+        return radial
+    }
+    // gradient — smooth diagonal light → dark
+    const gradient = ctx.createLinearGradient(bar.x, bar.y, bar.x + bar.width, bar.y + bar.height)
+    gradient.addColorStop(0, light)
+    gradient.addColorStop(1, dark)
+    return gradient
+}
+
 /** Hatch ranges (`series.stroke?.partial`) clamp against `series.data.length`. Any ctx
  *  state (shadow / clip / globalAlpha) is the caller's responsibility. */
 export function drawBars(
     drawCtx: DrawContext,
     series: ResolvedSeries,
     bars: BarRect[],
-    cornerRadius: number = DEFAULT_BAR_CORNER_RADIUS
+    cornerRadius: number = DEFAULT_BAR_CORNER_RADIUS,
+    fillStyle: BarFillStyle = 'flat'
 ): void {
     const { ctx } = drawCtx
     if (bars.length === 0) {
@@ -511,7 +547,7 @@ export function drawBars(
         const useHatch =
             hatch !== null &&
             ((dashedFrom !== null && bar.dataIndex >= dashedFrom) || (dashedTo !== null && bar.dataIndex <= dashedTo))
-        ctx.fillStyle = useHatch ? hatch : barColorAt(series, bar.dataIndex)
+        ctx.fillStyle = useHatch ? hatch : makeBarFill(ctx, barColorAt(series, bar.dataIndex), bar, fillStyle)
         ctx.beginPath()
         traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
         ctx.fill()

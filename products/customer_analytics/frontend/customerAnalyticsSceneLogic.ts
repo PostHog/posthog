@@ -2,7 +2,6 @@ import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { FunnelLayout } from 'lib/constants'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { capitalizeFirstLetter, getDefaultInterval, wordPluralize } from 'lib/utils'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -40,10 +39,6 @@ import { customerAnalyticsConfigLogic } from './customerAnalyticsConfigLogic'
 import type { customerAnalyticsSceneLogicType } from './customerAnalyticsSceneLogicType'
 
 export type BusinessType = 'b2c' | 'b2b'
-
-export interface CustomerAnalyticsSceneLogicProps {
-    tabId: string
-}
 
 export interface InsightDefinition {
     name: string
@@ -83,7 +78,6 @@ const setQueryParams = (params: Record<string, string>): string => {
 
 export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>([
     path(['scenes', 'customerAnalytics', 'customerAnalyticsScene']),
-    tabAwareScene(),
     connect(() => ({
         values: [
             customerAnalyticsConfigLogic,
@@ -142,10 +136,6 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
     })),
     selectors({
-        tabId: [
-            () => [(_, props: CustomerAnalyticsSceneLogicProps) => props.tabId],
-            (tabIdProp: string): string => tabIdProp,
-        ],
         activeTab: [
             (s) => [s.sceneKey],
             (sceneKey): 'dashboard' | 'journeys' | 'accounts' => {

@@ -47,7 +47,7 @@ only as good as its fit to the data it watches.
    it with `posthog:llma-skill-get {"skill_name": "signals-scout-<x>"}` (per-team rows) or
    read it from the repo at `products/signals/skills/signals-scout-*/`. The generalist
    (`signals-scout-general`) is the broad template; pick a specialist
-   (`-error-tracking`, `-llm-analytics`, `-logs`, `-revenue-analytics`, `-surveys`,
+   (`-error-tracking`, `-ai-observability`, `-logs`, `-revenue-analytics`, `-surveys`,
    `-csp-violations`, `-observability-gaps`) if your scope is domain-tight.
 4. **Skim the inbox.** `posthog:inbox-reports-list` shows what findings are actually
    landing — calibrate so your scout adds signal, not noise.
@@ -132,6 +132,11 @@ loop is **dry-run + inspect**:
 
 Repo contributors get a faster loop — `hogli sync:skill` and the harness's local run path;
 see [`references/lifecycle-and-testing.md`](references/lifecycle-and-testing.md).
+
+To **read** what your scouts are doing rather than change them — surveying the fleet, inspecting
+individual runs, the scratchpad memory, and assessing performance — use the read-only companion
+skill [`exploring-signals-scouts`](../exploring-signals-scouts/SKILL.md). Keep the two in sync when
+the scout config / run / scratchpad surfaces change.
 
 ## Quality bar for a v1 scout
 

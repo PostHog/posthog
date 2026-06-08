@@ -1,10 +1,9 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { parseTagsFilter } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
@@ -16,18 +15,12 @@ import { DEFAULT_DATE_RANGE, DEFAULT_ORDER_BY, DEFAULT_SERVICE_NAMES, tracingFil
 import type { tracingSceneLogicType } from './tracingSceneLogicType'
 import type { Span } from './types'
 
-export interface TracingSceneLogicProps {
-    tabId?: string
-}
-
 export const tracingSceneLogic = kea<tracingSceneLogicType>([
-    props({} as TracingSceneLogicProps),
     path(['products', 'tracing', 'frontend', 'tracingSceneLogic']),
-    tabAwareScene(),
 
-    connect((p: TracingSceneLogicProps) => ({
+    connect(() => ({
         values: [
-            tracingDataLogic({ tabId: p.tabId }),
+            tracingDataLogic(),
             [
                 'spans',
                 'spansLoading',
@@ -45,13 +38,13 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'spanTreeLoading',
                 'visibleRowDateRange',
             ],
-            tracingFiltersLogic({ tabId: p.tabId }),
+            tracingFiltersLogic(),
             ['filters', 'utcDateRange', 'sparklineWindowMs', 'currentWindowMs', 'previousWindowMs'],
         ],
         actions: [
-            tracingDataLogic({ tabId: p.tabId }),
+            tracingDataLogic(),
             ['runQuery', 'fetchNextPage', 'loadTraceSpans', 'fetchAggregation', 'fetchSpanTree', 'setVisibleRowRange'],
-            tracingFiltersLogic({ tabId: p.tabId }),
+            tracingFiltersLogic(),
             [
                 'setDateRange',
                 'setServiceNames',

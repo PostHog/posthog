@@ -1,9 +1,8 @@
 import equal from 'fast-deep-equal'
-import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -32,10 +31,6 @@ import {
 
 // Filter fields whose change shifts the result set; auto-reset page unless the caller passes a new one.
 const FILTER_RESET_KEYS = ['search', 'enabledFilter', 'scannerTypeFilter', 'createdByFilter', 'sort'] as const
-
-export interface ReplayScannersLogicProps {
-    tabId: string
-}
 
 // Keep in sync with `SCANNER_ORDER_FIELDS` in products/replay_vision/backend/api/scanners.py.
 export const SORTABLE_COLUMN_KEYS = [
@@ -147,8 +142,6 @@ function parseSortParam(value: unknown): ScannersSorting | null {
 
 export const replayScannersLogic = kea<replayScannersLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'replayScannersLogic']),
-    props({} as ReplayScannersLogicProps),
-    tabAwareScene(),
 
     actions({
         loadScanners: true,
@@ -283,8 +276,8 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 )
                 const response = await visionScannersList(String(teamId), params)
                 actions.loadScannersSuccess(scannersFromApi(response.results ?? []), response.count ?? 0)
-            } catch (error) {
-                lemonToast.error(`Failed to load scanners: ${String(error)}`)
+            } catch (error: any) {
+                lemonToast.error(`Failed to load scanners${error.detail ? `: ${error.detail}` : ''}`)
                 actions.loadScannersFailure(String(error))
             }
         },
@@ -302,8 +295,8 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 await visionScannersDestroy(String(teamId), id)
                 actions.deleteScannerSuccess(id)
                 lemonToast.success('Scanner deleted')
-            } catch (error) {
-                lemonToast.error(`Failed to delete scanner: ${String(error)}`)
+            } catch (error: any) {
+                lemonToast.error(`Failed to delete scanner${error.detail ? `: ${error.detail}` : ''}`)
             }
         },
 
@@ -333,8 +326,8 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             try {
                 const response = await visionScannersCreate(String(teamId), scannerToApiBody(duplicate))
                 actions.duplicateScannerSuccess(scannerFromApi(response))
-            } catch (error) {
-                lemonToast.error(`Failed to duplicate scanner: ${String(error)}`)
+            } catch (error: any) {
+                lemonToast.error(`Failed to duplicate scanner${error.detail ? `: ${error.detail}` : ''}`)
             }
         },
 
@@ -395,8 +388,9 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             try {
                 await visionScannersPartialUpdate(String(teamId), id, { enabled: scanner.enabled })
                 actions.toggleScannerEnabledDone(id)
-            } catch (error) {
-                lemonToast.error(`Failed to ${scanner.enabled ? 'enable' : 'disable'} scanner: ${String(error)}`)
+            } catch (error: any) {
+                const verb = scanner.enabled ? 'enable' : 'disable'
+                lemonToast.error(`Failed to ${verb} scanner${error.detail ? `: ${error.detail}` : ''}`)
                 actions.revertScannerEnabled(id)
             }
         },

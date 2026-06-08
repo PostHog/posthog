@@ -1,9 +1,8 @@
-import { actions, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
@@ -11,29 +10,20 @@ import { Params } from 'scenes/sceneTypes'
 
 import type { metricsSceneLogicType } from './metricsSceneLogicType'
 
-export const getMetricsSqlEditorTabId = (id: string): string => `metrics-sql-editor-${id}`
+export const METRICS_SQL_EDITOR_TAB_ID = 'metrics-sql-editor'
 
 export type MetricsSceneActiveTab = 'viewer' | 'sql'
 const VALID_ACTIVE_TABS: MetricsSceneActiveTab[] = ['viewer', 'sql']
 export const DEFAULT_ACTIVE_TAB: MetricsSceneActiveTab = 'viewer'
 
-export interface MetricsLogicProps {
-    tabId: string
-}
-
 export const metricsSceneLogic = kea<metricsSceneLogicType>([
-    props({} as MetricsLogicProps),
     path(['products', 'metrics', 'frontend', 'metricsSceneLogic']),
-    tabAwareScene(),
     actions({
         setActiveTab: (activeTab: MetricsSceneActiveTab) => ({ activeTab }),
         keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
     }),
     reducers({
         activeTab: [DEFAULT_ACTIVE_TAB as MetricsSceneActiveTab, { setActiveTab: (_, { activeTab }) => activeTab }],
-    }),
-    selectors({
-        tabId: [(_, p) => [p.tabId], (tabId: string) => tabId],
     }),
     urlToAction(({ actions, values, cache }) => {
         const urlToAction = (_: any, params: Params): void => {
