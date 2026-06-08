@@ -1,6 +1,5 @@
+/** Shared Zod helpers for per-widget config validation modules (form parse, API errors, HogQL filters). */
 import { z, type ZodError, type ZodType } from 'zod'
-
-import { ApiError } from 'lib/api-error'
 
 import { FilterLogicalOperator, PropertyFilterType, type UniversalFiltersGroup } from '~/types'
 
@@ -8,7 +7,7 @@ import {
     widgetFilterEntrySchema,
     type StoredWidgetFilter,
     type WidgetFilterConfigRecord,
-} from '../widget_types/configSchemas'
+} from '../generated/widget-configs.zod'
 
 /** Converts persisted widget `config.widgetFilters` into a HogQL/universal filter group. */
 export function buildFilterGroupFromWidgetFilters(
@@ -59,8 +58,8 @@ export function parseWidgetConfig<T>(configSchema: ZodType<T>, config: Record<st
 export type WidgetListFormInput = {
     limit: number
     orderBy: string
-    dateFrom: string
-    filterTestAccounts: boolean
+    dateRange: { date_from?: string | null } | null
+    filterTestAccounts: boolean | null
 }
 
 export type WidgetListFormInputWithWidgetFilters = WidgetListFormInput & {
@@ -76,85 +75,4 @@ export function widgetFiltersPatchFromForm(widgetFilters: Record<string, StoredW
         return {}
     }
     return { widgetFilters }
-}
-
-export function buildWidgetConfigFromForm<TConfig>(
-    configSchema: ZodType<TConfig>,
-    formInput: WidgetListFormInput,
-    baseConfig: TConfig
-): TConfig {
-    return configSchema.parse({
-        ...baseConfig,
-        limit: formInput.limit,
-        orderBy: formInput.orderBy,
-        filterTestAccounts: formInput.filterTestAccounts,
-        dateRange: { date_from: formInput.dateFrom },
-    })
-}
-
-export function validateWidgetConfigInput<TField extends string, TConfig>({
-    formSchema,
-    buildConfig,
-    input,
-}: {
-    formSchema: ZodType<WidgetListFormInput>
-    buildConfig: (formInput: WidgetListFormInput, baseConfig: TConfig) => TConfig
-    input: WidgetListFormInput & { baseConfig: TConfig }
-}): { success: true; config: TConfig } | { success: false; fieldErrors: Partial<Record<TField, string>> } {
-    const parsed = formSchema.safeParse({
-        limit: input.limit,
-        orderBy: input.orderBy,
-        dateFrom: input.dateFrom,
-        filterTestAccounts: input.filterTestAccounts,
-    })
-
-    if (!parsed.success) {
-        return { success: false, fieldErrors: fieldErrorsFromZodError<TField>(parsed.error) }
-    }
-
-    return {
-        success: true,
-        config: buildConfig(parsed.data, input.baseConfig),
-    }
-}
-
-export function parseWidgetConfigApiError<TField extends string, TConfig>({
-    error,
-    config,
-    configSchema,
-    formSchema,
-    defaultOrderBy,
-}: {
-    error: unknown
-    config: Record<string, unknown>
-    configSchema: ZodType<TConfig>
-    formSchema: ZodType<WidgetListFormInput>
-    defaultOrderBy: string
-}): Partial<Record<TField, string>> | null {
-    if (!(error instanceof ApiError)) {
-        return null
-    }
-
-    const parsedConfig = configSchema.safeParse(config)
-    if (parsedConfig.success) {
-        return null
-    }
-
-    const configDefaults = configSchema.parse({}) as {
-        limit?: number
-        orderBy?: string
-        filterTestAccounts?: boolean
-    }
-    const formInput: WidgetListFormInput = {
-        limit: (config.limit as number) ?? configDefaults.limit ?? 0,
-        orderBy: (config.orderBy as string) ?? defaultOrderBy ?? configDefaults.orderBy ?? '',
-        dateFrom: (config.dateRange as { date_from?: string } | undefined)?.date_from ?? '-7d',
-        filterTestAccounts: (config.filterTestAccounts as boolean) ?? configDefaults.filterTestAccounts ?? false,
-    }
-    const parsedForm = formSchema.safeParse(formInput)
-    if (!parsedForm.success) {
-        return fieldErrorsFromZodError<TField>(parsedForm.error)
-    }
-
-    return fieldErrorsFromZodError<TField>(parsedConfig.error)
 }
