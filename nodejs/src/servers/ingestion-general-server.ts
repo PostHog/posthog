@@ -41,9 +41,7 @@ import {
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { createHeatmapsConsumer } from '../ingestion/heatmaps'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
-import { IngestionTestingConsumer } from '../ingestion/ingestion-testing-consumer'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
-import { KafkaProducerWrapper } from '../kafka/producer'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '../utils/db/postgres'
@@ -226,125 +224,108 @@ export class IngestionGeneralServer implements NodeServer {
 
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
-        const isTestingMode = this.config.PLUGIN_SERVER_MODE === PluginServerMode.ingestion_v2_testing
         const isCombinedMode = this.config.PLUGIN_SERVER_MODE === PluginServerMode.ingestion_v2_combined
 
-        if (isTestingMode) {
+        // Producer registry is owned by `sharedInfraScope`; the
+        // server reads it back from the started services. Outputs is
+        // a typed view over it — built once here for analytics, and
+        // separately by each consumer factory as needed.
+        const ingestionProducerRegistry = sharedServices.container.producerRegistry
+        const ingestionOutputs = createOutputsRegistry().build(ingestionProducerRegistry, this.config)
+        const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
+
+        const hogTransformerDeps: HogTransformerServiceDeps = {
+            geoipService,
+            postgres: this.postgres,
+            pubSub: this.pubsub,
+            encryptedFields,
+            integrationManager,
+            monitoringOutputs: ingestionOutputs,
+            teamManager,
+        }
+
+        const ingestionDeps: IngestionConsumerDeps = {
+            postgres: this.postgres,
+            redisPool: this.redisPool,
+            outputs: ingestionOutputs,
+            teamManager,
+            groupTypeManager,
+            groupRepository,
+            clickhouseGroupRepository,
+            personRepository,
+            cookielessManager: this.cookielessManager,
+            hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
+        }
+
+        const startClientWarnings = (override?: { topic: string; groupId: string }) => {
             serviceLoaders.push(async () => {
-                const kafkaWarpStreamProducer = await KafkaProducerWrapper.create(
-                    this.config.KAFKA_CLIENT_RACK,
-                    'WARPSTREAM_PRODUCER'
-                )
-
-                const consumer = new IngestionTestingConsumer(this.config, {
-                    kafkaProducer: kafkaWarpStreamProducer,
-                    teamManager,
-                })
-                await consumer.start()
-                return consumer.service
+                const consumerConfig = override
+                    ? {
+                          ...this.config,
+                          INGESTION_CONSUMER_CONSUME_TOPIC: override.topic,
+                          INGESTION_CONSUMER_GROUP_ID: override.groupId,
+                      }
+                    : this.config
+                const consumerScope = createClientWarningsConsumer(consumerConfig, sharedServicesScope)
+                const { consumer, stop } = await consumerScope.start()
+                return ingestionConsumerService(consumer, stop)
             })
-        } else {
-            // Producer registry is owned by `sharedInfraScope`; the
-            // server reads it back from the started services. Outputs is
-            // a typed view over it — built once here for analytics, and
-            // separately by each consumer factory as needed.
-            const ingestionProducerRegistry = sharedServices.container.producerRegistry
-            const ingestionOutputs = createOutputsRegistry().build(ingestionProducerRegistry, this.config)
-            const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
+        }
 
-            const hogTransformerDeps: HogTransformerServiceDeps = {
-                geoipService,
-                postgres: this.postgres,
-                pubSub: this.pubsub,
-                encryptedFields,
-                integrationManager,
-                monitoringOutputs: ingestionOutputs,
-                teamManager,
-            }
+        const startHeatmaps = (override?: { topic: string; groupId: string }) => {
+            serviceLoaders.push(async () => {
+                const consumerConfig = override
+                    ? {
+                          ...this.config,
+                          INGESTION_CONSUMER_CONSUME_TOPIC: override.topic,
+                          INGESTION_CONSUMER_GROUP_ID: override.groupId,
+                      }
+                    : this.config
+                const consumerScope = createHeatmapsConsumer(consumerConfig, sharedServicesScope)
+                const { consumer, stop } = await consumerScope.start()
+                return ingestionConsumerService(consumer, stop)
+            })
+        }
 
-            const ingestionDeps: IngestionConsumerDeps = {
-                postgres: this.postgres,
-                redisPool: this.redisPool,
-                outputs: ingestionOutputs,
-                teamManager,
-                groupTypeManager,
-                groupRepository,
-                clickhouseGroupRepository,
-                personRepository,
-                cookielessManager: this.cookielessManager,
-                hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
-            }
+        if (isCombinedMode) {
+            // Local dev / hobby: run multiple consumers for all ingestion topics in one process
+            const consumersOptions = [
+                { topic: KAFKA_EVENTS_PLUGIN_INGESTION, group_id: 'clickhouse-ingestion' },
+                { topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL, group_id: 'clickhouse-ingestion-historical' },
+                { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
+            ]
 
-            const startClientWarnings = (override?: { topic: string; groupId: string }) => {
+            for (const consumerOption of consumersOptions) {
                 serviceLoaders.push(async () => {
-                    const consumerConfig = override
-                        ? {
-                              ...this.config,
-                              INGESTION_CONSUMER_CONSUME_TOPIC: override.topic,
-                              INGESTION_CONSUMER_GROUP_ID: override.groupId,
-                          }
-                        : this.config
-                    const consumerScope = createClientWarningsConsumer(consumerConfig, sharedServicesScope)
-                    const { consumer, stop } = await consumerScope.start()
-                    return ingestionConsumerService(consumer, stop)
-                })
-            }
-
-            const startHeatmaps = (override?: { topic: string; groupId: string }) => {
-                serviceLoaders.push(async () => {
-                    const consumerConfig = override
-                        ? {
-                              ...this.config,
-                              INGESTION_CONSUMER_CONSUME_TOPIC: override.topic,
-                              INGESTION_CONSUMER_GROUP_ID: override.groupId,
-                          }
-                        : this.config
-                    const consumerScope = createHeatmapsConsumer(consumerConfig, sharedServicesScope)
-                    const { consumer, stop } = await consumerScope.start()
-                    return ingestionConsumerService(consumer, stop)
-                })
-            }
-
-            if (isCombinedMode) {
-                // Local dev / hobby: run multiple consumers for all ingestion topics in one process
-                const consumersOptions = [
-                    { topic: KAFKA_EVENTS_PLUGIN_INGESTION, group_id: 'clickhouse-ingestion' },
-                    { topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL, group_id: 'clickhouse-ingestion-historical' },
-                    { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
-                ]
-
-                for (const consumerOption of consumersOptions) {
-                    serviceLoaders.push(async () => {
-                        const consumer = new IngestionConsumer(this.config, ingestionDeps, {
-                            INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
-                            INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
-                        })
-                        await consumer.start()
-                        return consumer.service
+                    const consumer = new IngestionConsumer(this.config, ingestionDeps, {
+                        INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
+                        INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
                     })
-                }
-
-                startClientWarnings({
-                    topic: 'ingestion-clientwarnings-main-1',
-                    groupId: 'ingestion-clientwarnings-main',
-                })
-
-                startHeatmaps({
-                    topic: 'heatmaps_ingestion',
-                    groupId: 'heatmaps_ingestion',
-                })
-            } else if (this.config.INGESTION_PIPELINE === 'clientwarnings') {
-                startClientWarnings()
-            } else if (this.config.INGESTION_PIPELINE === 'heatmaps') {
-                startHeatmaps()
-            } else {
-                // Production ingestion-v2: single consumer using config-provided topic
-                serviceLoaders.push(async () => {
-                    const consumer = new IngestionConsumer(this.config, ingestionDeps)
                     await consumer.start()
                     return consumer.service
                 })
             }
+
+            startClientWarnings({
+                topic: 'ingestion-clientwarnings-main-1',
+                groupId: 'ingestion-clientwarnings-main',
+            })
+
+            startHeatmaps({
+                topic: 'heatmaps_ingestion',
+                groupId: 'heatmaps_ingestion',
+            })
+        } else if (this.config.INGESTION_PIPELINE === 'clientwarnings') {
+            startClientWarnings()
+        } else if (this.config.INGESTION_PIPELINE === 'heatmaps') {
+            startHeatmaps()
+        } else {
+            // Production ingestion-v2: single consumer using config-provided topic
+            serviceLoaders.push(async () => {
+                const consumer = new IngestionConsumer(this.config, ingestionDeps)
+                await consumer.start()
+                return consumer.service
+            })
         }
 
         // ServerCommands is always created

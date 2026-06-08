@@ -20,11 +20,3 @@ export {
     type JoinedIngestionPipelineDeps,
     type JoinedIngestionPipelineInput,
 } from './joined-ingestion-pipeline'
-
-export {
-    createTestingJoinedIngestionPipeline,
-    type TestingJoinedIngestionPipelineConfig,
-    type TestingJoinedIngestionPipelineContext,
-    type TestingJoinedIngestionPipelineDeps,
-    type TestingJoinedIngestionPipelineInput,
-} from './testing-joined-ingestion-pipeline'
