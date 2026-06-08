@@ -1,7 +1,12 @@
+import gzip
+import json
+import base64
 import dataclasses
 from datetime import datetime
 from typing import Any, Optional, cast
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -80,10 +85,28 @@ class HogInvocationResult:
 
 @dataclasses.dataclass(frozen=True)
 class HogInvocationResultDetail(HogInvocationResult):
-    # Raw JSON string of the triggering payload (event/person/groups). Kept as a
-    # string rather than a parsed object because the shape is caller-defined and
-    # unbounded — parse it on the client if you need to walk into it.
-    invocation_globals: str
+    # The triggering payload (event/person/groups) the run executed against, decoded from the
+    # stored gzip+base64 blob into a JSON object so callers get structured data directly. Shape
+    # is caller-defined and unbounded.
+    invocation_globals: dict[str, Any]
+
+
+def _decode_invocation_globals(stored: str) -> dict[str, Any]:
+    """Decode the stored invocation_globals into a JSON object.
+
+    The producer gzip-compresses then base64-encodes the payload (see the Node
+    hog-invocation-results service). Legacy rows predate compression and are stored
+    as raw JSON, detected by a leading '{'. A decode failure degrades to an empty
+    object so one malformed row can't 500 the whole request.
+    """
+    if not stored:
+        return {}
+    try:
+        decoded = stored if stored.startswith("{") else gzip.decompress(base64.b64decode(stored)).decode("utf-8")
+        parsed = json.loads(decoded)
+    except (ValueError, OSError, EOFError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 class HogInvocationResultSerializer(DataclassSerializer):
@@ -91,7 +114,16 @@ class HogInvocationResultSerializer(DataclassSerializer):
         dataclass = HogInvocationResult
 
 
+@extend_schema_field(OpenApiTypes.OBJECT)
+class InvocationGlobalsField(serializers.JSONField):
+    pass
+
+
 class HogInvocationResultDetailSerializer(DataclassSerializer):
+    invocation_globals = InvocationGlobalsField(
+        help_text="The triggering payload (event/person/groups) the run executed against, as a JSON object."
+    )
+
     class Meta:
         dataclass = HogInvocationResultDetail
 
@@ -138,7 +170,7 @@ def _build_invocation(row: tuple, detail: bool) -> Any:
         "is_retry": bool(row[11]),
     }
     if detail:
-        return HogInvocationResultDetail(**common, invocation_globals=row[12])
+        return HogInvocationResultDetail(**common, invocation_globals=_decode_invocation_globals(row[12]))
     return HogInvocationResult(**common)
 
 

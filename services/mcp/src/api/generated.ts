@@ -19843,7 +19843,14 @@ export namespace Schemas {
       is_retry: boolean;
     }
 
+    /**
+     * The triggering payload (event/person/groups) the run executed against, as a JSON object.
+     */
+    export type HogInvocationResultDetailInvocationGlobals = { [key: string]: unknown };
+
     export interface HogInvocationResultDetail {
+      /** The triggering payload (event/person/groups) the run executed against, as a JSON object. */
+      invocation_globals: HogInvocationResultDetailInvocationGlobals;
       invocation_id: string;
       status: string;
       error_kind: string;
@@ -19859,7 +19866,6 @@ export namespace Schemas {
       duration_ms: number | null;
       attempts: number;
       is_retry: boolean;
-      invocation_globals: string;
     }
 
     export type HogLanguage = typeof HogLanguage[keyof typeof HogLanguage];

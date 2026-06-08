@@ -579,7 +579,14 @@ export interface HogInvocationResultApi {
     is_retry: boolean
 }
 
+/**
+ * The triggering payload (event/person/groups) the run executed against, as a JSON object.
+ */
+export type HogInvocationResultDetailApiInvocationGlobals = { [key: string]: unknown }
+
 export interface HogInvocationResultDetailApi {
+    /** The triggering payload (event/person/groups) the run executed against, as a JSON object. */
+    invocation_globals: HogInvocationResultDetailApiInvocationGlobals
     invocation_id: string
     status: string
     error_kind: string
@@ -595,7 +602,6 @@ export interface HogInvocationResultDetailApi {
     duration_ms: number | null
     attempts: number
     is_retry: boolean
-    invocation_globals: string
 }
 
 /**

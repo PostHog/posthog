@@ -1,3 +1,6 @@
+import gzip
+import json
+import base64
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -177,13 +180,26 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
         assert len(results) == 2
 
     def test_detail_returns_invocation_globals(self):
+        # Legacy rows predate compression and are stored as raw JSON.
         self._seed("inv-1", invocation_status="failed", invocation_globals='{"event": {"event": "$pageview"}}')
         res = self._detail("inv-1")
         assert res.status_code == status.HTTP_200_OK
         body = res.json()
         assert body["invocation_id"] == "inv-1"
         assert body["status"] == "failed"
-        assert body["invocation_globals"] == '{"event": {"event": "$pageview"}}'
+        assert body["invocation_globals"] == {"event": {"event": "$pageview"}}
+
+    def test_detail_decodes_gzip_base64_invocation_globals(self):
+        # Current rows are gzip-compressed then base64-encoded by the producer.
+        payload = {"event": {"event": "$pageview"}, "person": {"id": "p1"}, "groups": {}}
+        encoded = base64.b64encode(gzip.compress(json.dumps(payload).encode("utf-8"))).decode("utf-8")
+        self._seed("inv-1", invocation_globals=encoded)
+        body = self._detail("inv-1").json()
+        assert body["invocation_globals"] == payload
+
+    def test_detail_invocation_globals_degrades_to_empty_on_garbage(self):
+        self._seed("inv-1", invocation_globals="not-valid-base64-or-json")
+        assert self._detail("inv-1").json()["invocation_globals"] == {}
 
     def test_detail_404_for_unknown_invocation(self):
         assert self._detail("nope").status_code == status.HTTP_404_NOT_FOUND
