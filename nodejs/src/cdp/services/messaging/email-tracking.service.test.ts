@@ -246,6 +246,56 @@ describe('EmailTrackingService', () => {
                 })
             })
 
+            it('logs under the batch run id (parentRunId) for batch-triggered runs', async () => {
+                const hogFlow = await insertHogFlow(
+                    hub.postgres,
+                    new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                )
+                const parentRunId = '019e9757-eb87-0000-846b-88bb42cdf084'
+
+                const phId = generateEmailTrackingCode({
+                    functionId: hogFlow.id,
+                    id: invocationId,
+                    teamId: team.id,
+                    parentRunId,
+                    state: { actionId: 'act789' },
+                })
+
+                const res = await supertest(app)
+                    .post('/public/m/ses_webhook')
+                    .set('Content-Type', 'text/plain')
+                    .send(
+                        JSON.stringify([
+                            {
+                                eventType: 'Bounce',
+                                mail: {
+                                    timestamp: '2026-04-13T05:58:10Z',
+                                    source: 'sender@example.com',
+                                    messageId: 'msg-1',
+                                    destination: ['user@example.com'],
+                                    tags: { ph_id: [phId] },
+                                },
+                                bounce: {
+                                    bounceType: 'Permanent',
+                                    bouncedRecipients: [{ emailAddress: 'user@example.com', status: '5.1.1' }],
+                                    timestamp: '2026-04-13T05:58:10Z',
+                                },
+                            },
+                        ])
+                    )
+                expect(res.status).toBe(200)
+
+                const logMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+                expect(logMessages).toHaveLength(1)
+                // Keyed by the batch run id, not the workflow id, so it surfaces in the run's logs view.
+                expect(logMessages[0].value).toMatchObject({
+                    log_source: 'hog_flow',
+                    log_source_id: parentRunId,
+                    instance_id: invocationId,
+                    level: 'error',
+                })
+            })
+
             it('does not write log entries for hog_function email bounces', async () => {
                 const phId = generateEmailTrackingCode({
                     functionId: hogFunction.id,

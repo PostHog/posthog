@@ -396,6 +396,7 @@ export class SesWebhookHandler {
             functionId?: string
             invocationId?: string
             actionId?: string
+            parentRunId?: string
             teamId?: string
             level: SesEventLogLine['level']
             message: string
@@ -458,6 +459,7 @@ export class SesWebhookHandler {
             functionId?: string
             invocationId?: string
             actionId?: string
+            parentRunId?: string
             teamId?: string
             level: SesEventLogLine['level']
             message: string
@@ -492,6 +494,7 @@ export class SesWebhookHandler {
                     functionId,
                     invocationId,
                     actionId,
+                    parentRunId,
                     teamId,
                     level: line.level,
                     message: `${prefix}${line.message}`,

@@ -177,6 +177,7 @@ export class EmailTrackingService {
         entries: {
             functionId?: string
             invocationId?: string
+            parentRunId?: string
             level: LogEntryLevel
             message: string
         }[]
@@ -219,7 +220,8 @@ export class EmailTrackingService {
             logEntries.push({
                 team_id: hogFlow.team_id,
                 log_source: 'hog_flow',
-                log_source_id: hogFlow.id,
+                // Batch-triggered runs log under the batch run id (parentRunId); mirror the metrics path.
+                log_source_id: entry.parentRunId ?? hogFlow.id,
                 instance_id: entry.invocationId,
                 timestamp: now,
                 level: entry.level,
@@ -264,6 +266,7 @@ export class EmailTrackingService {
                     (logEntries || []).map((entry) => ({
                         functionId: entry.functionId,
                         invocationId: entry.invocationId,
+                        parentRunId: entry.parentRunId,
                         level: entry.level,
                         message: entry.message,
                     }))
