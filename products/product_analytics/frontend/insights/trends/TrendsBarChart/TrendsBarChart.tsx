@@ -50,6 +50,8 @@ import {
 interface TrendsBarChartProps {
     context?: QueryContext<InsightVizNode>
     inSharedMode?: boolean
+    /** True when rendered as a fixed-height dashboard/card tile, false on the full insight page. */
+    embedded?: boolean
 }
 
 const EMPTY_LABELS: string[] = []
@@ -77,9 +79,13 @@ const resolveGroupTypeLabel = (
 
 const handleChartError = makeChartErrorHandler('trends-bar-chart')
 
-export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChartProps): JSX.Element | null {
+export function TrendsBarChart({
+    context,
+    inSharedMode = false,
+    embedded = false,
+}: TrendsBarChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
-    const { insightProps, insight, isInDashboardContext } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
 
     const {
         indexedResults,
@@ -242,9 +248,12 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             // Breakdown values become category (y-axis) labels here; truncate long ones (e.g. URLs)
             // so they don't grow the margin and push the plot off screen. Full value shows on hover.
             maxCategoryLabelWidth: MAX_CATEGORY_LABEL_WIDTH,
-            // On a dashboard the tile is a fixed height: fit the rows that fit instead of growing
-            // the tile and scrolling. On the full insight page, keep the grow-to-fit-all behavior.
-            bars: { fitToHeight: isInDashboardContext },
+            // Dashboard/card tiles are a fixed height, so cap the rows to those that fit. The full
+            // insight page is `embedded: false` — even when opened from a dashboard (dashboardId in
+            // the URL) — so it keeps the grow-to-fit-all behavior and renders every breakdown row.
+            // divergingStack keeps negative values (e.g. a `A*(-1)` formula) below the zero baseline
+            // instead of clamping them to 0.
+            bars: { fitToHeight: embedded, divergingStack: true },
         }
     }, [
         yAxisScaleType,
@@ -253,7 +262,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
         trendsFilter?.yAxisLabel,
         displayLabels,
         labels,
-        isInDashboardContext,
+        embedded,
     ])
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
@@ -394,7 +403,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
 
     // Annotations are date-anchored, so they only make sense for the time-series bar
     // layouts (vertical bars). The horizontal aggregated layout has categorical labels.
-    const showAnnotations = !inSharedMode
+    const showAnnotations = !inSharedMode && trendsFilter?.showAnnotations !== false
     const annotationsDates = currentPeriodResult?.days ?? []
     // In compare-against-previous grouped layouts each band holds two bars (previous, current).
     // Anchor each period's annotations on its matching bar so they line up with what they describe.

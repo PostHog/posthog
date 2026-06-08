@@ -17,6 +17,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { getDashboardWidgetCatalogEntry, tryGetDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
 import { DashboardWidgetItem } from './DashboardWidgetItem'
 
 jest.mock('lib/utils/accessControlUtils', () => ({
@@ -31,13 +32,11 @@ jest.mock('../../widgets/registry', () => ({
             name,
             defaultTitle,
             description,
-            onSaveMetadata: _onSaveMetadata,
         }: {
             isOpen: boolean
             name?: string
             defaultTitle?: string
             description?: string
-            onSaveMetadata?: (metadata: { name?: string; description?: string }) => void
         }) =>
             isOpen ? (
                 <div role="dialog" aria-label="Widget settings">
@@ -54,13 +53,33 @@ jest.mock('../../widgets/registry', () => ({
 }))
 
 jest.mock('../../widget_types/catalog', () => ({
-    getDashboardWidgetCatalogEntry: () => ({
+    getDashboardWidgetCatalogEntry: jest.fn(() => ({
         titleHref: '/error_tracking',
         headerLayout: 'dashboard_tile',
-        groupLabel: 'Error tracking',
+        groupId: 'error_tracking',
         label: 'Top issues',
         headerTitle: 'Top issues',
-    }),
+    })),
+    tryGetDashboardWidgetCatalogEntry: jest.fn(() => ({
+        titleHref: '/error_tracking',
+        headerLayout: 'dashboard_tile',
+        groupId: 'error_tracking',
+        label: 'Top issues',
+        headerTitle: 'Top issues',
+        headerMeta: { showWidgetType: true, showDateRange: true },
+        sharedPlaceholder: {
+            title: 'Top issues',
+            message: 'Log in to PostHog to see which errors are affecting your users.',
+        },
+    })),
+    getUnknownDashboardWidgetCatalogFallback: jest.fn((widgetType: string) => ({
+        groupId: widgetType,
+        label: widgetType,
+        headerTitle: widgetType,
+        headerLayout: 'dashboard_tile',
+        headerMeta: { showWidgetType: true, showDateRange: true },
+    })),
+    getDashboardWidgetGroupLabel: () => 'Error tracking',
 }))
 
 const tile = {
@@ -127,8 +146,7 @@ describe('DashboardWidgetItem', () => {
                 loading={false}
                 lastFetchedAt={Date.now()}
                 onRefresh={onRefresh}
-                onUpdateConfig={jest.fn()}
-                onUpdateMetadata={jest.fn()}
+                onUpdateWidgetTile={jest.fn()}
                 toggleShowDescription={jest.fn()}
                 showEditingControls
                 onDuplicate={jest.fn()}
@@ -168,8 +186,7 @@ describe('DashboardWidgetItem', () => {
                 result={null}
                 loading={false}
                 onRefresh={jest.fn()}
-                onUpdateConfig={jest.fn()}
-                onUpdateMetadata={jest.fn()}
+                onUpdateWidgetTile={jest.fn()}
                 showEditingControls
                 onRemove={onRemove}
             />
@@ -193,8 +210,7 @@ describe('DashboardWidgetItem', () => {
                 result={null}
                 loading={false}
                 onRefresh={jest.fn()}
-                onUpdateConfig={jest.fn()}
-                onUpdateMetadata={jest.fn()}
+                onUpdateWidgetTile={jest.fn()}
                 showEditingControls
             />
         )
@@ -212,8 +228,7 @@ describe('DashboardWidgetItem', () => {
                 result={null}
                 loading={false}
                 onRefresh={jest.fn()}
-                onUpdateConfig={jest.fn()}
-                onUpdateMetadata={jest.fn()}
+                onUpdateWidgetTile={jest.fn()}
                 toggleShowDescription={toggleShowDescription}
                 showEditingControls
             />
@@ -235,8 +250,7 @@ describe('DashboardWidgetItem', () => {
                 result={null}
                 loading={false}
                 onRefresh={jest.fn()}
-                onUpdateConfig={jest.fn()}
-                onUpdateMetadata={jest.fn()}
+                onUpdateWidgetTile={jest.fn()}
                 showEditingControls
             />
         )
@@ -261,13 +275,73 @@ describe('DashboardWidgetItem', () => {
                 result={null}
                 loading={false}
                 onRefresh={jest.fn()}
-                onUpdateConfig={jest.fn()}
-                onUpdateMetadata={jest.fn()}
+                onUpdateWidgetTile={jest.fn()}
                 showEditingControls
             />
         )
 
         expect(container.querySelector('[data-attr="widget-card-title"] .EditableField')).toBeNull()
         expect(container.querySelector('[data-attr="widget-card-title"]')).toHaveTextContent('My issues')
+    })
+
+    it('shows shared dashboard placeholder on public placement instead of widget data', () => {
+        const { container } = render(
+            <DashboardWidgetItem
+                tile={tile}
+                placement={DashboardPlacement.Public}
+                dashboardId={99}
+                result={{ results: [{ id: '1' }] }}
+                loading={false}
+                onRefresh={jest.fn()}
+            />
+        )
+
+        expect(within(container).getByText('My issues')).toBeInTheDocument()
+        expect(screen.getByTestId('shared-dashboard-widget-placeholder')).toBeInTheDocument()
+        expect(screen.getByText('Log in to PostHog to see which errors are affecting your users.')).toBeInTheDocument()
+        expect(screen.queryByText('Widget body')).not.toBeInTheDocument()
+    })
+
+    it('contains unknown widget errors in the card body while keeping the header', () => {
+        const catalogEntryMock = getDashboardWidgetCatalogEntry as jest.Mock
+        ;(tryGetDashboardWidgetCatalogEntry as jest.Mock).mockReturnValue(undefined)
+        catalogEntryMock.mockImplementation(() => {
+            throw new Error('Unknown dashboard widget type: session_replay_list')
+        })
+
+        const { container } = render(
+            <DashboardWidgetItem
+                tile={tile}
+                placement={DashboardPlacement.Dashboard}
+                dashboardId={99}
+                result={null}
+                loading={false}
+                error="Unknown widget type: session_replay_list"
+                onRefresh={jest.fn()}
+                onRemove={jest.fn()}
+                showEditingControls
+            />
+        )
+
+        expect(within(container).getByText('My issues')).toBeInTheDocument()
+        expect(within(container).getByText('An error has occurred')).toBeInTheDocument()
+        expect(within(container).getByText(/Unknown dashboard widget type: session_replay_list/)).toBeInTheDocument()
+        expect(within(container).queryByText('Refresh data')).not.toBeInTheDocument()
+
+        ;(tryGetDashboardWidgetCatalogEntry as jest.Mock).mockReturnValue({
+            titleHref: '/error_tracking',
+            headerLayout: 'dashboard_tile',
+            groupId: 'error_tracking',
+            label: 'Top issues',
+            headerTitle: 'Top issues',
+            headerMeta: { showWidgetType: true, showDateRange: true },
+        })
+        catalogEntryMock.mockImplementation(() => ({
+            titleHref: '/error_tracking',
+            headerLayout: 'dashboard_tile',
+            groupId: 'error_tracking',
+            label: 'Top issues',
+            headerTitle: 'Top issues',
+        }))
     })
 })

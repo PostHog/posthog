@@ -176,6 +176,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
+    // Tracks an explicit dismissal (e.g. Esc) so the popover stays closed while the
+    // user keeps typing a message that still starts with "/". "/" + Esc is a valid path.
+    const [autocompleteDismissed, setAutocompleteDismissed] = useState(false)
     const [editingQueueId, setEditingQueueId] = useState<string | null>(null)
     const displayQueuedMessages = useMemo(() => [...queuedMessages].reverse(), [queuedMessages])
     const hasQuestion = question.trim().length > 0
@@ -185,11 +188,17 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     // Update autocomplete visibility when question changes
     useEffect(() => {
         const isSlashCommand = question[0] === '/'
-        if (isSlashCommand && !showAutocomplete) {
+        // Once the input is no longer a slash command, clear any prior dismissal so
+        // typing "/" again later reopens the popover.
+        if (!isSlashCommand && autocompleteDismissed) {
+            setAutocompleteDismissed(false)
+        }
+        const shouldShow = isSlashCommand && !autocompleteDismissed
+        if (shouldShow && !showAutocomplete) {
             posthog.capture('Max slash command autocomplete shown')
         }
-        setShowAutocomplete(isSlashCommand)
-    }, [question, showAutocomplete])
+        setShowAutocomplete(shouldShow)
+    }, [question, showAutocomplete, autocompleteDismissed])
 
     let disabledReason = submissionDisabledReason
     if (threadLoading && !isQueueingSubmission) {
@@ -277,7 +286,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         ) : (
                             <SlashCommandAutocomplete
                                 visible={showAutocomplete}
-                                onClose={() => setShowAutocomplete(false)}
+                                onClose={() => {
+                                    setShowAutocomplete(false)
+                                    setAutocompleteDismissed(true)
+                                }}
                             >
                                 <div className="relative w-full">
                                     {!question && (

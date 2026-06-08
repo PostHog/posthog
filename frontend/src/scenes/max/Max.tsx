@@ -17,7 +17,6 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -91,7 +90,6 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     } = useValues(maxLogic({ tabId }))
     const { startNewConversation, goBack } = useActions(maxLogic({ tabId }))
     const { openSidePanelMax } = useActions(maxGlobalLogic)
-    const { closeTabId } = useActions(sceneLogic)
 
     const threadProps: MaxThreadLogicProps = {
         tabId,
@@ -247,7 +245,6 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                                 sideIcon={<IconOpenSidebar />}
                                 onClick={() => {
                                     openSidePanelMax(conversationId ?? undefined)
-                                    closeTabId(tabId, { source: 'open_in_side_panel' })
                                 }}
                             >
                                 Open in context panel

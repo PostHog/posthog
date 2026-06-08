@@ -1,14 +1,24 @@
 import type { Context } from '@/tools/types'
 
-/** Adds a _posthogUrl field to any type. Use instead of `T & { _posthogUrl: string }`. */
-export type WithPostHogUrl<T = unknown> = T & { _posthogUrl: string }
+/**
+ * Adds a _posthogUrl field to a result. For object results it's a sibling field; for raw
+ * array results the array is wrapped as `{ results, _posthogUrl }` — spreading an array into
+ * an object (`{ ...arr }`) would otherwise corrupt it into `{ 0: …, 1: …, _posthogUrl: … }`.
+ */
+export type WithPostHogUrl<T = unknown> = T extends readonly (infer U)[]
+    ? { results: U[]; _posthogUrl: string }
+    : T & { _posthogUrl: string }
 
-/** Adds _posthogUrl to a result object. */
+/** Adds _posthogUrl to a result. Wraps raw arrays in `{ results, _posthogUrl }` (see type above). */
 export async function withPostHogUrl<T>(context: Context, result: T, path: string): Promise<WithPostHogUrl<T>> {
     const projectId = await context.stateManager.getProjectId()
 
     const baseUrl = context.api.getProjectBaseUrl(projectId)
     const fullUrl = `${baseUrl}${path}`
+
+    if (Array.isArray(result)) {
+        return { results: result, _posthogUrl: fullUrl } as unknown as WithPostHogUrl<T>
+    }
 
     return { ...result, _posthogUrl: fullUrl } as WithPostHogUrl<T>
 }

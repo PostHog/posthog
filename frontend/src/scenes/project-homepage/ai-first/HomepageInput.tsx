@@ -474,6 +474,7 @@ function IdleGrid(): JSX.Element {
                                         <Link
                                             to={item.href}
                                             role="gridcell"
+                                            title={item.label}
                                             buttonProps={{
                                                 menuItem: true,
                                                 fullWidth: true,

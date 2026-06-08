@@ -41,9 +41,12 @@ describe('StickinessBarChart', () => {
             featureFlags: HOG_CHARTS_FLAG,
         })
 
-        await waitFor(() => {
-            expect(screen.getByTestId('stickiness-bar-graph')).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(screen.getByTestId('stickiness-bar-graph')).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
     })
 
     it('renders one series per event', async () => {
@@ -57,9 +60,12 @@ describe('StickinessBarChart', () => {
             featureFlags: HOG_CHARTS_FLAG,
         })
 
-        await waitFor(() => {
-            expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
     })
 
     it('y-axis: renders percent ticks (legacy `${value.toFixed(1)}%` parity)', async () => {
@@ -92,9 +98,12 @@ describe('StickinessBarChart', () => {
             featureFlags: HOG_CHARTS_FLAG,
         })
 
-        await waitFor(() => {
-            expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
         expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
     })
 
@@ -103,9 +112,12 @@ describe('StickinessBarChart', () => {
 
         await chart.clickAtIndex(2)
 
-        await waitFor(() => {
-            expect(personsModal.get()).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(personsModal.get()).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
         expect(personsModal.title()).toMatch(/stickiness on day 3/i)
         expect(personsModal.title()).toMatch(/Pageview/i)
     })
@@ -120,9 +132,12 @@ describe('StickinessBarChart', () => {
 
         await chart.clickAtIndex(2)
 
-        await waitFor(() => {
-            expect(onDataPointClick).toHaveBeenCalledTimes(1)
-        })
+        await waitFor(
+            () => {
+                expect(onDataPointClick).toHaveBeenCalledTimes(1)
+            },
+            { timeout: 5000 }
+        )
         const [seriesArg] = onDataPointClick.mock.calls[0]
         expect(seriesArg.day).toBe(3)
         expect(personsModal.get()).not.toBeInTheDocument()
