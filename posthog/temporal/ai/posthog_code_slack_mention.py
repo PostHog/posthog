@@ -285,14 +285,6 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if not user_id:
                 return
 
-            # Commands (including `rules add` and its repo picker) are dispatched
-            # by PostHogCodeSlackMentionCommandWorkflow. The patch marker is
-            # preserved via `deprecate_patch` so any straggler workflow that
-            # recorded the pre-patch path on its first task can still replay
-            # deterministically. Drop the `deprecate_patch` call once the next
-            # drain completes.
-            workflow.deprecate_patch("posthog-code-mention-skip-rules-command")
-
             thread_messages = await _execute_posthog_code_activity(
                 collect_posthog_code_thread_messages_activity,
                 inputs,
@@ -301,13 +293,6 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             )
             if not thread_messages:
                 return
-
-            # Cascade fast-path before the discovery agent. The patch marker is
-            # preserved via `deprecate_patch` so any straggler workflow that
-            # recorded the pre-patch (`select_posthog_code_repository_activity`)
-            # path on its first task can still replay deterministically. Drop the
-            # `deprecate_patch` call once the next drain completes.
-            workflow.deprecate_patch("posthog-code-repo-discovery-agent-2026-05")
 
             repository: str | None
             # Set only on the ambiguous path that runs the discovery sandbox
@@ -483,13 +468,7 @@ async def _gate_on_personal_github(
     thread_ts: str,
     user_id: int,
 ) -> bool:
-    """Return True when the workflow must abort because the mentioner has no personal GitHub.
-
-    The patch marker is preserved via `deprecate_patch` so any straggler workflow
-    that recorded the pre-patch path on its first task can still replay
-    deterministically. Drop the `deprecate_patch` call once the next drain completes.
-    """
-    workflow.deprecate_patch("posthog-code-block-no-personal-github-2026-05")
+    """Return True when the workflow must abort because the mentioner has no personal GitHub."""
     return await _execute_posthog_code_activity(
         block_posthog_code_task_if_no_personal_github_activity,
         inputs,
