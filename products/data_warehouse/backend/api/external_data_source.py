@@ -50,6 +50,7 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.sql import filter_dwh_columns_by_enabled_columns, sql_schema_metadata
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.custom.source import (
+    MAX_CUSTOM_SOURCES_PER_TEAM,
     is_custom_source_available_for_team,
     manifest_request_hosts,
 )
@@ -1140,6 +1141,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Custom REST source is not available for this team."},
             )
+        if source_type_model == ExternalDataSourceType.CUSTOM:
+            custom_source_count = (
+                ExternalDataSource.objects.filter(team_id=self.team_id, source_type=ExternalDataSourceType.CUSTOM)
+                .exclude(deleted=True)
+                .count()
+            )
+            if custom_source_count >= MAX_CUSTOM_SOURCES_PER_TEAM:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
+                    },
+                )
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(payload)
         if not is_valid:
