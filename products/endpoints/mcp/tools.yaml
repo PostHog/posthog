@@ -23,8 +23,8 @@ tools:
         description: >
             Create a new API endpoint from a HogQL or insight query. `name` is the URL-safe slug used in the endpoint
             URL (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars); if omitted, it is derived
-            from `display_name`. `display_name` is the human-readable label. Materialization is auto-enabled if the
-            query is eligible.
+            from `display_name`. `display_name` is the human-readable label. Materialization is auto-enabled if the query
+            is eligible.
         include_params:
             - name
             - display_name

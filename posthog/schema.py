@@ -25647,7 +25647,7 @@ class EndpointRequest(BaseModel):
     description: str | None = None
     display_name: str | None = Field(
         default=None,
-        description="Human-readable display name. If the slug (name) is omitted, it is derived from this.",
+        description=("Human-readable display name. If the slug (name) is omitted, it is derived from this."),
     )
     is_active: bool | None = None
     is_materialized: bool | None = Field(
@@ -25656,7 +25656,7 @@ class EndpointRequest(BaseModel):
     )
     name: str | None = Field(
         default=None,
-        description="URL-safe slug used in the endpoint URL. If omitted, it is derived from display_name.",
+        description=("URL-safe slug used in the endpoint URL. If omitted, it is derived from display_name."),
     )
     query: HogQLQuery | TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery | None = (
         None

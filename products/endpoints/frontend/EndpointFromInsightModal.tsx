@@ -119,16 +119,12 @@ export function EndpointFromInsightModal({ insightQuery, insightShortId }: Endpo
                                 This is the slug we'll use, and it's what your endpoint URL is built from. You can
                                 override it here.
                                 <div className="font-mono text-xs mt-1 break-all">
-                                    {`/api/environments/${currentTeamId ?? ':team_id'}/endpoints/${slug || '<slug>'}/run`}
+                                    {`/api/projects/${currentTeamId ?? ':team_id'}/endpoints/${slug || '<slug>'}/run`}
                                 </div>
                             </>
                         }
                     >
-                        <LemonInput
-                            value={endpointName || ''}
-                            onChange={setEndpointSlug}
-                            placeholder="my-endpoint"
-                        />
+                        <LemonInput value={endpointName || ''} onChange={setEndpointSlug} placeholder="my-endpoint" />
                     </LemonField.Pure>
 
                     <LemonField.Pure label="Description">
