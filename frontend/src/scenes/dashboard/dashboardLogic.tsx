@@ -1062,7 +1062,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         layoutEditMode: [
             false,
             {
-                setDashboardMode: (state, { mode, source }) => {
+                setDashboardMode: (_, { mode, source }) => {
                     if (mode !== DashboardMode.Edit) {
                         return false
                     }
@@ -2655,10 +2655,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 shouldSnapshotUrlAtEditModeEntry(source)
             ) {
                 const encodedFilters = encodeURLFilters(values.urlFilters)
-                const encodedVariables = encodeURLVariables(parseURLVariables(router.values.searchParams))
                 actions.setUrlSearchParamsAtEditModeEntry({
                     filters: encodedFilters[SEARCH_PARAM_FILTERS_KEY],
-                    variables: encodedVariables[SEARCH_PARAM_QUERY_VARIABLES_KEY],
+                    variables: router.values.searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY],
                 })
             }
 
