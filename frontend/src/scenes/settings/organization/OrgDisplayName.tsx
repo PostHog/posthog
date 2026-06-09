@@ -116,8 +116,6 @@ export function OrganizationDisplayName(): JSX.Element {
                     >
                         Save
                     </LemonButton>
-                    {/* Surface the reason inline so it's visible without hovering the disabled button */}
-                    {saveDisabledReason && !saving && <span className="text-muted text-xs">{saveDisabledReason}</span>}
                 </div>
             </div>
         </div>
