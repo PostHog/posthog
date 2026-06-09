@@ -238,7 +238,7 @@
                   FROM person_distinct_id2
                   WHERE equals(person_distinct_id2.team_id, 99999)
                   GROUP BY person_distinct_id2.distinct_id
-                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                  HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                WHERE in(person_distinct_ids.person_id, ((
                                                            (SELECT source.id AS id
                                                             FROM
@@ -259,7 +259,7 @@
                                                                      FROM person_distinct_id_overrides
                                                                      WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                      GROUP BY person_distinct_id_overrides.distinct_id
-                                                                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                                                                     HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                                                                   WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                                                                GROUP BY actor_id) AS source
                                                             ORDER BY source.id ASC SETTINGS optimize_aggregation_in_order=1,
@@ -463,7 +463,7 @@
         FROM person_distinct_id2
         WHERE equals(person_distinct_id2.team_id, 99999)
         GROUP BY person_distinct_id2.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+        HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
      WHERE in(person_distinct_ids.person_id,
                 (SELECT person_static_cohort.person_id AS person_id
                  FROM person_static_cohort

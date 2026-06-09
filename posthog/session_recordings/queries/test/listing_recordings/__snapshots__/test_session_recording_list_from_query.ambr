@@ -6358,7 +6358,7 @@
                   FROM person_distinct_id2
                   WHERE equals(person_distinct_id2.team_id, 99999)
                   GROUP BY person_distinct_id2.distinct_id
-                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                  HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                WHERE in(person_distinct_ids.person_id, (
                                                           (SELECT persons.id AS id
                                                            FROM
@@ -6370,7 +6370,7 @@
                                                                                                              FROM person AS where_optimization
                                                                                                              WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$is_internal'), ''), 'null'), '^"|"$', ''), 'yes'), 0)))))
                                                               GROUP BY person.id
-                                                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+                                                              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
                                                            WHERE ifNull(equals(persons.`properties___$is_internal`, 'yes'), 0)
                                                            ORDER BY persons.id ASC SETTINGS optimize_aggregation_in_order=1,
                                                                                             join_algorithm='auto')))
@@ -6668,7 +6668,7 @@
                   FROM person_distinct_id2
                   WHERE equals(person_distinct_id2.team_id, 99999)
                   GROUP BY person_distinct_id2.distinct_id
-                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                  HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                WHERE in(person_distinct_ids.person_id, (
                                                           (SELECT persons.id AS id
                                                            FROM
@@ -6680,7 +6680,7 @@
                                                                                                              FROM person AS where_optimization
                                                                                                              WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$is_internal'), ''), 'null'), '^"|"$', ''), 'yes'), 0)))))
                                                               GROUP BY person.id
-                                                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+                                                              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
                                                            WHERE ifNull(equals(persons.`properties___$is_internal`, 'yes'), 0)
                                                            ORDER BY persons.id ASC SETTINGS optimize_aggregation_in_order=1,
                                                                                             join_algorithm='auto')))
@@ -14072,7 +14072,7 @@
                   FROM person_distinct_id2
                   WHERE equals(person_distinct_id2.team_id, 99999)
                   GROUP BY person_distinct_id2.distinct_id
-                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                  HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                WHERE in(person_distinct_ids.person_id, (
                                                           (SELECT persons.id AS id
                                                            FROM
@@ -14084,7 +14084,7 @@
                                                                                                              FROM person AS where_optimization
                                                                                                              WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$is_internal'), ''), 'null'), '^"|"$', ''), 'yes'), 0)))))
                                                               GROUP BY person.id
-                                                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+                                                              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
                                                            WHERE ifNull(equals(persons.`properties___$is_internal`, 'yes'), 0)
                                                            ORDER BY persons.id ASC SETTINGS optimize_aggregation_in_order=1,
                                                                                             join_algorithm='auto')))
@@ -14382,7 +14382,7 @@
                   FROM person_distinct_id2
                   WHERE equals(person_distinct_id2.team_id, 99999)
                   GROUP BY person_distinct_id2.distinct_id
-                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
+                  HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS person_distinct_ids
                WHERE in(person_distinct_ids.person_id, (
                                                           (SELECT persons.id AS id
                                                            FROM
@@ -14394,7 +14394,7 @@
                                                                                                              FROM person AS where_optimization
                                                                                                              WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$is_internal'), ''), 'null'), '^"|"$', ''), 'yes'), 0)))))
                                                               GROUP BY person.id
-                                                              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+                                                              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
                                                            WHERE ifNull(equals(persons.`properties___$is_internal`, 'yes'), 0)
                                                            ORDER BY persons.id ASC SETTINGS optimize_aggregation_in_order=1,
                                                                                             join_algorithm='auto')))
