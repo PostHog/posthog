@@ -215,7 +215,7 @@
     margin: 0.75rem 0 0.75rem var(--markdown-notebook-content-offset);
     background: var(--markdown-notebook-text-group-background);
     border: 1px solid var(--markdown-notebook-text-group-border);
-    border-radius: 0.5rem;
+    border-radius: 0.25rem;
     box-shadow: var(--markdown-notebook-text-group-shadow);
 }
 
@@ -786,12 +786,13 @@ h3.MarkdownNotebook__text-block--heading {
     width: 100%;
 }
 
-.MarkdownNotebook__ai-chat-reply .LemonTextArea {
-    flex: 1 1 auto;
+.MarkdownNotebook__ai-chat-reply-input {
+    flex: 1 1 0;
+    width: 100%;
     min-width: 0;
 }
 
-.MarkdownNotebook__ai-chat-reply textarea.LemonTextArea {
+.MarkdownNotebook__ai-chat-reply textarea.MarkdownNotebook__ai-chat-reply-input {
     min-height: 3.25rem;
     resize: vertical;
 }
@@ -823,7 +824,7 @@ h3.MarkdownNotebook__text-block--heading {
     background: var(--markdown-notebook-code-background);
     border: 1px solid var(--markdown-notebook-code-border);
     border-left: 3px solid var(--markdown-notebook-code-gutter);
-    border-radius: 0.5rem;
+    border-radius: 0.25rem;
     outline: none;
     box-shadow: var(--markdown-notebook-code-shadow);
 }

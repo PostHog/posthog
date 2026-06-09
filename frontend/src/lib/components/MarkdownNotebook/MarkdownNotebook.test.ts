@@ -115,6 +115,17 @@ function withNotebookTitle(markdown: string): string {
     return markdown ? `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${markdown}` : TEST_NOTEBOOK_TITLE_MARKDOWN
 }
 
+function createHistoryTestRegistry(): ReturnType<typeof createMarkdownNotebookRegistry> {
+    return createMarkdownNotebookRegistry([
+        {
+            tagName: 'Embed',
+            label: 'Embed',
+            category: 'Media',
+            ViewComponent: () => createElement('div', { 'data-testid': 'component-output' }, 'Embedded output'),
+        },
+    ])
+}
+
 function getEditableTextBlocks(container: HTMLElement): HTMLElement[] {
     return Array.from(container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)) as HTMLElement[]
 }
@@ -264,8 +275,27 @@ function fireBeforeInput(element: HTMLElement, inputType: string): void {
     fireEvent(element, event)
 }
 
+function fireInsertTextBeforeInput(element: HTMLElement, text: string): void {
+    const event = new Event('beforeinput', { bubbles: true, cancelable: true }) as InputEvent
+    Object.defineProperty(event, 'inputType', { value: 'insertText' })
+    Object.defineProperty(event, 'data', { value: text })
+    fireEvent(element, event)
+}
+
 function fireHistoryBeforeInput(element: HTMLElement, inputType: 'historyUndo' | 'historyRedo'): void {
     fireBeforeInput(element, inputType)
+}
+
+function fireSelectAllShortcut(element: HTMLElement): void {
+    fireEvent.keyDown(element, { key: 'a', metaKey: true })
+}
+
+function fireUndoShortcut(element: HTMLElement): void {
+    fireEvent.keyDown(element, { key: 'z', metaKey: true })
+}
+
+function fireRedoShortcut(element: HTMLElement): void {
+    fireEvent.keyDown(element, { key: 'z', metaKey: true, shiftKey: true })
 }
 
 function createTouchList(touches: Touch[]): TouchList {
@@ -1065,6 +1095,264 @@ Repeated block`),
         expect(editableTextBlock.textContent).toEqual('hello world')
     })
 
+    it('undoes and redoes replacing a canvas Cmd+A notebook selection with typed text', () => {
+        const onChange = jest.fn()
+        const originalMarkdown = withNotebookTitle(`Intro paragraph
+
+\`\`\`python
+print("hello")
+\`\`\`
+
+<Embed />
+
+## Analysis
+
+Tail paragraph`)
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: originalMarkdown,
+                onChange,
+                registry: createHistoryTestRegistry(),
+            })
+        )
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+
+        fireSelectAllShortcut(canvas)
+        fireInsertTextBeforeInput(canvas, 'd')
+
+        expect(getEditableTextBlocks(container).map((block) => block.textContent)).toEqual(['d'])
+        expect(container.querySelector('.MarkdownNotebook__code-block')).toBeNull()
+        expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
+        expect(onChange).toHaveBeenLastCalledWith('# d')
+
+        fireUndoShortcut(getEditableTextBlocks(container)[0])
+
+        expect(getEditableTextBlocks(container).map((block) => block.textContent)).toEqual([
+            TEST_NOTEBOOK_TITLE,
+            'Intro paragraph',
+            'Analysis',
+            'Tail paragraph',
+        ])
+        expect(container.querySelector('.MarkdownNotebook__code-block')?.textContent).toEqual('print("hello")')
+        expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeInstanceOf(HTMLElement)
+        expect(onChange).toHaveBeenLastCalledWith(originalMarkdown)
+
+        fireRedoShortcut(getBodyTextBlock(container))
+
+        expect(getEditableTextBlocks(container).map((block) => block.textContent)).toEqual(['d'])
+        expect(container.querySelector('.MarkdownNotebook__code-block')).toBeNull()
+        expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
+        expect(onChange).toHaveBeenLastCalledWith('# d')
+    })
+
+    it('undoes and redoes deleting a canvas Cmd+A notebook selection', () => {
+        const onChange = jest.fn()
+        const originalMarkdown = withNotebookTitle(`Intro paragraph
+
+\`\`\`
+print("hello")
+\`\`\`
+
+<Embed />
+
+Tail paragraph`)
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: originalMarkdown,
+                onChange,
+                registry: createHistoryTestRegistry(),
+            })
+        )
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+
+        fireSelectAllShortcut(canvas)
+        fireEvent.keyDown(canvas, { key: 'Delete' })
+
+        expect(getEditableTextBlocks(container).map((block) => block.textContent)).toEqual([''])
+        expect(container.querySelector('.MarkdownNotebook__code-block')).toBeNull()
+        expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
+        expect(onChange).toHaveBeenLastCalledWith('#')
+
+        fireUndoShortcut(getEditableTextBlocks(container)[0])
+
+        expect(getEditableTextBlocks(container).map((block) => block.textContent)).toEqual([
+            TEST_NOTEBOOK_TITLE,
+            'Intro paragraph',
+            'Tail paragraph',
+        ])
+        expect(container.querySelector('.MarkdownNotebook__code-block')?.textContent).toEqual('print("hello")')
+        expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeInstanceOf(HTMLElement)
+        expect(onChange).toHaveBeenLastCalledWith(originalMarkdown)
+
+        fireRedoShortcut(getBodyTextBlock(container))
+
+        expect(getEditableTextBlocks(container).map((block) => block.textContent)).toEqual([''])
+        expect(container.querySelector('.MarkdownNotebook__code-block')).toBeNull()
+        expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
+        expect(onChange).toHaveBeenLastCalledWith('#')
+    })
+
+    it('undoes and redoes deleting a partial selection around a component node', () => {
+        const onChange = jest.fn()
+        const originalMarkdown = withNotebookTitle(`Keep before
+
+Delete prefix
+
+<Embed />
+
+Delete suffix
+
+Keep after`)
+        const expectedDeletedMarkdown = `${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+Keep before
+
+Delete suffix
+
+Keep after`
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: originalMarkdown,
+                onChange,
+                registry: createHistoryTestRegistry(),
+            })
+        )
+        const textBlocks = getEditableTextBlocks(container)
+
+        selectTextAcrossNodes(
+            getFirstTextNode(textBlocks[2]),
+            'Delete '.length,
+            getFirstTextNode(textBlocks[3]),
+            'Delete '.length
+        )
+        fireEvent.keyDown(textBlocks[2], { key: 'Backspace' })
+
+        expect(getEditableTextBlocks(container).map((block) => block.textContent)).toEqual([
+            TEST_NOTEBOOK_TITLE,
+            'Keep before',
+            'Delete suffix',
+            'Keep after',
+        ])
+        expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
+        expect(onChange).toHaveBeenLastCalledWith(expectedDeletedMarkdown)
+
+        fireUndoShortcut(getEditableTextBlocks(container)[2])
+
+        expect(getEditableTextBlocks(container).map((block) => block.textContent)).toEqual([
+            TEST_NOTEBOOK_TITLE,
+            'Keep before',
+            'Delete prefix',
+            'Delete suffix',
+            'Keep after',
+        ])
+        expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeInstanceOf(HTMLElement)
+        expect(onChange).toHaveBeenLastCalledWith(originalMarkdown)
+
+        fireRedoShortcut(getEditableTextBlocks(container)[2])
+
+        expect(getEditableTextBlocks(container).map((block) => block.textContent)).toEqual([
+            TEST_NOTEBOOK_TITLE,
+            'Keep before',
+            'Delete suffix',
+            'Keep after',
+        ])
+        expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
+        expect(onChange).toHaveBeenLastCalledWith(expectedDeletedMarkdown)
+    })
+
+    it('undoes and redoes code block edits with keyboard shortcuts', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`\`\`\`python
+print("before")
+\`\`\``),
+                onChange,
+            })
+        )
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
+
+        codeBlock.textContent = 'print("after")'
+        fireEvent.input(codeBlock)
+
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n\`\`\`python\nprint("after")\n\`\`\``
+        )
+
+        fireUndoShortcut(codeBlock)
+
+        expect(container.querySelector('.MarkdownNotebook__code-block')?.textContent).toEqual('print("before")')
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n\`\`\`python\nprint("before")\n\`\`\``
+        )
+
+        fireRedoShortcut(container.querySelector('.MarkdownNotebook__code-block') as HTMLElement)
+
+        expect(container.querySelector('.MarkdownNotebook__code-block')?.textContent).toEqual('print("after")')
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n\`\`\`python\nprint("after")\n\`\`\``
+        )
+    })
+
+    it('undoes and redoes splitting text immediately before a component node', () => {
+        const onChange = jest.fn()
+        const originalMarkdown = withNotebookTitle(`Intro paragraph
+
+<Embed />
+
+Tail paragraph`)
+        const splitMarkdown = `${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+Intro
+
+ paragraph
+
+<Embed />
+
+Tail paragraph`
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: originalMarkdown,
+                onChange,
+                registry: createHistoryTestRegistry(),
+            })
+        )
+        const textBlock = getBodyTextBlock(container)
+
+        selectTextInElement(textBlock, 'Intro'.length, 'Intro'.length)
+        fireEvent.keyDown(textBlock, { key: 'Enter' })
+
+        expect(getEditableTextBlocks(container).map((block) => block.textContent)).toEqual([
+            TEST_NOTEBOOK_TITLE,
+            'Intro',
+            ' paragraph',
+            'Tail paragraph',
+        ])
+        expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeInstanceOf(HTMLElement)
+        expect(onChange).toHaveBeenLastCalledWith(splitMarkdown)
+
+        fireUndoShortcut(getEditableTextBlocks(container)[2])
+
+        expect(getEditableTextBlocks(container).map((block) => block.textContent)).toEqual([
+            TEST_NOTEBOOK_TITLE,
+            'Intro paragraph',
+            'Tail paragraph',
+        ])
+        expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeInstanceOf(HTMLElement)
+        expect(onChange).toHaveBeenLastCalledWith(originalMarkdown)
+
+        fireRedoShortcut(getBodyTextBlock(container))
+
+        expect(getEditableTextBlocks(container).map((block) => block.textContent)).toEqual([
+            TEST_NOTEBOOK_TITLE,
+            'Intro',
+            ' paragraph',
+            'Tail paragraph',
+        ])
+        expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeInstanceOf(HTMLElement)
+        expect(onChange).toHaveBeenLastCalledWith(splitMarkdown)
+    })
+
     it('does not re-render unchanged components when the value prop updates another block', () => {
         const renderComponent = jest.fn()
         const mountComponent = jest.fn()
@@ -1796,6 +2084,35 @@ Third paragraph`,
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n `)
     })
 
+    it('splits a text group when slash is typed inside a text row', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('Before after'), onChange })
+        )
+        const textBlock = getBodyTextBlock(container)
+
+        selectTextInElement(textBlock, 'Before'.length, 'Before'.length)
+        fireInsertTextBeforeInput(textBlock, '/')
+
+        const textBlocks = getEditableTextBlocks(container)
+        const insertMenu = container.querySelector('.MarkdownNotebook__insert-menu')
+        const commandBlock = textBlocks.find((block) => block.textContent === '')
+
+        expect(insertMenu).toBeInstanceOf(HTMLElement)
+        expect(commandBlock).toBeInstanceOf(HTMLElement)
+        expect(commandBlock?.closest('.MarkdownNotebook__text-group')).toBeNull()
+        expect(container.querySelectorAll('.MarkdownNotebook__text-group')).toHaveLength(2)
+        expect(textBlocks.map((block) => block.textContent)).toEqual([TEST_NOTEBOOK_TITLE, 'Before', '', ' after'])
+        expect(document.activeElement).toEqual(commandBlock)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+Before
+
+${' '}
+
+ after`)
+    })
+
     it('closes the slash menu when clicking outside it', () => {
         const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' ') }))
         const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
@@ -1882,6 +2199,37 @@ Third paragraph`,
         expect(getSelectedLabel()).toEqual('Funnel')
     })
 
+    it('scrolls the selected slash menu item into view when keyboard selection moves', () => {
+        const scrollIntoView = jest.fn()
+        const scrollIntoViewDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
+        Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+            configurable: true,
+            value: scrollIntoView,
+        })
+
+        try {
+            const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' ') }))
+            const textBlock = getBodyTextBlock(container)
+            const getSelectedLabel = (): string | null =>
+                container.querySelector('.MarkdownNotebook__insert-item[aria-selected="true"]')?.textContent ?? null
+
+            textBlock.textContent = '/'
+            fireEvent.input(textBlock)
+            scrollIntoView.mockClear()
+
+            fireEvent.keyDown(textBlock, { key: 'ArrowDown' })
+
+            expect(getSelectedLabel()).toEqual('Funnel')
+            expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' })
+        } finally {
+            if (scrollIntoViewDescriptor) {
+                Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', scrollIntoViewDescriptor)
+            } else {
+                delete (HTMLElement.prototype as { scrollIntoView?: Element['scrollIntoView'] }).scrollIntoView
+            }
+        }
+    })
+
     it('shows Ask PostHog AI first when AI is enabled and submits from the inline prompt', () => {
         const onAskAI = jest.fn()
         const onChange = jest.fn()
@@ -1910,6 +2258,11 @@ Third paragraph`,
 
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeNull()
         expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI')
+        expect(
+            container
+                .querySelector('.MarkdownNotebook__text-block--ai-prompt')
+                ?.closest('.MarkdownNotebook__text-group')
+        ).toBeNull()
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="" />`)
 
         const editableTextBlock = getBodyTextBlock(container)
@@ -2602,6 +2955,65 @@ aXbc
         expect(onChange).toHaveBeenLastCalledWith(
             `${TEST_NOTEBOOK_TITLE_MARKDOWN.replace(TEST_NOTEBOOK_TITLE, `**${TEST_NOTEBOOK_TITLE}**`)}\n\n**First paragraph**\n\n**Second paragraph**`
         )
+    })
+
+    it('selects only the focused text group with Cmd+A inside grouped text rows', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`Before component
+
+<Embed />
+
+After component
+
+Second after row`),
+                onChange,
+                registry: createHistoryTestRegistry(),
+            })
+        )
+        const textBlocks = getEditableTextBlocks(container)
+
+        fireSelectAllShortcut(textBlocks[2])
+
+        expect(window.getSelection()?.toString()).not.toContain(TEST_NOTEBOOK_TITLE)
+        expect(window.getSelection()?.toString()).not.toContain('Before component')
+        expect(window.getSelection()?.toString()).toContain('After component')
+        expect(window.getSelection()?.toString()).toContain('Second after row')
+
+        fireEvent.keyDown(textBlocks[2], { key: 'b', metaKey: true })
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+Before component
+
+<Embed />
+
+**After component**
+
+**Second after row**`)
+    })
+
+    it('selects only code block text with Cmd+A inside code blocks', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`Intro paragraph
+
+\`\`\`python
+print("hello")
+\`\`\`
+
+Tail paragraph`),
+            })
+        )
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
+
+        fireSelectAllShortcut(codeBlock)
+
+        expect(window.getSelection()?.toString()).toEqual('print("hello")')
+        expect(window.getSelection()?.toString()).not.toContain(TEST_NOTEBOOK_TITLE)
+        expect(window.getSelection()?.toString()).not.toContain('Intro paragraph')
+        expect(window.getSelection()?.toString()).not.toContain('Tail paragraph')
     })
 
     it('selects text and components with Cmd+A from a focused component', () => {
@@ -5028,19 +5440,19 @@ After component`,
         expect(fallback).toBeInstanceOf(HTMLElement)
         expect(fallback?.textContent).toContain('This tag is unknown.')
         expect(fallback?.textContent).toContain('<Tag />')
-        expect(fallback?.querySelector('pre')?.textContent).toContain('"foo": "bar"')
+        expect(fallback?.querySelector('pre')).toBeNull()
         expect(container.querySelector('.MarkdownNotebook__component-mode-actions')).toBeNull()
 
         const getFallbackButton = (label: string): HTMLButtonElement | undefined =>
             Array.from(fallback?.querySelectorAll('button') ?? []).find((button) => button.textContent === label)
 
-        fireEvent.click(getFallbackButton('Hide props') as HTMLButtonElement)
-
-        expect(fallback?.querySelector('pre')).toBeNull()
-
         fireEvent.click(getFallbackButton('Show props') as HTMLButtonElement)
 
         expect(fallback?.querySelector('pre')?.textContent).toContain('"foo": "bar"')
+
+        fireEvent.click(getFallbackButton('Hide props') as HTMLButtonElement)
+
+        expect(fallback?.querySelector('pre')).toBeNull()
     })
 
     it('shows SQL component titles as colored tags with icons', () => {

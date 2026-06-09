@@ -148,6 +148,7 @@ type InsertMenuState = {
     query: string
     selectedIndex: number
     mode?: 'tools' | 'ai'
+    detached?: boolean
     source?: 'slash' | 'selection'
     selectedMarkdown?: string
 }
@@ -648,154 +649,178 @@ export function MarkdownNotebook({
         return true
     }, [restoreHistoryDocument])
 
-    const deleteSelectedNotebookBlocks = useCallback((): boolean => {
-        const notebookElement = notebookRef.current
-        const selection = window.getSelection()
-        if (!notebookElement || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
-            return false
-        }
-
-        const range = selection.getRangeAt(0)
-        if (!rangeIntersectsNode(range, notebookElement)) {
-            return false
-        }
-
-        const currentDocument = documentRef.current
-        const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
-        const selectedEntries = nodes
-            .map((node, index) => ({ node, index, element: blockRefs.current[node.id] }))
-            .filter(
-                (entry): entry is { node: NotebookBlockNode; index: number; element: HTMLElement } =>
-                    !!entry.element && rangeIntersectsNode(range, entry.element)
-            )
-
-        if (selectedEntries.length <= 1) {
-            return false
-        }
-
-        const requestFocusForDeletedSelection = (nextNodes: NotebookBlockNode[], selectionStartIndex: number): void => {
-            const requestFocusForNode = (node: NotebookBlockNode, placement: 'start' | 'end'): boolean => {
-                const offsetForChildren = (children: NotebookInlineNode[]): number =>
-                    placement === 'start' ? 0 : getInlineText(children).length
-
-                if (isTextBlockNode(node)) {
-                    const offset = offsetForChildren(node.children)
-                    restoreSelectionRef.current = { nodeId: node.id, start: offset, end: offset }
-                    return true
-                }
-
-                if (node.type === 'component') {
-                    focusNodeRef.current = node.id
-                    return true
-                }
-
-                if (node.type === 'list' && node.items.length) {
-                    const listItemIndex = placement === 'start' ? 0 : node.items.length - 1
-                    const offset = offsetForChildren(node.items[listItemIndex].children)
-                    restoreSelectionRef.current = { nodeId: node.id, listItemIndex, start: offset, end: offset }
-                    return true
-                }
-
-                if (node.type === 'table') {
-                    const tableCell = getTableEdgeCellPosition(node, placement === 'start' ? 'next' : 'previous')
-                    if (!tableCell) {
-                        return false
-                    }
-
-                    const offset = offsetForChildren(getTableCellAtPosition(node, tableCell)?.children ?? [])
-                    restoreSelectionRef.current = { nodeId: node.id, tableCell, start: offset, end: offset }
-                    return true
-                }
-
+    const deleteSelectedNotebookBlocks = useCallback(
+        (replacementText: string = ''): boolean => {
+            const notebookElement = notebookRef.current
+            const selection = window.getSelection()
+            if (!notebookElement || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
                 return false
             }
 
-            for (const node of nextNodes.slice(selectionStartIndex)) {
-                if (requestFocusForNode(node, 'start')) {
-                    return
+            const range = selection.getRangeAt(0)
+            if (!rangeIntersectsNode(range, notebookElement)) {
+                return false
+            }
+
+            const currentDocument = documentRef.current
+            const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+            const selectedEntries = nodes
+                .map((node, index) => ({ node, index, element: blockRefs.current[node.id] }))
+                .filter(
+                    (entry): entry is { node: NotebookBlockNode; index: number; element: HTMLElement } =>
+                        !!entry.element && rangeIntersectsNode(range, entry.element)
+                )
+
+            if (selectedEntries.length <= 1) {
+                return false
+            }
+
+            const requestFocusForDeletedSelection = (
+                nextNodes: NotebookBlockNode[],
+                selectionStartIndex: number
+            ): void => {
+                const requestFocusForNode = (node: NotebookBlockNode, placement: 'start' | 'end'): boolean => {
+                    const offsetForChildren = (children: NotebookInlineNode[]): number =>
+                        placement === 'start' ? 0 : getInlineText(children).length
+
+                    if (isTextBlockNode(node)) {
+                        const offset = offsetForChildren(node.children)
+                        restoreSelectionRef.current = { nodeId: node.id, start: offset, end: offset }
+                        return true
+                    }
+
+                    if (node.type === 'component') {
+                        focusNodeRef.current = node.id
+                        return true
+                    }
+
+                    if (node.type === 'list' && node.items.length) {
+                        const listItemIndex = placement === 'start' ? 0 : node.items.length - 1
+                        const offset = offsetForChildren(node.items[listItemIndex].children)
+                        restoreSelectionRef.current = { nodeId: node.id, listItemIndex, start: offset, end: offset }
+                        return true
+                    }
+
+                    if (node.type === 'table') {
+                        const tableCell = getTableEdgeCellPosition(node, placement === 'start' ? 'next' : 'previous')
+                        if (!tableCell) {
+                            return false
+                        }
+
+                        const offset = offsetForChildren(getTableCellAtPosition(node, tableCell)?.children ?? [])
+                        restoreSelectionRef.current = { nodeId: node.id, tableCell, start: offset, end: offset }
+                        return true
+                    }
+
+                    return false
+                }
+
+                for (const node of nextNodes.slice(selectionStartIndex)) {
+                    if (requestFocusForNode(node, 'start')) {
+                        return
+                    }
+                }
+
+                for (const node of nextNodes.slice(0, selectionStartIndex).reverse()) {
+                    if (requestFocusForNode(node, 'end')) {
+                        return
+                    }
                 }
             }
 
-            for (const node of nextNodes.slice(0, selectionStartIndex).reverse()) {
-                if (requestFocusForNode(node, 'end')) {
-                    return
-                }
-            }
-        }
+            const firstEntry = selectedEntries[0]
+            const lastEntry = selectedEntries[selectedEntries.length - 1]
+            const selectedIndexes = new Set(selectedEntries.map((entry) => entry.index))
+            let replacementNode: NotebookTextBlockNode | null = null
+            let restoreOffset = 0
+            const insertedChildren: NotebookInlineNode[] = replacementText
+                ? [{ type: 'text', text: replacementText }]
+                : []
+            const insertedTextLength = getInlineText(insertedChildren).length
 
-        const firstEntry = selectedEntries[0]
-        const lastEntry = selectedEntries[selectedEntries.length - 1]
-        const selectedIndexes = new Set(selectedEntries.map((entry) => entry.index))
-        let replacementNode: NotebookTextBlockNode | null = null
-        let restoreOffset = 0
+            if (isTextBlockNode(firstEntry.node)) {
+                const firstBounds = getNormalizedSelectionBounds(firstEntry.node, firstEntry.element)
+                const [beforeSelection] = splitInlineNodesAt(firstEntry.node.children, firstBounds.start)
+                const beforeTextLength = getInlineText(beforeSelection).length
 
-        if (isTextBlockNode(firstEntry.node)) {
-            const firstBounds = getNormalizedSelectionBounds(firstEntry.node, firstEntry.element)
-            const [beforeSelection] = splitInlineNodesAt(firstEntry.node.children, firstBounds.start)
-            const beforeTextLength = getInlineText(beforeSelection).length
+                if (isTextBlockNode(lastEntry.node)) {
+                    const lastBounds = getNormalizedSelectionBounds(lastEntry.node, lastEntry.element)
+                    const [, afterSelection] = splitInlineNodesAt(lastEntry.node.children, lastBounds.end)
+                    const hasRemainingText =
+                        firstBounds.start > 0 || insertedTextLength > 0 || lastBounds.end < lastBounds.textLength
 
-            if (isTextBlockNode(lastEntry.node)) {
-                const lastBounds = getNormalizedSelectionBounds(lastEntry.node, lastEntry.element)
-                const [, afterSelection] = splitInlineNodesAt(lastEntry.node.children, lastBounds.end)
-                const hasRemainingText = firstBounds.start > 0 || lastBounds.end < lastBounds.textLength
-
-                if (hasRemainingText || firstEntry.index === 0) {
+                    if (hasRemainingText || firstEntry.index === 0) {
+                        replacementNode = {
+                            ...firstEntry.node,
+                            children: normalizeInlineNodes([
+                                ...beforeSelection,
+                                ...insertedChildren,
+                                ...afterSelection,
+                            ]),
+                        }
+                        restoreOffset = beforeTextLength + insertedTextLength
+                    }
+                } else if (firstBounds.start > 0 || insertedTextLength > 0 || firstEntry.index === 0) {
                     replacementNode = {
                         ...firstEntry.node,
-                        children: normalizeInlineNodes([...beforeSelection, ...afterSelection]),
+                        children: normalizeInlineNodes([...beforeSelection, ...insertedChildren]),
                     }
-                    restoreOffset = beforeTextLength
+                    restoreOffset = beforeTextLength + insertedTextLength
                 }
-            } else if (firstBounds.start > 0 || firstEntry.index === 0) {
-                replacementNode = {
-                    ...firstEntry.node,
-                    children: normalizeInlineNodes(beforeSelection),
-                }
-                restoreOffset = beforeTextLength
-            }
-        } else if (isTextBlockNode(lastEntry.node)) {
-            const lastBounds = getNormalizedSelectionBounds(lastEntry.node, lastEntry.element)
-            const [, afterSelection] = splitInlineNodesAt(lastEntry.node.children, lastBounds.end)
-            if (lastBounds.end < lastBounds.textLength) {
-                replacementNode = {
-                    ...lastEntry.node,
-                    children: normalizeInlineNodes(afterSelection),
+            } else if (isTextBlockNode(lastEntry.node)) {
+                const lastBounds = getNormalizedSelectionBounds(lastEntry.node, lastEntry.element)
+                const [, afterSelection] = splitInlineNodesAt(lastEntry.node.children, lastBounds.end)
+                if (insertedTextLength > 0 || lastBounds.end < lastBounds.textLength) {
+                    replacementNode = {
+                        ...lastEntry.node,
+                        children: normalizeInlineNodes([...insertedChildren, ...afterSelection]),
+                    }
+                    restoreOffset = insertedTextLength
                 }
             }
-        }
 
-        if (!replacementNode && firstEntry.index === 0) {
-            replacementNode = makeEmptyNotebookTitle(`delete-selection-${firstEntry.node.id}`)
-        }
-
-        const replacementNodes = replacementNode ? [replacementNode] : []
-        const nextNodes = nodes.flatMap((node, index) => {
-            if (index === firstEntry.index) {
-                return replacementNodes
+            if (!replacementNode && firstEntry.index === 0) {
+                replacementNode = makeEmptyNotebookTitle(`delete-selection-${firstEntry.node.id}`)
+                if (insertedChildren.length) {
+                    replacementNode.children = insertedChildren
+                    restoreOffset = insertedTextLength
+                }
+            } else if (!replacementNode && insertedChildren.length) {
+                replacementNode = makeEmptyParagraph(`replace-selection-${firstEntry.node.id}`)
+                replacementNode.children = insertedChildren
+                restoreOffset = insertedTextLength
             }
-            return selectedIndexes.has(index) ? [] : [node]
-        })
 
-        if (replacementNode) {
-            restoreSelectionRef.current = {
-                nodeId: replacementNode.id,
-                start: restoreOffset,
-                end: restoreOffset,
+            const replacementNodes = replacementNode ? [replacementNode] : []
+            const nextNodes = nodes.flatMap((node, index) => {
+                if (index === firstEntry.index) {
+                    return replacementNodes
+                }
+                return selectedIndexes.has(index) ? [] : [node]
+            })
+
+            if (replacementNode) {
+                restoreSelectionRef.current = {
+                    nodeId: replacementNode.id,
+                    start: restoreOffset,
+                    end: restoreOffset,
+                }
+            } else {
+                requestFocusForDeletedSelection(nextNodes, firstEntry.index)
             }
-        } else {
-            requestFocusForDeletedSelection(nextNodes, firstEntry.index)
-        }
 
-        selection.removeAllRanges()
-        setSelectedComponentNodeIds(new Set())
-        floatingToolbarPositionLockRef.current = null
-        setFloatingToolbar(null)
-        commitDocument({
-            ...currentDocument,
-            nodes: nextNodes,
-        })
-        return true
-    }, [commitDocument])
+            selection.removeAllRanges()
+            setSelectedComponentNodeIds(new Set())
+            floatingToolbarPositionLockRef.current = null
+            setFloatingToolbar(null)
+            commitDocument({
+                ...currentDocument,
+                nodes: nextNodes,
+            })
+            return true
+        },
+        [commitDocument]
+    )
 
     const splitTextBlockAtCurrentSelection = useCallback((): boolean => {
         const notebookElement = notebookRef.current
@@ -872,6 +897,89 @@ export function MarkdownNotebook({
         })
         return true
     }, [commitDocument, insertMenu?.nodeId])
+
+    const startInsertMenuAtCurrentTextSelection = useCallback(
+        (query: string = ''): boolean => {
+            const notebookElement = notebookRef.current
+            if (!notebookElement) {
+                return false
+            }
+
+            const selection = window.getSelection()
+            const inlineEditableElement = getInlineEditableElementForSelection(selection, notebookElement)
+            if (
+                !inlineEditableElement?.classList.contains('MarkdownNotebook__text-block') ||
+                inlineEditableElement.classList.contains('MarkdownNotebook__text-block--ai-prompt')
+            ) {
+                return false
+            }
+
+            const nodeId = inlineEditableElement.dataset.markdownNotebookNodeId
+            if (!nodeId) {
+                return false
+            }
+
+            const currentDocument = documentRef.current
+            const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+            const nodeIndex = nodes.findIndex((node) => node.id === nodeId)
+            const node = nodes[nodeIndex]
+            if (!node || !isTextBlockNode(node)) {
+                return false
+            }
+
+            const expandedSelection = getSelectionRange(inlineEditableElement, node.id)
+            const textLength = getInlineText(node.children).length
+            const selectionStart = expandedSelection
+                ? Math.max(0, Math.min(Math.min(expandedSelection.start, expandedSelection.end), textLength))
+                : textLength
+            const selectionEnd = expandedSelection
+                ? Math.max(
+                      selectionStart,
+                      Math.min(Math.max(expandedSelection.start, expandedSelection.end), textLength)
+                  )
+                : selectionStart
+            const [before, selectionAndAfter] = splitInlineNodesAt(node.children, selectionStart)
+            const [, after] = splitInlineNodesAt(selectionAndAfter, selectionEnd - selectionStart)
+            const commandNode = makeEmptyParagraph(`slash-command-${node.id}`)
+            commandNode.children = query ? [{ type: 'text', text: query }] : []
+            const replacementNodes: NotebookBlockNode[] = []
+
+            if (nodeIndex === 0) {
+                replacementNodes.push({ ...node, type: 'heading', level: 1, children: normalizeInlineNodes(before) })
+            } else if (getInlineText(before).length > 0) {
+                replacementNodes.push({ ...node, children: normalizeInlineNodes(before) })
+            }
+
+            replacementNodes.push(commandNode)
+
+            if (getInlineText(after).length > 0) {
+                const afterNodeId = makeEmptyParagraph(`after-slash-command-${node.id}`).id
+                const afterNode =
+                    nodeIndex === 0
+                        ? { id: afterNodeId, type: 'paragraph' as const, children: normalizeInlineNodes(after) }
+                        : {
+                              ...node,
+                              id: afterNodeId,
+                              children: normalizeInlineNodes(after),
+                          }
+                replacementNodes.push(afterNode)
+            }
+
+            restoreSelectionRef.current = {
+                nodeId: commandNode.id,
+                start: query.length,
+                end: query.length,
+            }
+            onInteractionStateChange?.(true)
+            setInsertMenu({ nodeId: commandNode.id, query, selectedIndex: 0, mode: 'tools', detached: true })
+            commitDocument({
+                ...currentDocument,
+                nodes: nodes.flatMap((currentNode) => (currentNode.id === node.id ? replacementNodes : [currentNode])),
+            })
+            return true
+        },
+        [commitDocument, onInteractionStateChange]
+    )
 
     const deleteTextAtCurrentSelection = useCallback(
         (direction: 'backward' | 'forward'): boolean => {
@@ -997,8 +1105,36 @@ export function MarkdownNotebook({
                 return
             }
 
+            if (
+                event.target instanceof HTMLElement &&
+                (event.target.closest('.MarkdownNotebook__debug-drawer') || isNativeEditableElement(event.target))
+            ) {
+                return
+            }
+
             const nativeEvent = event as InputEvent
             if (nativeEvent.inputType === 'insertParagraph' && splitTextBlockAtCurrentSelection()) {
+                event.preventDefault()
+                event.stopPropagation()
+                return
+            }
+
+            if (
+                nativeEvent.inputType === 'insertText' &&
+                nativeEvent.data === '/' &&
+                startInsertMenuAtCurrentTextSelection()
+            ) {
+                event.preventDefault()
+                event.stopPropagation()
+                return
+            }
+
+            if (
+                nativeEvent.inputType === 'insertText' &&
+                typeof nativeEvent.data === 'string' &&
+                nativeEvent.data.length > 0 &&
+                deleteSelectedNotebookBlocks(nativeEvent.data)
+            ) {
                 event.preventDefault()
                 event.stopPropagation()
                 return
@@ -1028,13 +1164,6 @@ export function MarkdownNotebook({
                 return
             }
 
-            if (
-                event.target instanceof HTMLElement &&
-                (event.target.closest('.MarkdownNotebook__debug-drawer') || isNativeEditableElement(event.target))
-            ) {
-                return
-            }
-
             if (nativeEvent.inputType === 'historyUndo') {
                 undoHistory()
             } else {
@@ -1053,6 +1182,7 @@ export function MarkdownNotebook({
         mode,
         redoHistory,
         splitTextBlockAtCurrentSelection,
+        startInsertMenuAtCurrentTextSelection,
         undoHistory,
     ])
 
@@ -2437,6 +2567,61 @@ export function MarkdownNotebook({
         return true
     }
 
+    const selectTextGroupContents = (target: EventTarget | null): boolean => {
+        if (!(target instanceof HTMLElement)) {
+            return false
+        }
+
+        const activeTextBlockElement = target.closest('.MarkdownNotebook__text-block')
+        if (!(activeTextBlockElement instanceof HTMLElement)) {
+            return false
+        }
+
+        const textGroupElement = activeTextBlockElement.closest('.MarkdownNotebook__text-group')
+        if (!(textGroupElement instanceof HTMLElement) || !canvasRef.current?.contains(textGroupElement)) {
+            return false
+        }
+
+        const textBlockElements = Array.from(
+            textGroupElement.querySelectorAll('.MarkdownNotebook__text-block')
+        ) as HTMLElement[]
+        const firstTextBlockElement = textBlockElements[0]
+        const lastTextBlockElement = textBlockElements[textBlockElements.length - 1]
+        const selection = window.getSelection()
+        if (!firstTextBlockElement || !lastTextBlockElement || !selection) {
+            return false
+        }
+
+        const range = textGroupElement.ownerDocument.createRange()
+        const startPosition = findTextPosition(firstTextBlockElement, 0)
+        const endPosition = findTextPosition(lastTextBlockElement, lastTextBlockElement.textContent?.length ?? 0)
+        range.setStart(startPosition.node, startPosition.offset)
+        range.setEnd(endPosition.node, endPosition.offset)
+        selection.removeAllRanges()
+        selection.addRange(range)
+
+        setSelectedComponentNodeIds(new Set())
+        scheduleFloatingToolbarUpdateFromSelection()
+        return true
+    }
+
+    const selectCodeBlockContents = (target: EventTarget | null): boolean => {
+        if (!(target instanceof HTMLElement)) {
+            return false
+        }
+
+        const codeBlockElement = target.closest('.MarkdownNotebook__code-block')
+        if (!(codeBlockElement instanceof HTMLElement) || !canvasRef.current?.contains(codeBlockElement)) {
+            return false
+        }
+
+        codeBlockElement.focus()
+        restoreSelection(codeBlockElement, 0, codeBlockElement.textContent?.length ?? 0)
+        setSelectedComponentNodeIds(new Set())
+        scheduleFloatingToolbarUpdateFromSelection()
+        return true
+    }
+
     const selectAIPromptContents = (target: EventTarget | null): boolean => {
         if (!(target instanceof HTMLElement)) {
             return false
@@ -2480,6 +2665,12 @@ export function MarkdownNotebook({
             }
 
             if (insertMenu) {
+                return
+            }
+
+            if (selectTextGroupContents(event.target) || selectCodeBlockContents(event.target)) {
+                event.preventDefault()
+                event.stopPropagation()
                 return
             }
 
@@ -2982,7 +3173,10 @@ export function MarkdownNotebook({
         }
     }
 
-    const renderedNodeGroups = getMarkdownNotebookVisualGroups(renderedNodes)
+    const renderedNodeGroups = getMarkdownNotebookVisualGroups(
+        renderedNodes,
+        insertMenu?.detached ? insertMenu.nodeId : undefined
+    )
 
     const renderInsertBoundaryButton = (boundaryIndex: number): JSX.Element | null => {
         if (!showInsertBoundaries) {
@@ -3436,6 +3630,7 @@ function renderNode({
                 mode={mode}
                 setBlockRef={setBlockRef}
                 updateNode={updateNode}
+                deleteSelectedNotebookBlocks={deleteSelectedNotebookBlocks}
                 deleteNodeAndFocusAdjacent={deleteNodeAndFocusAdjacent}
             />
         )
@@ -3477,12 +3672,14 @@ function EditableCodeBlock({
     mode,
     setBlockRef,
     updateNode,
+    deleteSelectedNotebookBlocks,
     deleteNodeAndFocusAdjacent,
 }: {
     node: NotebookCodeBlockNode
     mode: NotebookMode
     setBlockRef: (element: HTMLElement | null) => void
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
+    deleteSelectedNotebookBlocks: () => boolean
     deleteNodeAndFocusAdjacent: () => void
 }): JSX.Element {
     const elementRef = useRef<HTMLPreElement | null>(null)
@@ -3531,6 +3728,12 @@ function EditableCodeBlock({
     }
 
     const handleKeyDown = (event: KeyboardEvent<HTMLPreElement>): void => {
+        if ((event.key === 'Backspace' || event.key === 'Delete') && deleteSelectedNotebookBlocks()) {
+            event.preventDefault()
+            event.stopPropagation()
+            return
+        }
+
         if ((event.key === 'Backspace' || event.key === 'Delete') && !node.text.length) {
             event.preventDefault()
             deleteNodeAndFocusAdjacent()
@@ -5887,7 +6090,7 @@ function NotebookComponentShell({
 }
 
 function UnknownComponentView({ node }: { node: NotebookComponentBlockNode }): JSX.Element {
-    const [arePropsVisible, setArePropsVisible] = useState(true)
+    const [arePropsVisible, setArePropsVisible] = useState(false)
 
     return (
         <div className="MarkdownNotebook__unknown-component">
@@ -6063,6 +6266,7 @@ function InsertMenu({
     selectedIndex: number
     onClose: () => void
 }): JSX.Element {
+    const selectedItemRef = useRef<HTMLButtonElement | null>(null)
     const filteredCommands = getFilteredInsertCommands(commands, query)
     const commandsByCategory = groupInsertCommandsByCategory(filteredCommands)
     const selectedCommandKey =
@@ -6075,6 +6279,10 @@ function InsertMenu({
               '--markdown-notebook-insert-menu-width': `${position.width}px`,
           } as CSSProperties)
         : undefined
+
+    useEffect(() => {
+        selectedItemRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    }, [selectedCommandKey])
 
     return (
         <div
@@ -6092,6 +6300,7 @@ function InsertMenu({
                     <div className="MarkdownNotebook__insert-grid">
                         {categoryCommands.map((command) => (
                             <button
+                                ref={command.key === selectedCommandKey ? selectedItemRef : null}
                                 className={clsx(
                                     'MarkdownNotebook__insert-item',
                                     command.key === selectedCommandKey && 'MarkdownNotebook__insert-item--selected'
@@ -6499,12 +6708,15 @@ type MarkdownNotebookVisualGroup =
           index: number
       }
 
-function getMarkdownNotebookVisualGroups(nodes: NotebookBlockNode[]): MarkdownNotebookVisualGroup[] {
+function getMarkdownNotebookVisualGroups(
+    nodes: NotebookBlockNode[],
+    insertMenuNodeId?: string
+): MarkdownNotebookVisualGroup[] {
     const groups: MarkdownNotebookVisualGroup[] = []
     let currentTextGroup: Extract<MarkdownNotebookVisualGroup, { type: 'text' }> | null = null
 
     nodes.forEach((node, index) => {
-        if (isTextBlockNode(node)) {
+        if (isTextBlockNode(node) && node.id !== insertMenuNodeId) {
             if (!currentTextGroup) {
                 currentTextGroup = {
                     type: 'text',

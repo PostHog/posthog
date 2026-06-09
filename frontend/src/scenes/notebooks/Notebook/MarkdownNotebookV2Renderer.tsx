@@ -967,6 +967,7 @@ function NotebookAIChatConversation({
                 {canReply && isReplying && onReply ? (
                     <div className="MarkdownNotebook__ai-chat-reply">
                         <LemonTextArea
+                            className="MarkdownNotebook__ai-chat-reply-input"
                             value={reply}
                             onChange={setReply}
                             onPressEnter={submitReply}
