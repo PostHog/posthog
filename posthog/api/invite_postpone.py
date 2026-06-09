@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 
@@ -167,6 +168,10 @@ class InvitePostponeView(APIView):
             return _error("This invite has expired. Please ask your admin for a new one.", "expired")
 
         now = timezone.now()
+        # Dev convenience: collapse every postpone to ~1 minute out so a rescheduled invite comes
+        # back almost immediately while testing, instead of waiting hours/days for the chosen time.
+        if settings.DEBUG:
+            send_at = now + timedelta(minutes=1)
         # Extend validity so the rescheduled email's accept link is still good when it lands.
         new_expiry = send_at + timedelta(days=INVITE_DAYS_VALIDITY)
         # Bypass save()/activity logging: this is an unauthenticated, system-level write with no user.

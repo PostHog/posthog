@@ -4,6 +4,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -63,6 +64,18 @@ class TestInvitePostponeAPI(APIBaseTest):
         # Validity is extended past the new send time so the rescheduled link still works.
         assert self.invite.expires_at is not None
         self.assertGreater(self.invite.expires_at, send_at)
+
+    @override_settings(DEBUG=True)
+    def test_post_in_debug_forces_one_minute_schedule(self) -> None:
+        # In dev a postpone always comes back in ~1 minute, regardless of the requested time.
+        send_at = timezone.now() + timedelta(days=2)
+        response = self.client.post(
+            "/api/invite_postpone", {"token": _token_for(self.invite.id), "send_at": send_at.isoformat()}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.invite.refresh_from_db()
+        self.assertEqual(self.invite.scheduled_send_at, timezone.now() + timedelta(minutes=1))
 
     @parameterized.expand(
         [

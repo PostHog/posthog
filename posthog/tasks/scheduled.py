@@ -465,7 +465,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     add_periodic_task_with_expiry(
         sender,
-        crontab(minute="*/2"),
+        # Poll every minute in dev so a postponed invite (forced to ~1 min out) actually comes
+        # back quickly while testing; every 2 minutes is plenty in production.
+        crontab(minute="*" if settings.DEBUG else "*/2"),
         send_scheduled_invites.s(),
         name="send scheduled invites",
     )
