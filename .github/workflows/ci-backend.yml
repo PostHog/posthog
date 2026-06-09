@@ -416,6 +416,10 @@ jobs:
                   SCHEMA_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.schema }}
                   TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || '' }}
                   TURBO_SCM_HEAD: ${{ github.sha }}
+                  # Kill switch: comma-separated product names to drop from the matrix.
+                  # Set the SKIP_PRODUCT_TESTS repo variable to stop running (and blocking
+                  # on) a product whose tests are temporarily too flaky; empty = run all.
+                  SKIP_PRODUCT_TESTS: ${{ vars.SKIP_PRODUCT_TESTS }}
               run: |
                   # turbo-discover.js uses Turbo's Git affectedness to detect
                   # changed products. Non-isolated product changes trigger the
@@ -439,10 +443,7 @@ jobs:
             needs.turbo-discover.outputs.matrix != '[]' &&
             needs.turbo-discover.outputs.matrix != ''
         runs-on: depot-ubuntu-latest
-        # Per-leg overrides from the turbo-discover matrix (defaults for unset legs);
-        # batch-exports runs non-blocking with a tighter cap — see SOFT_FAIL_PRODUCTS.
-        timeout-minutes: ${{ matrix.timeout_minutes || 40 }}
-        continue-on-error: ${{ matrix.continue_on_error || false }}
+        timeout-minutes: 40
         name: Product tests (${{ matrix.group }})
         strategy:
             fail-fast: false

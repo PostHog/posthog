@@ -45,12 +45,6 @@ const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 // others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
 // at the job timeout. Trade-off: a dedicated runner.
 const DEDICATED_BUCKET_PRODUCTS = new Set(['batch-exports'])
-// batch-exports soft-fail for its flaky async-teardown hang (revert once fixed):
-// non-blocking leg, capped at the pre-bump 30-min timeout. continue-on-error
-// masks a failure but not a timeout cancel. Keys → turbo-tests matrix fields.
-const SOFT_FAIL_PRODUCTS = {
-    'batch-exports': { continue_on_error: true, timeout_minutes: 30 },
-}
 
 // --- Django shard auto-sizing (Amdahl's law) ---
 // wall_clock = overhead + (total_from_durations_file / shards)
@@ -313,7 +307,6 @@ function buildMatrix(products, durations) {
                 group: product,
                 filters: `--filter=@posthog/products-${product}`,
                 pytest_args: '',
-                ...SOFT_FAIL_PRODUCTS[product],
             })
         } else {
             packable.push(product)
@@ -424,6 +417,16 @@ if (legacyChanged) {
             runLegacy = true
         }
     }
+}
+
+// Kill switch: products named in the SKIP_PRODUCT_TESTS repo variable (comma-
+// separated) are dropped from the matrix without a code change — use it to stop
+// running, and blocking on, a product whose tests are temporarily too flaky.
+const skipProducts = new Set((process.env.SKIP_PRODUCT_TESTS || '').split(',').map((p) => p.trim()).filter(Boolean))
+if (skipProducts.size > 0) {
+    const before = products.length
+    products = products.filter((p) => !skipProducts.has(p))
+    console.error(`SKIP_PRODUCT_TESTS=${[...skipProducts].join(',')} — dropped ${before - products.length} product(s)`)
 }
 
 console.error(`Products to test: ${JSON.stringify(products)}`)
