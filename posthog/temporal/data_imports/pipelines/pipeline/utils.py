@@ -194,13 +194,19 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
             )
             incoming_column = incoming_table.column(column_name)
 
-        # Normalize timestamps to microseconds and no timezone.
+        # Normalize timestamps to microsecond UTC. delta-rs writes timezone-naive
+        # pyarrow timestamps as the Delta `timestamp_ntz` logical type, which
+        # ClickHouse's DeltaLake reader rejects ("Unsupported DeltaLake type:
+        # timestamp_ntz") — the rows land in S3 but the table is unqueryable.
+        # Attaching UTC makes delta-rs emit the readable `timestamp` type instead.
+        # Naive inputs (e.g. Snowflake TIMESTAMP_NTZ) keep their wall-clock value with
+        # UTC attached; zoned inputs are converted to the equivalent UTC instant.
         if pa.types.is_timestamp(incoming_field.type) and (
-            incoming_field.type.unit == "ns" or incoming_field.type.tz is not None
+            incoming_field.type.unit != "us" or incoming_field.type.tz != "UTC"
         ):
-            microsecond_timestamps = pc.cast(incoming_column, pa.timestamp("us"), safe=False).combine_chunks()
+            utc_timestamps = pc.cast(incoming_column, pa.timestamp("us", tz="UTC"), safe=False).combine_chunks()
             incoming_table = incoming_table.set_column(
-                incoming_table.schema.get_field_index(column_name), column_name, microsecond_timestamps
+                incoming_table.schema.get_field_index(column_name), column_name, utc_timestamps
             )
 
     if not delta_schema:

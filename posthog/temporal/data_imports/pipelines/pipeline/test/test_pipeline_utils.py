@@ -621,18 +621,53 @@ class TestEvolveSchemaFirstPass:
         assert values[1] == 3661.0
         assert values[2] is None
 
-    def test_nanosecond_timestamp_normalized_to_microseconds(self):
+    def test_nanosecond_timestamp_normalized_to_microsecond_utc(self):
         ns_ts = pa.array([1_000_000_000, 2_000_000_000], type=pa.timestamp("ns"))
         arrow_table = pa.table({"ts": ns_ts})
         result = evolve_pyarrow_schema(arrow_table, None)
-        assert result.schema.field("ts").type == pa.timestamp("us")
+        assert result.schema.field("ts").type == pa.timestamp("us", tz="UTC")
 
-    def test_tz_timestamp_stripped_to_utc_microseconds(self):
+    def test_naive_timestamp_gets_utc_preserving_wall_clock(self):
+        # Snowflake TIMESTAMP_NTZ (and Postgres "timestamp without time zone") arrive
+        # tz-naive. UTC must be attached without shifting the wall-clock value, otherwise
+        # delta-rs writes the unqueryable `timestamp_ntz` Delta type.
+        naive_ts = pa.array([datetime.datetime(2026, 1, 1, 14, 0, 0), None], type=pa.timestamp("us"))
+        arrow_table = pa.table({"ts": naive_ts})
+        result = evolve_pyarrow_schema(arrow_table, None)
+        assert result.schema.field("ts").type == pa.timestamp("us", tz="UTC")
+        assert result.column("ts").to_pylist() == [
+            datetime.datetime(2026, 1, 1, 14, 0, 0, tzinfo=datetime.UTC),
+            None,
+        ]
+
+    def test_zoned_timestamp_converted_to_utc_microseconds(self):
         tz_ts = pa.array([1_000_000, 2_000_000], type=pa.timestamp("us", tz="America/New_York"))
         arrow_table = pa.table({"ts": tz_ts})
         result = evolve_pyarrow_schema(arrow_table, None)
-        assert result.schema.field("ts").type == pa.timestamp("us")
-        assert result.schema.field("ts").type.tz is None
+        assert result.schema.field("ts").type == pa.timestamp("us", tz="UTC")
+        # tz-aware pyarrow timestamps store the UTC instant; only the displayed zone changes.
+        assert result.column("ts").to_pylist() == [
+            datetime.datetime(1970, 1, 1, 0, 0, 1, tzinfo=datetime.UTC),
+            datetime.datetime(1970, 1, 1, 0, 0, 2, tzinfo=datetime.UTC),
+        ]
+
+    def test_naive_timestamp_written_to_delta_is_not_timestamp_ntz(self, tmp_path):
+        # Regression guard for the actual ClickHouse-breaking condition: delta-rs writes
+        # tz-naive pyarrow timestamps as `timestamp_ntz`, which ClickHouse's DeltaLake
+        # reader cannot read. The evolved table must produce a readable `timestamp` column.
+        arrow_table = pa.table(
+            {
+                "id": pa.array([1], type=pa.int64()),
+                "ts": pa.array([datetime.datetime(2026, 1, 1, 14, 0, 0)], type=pa.timestamp("us")),
+            }
+        )
+        evolved = evolve_pyarrow_schema(arrow_table, None)
+
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(delta_path, evolved, mode="overwrite")
+        schema_json = deltalake.DeltaTable(delta_path).schema().to_json()
+        assert "timestamp_ntz" not in schema_json
+        assert '"type":"timestamp"' in schema_json
 
 
 class TestEvolveSchemaSecondPassMissingColumns:
