@@ -127,9 +127,17 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         modifiers.optimizeJoinedFilters = True
         return modifiers
 
+    @parameterized.expand(
+        [
+            ("events_join", "select uuid from events where person.properties.$some_prop = 'something'"),
+            (
+                "person_distinct_ids_join",
+                "select distinct_id from person_distinct_ids where person.properties.$some_prop = 'something' order by distinct_id",
+            ),
+        ]
+    )
     @snapshot_clickhouse_queries
-    def test_joined_person_property_filter_uses_where_optimization(self):
-        query = "select uuid from events where person.properties.$some_prop = 'something'"
+    def test_joined_person_property_filter_uses_where_optimization(self, _name: str, query: str):
         baseline = execute_hogql_query(parse_select(query), self.team, modifiers=self.modifiers)
         response = execute_hogql_query(parse_select(query), self.team, modifiers=self._modifiers_with_joined_filters())
         assert response.clickhouse
@@ -137,15 +145,6 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("in(tuple(person.id, person.version)", response.clickhouse)
         assert sorted(response.results) == sorted(baseline.results)
         assert len(response.results) == 2
-
-    @snapshot_clickhouse_queries
-    def test_joined_person_property_filter_via_person_distinct_ids(self):
-        query = "select distinct_id from person_distinct_ids where person.properties.$some_prop = 'something' order by distinct_id"
-        baseline = execute_hogql_query(parse_select(query), self.team, modifiers=self.modifiers)
-        response = execute_hogql_query(parse_select(query), self.team, modifiers=self._modifiers_with_joined_filters())
-        assert response.clickhouse
-        self.assertIn("where_optimization", response.clickhouse)
-        assert response.results == baseline.results == [("1",), ("2",)]
 
     def test_joined_filters_do_not_match_stale_person_property_versions(self):
         changed = _create_person(

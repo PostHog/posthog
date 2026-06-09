@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: TestPersonOptimization.test_joined_person_property_filter_uses_where_optimization
+# name: TestPersonOptimization.test_joined_person_property_filter_uses_where_optimization_0_events_join
   '''
   SELECT events.uuid AS uuid
   FROM events
@@ -36,7 +36,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestPersonOptimization.test_joined_person_property_filter_uses_where_optimization.1
+# name: TestPersonOptimization.test_joined_person_property_filter_uses_where_optimization_0_events_join.1
   '''
   SELECT events.uuid AS uuid
   FROM events
@@ -73,7 +73,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestPersonOptimization.test_joined_person_property_filter_via_person_distinct_ids
+# name: TestPersonOptimization.test_joined_person_property_filter_uses_where_optimization_1_person_distinct_ids_join
   '''
   SELECT person_distinct_ids.distinct_id AS distinct_id
   FROM
@@ -110,7 +110,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestPersonOptimization.test_joined_person_property_filter_via_person_distinct_ids.1
+# name: TestPersonOptimization.test_joined_person_property_filter_uses_where_optimization_1_person_distinct_ids_join.1
   '''
   SELECT person_distinct_ids.distinct_id AS distinct_id
   FROM
