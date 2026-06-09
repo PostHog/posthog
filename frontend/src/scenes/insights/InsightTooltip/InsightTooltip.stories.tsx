@@ -70,7 +70,6 @@ const meta: Meta<InsightTooltipProps> = {
         renderSeries: (value) => value,
         groupTypeLabel: 'people',
     },
-    tags: ['test-skip'], // FIXME: The InWrapper story fails at locator.screenshot() for some reason
     render: (props) => {
         useMountedLogic(cohortsModel)
 
@@ -353,3 +352,5 @@ export function InWrapper(): JSX.Element {
         </div>
     )
 }
+// FIXME: InWrapper fails at locator.screenshot(), so it's skipped from visual regression
+InWrapper.tags = ['test-skip']
