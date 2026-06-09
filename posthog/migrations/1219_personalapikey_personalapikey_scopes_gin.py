@@ -1,12 +1,17 @@
-import django.contrib.postgres.indexes
-from django.contrib.postgres.operations import AddIndexConcurrently
+from django.contrib.postgres.indexes import GinIndex
 from django.db import migrations
+
+from posthog.migration_helpers import CreateIndexConcurrently
 
 
 class Migration(migrations.Migration):
     # CONCURRENTLY so building the GIN index doesn't take an ACCESS EXCLUSIVE lock on
-    # personal_api_key (a hot, core table). Concurrent index builds can't run inside a
-    # transaction, so the migration must be non-atomic.
+    # personal_api_key (a hot, core table). Concurrent builds can't run in a
+    # transaction, so the migration is non-atomic. CreateIndexConcurrently (vs Django's
+    # AddIndexConcurrently) disables lock_timeout/statement_timeout, drops any invalid
+    # leftover from an interrupted build, and uses IF NOT EXISTS — so a transient
+    # cancellation during deploy doesn't wedge retries. SeparateDatabaseAndState keeps
+    # the Django model state in sync via the matching AddIndex.
     atomic = False
 
     dependencies = [
@@ -14,8 +19,20 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        AddIndexConcurrently(
-            model_name="personalapikey",
-            index=django.contrib.postgres.indexes.GinIndex(fields=["scopes"], name="personalapikey_scopes_gin"),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="personalapikey",
+                    index=GinIndex(fields=["scopes"], name="personalapikey_scopes_gin"),
+                ),
+            ],
+            database_operations=[
+                CreateIndexConcurrently(
+                    index_name="personalapikey_scopes_gin",
+                    table_name="posthog_personalapikey",
+                    columns="(scopes)",
+                    using="gin",
+                ),
+            ],
         ),
     ]
