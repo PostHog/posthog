@@ -18,6 +18,7 @@ import { AccessControlLevel, AccessControlResourceType, DashboardMode } from '~/
 
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
+import { dashboardWidgetsFeaturePreviewUrl } from './dashboardWidgetsFeaturePreview'
 
 export function DashboardAddTileButton(): JSX.Element | null {
     const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
@@ -71,16 +72,19 @@ export function DashboardAddTileButton(): JSX.Element | null {
                             onClick: () => push(urls.dashboardButtonTile(dashboard.id, 'new')),
                             'data-attr': 'dashboard-add-button-tile',
                         },
-                        ...(dashboardWidgetsEnabled
-                            ? [
-                                  {
-                                      label: 'Widget',
-                                      tag: 'new' as const,
-                                      onClick: () => setAddWidgetModalOpen(true),
-                                      'data-attr': 'dashboard-add-widget',
-                                  },
-                              ]
-                            : []),
+                        dashboardWidgetsEnabled
+                            ? {
+                                  label: 'Widget',
+                                  tag: 'new' as const,
+                                  onClick: () => setAddWidgetModalOpen(true),
+                                  'data-attr': 'dashboard-add-widget',
+                              }
+                            : {
+                                  label: 'Widget',
+                                  tag: 'beta' as const,
+                                  onClick: () => push(dashboardWidgetsFeaturePreviewUrl()),
+                                  'data-attr': 'dashboard-add-widget-preview',
+                              },
                     ]}
                 >
                     <LemonButton type="primary" data-attr="dashboard-add-tile" size="small" icon={<IconPlusSmall />}>
