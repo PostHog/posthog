@@ -39164,6 +39164,16 @@ export namespace Schemas {
       homepage?: PinnedSceneTab | null;
     }
 
+    /**
+     * * `Postgres` - Postgres
+     */
+    export type PostgresDestinationRequestTypeEnum = typeof PostgresDestinationRequestTypeEnum[keyof typeof PostgresDestinationRequestTypeEnum];
+
+
+    export const PostgresDestinationRequestTypeEnum = {
+      Postgres: 'Postgres',
+    } as const;
+
     export interface PreviewInviteRequest {
       /**
          * Which targeted interviewee to render the preview for (an email or PostHog distinct ID already on the topic). Leave blank to preview for the first targeted interviewee.
@@ -39193,16 +39203,6 @@ export namespace Schemas {
       /** Always true — the previewed interview_url is an illustrative placeholder, never a live link. */
       is_preview_link: boolean;
     }
-
-    /**
-     * * `Postgres` - Postgres
-     */
-    export type PostgresDestinationRequestTypeEnum = typeof PostgresDestinationRequestTypeEnum[keyof typeof PostgresDestinationRequestTypeEnum];
-
-
-    export const PostgresDestinationRequestTypeEnum = {
-      Postgres: 'Postgres',
-    } as const;
 
     /**
      * Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those.
