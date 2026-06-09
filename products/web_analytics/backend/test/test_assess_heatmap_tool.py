@@ -1,7 +1,11 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from products.web_analytics.backend.max_tools import AssessHeatmapTool
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
+from products.web_analytics.backend.max_tools import AssessHeatmapTool, _scroll_reach, _viewport_band
 
 from ee.hogai.utils.types import AssistantState
 
@@ -103,3 +107,47 @@ class TestAssessHeatmapTool(APIBaseTest):
         content, _artifact = await tool._arun_impl(page_url="https://posthog.com/pricing")
 
         assert "None detected" in content
+
+
+class TestScrollReachAndViewportBand(SimpleTestCase):
+    def test_scroll_reach_none_for_empty_or_zero(self):
+        assert _scroll_reach([]) is None
+        assert _scroll_reach([{"scroll_depth_bucket": 0, "bucket_count": 0, "cumulative_count": 0}]) is None
+
+    def test_scroll_reach_thresholds(self):
+        # cumulative is "people who reached at least this depth": 100 at 0px, 50 at 100px, 20 at 200px.
+        buckets = [
+            {"scroll_depth_bucket": 0, "bucket_count": 50, "cumulative_count": 100},
+            {"scroll_depth_bucket": 100, "bucket_count": 30, "cumulative_count": 50},
+            {"scroll_depth_bucket": 200, "bucket_count": 20, "cumulative_count": 20},
+        ]
+        result = _scroll_reach(buckets)
+        assert result is not None
+        assert result["total"] == 100
+        assert result["max_depth"] == 200
+        # Deepest bucket still reached by >= pct of the population.
+        # 75%: only 0px (100%); 50%: 100px (50%); 25%: 100px (200px is 20% < 25%).
+        assert result["reach"] == {75: 0, 50: 100, 25: 100}
+
+    def test_scroll_reach_threshold_unmet_is_none(self):
+        # Every bucket sits below the 75% line except via the shallowest, which always holds 100%.
+        # Construct a case where the 25% line is genuinely unreachable for deeper buckets.
+        buckets = [
+            {"scroll_depth_bucket": 300, "bucket_count": 80, "cumulative_count": 80},
+            {"scroll_depth_bucket": 600, "bucket_count": 10, "cumulative_count": 10},
+        ]
+        result = _scroll_reach(buckets)
+        assert result is not None
+        # total = 80; 600px is 10/80 = 12.5% (< 25/50/75), so every threshold resolves to 300px.
+        assert result["reach"] == {75: 300, 50: 300, 25: 300}
+
+    @parameterized.expand(
+        [
+            (None, None, None),
+            (360, 768, "_Filtered to viewports 360–768px wide._"),
+            (360, None, "_Filtered to viewports ≥360px wide._"),
+            (None, 768, "_Filtered to viewports ≤768px wide._"),
+        ]
+    )
+    def test_viewport_band(self, vmin, vmax, expected):
+        assert _viewport_band(vmin, vmax) == expected

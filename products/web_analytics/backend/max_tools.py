@@ -453,7 +453,9 @@ class AssessHeatmapTool(MaxTool):
 
 # Heatmaps store coordinates as pure geometry — they don't know what was clicked. Cross-referencing
 # autocapture clicks on the same URL is what turns "lots of clicks at (0.5, 220)" into "lots of clicks on
-# the Pricing link". `elements_chain` disambiguates two elements that share the same text.
+# the Pricing link". Grouping by visible text collapses repeats; `any(elements_chain)` keeps one
+# representative DOM path for reference (it does not split same-text elements apart). The viewport
+# filter mirrors the band applied to the heatmap signals so element identity lines up with the hotspots.
 AUTOCAPTURE_ELEMENTS_QUERY = """
 SELECT
     properties.$el_text AS el_text,
@@ -465,6 +467,7 @@ WHERE event = '$autocapture'
   AND timestamp >= {date_from}
   AND timestamp <= {date_to} + interval 1 day
   AND notEmpty(properties.$el_text)
+  AND {viewport_filter}
 GROUP BY el_text
 ORDER BY clicks DESC
 LIMIT 25
@@ -520,7 +523,9 @@ def _gather_heatmap_data(
         "fold": _fold_summary(team, click_exprs),
         "rageclicks": _coordinate_points(team, rage_exprs),
         "scrolldepth": _scroll_buckets(team, scroll_exprs),
-        "elements": _autocapture_elements(team, page_url, resolved_from, resolved_to),
+        "elements": _autocapture_elements(
+            team, page_url, resolved_from, resolved_to, viewport_width_min, viewport_width_max
+        ),
     }
 
 
@@ -605,13 +610,34 @@ def _scroll_buckets(team: Team, exprs: list[ast.Expr]) -> list[dict[str, Any]]:
     ]
 
 
-def _autocapture_elements(team: Team, page_url: str, date_from: date, date_to: date) -> list[dict[str, Any]]:
+def _autocapture_elements(
+    team: Team,
+    page_url: str,
+    date_from: date,
+    date_to: date,
+    vmin: int | None,
+    vmax: int | None,
+) -> list[dict[str, Any]]:
+    # Apply the same viewport band as the heatmap signals. $viewport_width is raw CSS pixels (not the
+    # /16-scaled heatmap column), coerced like elsewhere in web analytics. A no-op `1 = 1` when unbounded.
+    viewport_exprs: list[ast.Expr] = []
+    if vmin is not None:
+        viewport_exprs.append(
+            parse_expr("toIntOrZero(toString(properties.$viewport_width)) >= {v}", {"v": Constant(value=vmin)})
+        )
+    if vmax is not None:
+        viewport_exprs.append(
+            parse_expr("toIntOrZero(toString(properties.$viewport_width)) <= {v}", {"v": Constant(value=vmax)})
+        )
+    viewport_filter: ast.Expr = ast.And(exprs=viewport_exprs) if viewport_exprs else parse_expr("1 = 1")
+
     stmt = parse_select(
         AUTOCAPTURE_ELEMENTS_QUERY,
         {
             "url": Constant(value=page_url),
             "date_from": Constant(value=date_from),
             "date_to": Constant(value=date_to),
+            "viewport_filter": viewport_filter,
         },
     )
     result = _execute(team, stmt)
