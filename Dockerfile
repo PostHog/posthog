@@ -170,8 +170,9 @@ COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/
 
-# Copy the built frontend assets and also the products.json file
-COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
+# Copy the sourcemap-processed frontend assets and also the products.json file. The CLI injects
+# chunk IDs into JS before uploading maps, so the runtime JS must come from the same processed tree.
+COPY --from=sourcemap-upload /code/frontend/dist /code/frontend/dist
 COPY --from=frontend-build /code/frontend/src/products.json /code/frontend/src/products.json
 
 # Make sure we build the static files
