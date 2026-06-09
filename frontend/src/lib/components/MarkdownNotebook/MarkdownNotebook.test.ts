@@ -2182,6 +2182,23 @@ Before
 ${' '}
 
  after`)
+
+        commandBlock!.textContent = 't'
+        fireEvent.input(commandBlock as HTMLElement)
+
+        const updatedTextBlocks = getEditableTextBlocks(container)
+        const updatedCommandBlock = updatedTextBlocks.find((block) => block.textContent === 't')
+
+        expect(updatedCommandBlock).toBeInstanceOf(HTMLElement)
+        expect(updatedCommandBlock?.closest('.MarkdownNotebook__text-group')).toBeNull()
+        expect(container.querySelectorAll('.MarkdownNotebook__text-group')).toHaveLength(2)
+        expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
+        expect(updatedTextBlocks.map((block) => block.textContent)).toEqual([
+            TEST_NOTEBOOK_TITLE,
+            'Before',
+            't',
+            ' after',
+        ])
     })
 
     it('closes the slash menu when clicking outside it', () => {
@@ -3065,6 +3082,47 @@ Before component
 **Second after row**`)
     })
 
+    it('promotes a scoped text group Cmd+A selection to the whole notebook on the second press', () => {
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Embed',
+                label: 'Embed',
+                category: 'Media',
+                ViewComponent: () => createElement('div', { 'data-testid': 'component-output' }, 'Do not copy me'),
+            },
+        ])
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`Before component
+
+<Embed />
+
+After component
+
+Second after row`),
+                registry,
+            })
+        )
+        const textBlocks = getEditableTextBlocks(container)
+        const component = container.querySelector('.MarkdownNotebook__component-shell') as HTMLElement
+
+        fireSelectAllShortcut(textBlocks[2])
+
+        expect(window.getSelection()?.toString()).not.toContain(TEST_NOTEBOOK_TITLE)
+        expect(window.getSelection()?.toString()).not.toContain('Before component')
+        expect(window.getSelection()?.toString()).toContain('After component')
+        expect(window.getSelection()?.toString()).toContain('Second after row')
+        expect(component.classList.contains('MarkdownNotebook__component-shell--selected')).toBe(false)
+
+        fireSelectAllShortcut(textBlocks[2])
+
+        expect(window.getSelection()?.toString()).toContain(TEST_NOTEBOOK_TITLE)
+        expect(window.getSelection()?.toString()).toContain('Before component')
+        expect(window.getSelection()?.toString()).toContain('After component')
+        expect(window.getSelection()?.toString()).toContain('Second after row')
+        expect(component.classList.contains('MarkdownNotebook__component-shell--selected')).toBe(true)
+    })
+
     it('selects only code block text with Cmd+A inside code blocks', () => {
         const { container } = render(
             createElement(MarkdownNotebook, {
@@ -3085,6 +3143,32 @@ Tail paragraph`),
         expect(window.getSelection()?.toString()).not.toContain(TEST_NOTEBOOK_TITLE)
         expect(window.getSelection()?.toString()).not.toContain('Intro paragraph')
         expect(window.getSelection()?.toString()).not.toContain('Tail paragraph')
+    })
+
+    it('promotes a scoped code block Cmd+A selection to the whole notebook on the second press', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`Intro paragraph
+
+\`\`\`python
+print("hello")
+\`\`\`
+
+Tail paragraph`),
+            })
+        )
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
+
+        fireSelectAllShortcut(codeBlock)
+
+        expect(window.getSelection()?.toString()).toEqual('print("hello")')
+
+        fireSelectAllShortcut(codeBlock)
+
+        expect(window.getSelection()?.toString()).toContain(TEST_NOTEBOOK_TITLE)
+        expect(window.getSelection()?.toString()).toContain('Intro paragraph')
+        expect(window.getSelection()?.toString()).toContain('print("hello")')
+        expect(window.getSelection()?.toString()).toContain('Tail paragraph')
     })
 
     it('selects text and components with Cmd+A from a focused component', () => {

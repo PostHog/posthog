@@ -2127,7 +2127,13 @@ export function MarkdownNotebook({
 
     const openInsertMenu = (nodeId: string, query: string = ''): void => {
         onInteractionStateChange?.(true)
-        setInsertMenu({ nodeId, query, selectedIndex: 0, mode: 'tools' })
+        setInsertMenu((currentMenu) => ({
+            nodeId,
+            query,
+            selectedIndex: 0,
+            mode: 'tools',
+            detached: currentMenu?.nodeId === nodeId ? currentMenu.detached : undefined,
+        }))
     }
 
     const updateInsertMenuPosition = useCallback((): void => {
@@ -2597,6 +2603,10 @@ export function MarkdownNotebook({
         const endPosition = findTextPosition(lastTextBlockElement, lastTextBlockElement.textContent?.length ?? 0)
         range.setStart(startPosition.node, startPosition.offset)
         range.setEnd(endPosition.node, endPosition.offset)
+        if (selectionCoversRange(selection, range)) {
+            return false
+        }
+
         selection.removeAllRanges()
         selection.addRange(range)
 
@@ -2615,8 +2625,23 @@ export function MarkdownNotebook({
             return false
         }
 
+        const selection = window.getSelection()
+        if (!selection) {
+            return false
+        }
+
+        const range = codeBlockElement.ownerDocument.createRange()
+        const startPosition = findTextPosition(codeBlockElement, 0)
+        const endPosition = findTextPosition(codeBlockElement, codeBlockElement.textContent?.length ?? 0)
+        range.setStart(startPosition.node, startPosition.offset)
+        range.setEnd(endPosition.node, endPosition.offset)
+        if (selectionCoversRange(selection, range)) {
+            return false
+        }
+
         codeBlockElement.focus()
-        restoreSelection(codeBlockElement, 0, codeBlockElement.textContent?.length ?? 0)
+        selection.removeAllRanges()
+        selection.addRange(range)
         setSelectedComponentNodeIds(new Set())
         scheduleFloatingToolbarUpdateFromSelection()
         return true
@@ -7595,6 +7620,22 @@ function isSelectionInsideElement(selection: Selection | null, element: HTMLElem
 
     const range = selection.getRangeAt(0)
     return element.contains(range.startContainer) && element.contains(range.endContainer)
+}
+
+function selectionCoversRange(selection: Selection | null, expectedRange: Range): boolean {
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        return false
+    }
+
+    try {
+        const range = selection.getRangeAt(0)
+        return (
+            range.compareBoundaryPoints(Range.START_TO_START, expectedRange) <= 0 &&
+            range.compareBoundaryPoints(Range.END_TO_END, expectedRange) >= 0
+        )
+    } catch {
+        return false
+    }
 }
 
 function isSelectionAnchoredInsideElement(selection: Selection | null, element: HTMLElement): boolean {

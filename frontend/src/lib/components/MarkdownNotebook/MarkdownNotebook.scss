@@ -19,10 +19,10 @@
 
 [theme='dark'] .MarkdownNotebook {
     --markdown-notebook-component-background: var(--color-bg-surface-tertiary);
-    --markdown-notebook-text-group-background: var(--color-bg-surface-primary);
+    --markdown-notebook-text-group-background: var(--markdown-notebook-component-background);
     --markdown-notebook-text-group-border: var(--color-border-primary);
     --markdown-notebook-text-group-shadow: inset 0 1px 0 rgb(255 255 255 / 5%);
-    --markdown-notebook-code-background: color-mix(in sRGB, var(--color-bg-surface-primary) 88%, white);
+    --markdown-notebook-code-background: var(--markdown-notebook-component-background);
     --markdown-notebook-code-border: var(--color-border-primary);
     --markdown-notebook-code-gutter: var(--data-color-10);
     --markdown-notebook-code-shadow: inset 0 1px 0 rgb(255 255 255 / 6%);
