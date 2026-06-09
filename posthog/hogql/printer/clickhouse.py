@@ -24,7 +24,7 @@ from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.clickhouse.property_groups import property_groups
-from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
 
@@ -265,12 +265,16 @@ class ClickHousePrinter(BasePrinter):
             from_currency, to_currency, amount, *_rest = args
             date = args[3] if len(args) > 3 and args[3] else "today()"
             db = django_settings.CLICKHOUSE_DATABASE
+            scale = EXCHANGE_RATE_DECIMAL_PRECISION
+            # Use Decimal128 (38 significant digits) rather than Decimal64 (18 digits): with scale 10 the latter
+            # caps the integer part at ~10^8, so summing converted amounts (e.g. ad spend) overflows with
+            # "Decimal convert overflow". Decimal128 keeps the same scale but a far wider integer range.
             # Build rate lookup expressions
-            from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))"
-            to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))"
+            from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal128(0, {scale}))"
+            to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal128(0, {scale}))"
             # Use if() around divisor to avoid division by zero — with enable_analyzer=0, the old analyzer evaluates all branches regardless of condition.
-            safe_from_rate = f"if({from_rate} = 0, toDecimal64(1, 10), {from_rate})"
-            return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if({from_rate} = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), {safe_from_rate}), {to_rate})))"
+            safe_from_rate = f"if({from_rate} = 0, toDecimal128(1, {scale}), {from_rate})"
+            return f"if(equals({from_currency}, {to_currency}), toDecimal128({amount}, {scale}), if({from_rate} = 0, toDecimal128(0, {scale}), multiplyDecimal(divideDecimal(toDecimal128({amount}, {scale}), {safe_from_rate}), {to_rate})))"
 
         relevant_clickhouse_name = func_meta.clickhouse_name
         if "{}" in relevant_clickhouse_name:
