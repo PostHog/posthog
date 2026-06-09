@@ -97,7 +97,7 @@ from posthog.session_recordings.models.session_recording_event import SessionRec
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.recordings import recording_s3_client
-from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.session_recordings.recordings.errors import BlockFetchError, FileFetchError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 from posthog.session_recordings.session_recording_v2_service import list_blocks, list_blocks_async
 from posthog.session_recordings.utils import (
@@ -1414,19 +1414,32 @@ class SessionRecordingViewSet(
                     "$exception_fingerprint": f"session_recording_api.snapshots.{e.__class__.__name__}",
                 },
             )
-            is_ch_error = isinstance(e, CHQueryErrorCannotScheduleTask)
-
-            message = (
-                "ClickHouse over capacity. Please retry"
-                if is_ch_error
-                else "An unexpected error has occurred. Please try again later."
+            # Log the underlying cause with a full traceback. The catch-all used to
+            # flatten every failure into one opaque 500, hiding the real error.
+            logger.exception(
+                "session_recording_snapshots_error",
+                session_id=str(recording.session_id) if recording else None,
+                team_id=self.team_id,
+                error_class=e.__class__.__name__,
             )
 
-            response_status = (
-                status.HTTP_503_SERVICE_UNAVAILABLE if is_ch_error else status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            # Map known failure modes to specific status codes and messages so error
+            # tracking can segment them (the client surfaces `error`/`code` verbatim)
+            # and callers can distinguish a retryable upstream blip from a real bug.
+            if isinstance(e, CHQueryErrorCannotScheduleTask | CHQueryErrorTooManySimultaneousQueries):
+                message = "ClickHouse over capacity. Please retry"
+                response_status = status.HTTP_503_SERVICE_UNAVAILABLE
+            elif isinstance(e, BlockFetchError | FileFetchError):
+                message = "Failed to load recording data. Please retry"
+                response_status = status.HTTP_502_BAD_GATEWAY
+            elif isinstance(e, TimeoutError):
+                message = "Timed out loading recording data. Please retry"
+                response_status = status.HTTP_504_GATEWAY_TIMEOUT
+            else:
+                message = "An unexpected error has occurred. Please try again later."
+                response_status = status.HTTP_500_INTERNAL_SERVER_ERROR
 
-            return Response({"error": message}, status=response_status)
+            return Response({"error": message, "code": e.__class__.__name__}, status=response_status)
 
     def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """
@@ -1808,7 +1821,10 @@ class SessionRecordingViewSet(
                 blocks_data.append(content)
 
         if block_errors:
-            raise exceptions.APIException("Failed to load recording block")
+            # A retryable upstream-fetch failure, not a generic server error — surfacing it
+            # as BlockFetchError lets the handler return a 502 the client can retry and keeps
+            # error tracking from bucketing it under the opaque catch-all.
+            raise BlockFetchError(f"Failed to load recording blocks: {block_errors}")
 
         return blocks_data
 
@@ -1840,6 +1856,11 @@ class SessionRecordingViewSet(
         max_blob_key: int,
         decompress: bool = True,
     ) -> HttpResponse:
+        # Materialise `self.team` (a cached_property backed by a synchronous DB query)
+        # before entering the async context. Accessing it for the first time inside
+        # asyncio.run raises Django's SynchronousOnlyOperation.
+        _ = self.team.id
+
         async def _run() -> HttpResponse:
             with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2", decompress=decompress).time():
                 blocks = await self._fetch_and_validate_blocks(recording, timer, min_blob_key, max_blob_key)

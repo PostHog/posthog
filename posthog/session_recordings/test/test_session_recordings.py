@@ -33,6 +33,7 @@ from posthog.models.team import Team
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.recordings.errors import BlockFetchError, FileFetchError
 
 
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -1349,6 +1350,60 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             # Verify the error was called multiple times and we get 503
             assert call_count > 2, f"Expected multiple calls, got {call_count}"
             assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    @parameterized.expand(
+        [
+            (
+                "ch_too_many_queries",
+                CHQueryErrorTooManySimultaneousQueries("Too many simultaneous queries"),
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "ClickHouse over capacity. Please retry",
+                "CHQueryErrorTooManySimultaneousQueries",
+            ),
+            (
+                "block_fetch_error",
+                BlockFetchError("block fetch failed"),
+                status.HTTP_502_BAD_GATEWAY,
+                "Failed to load recording data. Please retry",
+                "BlockFetchError",
+            ),
+            (
+                "file_fetch_error",
+                FileFetchError("file fetch failed"),
+                status.HTTP_502_BAD_GATEWAY,
+                "Failed to load recording data. Please retry",
+                "FileFetchError",
+            ),
+            (
+                "timeout_error",
+                TimeoutError("timed out"),
+                status.HTTP_504_GATEWAY_TIMEOUT,
+                "Timed out loading recording data. Please retry",
+                "TimeoutError",
+            ),
+            (
+                "unexpected_error",
+                ValueError("something else"),
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "An unexpected error has occurred. Please try again later.",
+                "ValueError",
+            ),
+        ]
+    )
+    def test_snapshots_maps_known_errors_to_status_and_code(
+        self, _name, exception, expected_status, expected_message, expected_code
+    ):
+        session_id = str(uuid7())
+        self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
+
+        with patch(
+            "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._gather_session_recording_sources",
+            side_effect=exception,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots")
+
+        assert response.status_code == expected_status
+        assert response.json() == {"error": expected_message, "code": expected_code}
 
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",

@@ -29,6 +29,8 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadBilling', // Gracefully handled if it fails
     'loadData', // Gracefully handled in the data table
     'loadRecordingMeta', // Gracefully handled in the recording player
+    'loadSnapshotSources', // Auto-retried and surfaced via the recording player's own error UI
+    'loadSnapshotsForSource', // Auto-retried and surfaced via the recording player's own error UI
     'loadSimilarIssues', // Gracefully handled in the similar issues list
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
 ]
