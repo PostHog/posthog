@@ -228,23 +228,12 @@ export async function initMcpAnalytics(
     try {
         const distinctId = await identity.getDistinctId()
 
-        // `@posthog/mcp` 0.1.x: `instrument(server, posthogClient, options)` returns an
-        // analytics handle (we don't need it — custom events go through `trackEvent`).
-        // Dropped vs the old `track()` API: `enableTracing` (always on now),
-        // `enableAITracing`/`$ai_span` (removed upstream), and `eventTags`
-        // (folded into `eventProperties` below). `redactSensitiveInformation` is
-        // gone too — the SDK captures tool args/results, not transport auth headers,
-        // so there's nowhere for the Bearer token to leak; re-add via `beforeSend`
-        // if a tool ever surfaces credentials in its payload.
         instrument(server, getPostHogClient(), {
             context: options.contextEnabled,
             enableConversationId: false,
             identify: { distinctId },
             reportMissing: options.reportMissingEnabled,
             eventProperties: async (request) => {
-                // Merge the session tags ($session_id / $ai_session_id) the old
-                // `eventTags` hook used to provide — the new SDK has a single
-                // per-request property hook.
                 const [base, sessionTags] = await Promise.all([
                     buildEventProperties(identity),
                     buildEventTags(identity),
