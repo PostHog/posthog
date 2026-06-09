@@ -1,8 +1,8 @@
 import { Pool } from 'pg'
 
-import { reset } from '@posthog/agent-migrations'
 import { AgentSpecSchema, PgRevisionStore } from '@posthog/agent-shared'
 import { AgentApplication, AgentRevision } from '@posthog/agent-shared'
+import { reset } from '@posthog/agent-shared/testing'
 
 import { AmbiguousRevisionError, MissingPreviewSecretError, RevisionResolver } from './resolver'
 

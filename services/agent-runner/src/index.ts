@@ -125,7 +125,7 @@ async function main(): Promise<void> {
     // to migrate was the source of today's pgmigrations CrashLoopBackOff.
 
     const defaultApiKey = defaultApiKeyFromConfig(config)
-    const revisions = new PgRevisionStore(posthogDb)
+    const revisions = new PgRevisionStore(agentDb)
 
     // Encryption is required at boot now — constructor throws on empty
     // keys. Dev gets a deterministic default via `isDev()` in platform

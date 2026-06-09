@@ -225,6 +225,28 @@ export async function getBundle(teamId: number, slug: string, revisionId: string
     return out
 }
 
+export interface SlackManifestResponse {
+    revision_id: string
+    /** Slack app manifest (opaque JSON) to paste into the "create from manifest" flow. */
+    manifest: Record<string, unknown>
+    notes: string[]
+    events_url: string | null
+    interactivity_url: string | null
+}
+
+export async function getSlackManifest(
+    teamId: number,
+    slug: string,
+    revisionId: string
+): Promise<SlackManifestResponse> {
+    return getJson<SlackManifestResponse>(
+        posthogUrl(
+            teamId,
+            `/agent_applications/${encodeURIComponent(slug)}/revisions/${encodeURIComponent(revisionId)}/slack_manifest/`
+        )
+    )
+}
+
 function languageForPath(path: string): BundleFileLanguage {
     if (path.endsWith('.md') || path.endsWith('.mdx')) {
         return 'markdown'

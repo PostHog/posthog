@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 
-import { reset } from '@posthog/agent-migrations'
+import { reset } from '@posthog/agent-shared/testing'
 
 import { AssistantMessageRecord } from '../spec/spec'
 import { ApprovalStore, hashCanonicalArgs, UpsertApprovalRequestInput } from './approval-store'

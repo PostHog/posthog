@@ -15,7 +15,7 @@ export interface AgentApplicationFixture {
     live_revision: string | null
     archived: boolean
     archived_at: string | null
-    created_by: { id: number; email: string; first_name: string }
+    created_by: { id: number; email: string; first_name: string } | null
     created_at: string
     updated_at: string
 }
@@ -30,7 +30,7 @@ export interface AgentRevisionFixture {
     bundle_uri: string
     bundle_sha256: string | null
     spec: Record<string, unknown>
-    created_by: { id: number; email: string; first_name: string }
+    created_by: { id: number; email: string; first_name: string } | null
     created_at: string
     updated_at: string
 }

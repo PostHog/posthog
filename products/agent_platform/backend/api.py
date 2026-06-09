@@ -67,9 +67,9 @@ from posthog.jwt import AgentInternalAudience, encode_agent_internal_jwt
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from .db import WRITER_DB
 from .janitor_client import JanitorClient, JanitorClientError, default_client
 from .models import AgentApplication, AgentRevision
-from .registry_freeze import FreezeError, freeze_templates_into_bundle
 from .serializers import (
     AgentApplicationSerializer,
     AgentRevisionSerializer,
@@ -506,16 +506,22 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "approvals_retrieve",
     ]
     serializer_class = AgentApplicationSerializer
-    queryset = AgentApplication.objects.all()
+    queryset = AgentApplication.all_teams.all()
+
+    def _should_skip_parents_filter(self) -> bool:
+        # agent_platform is a product DB — models carry a plain `team_id` (no
+        # `team` FK), so the mixin's `project_id` → `team__project_id` rewrite
+        # can't resolve. Scope by `team_id` directly in safely_get_queryset.
+        return True
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.filter(archived=False)
+        return queryset.filter(team_id=self.team_id, archived=False)
 
     def safely_get_object(self, queryset: QuerySet) -> AgentApplication | None:
         return _resolve_application(queryset, self.kwargs[self.lookup_url_kwarg or self.lookup_field])
 
     def perform_create(self, serializer: drf_serializers.BaseSerializer[Any]) -> None:
-        serializer.save(team_id=self.team_id, created_by=self.request.user)
+        serializer.save(team_id=self.team_id, created_by_id=self.request.user.id)
 
     def perform_destroy(self, instance: AgentApplication) -> None:
         """Soft-delete: archived=True, archived_at=NOW. Preserves audit history."""
@@ -745,7 +751,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         revision_id = request.query_params.get("revision_id")
         if not revision_id:
             raise ValidationError("revision_id query parameter is required for preview-proxy")
-        revision = AgentRevision.objects.filter(application=application, pk=revision_id).first()
+        revision = AgentRevision.all_teams.filter(application=application, pk=revision_id).first()
         if not revision:
             raise NotFound("Revision not found in this application")
         if application.live_revision_id == revision.id:
@@ -909,7 +915,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         revision_id = request.query_params.get("revision_id")
         if not revision_id:
             raise ValidationError("revision_id query parameter is required")
-        revision = AgentRevision.objects.filter(application=application, pk=revision_id).first()
+        revision = AgentRevision.all_teams.filter(application=application, pk=revision_id).first()
         if not revision:
             raise NotFound("Revision not found in this application")
         if application.live_revision_id == revision.id:
@@ -1533,19 +1539,24 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "system_prompt",
     ]
     serializer_class = AgentRevisionSerializer
-    queryset = AgentRevision.objects.all()
+    queryset = AgentRevision.all_teams.all()
 
     def get_application(self) -> AgentApplication:
         # drf-extensions nested routing passes the parent URL kwarg as
         # `parent_lookup_application_id` (see `parents_query_lookups` in the
         # nested router registration in posthog/api/__init__.py).
         app = _resolve_application(
-            AgentApplication.objects.filter(team_id=self.team_id, archived=False),
+            AgentApplication.all_teams.filter(team_id=self.team_id, archived=False),
             self.kwargs.get("parent_lookup_application_id") or self.kwargs.get("application_id"),
         )
         if app is None:
             raise NotFound("Application not found")
         return app
+
+    def _should_skip_parents_filter(self) -> bool:
+        # Product-DB model (plain team_id, no team FK). Scoping is via the
+        # application filter below — get_application() resolves it team-scoped.
+        return True
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(application=self.get_application())
@@ -1573,8 +1584,9 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # set, this revision can later be diff'd against it for review.
         serializer.save(
             application=application,
+            team_id=application.team_id,
             state="draft",
-            created_by=self.request.user,
+            created_by_id=self.request.user.id,
         )
 
     def update(self, request: Request, *args, **kwargs) -> Response:
@@ -1621,8 +1633,10 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # the application row serializes concurrent promotes so two callers
         # can't both archive the same predecessor or land both revisions in
         # state="live" with the application pointing at only one.
-        with transaction.atomic():
-            application = AgentApplication.objects.select_for_update().get(pk=revision.application_id)
+        with transaction.atomic(using=WRITER_DB):
+            application = (
+                AgentApplication.all_teams.using(WRITER_DB).select_for_update().get(pk=revision.application_id)
+            )
             previously_live = application.live_revision
             if previously_live and previously_live.id != revision.id:
                 previously_live.state = "archived"
@@ -1645,8 +1659,10 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Same atomic+lock shape as promote — without it, a concurrent
         # promote could read the pre-archive `live_revision` and overwrite
         # our clear, leaving the application pointed at an archived row.
-        with transaction.atomic():
-            application = AgentApplication.objects.select_for_update().get(pk=revision.application_id)
+        with transaction.atomic(using=WRITER_DB):
+            application = (
+                AgentApplication.all_teams.using(WRITER_DB).select_for_update().get(pk=revision.application_id)
+            )
             revision.state = "archived"
             revision.save(update_fields=["state", "updated_at"])
             if application.live_revision_id == revision.id:
@@ -1669,6 +1685,58 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """List every file in this revision's bundle (path, size, sha256)."""
         revision: AgentRevision = self.get_object()
         return Response(self._call(_janitor().manifest, str(revision.id)))
+
+    @extend_schema(
+        operation_id="agent_applications_revisions_slack_manifest",
+        request=None,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentRevisionSlackManifestResponse",
+                fields={
+                    "revision_id": drf_serializers.UUIDField(),
+                    "manifest": drf_serializers.JSONField(
+                        help_text=(
+                            "Slack app manifest (JSON) ready to paste into "
+                            "https://api.slack.com/apps?new_app=1 → 'From an app manifest'. Scopes and "
+                            "event subscriptions are derived from the agent's slack trigger config + tools."
+                        )
+                    ),
+                    "notes": drf_serializers.ListField(
+                        child=drf_serializers.CharField(),
+                        help_text="Reminders the manifest can't enforce (e.g. invite the bot to its channels).",
+                    ),
+                    "events_url": drf_serializers.CharField(
+                        allow_null=True, help_text="The Event Subscriptions Request URL baked into the manifest."
+                    ),
+                    "interactivity_url": drf_serializers.CharField(
+                        allow_null=True, help_text="The Interactivity Request URL (used by approval-gated tools)."
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="slack_manifest")
+    def slack_manifest(self, request: Request, **kwargs) -> Response:
+        """Build a Slack app manifest for this revision's slack trigger.
+
+        Deterministic: the OAuth scopes and bot event subscriptions are derived
+        from the slack trigger config (`mention_only` / `auto_resume_threads` /
+        `ack_reaction`) and the agent's Slack tools, so the manifest already
+        subscribes to exactly the events the config needs. 400 if the revision
+        has no slack trigger.
+        """
+        revision: AgentRevision = self.get_object()
+        base = (settings.AGENT_INGRESS_PUBLIC_URL or "").rstrip("/")
+        slug = revision.application.slug
+        events_url = f"{base}/agents/{slug}/slack/events" if base and slug else None
+        interactivity_url = f"{base}/agents/{slug}/slack/interactivity" if base and slug else None
+        result = self._call(
+            _janitor().slack_manifest,
+            str(revision.id),
+            events_url=events_url,
+            interactivity_url=interactivity_url,
+        )
+        return Response({**result, "events_url": events_url, "interactivity_url": interactivity_url})
 
     # DRF routes the typed bundle verbs across @action + .mapping.<verb>
     # chains. Three separate @action decorators with the same url_path
@@ -1932,21 +2000,18 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         revision: AgentRevision = self.get_object()
         janitor_client = _janitor()
-        try:
-            freeze_templates_into_bundle(revision, janitor_client, team_id=self.team_id)
-            result = self._call(janitor_client.freeze, str(revision.id))
-            revision.state = "ready"
-            revision.bundle_sha256 = result["bundle_sha256"]
-            derived_spec = result.get("derived_spec")
-            if derived_spec is not None:
-                revision.spec = derived_spec
-                revision.save(update_fields=["state", "bundle_sha256", "spec"])
-            else:
-                revision.save(update_fields=["state", "bundle_sha256"])
-        except FreezeError as e:
-            err = ValidationError(e.message)
-            err.extra = {"kind": e.kind, "index": e.index}  # type: ignore[attr-defined]
-            raise err from e
+        # Skill / custom-tool template pinning (freeze_templates_into_bundle) is
+        # disabled pending a registry rethink — see the commented-out template
+        # routes in routes.py.
+        result = self._call(janitor_client.freeze, str(revision.id))
+        revision.state = "ready"
+        revision.bundle_sha256 = result["bundle_sha256"]
+        derived_spec = result.get("derived_spec")
+        if derived_spec is not None:
+            revision.spec = derived_spec
+            revision.save(update_fields=["state", "bundle_sha256", "spec"])
+        else:
+            revision.save(update_fields=["state", "bundle_sha256"])
         revision.refresh_from_db()
         return Response(
             {
@@ -1965,7 +2030,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         source_id = str(body.validated_data["source_revision_id"])
         # Guard against cross-app cloning — the source must belong to the same
         # team. The janitor doesn't enforce this since it trusts Django.
-        source = AgentRevision.objects.filter(application__team_id=self.team_id, pk=source_id).first()
+        source = AgentRevision.all_teams.filter(application__team_id=self.team_id, pk=source_id).first()
         if source is None:
             raise NotFound("Source revision not found in this team.")
         return Response(self._call(_janitor().clone_from, str(revision.id), source_id))
@@ -1981,20 +2046,21 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         application_id = str(body.validated_data["application_id"])
         source_id = str(body.validated_data["source_revision_id"])
 
-        application = AgentApplication.objects.filter(team_id=self.team_id, pk=application_id, archived=False).first()
+        application = AgentApplication.all_teams.filter(team_id=self.team_id, pk=application_id, archived=False).first()
         if application is None:
             raise NotFound("Application not found in this team.")
-        source = AgentRevision.objects.filter(application__team_id=self.team_id, pk=source_id).first()
+        source = AgentRevision.all_teams.filter(application__team_id=self.team_id, pk=source_id).first()
         if source is None:
             raise NotFound("Source revision not found in this team.")
 
         # bundle_uri convention: the runner-side bundle store resolves this.
         # In dev/CI we use a filesystem prefix derived from the app + new
         # revision id; prod swaps in the team's S3 prefix at deploy time.
-        draft = AgentRevision.objects.create(
+        draft = AgentRevision.all_teams.create(
             application=application,
+            team_id=application.team_id,
             parent_revision=source,
-            created_by=cast(User, self.request.user),
+            created_by_id=self.request.user.id,
             state="draft",
             bundle_uri=source.bundle_uri,  # same bundle root; janitor scopes by revision_id
             spec=source.spec,
@@ -2179,7 +2245,7 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _get_application(self) -> AgentApplication:
         app = _resolve_application(
-            AgentApplication.objects.filter(team_id=self.team_id, archived=False),
+            AgentApplication.all_teams.filter(team_id=self.team_id, archived=False),
             self.kwargs.get("parent_lookup_application_id") or self.kwargs.get("application_id"),
         )
         if app is None:
@@ -2211,7 +2277,7 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             extra: dict[str, Any] = dataclasses.field(default_factory=dict)
 
         log_activity(
-            organization_id=application.team.organization_id,
+            organization_id=self.organization_id,
             team_id=application.team_id,
             user=cast(User, self.request.user),
             was_impersonated=getattr(self.request, "user_is_impersonated", False),

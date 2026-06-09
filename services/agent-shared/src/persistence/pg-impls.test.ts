@@ -11,7 +11,7 @@
 import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 
-import { reset } from '@posthog/agent-migrations'
+import { reset } from '@posthog/agent-shared/testing'
 
 import { EncryptedFields } from '../runtime/encryption'
 import { PgSandboxInstanceStore } from '../sandbox/sandbox-instance-store'

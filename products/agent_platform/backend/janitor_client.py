@@ -80,6 +80,14 @@ class JanitorClient:
     def manifest(self, revision_id: str) -> dict:
         return self._call("GET", f"/revisions/{revision_id}/manifest")
 
+    def slack_manifest(self, revision_id: str, *, events_url: str | None, interactivity_url: str | None) -> dict:
+        params: dict[str, str] = {}
+        if events_url:
+            params["events_url"] = events_url
+        if interactivity_url:
+            params["interactivity_url"] = interactivity_url
+        return self._call("GET", f"/revisions/{revision_id}/slack-manifest", params=params)
+
     # ── typed bundle authoring API ─────────────────────────────────────────
     # See docs/agent-platform/plans/typed-bundle-authoring-api.md.
     # The legacy file-grain methods (get_file / put_file / delete_file /

@@ -58,12 +58,14 @@ export const PlatformConfigSchema = z.object({
         .string()
         .url()
         .default('postgres://posthog:posthog@localhost:5432/posthog')
-        .describe('Django/PostHog DB — owns agent_application + agent_revision (authoring tables).'),
+        .describe(
+            'Main PostHog DB — read for cross-product data only (posthog_integration, users, org membership). No agent tables.'
+        ),
     agentDbUrl: z
         .string()
         .url()
-        .default('postgres://posthog:posthog@localhost:5432/agent_runtime_queue')
-        .describe('Queue + sandbox-instances DB — runtime data, owned by the node side.'),
+        .default('postgres://posthog:posthog@localhost:5432/posthog_agent_platform')
+        .describe('agent_platform product DB — Django-owned schema, holds every agent_* table (authoring + runtime).'),
     redisUrl: z
         .string()
         .url()

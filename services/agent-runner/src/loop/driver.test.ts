@@ -10,7 +10,6 @@ import {
 } from '@earendil-works/pi-ai'
 import { Pool } from 'pg'
 
-import { reset } from '@posthog/agent-migrations'
 import {
     AgentRevision,
     type ApprovalRequest,
@@ -31,6 +30,7 @@ import {
     SessionPrincipal,
     wipeTestPrefix,
 } from '@posthog/agent-shared'
+import { reset } from '@posthog/agent-shared/testing'
 
 const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'localhost:9092'
 import { setPosthogInternalClient } from '@posthog/agent-tools'

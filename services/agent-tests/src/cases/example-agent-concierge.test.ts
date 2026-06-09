@@ -241,16 +241,19 @@ describe('example: agent-concierge bundle', () => {
         expect(promote!.approval_policy.ttl_ms).toBe(900_000)
     })
 
-    it('seed.py script exists and is executable as Python', async () => {
-        const scriptPath = join(BUNDLE_ROOT, 'scripts', 'seed.py')
-        const src = await readFile(scriptPath, 'utf-8')
-        // Two things that would silently break the deploy if removed:
+    it('the shared example seeder deploys this bundle without stripping mcps', async () => {
+        // The concierge deploys via the shared generic seeder
+        // (services/agent-tests/src/examples/seed.py), which auto-discovers
+        // any dir with spec.json + agent.md. Things that would silently break
+        // the deploy if removed:
         // - shebang for direct exec
         // - per_file_sha256 powers the no-op idempotency check
-        // PR 7 removed the `spec["mcps"] = []` strip — the bundle now ships
-        // `mcps[]` in the discriminated union shape the platform accepts.
+        // - the seeder must NOT strip `mcps[]` — the bundle ships it in the
+        //   discriminated union shape the platform accepts.
+        const scriptPath = resolve(__dirname, '../examples/seed.py')
+        const src = await readFile(scriptPath, 'utf-8')
         expect(src.startsWith('#!/usr/bin/env python3')).toBe(true)
-        expect(src).toContain('def load_v0_spec()')
+        expect(src).toContain('def load_v0_spec(')
         expect(src).toContain('def per_file_sha256(')
         expect(src).not.toContain('spec["mcps"] = []')
     })

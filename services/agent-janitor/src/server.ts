@@ -54,6 +54,7 @@ import {
     ApprovalStore,
     BundleEntry,
     BundleStore,
+    buildSlackManifest,
     buildSystemPrompt,
     ConversationMessage,
     createLogger,
@@ -749,6 +750,52 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 bundle_sha256: rev.bundle_sha256,
                 files: entries,
             })
+        })
+    )
+
+    // Deterministic Slack app manifest for the revision's slack trigger. The
+    // public request URLs are computed Django-side (only Django knows
+    // AGENT_INGRESS_PUBLIC_URL + the slug) and passed in as query params; the
+    // janitor supplies the spec, the app display info, and the native-tool
+    // scope catalog. 400 when the revision has no slack trigger.
+    app.get(
+        '/revisions/:id/slack-manifest',
+        asyncHandler(async (req, res) => {
+            if (!needRevisionStore(res)) {
+                return
+            }
+            const rev = await opts.revisions!.getRevision(req.params.id)
+            if (!rev) {
+                res.status(404).json({ error: 'revision_not_found' })
+                return
+            }
+            const application = await opts.revisions!.getApplication(rev.application_id)
+            if (!application) {
+                res.status(404).json({ error: 'application_not_found' })
+                return
+            }
+            const eventsUrl = typeof req.query.events_url === 'string' ? req.query.events_url : null
+            const interactivityUrl =
+                typeof req.query.interactivity_url === 'string' ? req.query.interactivity_url : null
+            const scopeByTool = new Map(listNativeTools().map((t) => [t.id, t.schema.requires.scopes]))
+            try {
+                const { manifest, notes } = buildSlackManifest({
+                    triggers: rev.spec.triggers ?? [],
+                    tools: rev.spec.tools ?? [],
+                    displayName: application.name,
+                    displayDescription: application.description,
+                    eventsUrl,
+                    interactivityUrl,
+                    scopesForNativeTool: (id) => scopeByTool.get(id) ?? [],
+                })
+                res.json({ revision_id: req.params.id, manifest, notes })
+            } catch (err) {
+                if (err instanceof Error && err.message === 'no_slack_trigger') {
+                    res.status(400).json({ error: 'no_slack_trigger' })
+                    return
+                }
+                throw err
+            }
         })
     )
 

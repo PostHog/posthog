@@ -609,13 +609,9 @@ procs:
             layer: Infrastructure
             tech: Migrations
 
-    migrate-agent-runtime:
-        shell: 'bin/wait-for-docker && bin/migrate --scope=agent_runtime'
-        capability: agent_runtime
-        ready_pattern: 'All migrations completed successfully'
-        groups:
-            layer: Infrastructure
-            tech: Migrations
+    # agent_platform schema is now Django-owned in its product DB, migrated by
+    # the main `migrate` process (migrate_product_databases). The old node-side
+    # migrate-agent-runtime process was removed.
 
     migrate-persons-db:
         shell: 'bin/wait-for-docker && bin/migrate --scope=persons'

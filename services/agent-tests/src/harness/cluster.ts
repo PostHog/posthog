@@ -30,7 +30,6 @@ import request from 'supertest'
 
 import { AuthProvider, buildApp, SessionEventBus } from '@posthog/agent-ingress'
 import { buildJanitorApp } from '@posthog/agent-janitor'
-import { reset } from '@posthog/agent-migrations'
 import { IntegrationHostValidator, IsAskerInApproverScope, McpTransportFactory, Worker } from '@posthog/agent-runner'
 import type { IdentityStore, LogEntry } from '@posthog/agent-shared'
 import {
@@ -61,6 +60,7 @@ import {
     TEST_S3_BUCKET,
     wipeTestPrefix as wipeMemoryTestPrefix,
 } from '@posthog/agent-shared'
+import { reset } from '@posthog/agent-shared/testing'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
 
 import { buildFauxModel, ScriptedTurn } from './faux'

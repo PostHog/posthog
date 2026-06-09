@@ -14,7 +14,6 @@ function uuidFor(label: string): string {
     return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`
 }
 
-import { reset } from '@posthog/agent-migrations'
 import {
     AgentSession,
     AgentSpecSchema,
@@ -28,6 +27,7 @@ import {
     S3BundleStore,
     wipeTestPrefix,
 } from '@posthog/agent-shared'
+import { reset } from '@posthog/agent-shared/testing'
 
 import { buildJanitorApp } from './server'
 

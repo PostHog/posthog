@@ -11,7 +11,6 @@
 import { type AssistantMessage, fauxAssistantMessage, type Model, registerFauxProvider } from '@earendil-works/pi-ai'
 import { Pool } from 'pg'
 
-import { reset } from '@posthog/agent-migrations'
 import { Worker } from '@posthog/agent-runner'
 import {
     AgentSpecSchema,
@@ -28,6 +27,7 @@ import {
     TEST_S3_BUCKET,
     wipeTestPrefix,
 } from '@posthog/agent-shared'
+import { reset } from '@posthog/agent-shared/testing'
 
 const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'localhost:9092'
 

@@ -1,12 +1,12 @@
 /**
  * Janitor entrypoint. Single-process: HTTP server + periodic sweep timer.
  *
- * Two Postgres pools (matches runner + ingress):
- *   - posthogDb (POSTHOG_DB_URL): Django-owned agent_application + agent_revision.
- *     The revision store reads from here so /revisions/* HTTP endpoints
- *     can resolve revisions.
- *   - agentDb (AGENT_DB_URL): queue + sandbox-instances; janitor sweep
- *     reaps stuck rows here.
+ * One Postgres pool:
+ *   - agentDb (AGENT_DB_URL): the Django-owned agent_platform product DB.
+ *     Holds the authoring tables (agent_application + agent_revision, read by
+ *     the revision store for /revisions/*) alongside the runtime queue +
+ *     sandbox-instances the sweep reaps. Unlike the runner + ingress, the
+ *     janitor never touches the main PostHog DB.
  *
  * Bundle storage: S3-backed via `S3BundleStore` (AGENT_BUNDLE_S3_BUCKET +
  * endpoint required at boot). Dev runs SeaweedFS; prod uses real S3 with the
@@ -74,14 +74,12 @@ async function main(): Promise<void> {
         bucketPrefix: config.bundleS3Prefix,
     })
 
-    const posthogDb = createAgentPool(config.posthogDbUrl)
     const agentDb = createAgentPool(config.agentDbUrl)
-    // Schema is owned by `agent-migrator`; the chart runs a one-shot Job
-    // (`charts/agent-migrator/`) on every sync. Runtime no longer calls
-    // migrate() — runtime roles don't have DDL anyway.
+    // Schema is owned by Django (the agent_platform product DB, migrated by
+    // migrate_product_databases). Runtime roles have no DDL.
 
     const queue = new PgSessionQueue(agentDb)
-    const revisions = new PgRevisionStore(posthogDb)
+    const revisions = new PgRevisionStore(agentDb)
     // Approvals: backs both the /approvals/* HTTP surface (decide / list /
     // get for the authoring UI + MCP) and the sweep's expireQueued path.
     // Without it both 503 / silently no-op.

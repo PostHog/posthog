@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { Pool } from 'pg'
 
-import { reset } from '@posthog/agent-migrations'
+import { reset } from '@posthog/agent-shared/testing'
 
 /**
  * Deterministic uuid from a short label. Mirrors the helper in `server.test.ts`;

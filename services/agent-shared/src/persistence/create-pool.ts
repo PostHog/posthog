@@ -22,6 +22,12 @@ import pg from 'pg'
 import type { Pool as PoolType, PoolConfig } from 'pg'
 const { Pool } = pg
 
+// team_id / created_by_id are BIGINT (Django's ProductTeamModel uses
+// BigIntegerField), but the agent code threads them as JS numbers. node-postgres
+// returns int8 as a string by default to avoid precision loss — parse it back to
+// a number. These ids comfortably fit in Number.MAX_SAFE_INTEGER.
+pg.types.setTypeParser(20, (value: string | null) => (value === null ? null : Number.parseInt(value, 10)))
+
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', ''])
 
 function isLocalHost(connectionString: string): boolean {

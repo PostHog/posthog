@@ -14,7 +14,6 @@ import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { z } from 'zod'
 
-import { reset } from '@posthog/agent-migrations'
 import {
     AgentSession,
     AgentSpecSchema,
@@ -31,6 +30,7 @@ import {
     SecretBroker,
     wipeTestPrefix,
 } from '@posthog/agent-shared'
+import { reset } from '@posthog/agent-shared/testing'
 
 const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'localhost:9092'
 import { setPosthogInternalClient } from '@posthog/agent-tools'

@@ -269,6 +269,32 @@ export const posthogAgentApplicationsRevisionsBundleRetrieveV1 = defineNativeToo
     },
 })
 
+export const posthogAgentApplicationsRevisionsSlackManifestV1 = defineNativeTool({
+    id: '@posthog/agent-applications-revisions-slack-manifest',
+    description:
+        "Generate the Slack app manifest for a revision that has a slack trigger. Returns `{ revision_id, manifest, notes, events_url, interactivity_url }`. `manifest` is a ready-to-paste Slack app manifest (JSON) for https://api.slack.com/apps?new_app=1 → 'From an app manifest' — its OAuth scopes and bot event subscriptions are DERIVED from the agent's slack trigger config (mention_only / auto_resume_threads / ack_reaction) and its Slack tools, so it subscribes to exactly the events the config needs. Hand the user the manifest plus the create-from-manifest link, and surface `notes` (e.g. invite the bot to its channels). Fails if the revision has no slack trigger.",
+    args: Type.Object({
+        ...agentRefFields,
+        revision_id: Type.String({ description: 'Revision UUID.' }),
+    }),
+    returns: Type.Object({
+        revision_id: Type.String(),
+        manifest: Type.Record(Type.String(), Type.Unknown()),
+        notes: Type.Array(Type.String()),
+        events_url: Type.Union([Type.String(), Type.Null()]),
+        interactivity_url: Type.Union([Type.String(), Type.Null()]),
+    }),
+    requires: { integrations: [], scopes: ['agents:read'] },
+    cost_hint: 'cheap',
+    async run(args, ctx) {
+        const id = await resolveApplicationId(ctx, args)
+        return callPosthogApi(ctx, {
+            method: 'GET',
+            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/slack_manifest/`),
+        })
+    },
+})
+
 /* ──────────────────────────────────────────────────────────────────────
  * Sessions
  * ────────────────────────────────────────────────────────────────────── */

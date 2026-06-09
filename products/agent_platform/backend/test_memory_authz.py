@@ -20,10 +20,18 @@ from .models import AgentApplication
 
 
 class TestMemoryViewSetAuthz(APIBaseTest):
+    databases = {
+        "default",
+        "persons_db_writer",
+        "persons_db_reader",
+        "agent_platform_db_writer",
+        "agent_platform_db_reader",
+    }
+
     def setUp(self) -> None:
         super().setUp()
-        self.application = AgentApplication.objects.create(
-            team=self.team, slug="memo-agent", name="Memo agent", description=""
+        self.application = AgentApplication.all_teams.create(
+            team_id=self.team.id, slug="memo-agent", name="Memo agent", description=""
         )
         self.tables_url = f"/api/projects/{self.team.id}/agent_applications/{self.application.id}/memory/tables/"
 
@@ -43,7 +51,9 @@ class TestMemoryViewSetAuthz(APIBaseTest):
         # called and no rows leak across the tenant boundary.
         other_org = Organization.objects.create(name="other-org")
         other_team = Team.objects.create(organization=other_org, name="other-team")
-        foreign = AgentApplication.objects.create(team=other_team, slug="foreign", name="Foreign", description="")
+        foreign = AgentApplication.all_teams.create(
+            team_id=other_team.id, slug="foreign", name="Foreign", description=""
+        )
         url = f"/api/projects/{self.team.id}/agent_applications/{foreign.id}/memory/tables/"
         res = self.client.get(url)
         self.assertEqual(res.status_code, 404, res.content)

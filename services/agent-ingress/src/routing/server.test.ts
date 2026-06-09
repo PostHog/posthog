@@ -2,7 +2,6 @@ import { createHmac } from 'crypto'
 import { Pool } from 'pg'
 import request from 'supertest'
 
-import { reset } from '@posthog/agent-migrations'
 import {
     AgentSpecSchema,
     PgCredentialBroker,
@@ -11,6 +10,7 @@ import {
     RedisSessionEventBus,
 } from '@posthog/agent-shared'
 import type { AgentApplication, AgentRevision } from '@posthog/agent-shared'
+import { reset } from '@posthog/agent-shared/testing'
 
 import { buildApp } from './server'
 

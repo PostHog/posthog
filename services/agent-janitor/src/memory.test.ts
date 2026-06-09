@@ -13,8 +13,8 @@ import { Pool } from 'pg'
 import request from 'supertest'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
-import { reset } from '@posthog/agent-migrations'
 import { buildTestStore, newTestPrefix, PgSessionQueue, S3MemoryStore, wipeTestPrefix } from '@posthog/agent-shared'
+import { reset } from '@posthog/agent-shared/testing'
 
 import { buildJanitorApp } from './server'
 

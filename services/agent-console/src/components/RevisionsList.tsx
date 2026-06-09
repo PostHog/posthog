@@ -84,7 +84,7 @@ function RevisionRow({
                     ) : null}
                 </div>
                 <div className="mt-0.5 flex items-center gap-2 text-[0.6875rem] text-muted-foreground">
-                    <span>by {revision.created_by.first_name}</span>
+                    <span>by {revision.created_by?.first_name ?? 'Unknown user'}</span>
                     <span>·</span>
                     <span>created {formatRelative(revision.created_at)}</span>
                     {revision.updated_at !== revision.created_at ? (

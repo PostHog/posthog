@@ -41,7 +41,9 @@ from products.agent_platform.backend.api import (
     AgentNativeToolsViewSet,
     AgentRevisionViewSet,
 )
-from products.agent_platform.backend.registry_api import AgentCustomToolTemplateViewSet, AgentSkillTemplateViewSet
+
+# Skill / custom-tool template registry disabled pending a rethink.
+# from products.agent_platform.backend.registry_api import AgentCustomToolTemplateViewSet, AgentSkillTemplateViewSet
 from products.ai_observability.backend.api import (
     AIObservabilityClusteringRunViewSet,
     AIObservabilityOfflineEvaluationsViewSet,
@@ -1558,18 +1560,15 @@ projects_router.register(
     "project_agent_native_tools",
     ["project_id"],
 )
-projects_router.register(
-    r"agent_skill_templates",
-    AgentSkillTemplateViewSet,
-    "project_agent_skill_templates",
-    ["project_id"],
-)
-projects_router.register(
-    r"agent_custom_tool_templates",
-    AgentCustomToolTemplateViewSet,
-    "project_agent_custom_tool_templates",
-    ["project_id"],
-)
+# Skill / custom-tool template routes disabled pending a registry rethink.
+# projects_router.register(
+#     r"agent_skill_templates", AgentSkillTemplateViewSet,
+#     "project_agent_skill_templates", ["project_id"],
+# )
+# projects_router.register(
+#     r"agent_custom_tool_templates", AgentCustomToolTemplateViewSet,
+#     "project_agent_custom_tool_templates", ["project_id"],
+# )
 projects_router.register(
     r"agent_fleet",
     AgentFleetViewSet,

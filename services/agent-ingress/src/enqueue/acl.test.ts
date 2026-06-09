@@ -9,7 +9,6 @@
 
 import { Pool } from 'pg'
 
-import { reset } from '@posthog/agent-migrations'
 import {
     AgentSession,
     EMPTY_USAGE_TOTAL,
@@ -17,6 +16,7 @@ import {
     PgSessionQueue,
     SessionPrincipal,
 } from '@posthog/agent-shared'
+import { reset } from '@posthog/agent-shared/testing'
 
 import { applyElevationDecline, applyElevationGrant, authorizeGrant } from './acl'
 

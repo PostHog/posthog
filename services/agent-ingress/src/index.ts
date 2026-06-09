@@ -103,7 +103,7 @@ async function main(): Promise<void> {
     const slackSigningSecretResolver = new EncryptedEnvSlackSecretResolver(encryption)
 
     const app = buildApp({
-        revisions: new PgRevisionStore(posthogDb),
+        revisions: new PgRevisionStore(agentDb),
         queue: new PgSessionQueue(agentDb),
         identities: new PgIdentityStore(agentDb),
         bus,

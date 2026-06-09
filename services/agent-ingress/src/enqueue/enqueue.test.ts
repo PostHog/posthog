@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 
-import { reset } from '@posthog/agent-migrations'
 import { AgentSpecSchema, PgSessionQueue, SessionPrincipal } from '@posthog/agent-shared'
 import type { AgentApplication, AgentRevision } from '@posthog/agent-shared'
+import { reset } from '@posthog/agent-shared/testing'
 
 import { enqueueOrResume } from './enqueue'
 

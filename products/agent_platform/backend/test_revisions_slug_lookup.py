@@ -23,18 +23,26 @@ from .models import AgentApplication, AgentRevision
 
 
 class TestRevisionsSlugLookup(APIBaseTest):
+    databases = {
+        "default",
+        "persons_db_writer",
+        "persons_db_reader",
+        "agent_platform_db_writer",
+        "agent_platform_db_reader",
+    }
+
     def setUp(self) -> None:
         super().setUp()
-        self.application = AgentApplication.objects.create(
-            team=self.team,
+        self.application = AgentApplication.all_teams.create(
+            team_id=self.team.id,
             slug="weekly-digest",
             name="Weekly digest",
             description="",
         )
         # Two revisions so a list call returns >0 and we can tell the slug
         # path is actually resolving the right application.
-        self.revision_a = AgentRevision.objects.create(application=self.application, state="draft", spec={})
-        self.revision_b = AgentRevision.objects.create(application=self.application, state="draft", spec={})
+        self.revision_a = AgentRevision.all_teams.create(application=self.application, state="draft", spec={})
+        self.revision_b = AgentRevision.all_teams.create(application=self.application, state="draft", spec={})
 
     def test_revisions_list_accepts_slug(self) -> None:
         resp = self.client.get(f"/api/projects/{self.team.id}/agent_applications/{self.application.slug}/revisions/")

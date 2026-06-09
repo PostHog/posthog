@@ -19,10 +19,18 @@ from .models import AgentApplication
 
 
 class TestAgentApplicationStats(APIBaseTest):
+    databases = {
+        "default",
+        "persons_db_writer",
+        "persons_db_reader",
+        "agent_platform_db_writer",
+        "agent_platform_db_reader",
+    }
+
     def setUp(self) -> None:
         super().setUp()
-        self.application = AgentApplication.objects.create(
-            team=self.team,
+        self.application = AgentApplication.all_teams.create(
+            team_id=self.team.id,
             slug="stats-agent",
             name="Stats Agent",
             description="",
@@ -67,6 +75,14 @@ class TestAgentApplicationStats(APIBaseTest):
 
 
 class TestAgentFleetViewSet(APIBaseTest):
+    databases = {
+        "default",
+        "persons_db_writer",
+        "persons_db_reader",
+        "agent_platform_db_writer",
+        "agent_platform_db_reader",
+    }
+
     def setUp(self) -> None:
         super().setUp()
         self.url_stats = f"/api/projects/{self.team.id}/agent_fleet/stats/"

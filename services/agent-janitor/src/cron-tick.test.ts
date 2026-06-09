@@ -7,7 +7,6 @@
 
 import { Pool } from 'pg'
 
-import { reset } from '@posthog/agent-migrations'
 import {
     AgentApplication,
     AgentRevision,
@@ -15,6 +14,7 @@ import {
     PgRevisionStore,
     PgSessionQueue,
 } from '@posthog/agent-shared'
+import { reset } from '@posthog/agent-shared/testing'
 
 import { cronTick, fireCronManually, newCronTickState } from './cron-tick'
 

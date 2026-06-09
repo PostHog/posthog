@@ -25,10 +25,18 @@ from .models import AgentApplication
 
 
 class TestApprovalEndpointsAuth(APIBaseTest):
+    databases = {
+        "default",
+        "persons_db_writer",
+        "persons_db_reader",
+        "agent_platform_db_writer",
+        "agent_platform_db_reader",
+    }
+
     def setUp(self) -> None:
         super().setUp()
-        self.application = AgentApplication.objects.create(
-            team=self.team,
+        self.application = AgentApplication.all_teams.create(
+            team_id=self.team.id,
             slug="gated-agent",
             name="Gated Agent",
             description="",
@@ -96,8 +104,8 @@ class TestApprovalEndpointsAuth(APIBaseTest):
     @patch("products.agent_platform.backend.api._janitor")
     def test_admin_cannot_decide_approval_for_other_application(self, mock_janitor) -> None:
         self._set_org_level(OrganizationMembership.Level.ADMIN)
-        other_app = AgentApplication.objects.create(
-            team=self.team,
+        other_app = AgentApplication.all_teams.create(
+            team_id=self.team.id,
             slug="other-agent",
             name="Other Agent",
             description="",

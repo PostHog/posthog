@@ -7,7 +7,9 @@ from products.agent_platform.backend.api import (
     AgentNativeToolsViewSet,
     AgentRevisionViewSet,
 )
-from products.agent_platform.backend.registry_api import AgentCustomToolTemplateViewSet, AgentSkillTemplateViewSet
+
+# Skill / custom-tool template registry is disabled pending a rethink.
+# from products.agent_platform.backend.registry_api import AgentCustomToolTemplateViewSet, AgentSkillTemplateViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -35,18 +37,15 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_agent_native_tools",
         ["project_id"],
     )
-    routers.projects.register(
-        r"agent_skill_templates",
-        AgentSkillTemplateViewSet,
-        "project_agent_skill_templates",
-        ["project_id"],
-    )
-    routers.projects.register(
-        r"agent_custom_tool_templates",
-        AgentCustomToolTemplateViewSet,
-        "project_agent_custom_tool_templates",
-        ["project_id"],
-    )
+    # Skill / custom-tool template routes disabled pending a registry rethink.
+    # routers.projects.register(
+    #     r"agent_skill_templates", AgentSkillTemplateViewSet,
+    #     "project_agent_skill_templates", ["project_id"],
+    # )
+    # routers.projects.register(
+    #     r"agent_custom_tool_templates", AgentCustomToolTemplateViewSet,
+    #     "project_agent_custom_tool_templates", ["project_id"],
+    # )
     routers.projects.register(
         r"agent_fleet",
         AgentFleetViewSet,

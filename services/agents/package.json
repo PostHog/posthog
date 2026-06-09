@@ -14,7 +14,6 @@
     "dependencies": {
         "@posthog/agent-ingress": "workspace:*",
         "@posthog/agent-janitor": "workspace:*",
-        "@posthog/agent-migrations": "workspace:*",
         "@posthog/agent-runner": "workspace:*",
         "node-rdkafka": "^3.4.0"
     },

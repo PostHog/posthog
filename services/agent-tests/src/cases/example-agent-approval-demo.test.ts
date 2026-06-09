@@ -116,15 +116,16 @@ describe('example: agent-approval-demo bundle', () => {
         expect(write!.approval_policy?.allow_edit).toBe(true)
     })
 
-    it('seed.py script exists with the deploy primitives intact', async () => {
-        const scriptPath = join(BUNDLE_ROOT, 'scripts', 'seed.py')
+    it('the shared example seeder exists with the deploy primitives intact', async () => {
+        // One generic seeder serves every example bundle; it auto-discovers
+        // any dir holding spec.json + agent.md (this bundle qualifies — proven
+        // by loadBundle above) and runs the full deploy pipeline per bundle.
+        const scriptPath = resolve(__dirname, '../examples/seed.py')
         const src = await readFile(scriptPath, 'utf-8')
         expect(src.startsWith('#!/usr/bin/env python3')).toBe(true)
         expect(src).toContain('def per_file_sha256(')
-        expect(src).toContain('def load_v0_spec()')
-        // The default SLUG is the agent name — protects against a future
-        // accidental rename breaking the README's deploy instructions.
-        expect(src).toContain('SLUG = os.environ.get("SLUG", "agent-approval-demo")')
+        expect(src).toContain('def load_v0_spec(')
+        expect(src).toContain('def discover_bundles(')
     })
 
     // ── End-to-end run-through: queue → approve → real dispatch ──────

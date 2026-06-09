@@ -59,18 +59,9 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ] && [ "${DEPLOYMENT:-}" != "hobby" ]; then
 
 fi
 
-if run_scope "agent_runtime"; then
-    # v2 agent platform schema lives in services/agent-migrations.
-    # Honour the existing env var name used by deploy scripts.
-    AGENT_RUNTIME_QUEUE_DATABASE_NAME=${AGENT_RUNTIME_QUEUE_DATABASE_NAME:-agent_runtime_queue}
-    AGENT_RUNTIME_QUEUE_DATABASE_URL=${AGENT_RUNTIME_QUEUE_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$AGENT_RUNTIME_QUEUE_DATABASE_NAME}
-    echo "Performing agent-runtime migrations for $AGENT_RUNTIME_QUEUE_DATABASE_URL"
-    AGENT_DB_URL="$AGENT_RUNTIME_QUEUE_DATABASE_URL" pnpm --silent --filter @posthog/agent-migrations migrate
-    if [ $? -ne 0 ]; then
-        echo "Error in agent-migrations migrate, exiting."
-        exit 1
-    fi
-fi
+# The v2 agent platform schema is now Django-owned in the `agent_platform`
+# product DB — migrated by `migrate_product_databases` under the `postgres`
+# scope below. The old node-side `agent_runtime` migration scope was removed.
 
 if run_scope "clickhouse"; then RUN_CLICKHOUSE=1; else RUN_CLICKHOUSE=0; fi
 if run_scope "postgres"; then RUN_POSTGRES=1; else RUN_POSTGRES=0; fi

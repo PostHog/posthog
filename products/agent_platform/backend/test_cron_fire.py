@@ -17,15 +17,23 @@ from .models import AgentApplication, AgentRevision
 
 
 class TestCronFireAction(APIBaseTest):
+    databases = {
+        "default",
+        "persons_db_writer",
+        "persons_db_reader",
+        "agent_platform_db_writer",
+        "agent_platform_db_reader",
+    }
+
     def setUp(self) -> None:
         super().setUp()
-        self.application = AgentApplication.objects.create(
-            team=self.team,
+        self.application = AgentApplication.all_teams.create(
+            team_id=self.team.id,
             slug="cron-fire-agent",
             name="Cron fire agent",
             description="",
         )
-        self.revision = AgentRevision.objects.create(
+        self.revision = AgentRevision.all_teams.create(
             application=self.application,
             spec={
                 "model": "x",

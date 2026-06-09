@@ -29,6 +29,43 @@ sees "Your URL didn't respond" because there's no live revision to
 verify against. They retry, get confused, blame the tunnel — wasted
 time. **Always promote first, then surface the URL.**
 
+## Fast path — create the app from a manifest (prefer this)
+
+Don't make the user hand-pick OAuth scopes and bot event subscriptions —
+they get it wrong (classically: `auto_resume_threads` on but
+`message.channels` never subscribed, so thread replies never arrive).
+Instead, call **`agent-applications-revisions-slack-manifest`** (native
+tool / MCP tool `agent-applications-revisions-slack-manifest`) for the
+revision. It returns `{ manifest, notes, events_url, interactivity_url }`
+where `manifest` is a ready-to-paste Slack app manifest whose scopes +
+bot events are **derived from this agent's slack trigger config and
+tools** — so they're correct by construction.
+
+Hand the user:
+
+1. The deep link: <https://api.slack.com/apps?new_app=1> → "From an app
+   manifest" → pick the workspace → paste the `manifest` JSON (JSON tab).
+2. Each line in `notes` (e.g. "invite the bot to its channels").
+
+This replaces the manual scope/event picking in Step 1.3 + Step 3.2
+below — keep those as the by-hand fallback for when the user would
+rather click through, or to explain what a field does.
+
+**The ordering still holds**, because creating from a manifest that
+carries the events Request URL makes Slack verify it immediately:
+
+- The manifest still needs `SLACK_SIGNING_SECRET` + `SLACK_BOT_TOKEN`
+  set + the agent promoted before that URL will verify. So: create the
+  app from the manifest, grab the signing secret + bot token from it,
+  punch them out + promote (Step 2), then back in Slack hit "Retry" on
+  the events Request URL — now live, it verifies.
+- If `events_url` came back null (no public ingress URL), say so and
+  stop — same as the manual flow; the manifest's URL is a placeholder.
+
+The console surfaces the same manifest under the agent's **Connections**
+tab ("Set up Slack" card) — point console users there instead of pasting
+JSON into chat.
+
 ## Prereqs you can detect
 
 Before walking the user through anything, gather:

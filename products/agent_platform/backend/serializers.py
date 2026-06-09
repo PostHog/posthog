@@ -16,8 +16,38 @@ import jsonschema
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from posthog.models import User
+
 from .models import AgentApplication, AgentRevision
 from .spec_schema import AGENT_SPEC_JSON_SCHEMA, AGENT_SPEC_JSON_SCHEMA_FOR_WRITE
+
+# Shape of the resolved `created_by` object — exactly the fields the agent
+# console renders. Nullable: `created_by_id` may be unset (system rows) or
+# point at a since-deleted user.
+_CREATED_BY_SCHEMA = {
+    "type": "object",
+    "nullable": True,
+    "properties": {
+        "id": {"type": "integer"},
+        "first_name": {"type": "string"},
+        "email": {"type": "string", "format": "email"},
+    },
+}
+
+
+def _resolve_created_by(context: dict[str, Any], user_id: int | None) -> dict[str, Any] | None:
+    """Resolve a `created_by_id` (plain int — these are product-DB models with
+    no cross-DB FK to User) into a minimal user object. Cached per serializer
+    context so a list endpoint resolves each distinct user once."""
+    if not user_id:
+        return None
+    cache: dict[int, dict[str, Any] | None] = context.setdefault("_created_by_cache", {})
+    if user_id not in cache:
+        user = User.objects.filter(pk=user_id).only("id", "first_name", "email").first()
+        cache[user_id] = (
+            {"id": user.id, "first_name": user.first_name, "email": user.email} if user is not None else None
+        )
+    return cache[user_id]
 
 
 def _validate_mcp_tool_names_unique(spec: Any) -> None:
@@ -61,18 +91,22 @@ class AgentApplicationSerializer(serializers.ModelSerializer):
             "Same source + null behaviour as `slack_events_url`."
         ),
     )
+    created_by = serializers.SerializerMethodField(
+        help_text="Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.",
+    )
 
     class Meta:
         model = AgentApplication
         fields = [
             "id",
-            "team",
+            "team_id",
             "name",
             "slug",
             "description",
             "live_revision",
             "archived",
             "archived_at",
+            "created_by_id",
             "created_by",
             "created_at",
             "updated_at",
@@ -83,15 +117,19 @@ class AgentApplicationSerializer(serializers.ModelSerializer):
         # never round-tripped through the standard CRUD payload.
         read_only_fields = [
             "id",
-            "team",
+            "team_id",
             "live_revision",
             "archived_at",
-            "created_by",
+            "created_by_id",
             "created_at",
             "updated_at",
             "slack_events_url",
             "slack_interactivity_url",
         ]
+
+    @extend_schema_field(_CREATED_BY_SCHEMA)
+    def get_created_by(self, obj: AgentApplication) -> dict[str, Any] | None:
+        return _resolve_created_by(self.context, obj.created_by_id)
 
     @extend_schema_field({"type": "string", "format": "uri", "nullable": True})
     def get_slack_events_url(self, obj: AgentApplication) -> str | None:
@@ -119,6 +157,13 @@ class AgentSpecField(serializers.JSONField):
 
 class AgentRevisionSerializer(serializers.ModelSerializer):
     spec = AgentSpecField(required=False, default=dict)
+    created_by = serializers.SerializerMethodField(
+        help_text="Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.",
+    )
+
+    @extend_schema_field(_CREATED_BY_SCHEMA)
+    def get_created_by(self, obj: AgentRevision) -> dict[str, Any] | None:
+        return _resolve_created_by(self.context, obj.created_by_id)
 
     def validate_spec(self, value: Any) -> Any:
         # Same shape the janitor's `AgentSpecSchema.parse` will reject on
@@ -142,6 +187,7 @@ class AgentRevisionSerializer(serializers.ModelSerializer):
             "bundle_uri",
             "bundle_sha256",
             "spec",
+            "created_by_id",
             "created_by",
             "created_at",
             "updated_at",
@@ -153,7 +199,7 @@ class AgentRevisionSerializer(serializers.ModelSerializer):
             "application",
             "state",
             "bundle_sha256",
-            "created_by",
+            "created_by_id",
             "created_at",
             "updated_at",
         ]

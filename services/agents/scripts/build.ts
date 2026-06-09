@@ -1,18 +1,17 @@
 /**
- * Bundles the four agent-platform entrypoints into self-contained ESM
+ * Bundles the agent-platform runtime entrypoints into self-contained ESM
  * files under `dist/`. Mirrors services/mcp/scripts/build-hono.ts in shape
  * (single esbuild invocation, no externals, banner that shims `require`
- * for CJS deps like `pg` and `node-pg-migrate`).
+ * for CJS deps like `pg`).
  *
  * Output layout (consumed by services/agents/Dockerfile):
  *   dist/ingress.mjs
  *   dist/runner.mjs
  *   dist/janitor.mjs
- *   dist/migrate.mjs
  *
- * `migrate.mjs` reads SQL files at runtime from `../migrations/` relative
- * to the bundle (see @posthog/agent-migrations lib.ts). The Dockerfile
- * copies the SQL files to `/code/migrations/` so that path resolves.
+ * Schema migrations are no longer bundled here — the agent_platform schema is
+ * Django-owned (the `agent_platform` product DB), migrated by the
+ * posthog-django `migrate_product_databases` job.
  */
 
 import { build } from 'esbuild'
@@ -27,7 +26,6 @@ const ENTRY_POINTS = {
     ingress: resolve(ROOT, 'services/agent-ingress/src/index.ts'),
     runner: resolve(ROOT, 'services/agent-runner/src/index.ts'),
     janitor: resolve(ROOT, 'services/agent-janitor/src/index.ts'),
-    migrate: resolve(ROOT, 'services/agent-migrations/src/bin.ts'),
 }
 
 await build({

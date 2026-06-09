@@ -23,6 +23,7 @@
         { "kind": "native", "id": "@posthog/agent-applications-revisions-retrieve" },
         { "kind": "native", "id": "@posthog/agent-applications-revisions-system-prompt" },
         { "kind": "native", "id": "@posthog/agent-applications-revisions-manifest-retrieve" },
+        { "kind": "native", "id": "@posthog/agent-applications-revisions-slack-manifest" },
         { "kind": "native", "id": "@posthog/agent-applications-sessions-list" },
         { "kind": "native", "id": "@posthog/agent-applications-sessions-retrieve" },
         { "kind": "native", "id": "@posthog/agent-applications-session-logs" },

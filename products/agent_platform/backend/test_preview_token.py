@@ -51,16 +51,24 @@ def _base_spec(triggers: list[dict[str, Any]] | None = None, modes: list[str] | 
 
 @override_settings(AGENT_INGRESS_PUBLIC_URL="https://ingress.example.com")
 class TestPreviewTokenResponse(APIBaseTest):
+    databases = {
+        "default",
+        "persons_db_writer",
+        "persons_db_reader",
+        "agent_platform_db_writer",
+        "agent_platform_db_reader",
+    }
+
     def _app(self, slug: str = "preview-bot") -> AgentApplication:
-        return AgentApplication.objects.create(
-            team=self.team,
+        return AgentApplication.all_teams.create(
+            team_id=self.team.id,
             slug=slug,
             name="Preview bot",
             description="",
         )
 
     def _revision(self, app: AgentApplication, spec: dict[str, Any]) -> AgentRevision:
-        return AgentRevision.objects.create(
+        return AgentRevision.all_teams.create(
             application=app,
             state="draft",
             bundle_uri=f"local://{app.slug}/v1",

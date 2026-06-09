@@ -170,7 +170,7 @@ export function RevisionsBrowser({
             if (!q) {
                 return true
             }
-            const hay = [r.id, r.bundle_sha256 ?? '', r.created_by.first_name, r.created_by.email ?? '']
+            const hay = [r.id, r.bundle_sha256 ?? '', r.created_by?.first_name ?? '', r.created_by?.email ?? '']
                 .join(' ')
                 .toLowerCase()
             return hay.includes(q)
@@ -390,7 +390,7 @@ function MetaPanel({
             </header>
             <div className="divide-y divide-border">
                 <MetaRow icon={<UserIcon className="h-3 w-3" />} label="Created">
-                    <span className="font-mono text-[0.6875rem]">{agent.created_by.first_name}</span>
+                    <span className="font-mono text-[0.6875rem]">{agent.created_by?.first_name ?? 'Unknown user'}</span>
                     <span className="text-muted-foreground/70"> · {formatDate(agent.created_at)}</span>
                 </MetaRow>
                 <MetaRow icon={<ArchiveIcon className="h-3 w-3" />} label="Status">
@@ -481,7 +481,7 @@ function MetaPanel({
                                 </code>
                             </span>
                         ) : null}
-                        <span>by {selected.created_by.first_name}</span>
+                        <span>by {selected.created_by?.first_name ?? 'Unknown user'}</span>
                         <span>updated {formatRelative(selected.updated_at)}</span>
                     </div>
                 </div>
@@ -866,7 +866,7 @@ function RevisionListItem({
                     <code className="truncate text-[0.6875rem] text-muted-foreground">{shortId(revision.id)}</code>
                 </div>
                 <div className="mt-0.5 text-[0.6875rem] text-muted-foreground">
-                    {formatRelative(revision.updated_at)} · {revision.created_by.first_name}
+                    {formatRelative(revision.updated_at)} · {revision.created_by?.first_name ?? 'Unknown user'}
                 </div>
             </div>
         </button>

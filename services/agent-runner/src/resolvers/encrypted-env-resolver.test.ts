@@ -1,7 +1,7 @@
 import { Pool } from 'pg'
 
-import { reset } from '@posthog/agent-migrations'
 import { EMPTY_USAGE_TOTAL, EncryptedFields, PgRevisionStore } from '@posthog/agent-shared'
+import { reset } from '@posthog/agent-shared/testing'
 
 import { makeEncryptedEnvResolver } from './encrypted-env-resolver'
 

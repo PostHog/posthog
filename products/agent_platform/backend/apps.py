@@ -13,11 +13,6 @@ class AgentPlatformConfig(AppConfig):
     label = "agent_platform"
 
     def ready(self) -> None:
-        # Bind activity-log signal receivers for AgentApplication and
-        # AgentRevision. Django's standard pattern: import inside `ready()`
-        # so the decorators register after the app registry is ready.
-        from . import activity  # noqa: F401, PLC0415
-
         # Operators-facing nudge: when the signing key is unset outside
         # DEBUG, every Django→janitor call will 401 (the client skips the
         # JWT mint, the janitor rejects the missing header). Log loudly at

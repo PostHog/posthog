@@ -16,9 +16,17 @@ from .models import AgentApplication
 
 
 class TestAgentApplicationEnvKeys(APIBaseTest):
+    databases = {
+        "default",
+        "persons_db_writer",
+        "persons_db_reader",
+        "agent_platform_db_writer",
+        "agent_platform_db_reader",
+    }
+
     def _app(self) -> AgentApplication:
-        app = AgentApplication.objects.create(
-            team=self.team,
+        app = AgentApplication.all_teams.create(
+            team_id=self.team.id,
             slug="secrets-agent",
             name="Secrets agent",
             description="",
@@ -42,7 +50,7 @@ class TestAgentApplicationEnvKeys(APIBaseTest):
         assert "xoxb-old" not in res.content.decode()
 
     def test_list_on_unset_env_returns_empty(self) -> None:
-        app = AgentApplication.objects.create(team=self.team, slug="fresh-agent", name="Fresh", description="")
+        app = AgentApplication.all_teams.create(team_id=self.team.id, slug="fresh-agent", name="Fresh", description="")
         res = self.client.get(self._url(app, "env_keys/"))
         assert res.status_code == 200
         assert res.json() == {"keys": []}
@@ -134,7 +142,7 @@ class TestAgentApplicationEnvKeys(APIBaseTest):
         assert json.loads(app.encrypted_env)["BLANK"] == ""
 
     def test_list_recovers_from_corrupt_env_block(self) -> None:
-        app = AgentApplication.objects.create(team=self.team, slug="corrupt", name="Corrupt", description="")
+        app = AgentApplication.all_teams.create(team_id=self.team.id, slug="corrupt", name="Corrupt", description="")
         # Simulate a corrupt env block — historic bug or manual tampering.
         app.encrypted_env = "not json"
         app.save(update_fields=["encrypted_env"])

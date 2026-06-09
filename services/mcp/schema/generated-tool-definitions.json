@@ -596,6 +596,20 @@
             "readOnlyHint": false
         }
     },
+    "agent-applications-revisions-slack-manifest": {
+        "description": "Returns `{ revision_id, manifest, notes, events_url, interactivity_url }` for a revision that has a slack trigger. `manifest` is a ready-to-paste Slack app manifest (JSON) for https://api.slack.com/apps?new_app=1 → \"From an app manifest\" — its OAuth scopes and bot event subscriptions are derived from the agent's slack trigger config (mention_only / auto_resume_threads / ack_reaction) and its Slack tools, so it subscribes to exactly the events the config needs. Hand the user the manifest plus the create-from-manifest link; surface `notes` (e.g. invite the bot to its channels). 400 if the revision has no slack trigger.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Generate the Slack app manifest for a revision",
+        "title": "Generate the Slack app manifest for a revision",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "agent-applications-revisions-spec-update": {
         "description": "Body `{ spec: { … } }`. Replaces the author-writable spec slice (model, triggers, mcps, integrations, secrets, limits, auth, entrypoint, reasoning). `skills[]` and `tools[]` are NOT author-writable — they're derived at freeze from the typed resources. Draft-only.",
         "category": "Agent stack",
@@ -708,278 +722,12 @@
             "readOnlyHint": false
         }
     },
-    "agent-custom-tool-templates-create": {
-        "description": "Create a new shared custom-tool template. Requires `source` (TypeScript), `compiled_js` (the bundler output), and `args_schema` (TypeBox / JSON Schema for the tool's args). The bundler runs client-side during authoring; the registry just stores the artifact pair.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Create a custom tool template (v1)",
-        "title": "Create a custom tool template (v1)",
-        "required_scopes": ["agents:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "agent-custom-tool-templates-list": {
-        "description": "List the current (latest) version of every custom TypeScript tool template visible to the team. Use to discover existing tools before authoring a new one or wiring one into an agent's `spec.tools[]` via `from_template`.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "List custom tool templates",
-        "title": "List custom tool templates",
-        "required_scopes": ["agents:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "agent-custom-tool-templates-name-archive-create": {
-        "description": "Soft-delete every version of this template. Frozen revisions that pin it keep working; new agents can no longer reference it.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Archive a custom tool template",
-        "title": "Archive a custom tool template",
-        "required_scopes": ["agents:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "agent-custom-tool-templates-name-duplicate-create": {
-        "description": "Copy a template's current source + compiled output under a new name. Produces v1 of the duplicate.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Duplicate a custom tool template",
-        "title": "Duplicate a custom tool template",
-        "required_scopes": ["agents:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "agent-custom-tool-templates-name-publish-create": {
-        "description": "Append a new version. Provide EITHER `source` (full overwrite) OR `edits[]` (structured find/replace); `compiled_js` must accompany either form because the bundler runs client-side. `args_schema` / `returns_schema` / `requires_secrets` are optional overrides — omit to keep the prior values.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Publish a new custom tool template version",
-        "title": "Publish a new custom tool template version",
-        "required_scopes": ["agents:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "agent-custom-tool-templates-name-retrieve": {
-        "description": "Fetch the latest version (default) or a specific version with `?version=N`. Returns the full `source` + `compiled_js` + schemas so the concierge can read before edit.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Retrieve a custom tool template",
-        "title": "Retrieve a custom tool template",
-        "required_scopes": ["agents:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "agent-custom-tool-templates-name-usages-list": {
-        "description": "Every frozen agent revision that pins this custom tool template (any version, or filter by `?pinned_version=N`). Use before archiving to see who'd be affected.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Frozen agents pinning this custom tool template",
-        "title": "Frozen agents pinning this custom tool template",
-        "required_scopes": ["agents:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "agent-custom-tool-templates-name-versions-list": {
-        "description": "Every version row for this template name, newest first, with publisher + timestamp.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Custom tool template version history",
-        "title": "Custom tool template version history",
-        "required_scopes": ["agents:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "agent-native-tools-list": {
         "description": "Read-only catalog of every `@posthog/*` native tool an agent can wire into `spec.tools`. Each entry includes the id, description, args schema (TypeBox-shaped), required integrations + scopes, and a cost hint (`cheap` / `medium` / `expensive`). Authoring flows use this to validate tool ids before writing them into a revision's spec.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "List native tools the runner knows",
         "title": "List native tools the runner knows",
-        "required_scopes": ["agents:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "agent-skill-templates-create": {
-        "description": "Create a new shared skill template under the active team. `name` is a slug (`research-flow`); the body is markdown (the SKILL.md), `files[]` are optional companion files (examples, schemas). Produces v1; later edits go through `agent-skill-templates-name-publish-create`.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Create a skill template (v1)",
-        "title": "Create a skill template (v1)",
-        "required_scopes": ["agents:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "agent-skill-templates-list": {
-        "description": "List the current (latest) version of every skill template visible to the team — both team-owned and canonical (`@posthog/*`) rows. Use to discover what's already on the shelf before authoring a new skill. `?search=<substring>` matches against name + description.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "List skill templates",
-        "title": "List skill templates",
-        "required_scopes": ["agents:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "agent-skill-templates-name-archive-create": {
-        "description": "Soft-delete every version of this template. Frozen revisions that still pin it keep working (the freeze copy is independent); new agents can no longer reference it.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Archive a skill template",
-        "title": "Archive a skill template",
-        "required_scopes": ["agents:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "agent-skill-templates-name-duplicate-create": {
-        "description": "Copy a template's current body + companion files under a new name. Produces v1 of the duplicate; the source's version history is not carried over. Useful when a canonical `@posthog/*` template is the starting point for a team-specific skill.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Duplicate a skill template",
-        "title": "Duplicate a skill template",
-        "required_scopes": ["agents:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "agent-skill-templates-name-files-create": {
-        "description": "Attach a new file (path + content) to the latest version of this template. Path is relative; will land at `bundle/skills/<alias>/<path>` when an agent pins this skill at freeze time.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Add a companion file to a skill template",
-        "title": "Add a companion file to a skill template",
-        "required_scopes": ["agents:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "agent-skill-templates-name-files-destroy": {
-        "description": "Drop a file by path from the latest version of this template. Affects future freezes; already-frozen revisions keep their copy.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Remove a companion file from a skill template",
-        "title": "Remove a companion file from a skill template",
-        "required_scopes": ["agents:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "agent-skill-templates-name-files-rename-create": {
-        "description": "Move `from_path` → `to_path` for a companion file on the latest version. Use when restructuring an example tree, e.g. `examples/case-a.md` → `examples/onboarding/case-a.md`.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Rename a companion file",
-        "title": "Rename a companion file",
-        "required_scopes": ["agents:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "agent-skill-templates-name-publish-create": {
-        "description": "Append a new version. Provide EITHER `body` (full overwrite) OR `edits[]` (structured find/replace where each `old` must match exactly once in the current body — mirrors LLMSkill's edit shape). Companion files carry forward unchanged. Returns the freshly-stamped v(n+1) row.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Publish a new skill template version",
-        "title": "Publish a new skill template version",
-        "required_scopes": ["agents:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "agent-skill-templates-name-retrieve": {
-        "description": "Fetch a skill template's latest version (default) or a specific version with `?version=N`. Returns the full body + companion files, so the concierge can read before edit.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Retrieve a skill template",
-        "title": "Retrieve a skill template",
-        "required_scopes": ["agents:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "agent-skill-templates-name-usages-list": {
-        "description": "Every frozen agent revision that pins this skill template (any version, or filter by `?pinned_version=N`). Each row carries the agent slug + name + revision short id + pinned version. Use before archiving to see who'd be affected.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Frozen agents pinning this skill template",
-        "title": "Frozen agents pinning this skill template",
-        "required_scopes": ["agents:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "agent-skill-templates-name-versions-list": {
-        "description": "Every version row for this template name, newest first, with publisher + timestamp. The single `is_latest: true` row marks the current version; older rows are read-only history.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Skill template version history",
-        "title": "Skill template version history",
         "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,

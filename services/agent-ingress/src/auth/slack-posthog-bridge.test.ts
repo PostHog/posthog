@@ -7,8 +7,8 @@
 
 import { Pool } from 'pg'
 
-import { reset } from '@posthog/agent-migrations'
 import { AgentUser, IntegrationCredentials, IntegrationStore, PgIdentityStore } from '@posthog/agent-shared'
+import { reset } from '@posthog/agent-shared/testing'
 
 import { bridgeSlackToPosthogUser } from './slack-posthog-bridge'
 

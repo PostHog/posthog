@@ -27,6 +27,14 @@ from .api import AgentApplicationViewSet, EventStreamRenderer
 
 
 class TestPreviewProxyScope(APIBaseTest):
+    databases = {
+        "default",
+        "persons_db_writer",
+        "persons_db_reader",
+        "agent_platform_db_writer",
+        "agent_platform_db_reader",
+    }
+
     @parameterized.expand(
         [
             # POST verbs (run / send / cancel) route through `preview_proxy`.
@@ -42,6 +50,14 @@ class TestPreviewProxyScope(APIBaseTest):
 
 
 class TestPreviewProxyRendering(APIBaseTest):
+    databases = {
+        "default",
+        "persons_db_writer",
+        "persons_db_reader",
+        "agent_platform_db_writer",
+        "agent_platform_db_reader",
+    }
+
     def test_event_stream_renderer_claims_text_event_stream(self) -> None:
         # The renderer doesn't render — it only needs to win DRF's
         # content negotiation when `Accept: text/event-stream` arrives.

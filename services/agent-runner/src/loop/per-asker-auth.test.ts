@@ -10,8 +10,8 @@
 
 import { Pool } from 'pg'
 
-import { reset } from '@posthog/agent-migrations'
 import { ConversationMessage, PgIdentityStore, SessionPrincipal } from '@posthog/agent-shared'
+import { reset } from '@posthog/agent-shared/testing'
 
 import { findLastUserSender, makePerAskerAuth } from './per-asker-auth'
 

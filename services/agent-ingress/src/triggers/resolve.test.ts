@@ -14,8 +14,8 @@ import type { Request, Response } from 'express'
 import { SignJWT } from 'jose'
 import { Pool } from 'pg'
 
-import { reset } from '@posthog/agent-migrations'
 import { AgentSpecSchema, PgRevisionStore } from '@posthog/agent-shared'
+import { reset } from '@posthog/agent-shared/testing'
 
 import { RevisionResolver } from '../routing/resolver'
 import { resolveAgent } from './resolve'
