@@ -71,8 +71,8 @@ When you call `signals-scout-emit-signal`:
 
 - `description` — the inbox surface and the dedupe key. Your skill body owns
   the prose contract.
-- `weight` ∈ [0, 1] — your ranking score.
-- `confidence` ∈ [0, 1] — your certainty.
+- `confidence` ∈ [0, 1] — your certainty the finding is real. This is the emit
+  gate: below ~0.65, prefer a scratchpad entry over emitting.
 - `evidence` — list of citations, capped at 20 entries.
 - `finding_id` — a stable id for this finding, echoed into the signal for
   traceability. It does NOT dedupe: emitting the same id twice creates two

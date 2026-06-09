@@ -39,13 +39,26 @@ export const PersonsDeletePropertyCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
+ * Split distinct_ids off a merged person. Two mutually exclusive modes:
+
+- **`distinct_ids_to_split`** (recommended for surgical edits): moves only the listed distinct_ids off this person onto new single-id persons. The original person keeps every other distinct_id and its properties.
+- **`main_distinct_id`** (legacy semantics): keeps only the specified distinct_id on this person; moves every *other* distinct_id off onto its own new person. If omitted, the person's properties are wiped and the first distinct_id is treated as the one to keep.
+
+The split runs asynchronously: a 201 response means the task was enqueued. Newly-created split-off persons get a deterministic UUID derived from `(team_id, distinct_id)`, so they can be located client-side without polling. If you need to delete a split-off person after this call, prefer looking it up by that deterministic UUID rather than by distinct_id, since the latter still resolves to the original merged person until the async task completes.
  */
 export const PersonsSplitCreateBody = /* @__PURE__ */ zod.object({
-    properties: zod
-        .unknown()
-        .optional()
-        .describe('Key-value map of person properties set via $set and $set_once operations.'),
+    main_distinct_id: zod
+        .string()
+        .nullish()
+        .describe(
+            "The distinct_id to \*\*keep\*\* on this person; every \*other\* distinct_id is moved to its own new single-id person. If omitted, the first distinct_id on the person is used and the person's properties are wiped. To surgically \*remove\* one or more distinct_ids while leaving the merge intact, use `distinct_ids_to_split` instead — these parameters are inverses of each other and cannot be combined."
+        ),
+    distinct_ids_to_split: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'List of distinct_ids to \*\*move off\*\* this person onto new single-id persons. The original person keeps every other distinct_id and its properties. New persons are created with deterministic UUIDs derived from `(team_id, distinct_id)`. Cannot be combined with `main_distinct_id`.'
+        ),
 })
 
 /**

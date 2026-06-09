@@ -224,6 +224,9 @@ tools:
             - invite_subject
             - invite_message
         feature_flag: user-interviews
+    user-interview-topics-preview-invite-create:
+        operation: user_interview_topics_preview_invite_create
+        enabled: false
     user-interview-topics-remove-interviewee:
         operation: user_interview_topics_remove_interviewee_create
         enabled: true
