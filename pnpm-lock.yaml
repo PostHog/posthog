@@ -2471,6 +2471,9 @@ importers:
       '@testing-library/dom':
         specifier: '*'
         version: 9.3.4
+      '@testing-library/react':
+        specifier: '*'
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@testing-library/user-event':
         specifier: '*'
         version: 14.6.1(@testing-library/dom@9.3.4)
