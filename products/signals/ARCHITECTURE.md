@@ -400,6 +400,8 @@ JSON artefacts attached to reports. Used for video segments, safety / actionabil
 | `signal_finding`         | `{"signal_id": "...", "relevant_code_paths": [...], "relevant_commit_hashes": {"abc1234": "reason"}, "data_queried": "...", "verified": bool}` |
 | `repo_selection`         | `{"repository": "owner/repo" \| null, "reason": "..."}`                                                                                        |
 | `suggested_reviewers`    | `[{"github_login": "...", "github_name": "...", "relevant_commits": [...]}]` — enriched with current PostHog user data at serializer read time |
+| `code_reference`         | `{"file_path": "...", "start_line": int, "end_line": int, "contents": "...", "relevance_note": "..."}` — a contiguous span of source lines     |
+| `code_diff`              | `{"file_path": "...", "diff": "...", "relevance_note": "..."}` — a unified diff for a single file                                              |
 
 Notes:
 

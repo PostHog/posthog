@@ -357,6 +357,8 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             ("signal_finding", SignalReportArtefact.ArtefactType.SIGNAL_FINDING),
             ("repo_selection", SignalReportArtefact.ArtefactType.REPO_SELECTION),
             ("dismissal", SignalReportArtefact.ArtefactType.DISMISSAL),
+            ("code_reference", SignalReportArtefact.ArtefactType.CODE_REFERENCE),
+            ("code_diff", SignalReportArtefact.ArtefactType.CODE_DIFF),
         ]
     )
     def test_put_rejects_non_suggested_reviewers_types(self, _name, artefact_type):
