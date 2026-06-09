@@ -10,8 +10,9 @@ logger = structlog.get_logger(__name__)
 
 # A fresh test org/team owns no person, cohort, or group rows, so its cascade
 # delete is sub-second. A teardown call that runs longer than this is wedged on
-# an uncancellable backend call — historically a personhog gRPC delete that
-# blocks the worker thread, which asyncio cannot cancel. When that happens the
+# an uncancellable backend call — e.g. delete_batch_exports()'s Temporal schedule
+# delete, or a cascade delete that reaches a gRPC-backed service — that blocks the
+# worker thread, which asyncio cannot cancel. When that happens the
 # product-test shard burns its wall-clock cap and is cancelled, blocking
 # unrelated PRs and the deploy gate. Bounding the call lets the session keep
 # making progress; that one teardown's rows are left behind, which is harmless

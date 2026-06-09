@@ -67,8 +67,9 @@ def organization():
 
 
 def _delete_team_and_exports(team: Team) -> None:
-    # delete_batch_exports() is the uncancellable personhog gRPC path that can hang
-    # teardown; the async fixtures run this bounded via arun_best_effort.
+    # delete_batch_exports() makes Temporal client calls (sync_connect + schedule
+    # delete) that can block teardown if Temporal is slow/unreachable; the async
+    # fixtures run this bounded via arun_best_effort so a wedge can't burn the shard.
     delete_batch_exports(team_ids=[team.pk])
     team.delete()
 
