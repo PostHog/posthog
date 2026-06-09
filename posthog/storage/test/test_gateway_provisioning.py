@@ -1,9 +1,9 @@
 from posthog.test.base import BaseTest
 
 from posthog.models.gateway import DEFAULT_GATEWAY_SLUG, Gateway
-from posthog.models.gateway_provisioning import provision_default_gateway
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.storage.gateway_provisioning import provision_default_gateway
 
 
 class TestGatewayProvisioning(BaseTest):

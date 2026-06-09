@@ -41,6 +41,9 @@ class Gateway(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFiel
         default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["team", "slug"], name="unique_gateway_slug_per_team"),
+            # save() validates, but bulk_create/queryset.update/raw SQL bypass it. The
+            # slug lands on the billing ledger, so enforce the invariant at the DB too.
+            models.CheckConstraint(condition=models.Q(slug__regex=GATEWAY_SLUG_PATTERN), name="gateway_slug_url_safe"),
         ]
 
     def __str__(self) -> str:

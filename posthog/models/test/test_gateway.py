@@ -86,3 +86,23 @@ class TestGatewayModel(_TeamScopedTestMixin, BaseTest):
         Gateway.objects.create(team=self.team, slug="posthog_code")
         Gateway.objects.create(team=self.team, slug="wizard")
         self.assertEqual(Gateway.objects.filter(team=self.team).count(), 3)
+
+    def test_scoped_manager_excludes_other_teams_gateways(self):
+        # The mixin pins team_scope to self.team, so the fail-closed `objects`
+        # manager must never surface another team's gateways — the tenant boundary.
+        other = Team.objects.create(organization=self.organization, name="other")
+        Gateway.all_teams.filter(team=other).delete()  # drop other's auto-provisioned gateway
+        with team_scope(other.id):
+            Gateway.objects.create(team=other, slug="other_team_gateway")
+        Gateway.objects.create(team=self.team, slug="my_gateway")
+        self.assertEqual(set(Gateway.objects.values_list("slug", flat=True)), {"my_gateway"})
+        self.assertEqual(Gateway.objects.filter(slug="other_team_gateway").count(), 0)
+
+    def test_scoped_get_on_other_teams_gateway_raises(self):
+        other = Team.objects.create(organization=self.organization, name="other")
+        Gateway.all_teams.filter(team=other).delete()
+        with team_scope(other.id):
+            other_gateway = Gateway.objects.create(team=other, slug="other_team_gateway")
+        # Out-of-scope lookup must fail closed, not leak the row.
+        with self.assertRaises(Gateway.DoesNotExist):
+            Gateway.objects.get(pk=other_gateway.pk)

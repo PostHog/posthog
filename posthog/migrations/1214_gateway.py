@@ -61,6 +61,10 @@ class Migration(migrations.Migration):
             options={
                 "constraints": [
                     models.UniqueConstraint(fields=("team", "slug"), name="unique_gateway_slug_per_team"),
+                    models.CheckConstraint(
+                        condition=models.Q(slug__regex="^[a-z0-9]+(?:[_-][a-z0-9]+)*$"),
+                        name="gateway_slug_url_safe",
+                    ),
                 ],
             },
         ),
