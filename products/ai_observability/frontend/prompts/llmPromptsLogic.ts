@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
@@ -34,14 +34,11 @@ function cleanFilters(values: Partial<PromptFilters>): PromptFilters {
     }
 }
 
-export interface LLMPromptsLogicProps {
-    tabId?: string
-}
+export type LLMPromptsLogicProps = Record<string, never>
 
 export const llmPromptsLogic = kea<llmPromptsLogicType>([
     path(['scenes', 'ai-observability', 'llmPromptsLogic']),
     props({} as LLMPromptsLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
     actions({
         setFilters: (filters: Partial<PromptFilters>, merge: boolean = true, debounce: boolean = true) => ({
