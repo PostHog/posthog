@@ -26,6 +26,7 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     HogQLQueryModifiers,
+    PersonPropertyFilter,
     PropertyOperator,
     SessionPropertyFilter,
     SessionTableVersion,
@@ -1764,6 +1765,128 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         ).results
 
         assert [row[0] for row in results] == ["/path1", "/path3", "/path2"]
+
+    def _path_bounce_clickhouse_sql(self, properties=None, filter_test_accounts=False) -> str:
+        with freeze_time(self.QUERY_TIMESTAMP):
+            query = WebStatsTableQuery(
+                dateRange=DateRange(date_from="all", date_to="2023-12-15"),
+                properties=properties or [],
+                breakdownBy=WebStatsBreakdown.PAGE,
+                includeBounceRate=True,
+                filterTestAccounts=filter_test_accounts,
+            )
+            runner = WebStatsTableQueryRunner(
+                team=self.team,
+                query=query,
+                modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2),
+            )
+            runner.calculate()
+            assert runner.paginator.response is not None
+            return runner.paginator.response.clickhouse or ""
+
+    # one occurrence per scan of the events table (its team_id filter; `raw_sessions.team_id`
+    # on the sessions side does not match this substring)
+    _EVENTS_SCAN_MARKER = "events.team_id"
+
+    def test_path_bounce_reads_bounce_rate_from_sessions_without_event_filter(self):
+        # With no event-level filter the bounce half is served straight from the
+        # sessions table, so only the counts half scans events.
+        sql = self._path_bounce_clickhouse_sql()
+        assert sql.count(self._EVENTS_SCAN_MARKER) == 1, sql
+        assert "raw_sessions" in sql
+
+    def test_path_bounce_with_pathname_filter_still_reads_from_sessions(self):
+        # The pathname filter is excluded from bounce rate by design, so it must not
+        # force the events-join path.
+        sql = self._path_bounce_clickhouse_sql(
+            properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")]
+        )
+        assert sql.count(self._EVENTS_SCAN_MARKER) == 1, sql
+
+    def test_path_bounce_with_event_filter_falls_back_to_events_join(self):
+        # A non-pathname event property is not on the sessions table, so the bounce
+        # half falls back to the events join (two events scans).
+        sql = self._path_bounce_clickhouse_sql(
+            properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")]
+        )
+        assert sql.count(self._EVENTS_SCAN_MARKER) == 2, sql
+
+    @parameterized.expand(
+        [
+            ("no_filters", [], False),
+            (
+                "pathname_event_filter",
+                [EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")],
+                False,
+            ),
+            (
+                "session_filter",
+                [SessionPropertyFilter(key="$entry_pathname", operator=PropertyOperator.EXACT, value="/a")],
+                False,
+            ),
+            (
+                "event_filter",
+                [EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
+                True,
+            ),
+            (
+                "person_filter",
+                [PersonPropertyFilter(key="email", operator=PropertyOperator.EXACT, value="a@b.com")],
+                True,
+            ),
+        ]
+    )
+    def test_bounce_rate_requires_events(self, _name, properties, expected):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="all", date_to="2023-12-15"),
+            properties=properties,
+            breakdownBy=WebStatsBreakdown.PAGE,
+            includeBounceRate=True,
+        )
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+        assert runner._bounce_rate_requires_events() == expected
+
+    def test_bounce_rate_via_events_join_matches_sessions_path(self):
+        # Exercises the events-join fallback behaviourally: all events carry the same
+        # browser, so filtering by it must reproduce the unfiltered bounce numbers
+        # (same scenario as test_bounce_rate) while routing through the events join.
+        def create(distinct_id: str, pathnames: list[str]):
+            session_id = str(uuid7("2023-12-02T12:00:00"))
+            with freeze_time("2023-12-02T12:00:00"):
+                _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], properties={"name": distinct_id})
+                for i, pathname in enumerate(pathnames):
+                    _create_event(
+                        team=self.team,
+                        event="$pageview",
+                        distinct_id=distinct_id,
+                        timestamp=f"2023-12-02T12:00:0{i}",
+                        properties={
+                            "$session_id": session_id,
+                            "$pathname": pathname,
+                            "$current_url": "http://www.example.com" + pathname,
+                            "$browser": "Chrome",
+                        },
+                    )
+
+        create("p1", ["/a", "/b", "/c"])
+        create("p2", ["/a", "/a", "/b", "/c"])
+        create("p3", ["/a"])
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_bounce_rate=True,
+            properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")],
+        ).results
+
+        # /a is the entry path for all 3 sessions; p3 bounced → bounce rate 1/3, same
+        # as test_bounce_rate. /b and /c are never entry paths → NULL bounce.
+        assert results == [
+            ["/a", (3, 0), (4, 0), (1 / 3, None), 3 / 7, ""],
+            ["/b", (2, 0), (2, 0), (None, None), 2 / 7, ""],
+            ["/c", (2, 0), (2, 0), (None, None), 2 / 7, ""],
+        ]
 
     def test_sorting_by_total_conversions(self):
         s1 = str(uuid7("2023-12-01"))
