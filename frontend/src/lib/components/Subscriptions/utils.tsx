@@ -43,7 +43,6 @@ export const urlForSubscription = (
 export const targetTypeOptions: LemonSelectOptions<'email' | 'slack'> = [
     { value: 'email', label: 'Email', icon: <IconLetter /> },
     { value: 'slack', label: 'Slack', icon: <IconSlack /> },
-    // { value: 'webhook', label: 'Webhook', icon: <IconOpenInNew /> },
 ]
 
 export const intervalOptions: LemonSelectOptions<number> = range(1, 13).map((x) => ({ value: x, label: x.toString() }))

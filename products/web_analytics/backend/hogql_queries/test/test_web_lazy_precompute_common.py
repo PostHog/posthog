@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 from unittest import mock
 
+from django.test import override_settings
+
 from structlog.contextvars import get_contextvars
 
 from posthog.schema import (
@@ -16,8 +18,31 @@ from posthog.schema import (
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_filters_eligibility_hash
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    compute_filters_eligibility_hash,
+    is_precompute_enabled_for_team,
+)
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+
+_COMMON = "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common"
+
+
+class TestIsPrecomputeEnabledForTeam(BaseTest):
+    @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=False)
+    def test_team_in_setting_bypasses_org_flag(self, flag) -> None:
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            assert is_precompute_enabled_for_team(self.team) is True
+        flag.assert_not_called()  # short-circuits before the flag is ever evaluated
+
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
+    @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=True)
+    def test_team_not_in_setting_falls_back_to_enabled_flag(self, _flag) -> None:
+        assert is_precompute_enabled_for_team(self.team) is True
+
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
+    @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=False)
+    def test_team_not_in_setting_with_flag_off_is_ineligible(self, _flag) -> None:
+        assert is_precompute_enabled_for_team(self.team) is False
 
 
 def _overview(

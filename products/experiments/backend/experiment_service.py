@@ -21,7 +21,6 @@ from posthog.schema import ActionsNode, ExperimentEventExposureConfig, Experimen
 
 from posthog.api.cohort import CohortSerializer
 from posthog.event_usage import EventSource, report_user_action
-from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -29,6 +28,7 @@ from posthog.models.team.team import Team
 from posthog.utils import str_to_bool
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.models.experiment import (

@@ -87,6 +87,8 @@ export type { ThemeFromCssOptions } from './core/theme'
 
 // Built-in tooltip (for reference or extension)
 export { DefaultTooltip } from './overlays/DefaultTooltip'
+// Shared tooltip surface — reuse to build custom tooltips with the quill look
+export { TooltipSurface, TooltipSwatch, TOOLTIP_FALLBACK_BG, TOOLTIP_FALLBACK_COLOR } from './overlays/TooltipSurface'
 
 // Optional overlays
 export { ReferenceLine, ReferenceLines } from './overlays/ReferenceLine'
