@@ -217,8 +217,9 @@ tools:
             / workflows-disable / workflows-archive. A batch audience is config.filters.properties — person-property
             conditions and/or cohort references. Prefer person properties or a dynamic (filter-based) cohort, which
             re-evaluate, over a static frozen-list cohort; behavioral (event-based) cohorts are rejected. Workflows
-            CANNOT do event-frequency or behavioral targeting ('did event X at least N times in a week'); trigger_masking
-            is per-person dedup/throttle, NOT a frequency filter — don't use it to approximate behavioral targeting.
+            CANNOT do event-frequency or behavioral targeting ('did event X at least N times in a week');
+            trigger_masking is per-person dedup/throttle, NOT a frequency filter — don't use it to approximate
+            behavioral targeting.
         exclude_params:
             - status
         ui_app: workflow
