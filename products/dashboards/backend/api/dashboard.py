@@ -1036,7 +1036,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
         write_only=True,
         allow_blank=True,
         required=False,
-        help_text="Template key to create the dashboard from a predefined template.",
+        help_text=(
+            "Template key to create the dashboard from a predefined template — this is the `template_name` of an "
+            "available dashboard template (list them via the dashboard templates endpoint). Omit for an empty dashboard."
+        ),
     )
     use_dashboard = serializers.IntegerField(
         write_only=True,

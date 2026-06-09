@@ -22,8 +22,16 @@ tools:
         title: Create dashboard
         description: >
             Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create
-            from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context
-            — use dashboard-insights-run to fetch the actual data for each insight.
+            from a template (pass use_template) or duplicate an existing dashboard (pass use_dashboard). The returned
+            tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each
+            insight.
+        param_overrides:
+            use_template:
+                description: >
+                    Optional template key to pre-populate the dashboard with tiles. This is the `template_name` of an
+                    existing dashboard template — call dashboard-templates-list to discover valid keys (and
+                    dashboard-templates-retrieve to inspect a candidate's tiles). Do not guess a key; an unknown key
+                    returns an error. Omit to create an empty dashboard.
         exclude_params:
             - creation_mode
             - effective_restriction_level
@@ -240,12 +248,57 @@ tools:
         enabled: false
     dashboard-templates-list:
         operation: dashboard_templates_list
-        enabled: false
-    dashboard-templates-partial-update:
-        operation: dashboard_templates_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - dashboard:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List dashboard templates
+        description: >
+            List dashboard templates available to this project — the keys you can pass to dashboard-create's
+            use_template (use each template's `template_name`). Returns lightweight metadata per template (template_name,
+            description, tags, scope, whether it's featured) so you can pick one by intent; tile contents are omitted to
+            keep this light — once you've narrowed to a candidate, use dashboard-templates-retrieve to see that one
+            template's tile-by-tile summary. By default both the official global templates and this project's own
+            templates are returned — pass `scope=global` to restrict to the official set, or `scope=team` for just this
+            project's. `is_featured` narrows further.
+        response:
+            exclude:
+                - tiles
+                - variables
+                - dashboard_filters
+                - deleted
+                - created_by
     dashboard-templates-retrieve:
         operation: dashboard_templates_retrieve
+        enabled: true
+        scopes:
+            - dashboard:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get dashboard template
+        description: >
+            Get a single dashboard template by ID to see what it builds before creating a dashboard from it. Returns a
+            tile-by-tile summary — each tile's name, description, and type — so you can confirm a candidate's contents.
+            The underlying query definitions, layout, and colors are omitted to save context; create the dashboard
+            (dashboard-create with use_template = the template's `template_name`, not its id) and use dashboard-get /
+            dashboard-insights-run to see the actual queries and data. Discover template IDs with
+            dashboard-templates-list.
+        response:
+            exclude:
+                - created_by
+                - deleted
+                - dashboard_filters
+                - tiles.*.query
+                - tiles.*.layouts
+                - tiles.*.color
+    dashboard-templates-partial-update:
+        operation: dashboard_templates_partial_update
         enabled: false
     dashboard-templates-update:
         operation: dashboard_templates_update
