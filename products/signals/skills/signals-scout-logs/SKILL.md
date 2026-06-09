@@ -80,17 +80,19 @@ Three cheap reads cold-start a run:
   is-anything-loud-today check, _not_ an unfiltered baseline diff:
   1. `logs-services-create` over `-1h` (read the `services` list, ignore the `sparkline`;
      `-1h`/`-24h` are valid, `-Nm` is months) — the **all-severity** volume + per-service
-     share in one call. This is
-     what catches an `info`/`warn` flood (e.g. a stuck retry loop logging at `info`) that
-     the severity-filtered probes below would miss, and it names the hot service for
-     localization.
+     share in one call, vs the team's lines/hour + busiest-services baseline. This is what
+     catches an `info`/`warn` flood (e.g. a stuck retry loop logging at `info`) that the
+     severity-filtered probes below would miss, and it names the hot service for localization.
   2. `logs-count` `severityLevels=["fatal"]` over 24h (add a `searchTerm` for a specific
      crash signature) — fatal is rare, so this is cheap and catches crash loops.
   3. `logs-count` `severityLevels=["error","fatal"]` over the last 1h vs the team's
-     error+fatal/hr baseline. **No baseline in memory yet (first run)? Derive one cheaply
-     before judging — error+fatal over the same clock hour 24h (or 7d) ago via explicit
-     ISO `date_from`/`date_to` — don't assume the current hour is normal.**
+     error+fatal/hr baseline — a severity-shift proxy.
   4. `logs-alerts-list` — only a _new_ firing alert beyond known-noise ones is interesting.
+
+  **Cold start (no `pattern:` baseline yet):** the comparison tripwires — #1 (all-severity
+  volume / per-service share) _and_ #3 (error+fatal/hr) — have nothing to diff against on a
+  first run. Derive each baseline from the same clock hour 24h (or 7d) ago via explicit ISO
+  `date_from`/`date_to` before judging; don't assume the current window is normal.
 
   If all are at baseline, close out empty. To localize a spike, **scope `logs-count-ranges`
   to the hot service** from step 1 — a severity-only range still buckets the whole stream
