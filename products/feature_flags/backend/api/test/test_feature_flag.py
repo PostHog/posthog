@@ -3481,30 +3481,28 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             == f"Cannot delete a feature flag that is linked to running experiment(s) with ID(s): {exp.id}. Please stop the experiment(s) before deleting the flag."
         )
 
-    def test_soft_delete_flag_allowed_with_draft_experiment(self):
-        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="draft-exp-flag")
-        Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
-        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
-        assert response.status_code == 200, response.content
-        flag.refresh_from_db()
-        assert flag.deleted is True
-        # Key is freed up for reuse
-        assert flag.key == f"draft-exp-flag:deleted:{flag.id}"
-
-    def test_soft_delete_flag_allowed_with_stopped_experiment(self):
-        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="stopped-exp-flag")
+    @parameterized.expand(
+        [
+            ("draft", None, None),
+            ("stopped", now(), now()),
+        ]
+    )
+    def test_soft_delete_flag_allowed_with_non_running_experiment(self, _name, start_date, end_date):
+        # Draft and stopped experiments may keep the flag so their history is preserved;
+        # deletion is allowed and the original key is freed up via the tombstone suffix.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key=f"{_name}-exp-flag")
         Experiment.objects.create(
             team=self.team,
             created_by=self.user,
             feature_flag=flag,
-            start_date=now(),
-            end_date=now(),
+            start_date=start_date,
+            end_date=end_date,
         )
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
         assert response.status_code == 200, response.content
         flag.refresh_from_db()
         assert flag.deleted is True
-        assert flag.key == f"stopped-exp-flag:deleted:{flag.id}"
+        assert flag.key == f"{_name}-exp-flag:deleted:{flag.id}"
 
     def test_soft_delete_flag_blocked_when_used_in_replay_settings(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-flag")
