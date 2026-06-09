@@ -38,14 +38,14 @@ export interface PauseResponseApi {
 
 /**
  * * `potential` - Potential
- * `candidate` - Candidate
- * `in_progress` - In Progress
- * `pending_input` - Pending Input
- * `ready` - Ready
- * `resolved` - Resolved
- * `failed` - Failed
- * `deleted` - Deleted
- * `suppressed` - Suppressed
+ * * `candidate` - Candidate
+ * * `in_progress` - In Progress
+ * * `pending_input` - Pending Input
+ * * `ready` - Ready
+ * * `resolved` - Resolved
+ * * `failed` - Failed
+ * * `deleted` - Deleted
+ * * `suppressed` - Suppressed
  */
 export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
 
@@ -106,6 +106,95 @@ export interface PaginatedSignalReportListApi {
     /** @nullable */
     previous?: string | null
     results: SignalReportApi[]
+}
+
+/**
+ * * `suppressed` - suppressed
+ * * `potential` - potential
+ */
+export type SignalReportStateRequestStateEnumApi =
+    (typeof SignalReportStateRequestStateEnumApi)[keyof typeof SignalReportStateRequestStateEnumApi]
+
+export const SignalReportStateRequestStateEnumApi = {
+    Suppressed: 'suppressed',
+    Potential: 'potential',
+} as const
+
+export interface SignalReportStateRequestApi {
+    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
+     *
+     * * `suppressed` - suppressed
+     * * `potential` - potential */
+    state: SignalReportStateRequestStateEnumApi
+    /** Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). The set of reason codes is owned by the caller and is not validated server-side. */
+    dismissal_reason?: string
+    /**
+     * Optional free-form note explaining the dismissal. Capped at 4000 characters.
+     * @maxLength 4000
+     */
+    dismissal_note?: string
+    /**
+     * Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.
+     * @minimum 1
+     * @maximum 100000
+     */
+    snooze_for?: number
+}
+
+/**
+ * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+ *
+ * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+ * when it discovers a scout skill; this serializer lets agents tune the row.
+ */
+export interface SignalScoutConfigApi {
+    readonly id: string
+    /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
+    readonly skill_name: string
+    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+    enabled?: boolean
+    /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+    emit?: boolean
+    /**
+     * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
+     * @minimum 10
+     * @maximum 43200
+     */
+    run_interval_minutes?: number
+    /**
+     * When the coordinator last dispatched this scout. Null if it has never run.
+     * @nullable
+     */
+    readonly last_run_at: string | null
+    readonly created_at: string
+}
+
+/**
+ * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+ *
+ * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+ * when it discovers a scout skill; this serializer lets agents tune the row.
+ */
+export interface PatchedSignalScoutConfigApi {
+    readonly id?: string
+    /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
+    readonly skill_name?: string
+    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+    enabled?: boolean
+    /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+    emit?: boolean
+    /**
+     * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
+     * @minimum 10
+     * @maximum 43200
+     */
+    run_interval_minutes?: number
+    /**
+     * When the coordinator last dispatched this scout. Null if it has never run.
+     * @nullable
+     */
+    readonly last_run_at?: string | null
+    readonly created_at?: string
 }
 
 /**
@@ -576,10 +665,10 @@ export interface TopEventEntryApi {
 
 /**
  * The deterministic inventory layer of a project profile.
-
-Read this to orient on the team's product mix, integrations, warehouse sources, signal
-coverage, and existing inbox surface in one tool call. Distinct from `SignalScratchpad`:
-profile is ground truth from authoritative tables; memory is agent inference.
+ *
+ * Read this to orient on the team's product mix, integrations, warehouse sources, signal
+ * coverage, and existing inbox surface in one tool call. Distinct from `SignalScratchpad`:
+ * profile is ground truth from authoritative tables; memory is agent inference.
  */
 export interface ProjectProfileInventoryApi {
     /** Free-form orientation: human-set product description + registered app URLs. */
@@ -627,9 +716,9 @@ export interface ProjectProfileInventoryApi {
 
 /**
  * Top-level `payload` shape on a `SignalProjectProfile` row.
-
-v1 carries `inventory` only. Phase 7 will add `deltas`, `activity_notes`, and
-`narrative` slots — they're absent (not null) in v1 responses.
+ *
+ * v1 carries `inventory` only. Phase 7 will add `deltas`, `activity_notes`, and
+ * `narrative` slots — they're absent (not null) in v1 responses.
  */
 export interface ProjectProfilePayloadApi {
     /** Deterministic snapshot of what's true about the project. */
@@ -638,11 +727,11 @@ export interface ProjectProfilePayloadApi {
 
 /**
  * Wire shape for the project profile returned by `signals-scout-harness-project-profile-list`.
-
-Read this once at the start of a run (after `skill-get`) to orient on the team. Cache
-is per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the
-latest cached profile or a freshly-built one if the cache was stale or the caller passed
-`force_refresh=true`.
+ *
+ * Read this once at the start of a run (after `skill-get`) to orient on the team. Cache
+ * is per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the
+ * latest cached profile or a freshly-built one if the cache was stale or the caller passed
+ * `force_refresh=true`.
  */
 export interface ProjectProfileApi {
     /** UUID of the `SignalProjectProfile` row. */
@@ -659,8 +748,8 @@ export interface ProjectProfileApi {
 
 /**
  * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
-
-Status and timestamps flow from the linked `tasks.TaskRun`.
+ *
+ * Status and timestamps flow from the linked `tasks.TaskRun`.
  */
 export interface SignalScoutRunSummaryApi {
     /** UUID of the bridge row. */
@@ -695,12 +784,16 @@ export interface SignalScoutRunSummaryApi {
     task_url?: string | null
     /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
     summary: string
+    /** Number of findings this run actually emitted to the inbox. 0 for runs that investigated but surfaced nothing, or ran dry-run / before AI approval. `> 0` means the run produced at least one `Signal`. */
+    emitted_count: number
+    /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
+    emitted_finding_ids: string[]
 }
 
 /**
  * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
-today; kept distinct so future detail-only extensions (linked Signal rows,
-LLMA token-cost join) can land here without bloating the list response.
+ * today; kept distinct so future detail-only extensions (linked Signal rows,
+ * LLMA token-cost join) can land here without bloating the list response.
  */
 export interface SignalScoutRunDetailApi {
     /** UUID of the bridge row. */
@@ -735,6 +828,67 @@ export interface SignalScoutRunDetailApi {
     task_url?: string | null
     /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
     summary: string
+    /** Number of findings this run actually emitted to the inbox. 0 for runs that investigated but surfaced nothing, or ran dry-run / before AI approval. `> 0` means the run produced at least one `Signal`. */
+    emitted_count: number
+    /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
+    emitted_finding_ids: string[]
+}
+
+/**
+ * * `P0` - P0
+ * * `P1` - P1
+ * * `P2` - P2
+ * * `P3` - P3
+ * * `P4` - P4
+ */
+export type AutonomyPriorityEnumApi = (typeof AutonomyPriorityEnumApi)[keyof typeof AutonomyPriorityEnumApi]
+
+export const AutonomyPriorityEnumApi = {
+    P0: 'P0',
+    P1: 'P1',
+    P2: 'P2',
+    P3: 'P3',
+    P4: 'P4',
+} as const
+
+/**
+ * One finding a scout run emitted to the inbox — the persisted, queryable record of
+ * *what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
+ * lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
+ * back into the underlying signal store.
+ */
+export interface SignalScoutEmissionApi {
+    readonly id: string
+    /** UUID of the `SignalScoutRun` that emitted this finding. */
+    run_id: string
+    /** Stable id the finding was emitted under; matches an entry in the run's `emitted_finding_ids`. */
+    finding_id: string
+    /** The emitted finding prose — the signal's `description` as surfaced to the inbox. */
+    description: string
+    /**
+     * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
+     * @minimum 0
+     * @maximum 1
+     */
+    weight: number
+    /**
+     * Agent's confidence the finding is real in [0, 1].
+     * @minimum 0
+     * @maximum 1
+     */
+    confidence: number
+    /** Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    severity: AutonomyPriorityEnumApi | null
+    /** Deterministic `run:<run_id>:finding:<finding_id>` — the join key into the underlying signal store. */
+    source_id: string
+    /** ISO-8601 timestamp the finding was emitted. */
+    emitted_at: string
 }
 
 /**
@@ -751,23 +905,6 @@ export interface EvidenceEntryApi {
      */
     entity_id?: string | null
 }
-
-/**
- * * `P0` - P0
- * `P1` - P1
- * `P2` - P2
- * `P3` - P3
- * `P4` - P4
- */
-export type AutonomyPriorityEnumApi = (typeof AutonomyPriorityEnumApi)[keyof typeof AutonomyPriorityEnumApi]
-
-export const AutonomyPriorityEnumApi = {
-    P0: 'P0',
-    P1: 'P1',
-    P2: 'P2',
-    P3: 'P3',
-    P4: 'P4',
-} as const
 
 export interface TimeRangeApi {
     /** ISO-8601 inclusive lower bound for the finding's window. */
@@ -786,12 +923,6 @@ export interface EmitFindingRequestApi {
      */
     description: string
     /**
-     * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
-     * @minimum 0
-     * @maximum 1
-     */
-    weight: number
-    /**
      * Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.
      * @minimum 0
      * @maximum 1
@@ -808,12 +939,12 @@ export interface EmitFindingRequestApi {
      */
     hypothesis?: string | null
     /** Optional severity tag — one of P0, P1, P2, P3, P4. Informational only.
-
-  * `P0` - P0
-  * `P1` - P1
-  * `P2` - P2
-  * `P3` - P3
-  * `P4` - P4 */
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
     severity?: AutonomyPriorityEnumApi | null
     /** Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`). */
     dedupe_keys?: string[]
@@ -826,6 +957,7 @@ export interface EmitFindingRequestApi {
     mcp_trace_id?: string | null
     /**
      * Stable id for this finding, baked into the signal's source_id for traceability. NOT a dedupe key — re-emitting the same id creates another signal.
+     * @maxLength 100
      * @nullable
      */
     finding_id?: string | null
@@ -907,14 +1039,15 @@ export interface ForgetResponseApi {
 
 /**
  * * `session_replay` - Session replay
- * `llm_analytics` - LLM analytics
- * `github` - GitHub
- * `linear` - Linear
- * `zendesk` - Zendesk
- * `conversations` - Conversations
- * `error_tracking` - Error tracking
- * `pganalyze` - pganalyze
- * `signals_scout` - Signals scout
+ * * `llm_analytics` - LLM analytics
+ * * `github` - GitHub
+ * * `linear` - Linear
+ * * `zendesk` - Zendesk
+ * * `conversations` - Conversations
+ * * `error_tracking` - Error tracking
+ * * `pganalyze` - pganalyze
+ * * `signals_scout` - Signals scout
+ * * `logs` - Logs
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -928,17 +1061,19 @@ export const SourceProductEnumApi = {
     ErrorTracking: 'error_tracking',
     Pganalyze: 'pganalyze',
     SignalsScout: 'signals_scout',
+    Logs: 'logs',
 } as const
 
 /**
  * * `session_analysis_cluster` - Session analysis cluster
- * `evaluation` - Evaluation
- * `issue` - Issue
- * `ticket` - Ticket
- * `issue_created` - Issue created
- * `issue_reopened` - Issue reopened
- * `issue_spiking` - Issue spiking
- * `cross_source_issue` - Cross source issue
+ * * `evaluation` - Evaluation
+ * * `issue` - Issue
+ * * `ticket` - Ticket
+ * * `issue_created` - Issue created
+ * * `issue_reopened` - Issue reopened
+ * * `issue_spiking` - Issue spiking
+ * * `cross_source_issue` - Cross source issue
+ * * `alert_state_change` - Alert state change
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -952,6 +1087,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     IssueReopened: 'issue_reopened',
     IssueSpiking: 'issue_spiking',
     CrossSourceIssue: 'cross_source_issue',
+    AlertStateChange: 'alert_state_change',
 } as const
 
 export interface SignalSourceConfigApi {
@@ -1017,12 +1153,12 @@ export interface SignalUserAutonomyConfigApi {
      */
     slack_notification_channel?: string | null
     /** Minimum report priority that triggers a Slack notification. P0 is highest. Null means notify on every priority (and reports without a priority judgment).
-
-  * `P0` - P0
-  * `P1` - P1
-  * `P2` - P2
-  * `P3` - P3
-  * `P4` - P4 */
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
     slack_notification_min_priority?: AutonomyPriorityEnumApi | BlankEnumApi | null
     readonly created_at: string
     readonly updated_at: string
@@ -1052,6 +1188,10 @@ export type SignalsReportsListParams = {
      * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'.
      */
     ordering?: string
+    /**
+     * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
+     */
+    priority?: string
     /**
      * Case-insensitive substring match against report title and summary.
      */
@@ -1086,6 +1226,11 @@ export type SignalsScoutRunsListParams = {
      * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run from the prior page).
      */
     date_to?: string
+    /**
+     * Filter by emit outcome. `true` returns only runs that emitted at least one finding (`emitted_count > 0`); `false` returns only runs that emitted nothing. Omit for both.
+     * @nullable
+     */
+    emitted?: boolean | null
     /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1

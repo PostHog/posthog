@@ -20,13 +20,14 @@ from posthog.schema import RecordingOrder, RecordingsQuery
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Comment, Team, User
-from posthog.models.exported_asset import ExportedAsset
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.session_recording_api import list_recordings_from_query
 
+from products.exports.backend.models.exported_asset import ExportedAsset
+
 try:
-    from ee.models.session_summaries import SingleSessionSummary
+    from products.replay.backend.models.session_summaries import SingleSessionSummary
 
     HAS_EE = True
 except ImportError:

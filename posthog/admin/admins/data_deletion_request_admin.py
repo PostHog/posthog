@@ -20,6 +20,7 @@ from posthog.models.data_deletion_request import (
     event_match_params,
     event_match_sql_fragment,
     jsonhas_expr,
+    verify_queued_request,
 )
 
 CRITERIA_FIELDS = {
@@ -38,6 +39,31 @@ CRITERIA_FIELDS = {
     "person_drop_recordings",
 }
 CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
+
+# Requests can only be edited while draft or pending. Once approved (or later), the
+# criteria are locked — operators must explicitly "revert to draft" to change them.
+EDITABLE_STATUSES = {RequestStatus.DRAFT, RequestStatus.PENDING}
+
+# The non-readonly fields rendered in the fieldsets. When a request is locked these are
+# added to readonly_fields so the whole form becomes read-only.
+EDITABLE_FIELDS = (
+    "team_id",
+    "request_type",
+    "start_time",
+    "end_time",
+    "events",
+    "delete_all_events",
+    "properties",
+    "person_properties",
+    "hogql_predicate",
+    "notes",
+    "requires_approval",
+    "person_uuids",
+    "person_distinct_ids",
+    "person_drop_profiles",
+    "person_drop_events",
+    "person_drop_recordings",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -517,6 +543,16 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             rendered,
         )
 
+    def _is_locked(self, obj: DataDeletionRequest | None) -> bool:
+        """Approved and later requests are locked — only draft/pending are editable."""
+        return obj is not None and obj.pk is not None and obj.status not in EDITABLE_STATUSES
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly = super().get_readonly_fields(request, obj)
+        if self._is_locked(obj):
+            return tuple(readonly) + EDITABLE_FIELDS
+        return readonly
+
     def save_model(self, request, obj, form, change):
         if not change:
             obj.created_by = request.user
@@ -594,6 +630,28 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 obj.status == RequestStatus.FAILED and request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
             )
             extra_context["retry_url"] = reverse("admin:posthog_datadeletionrequest_retry", args=[obj.pk])
+            extra_context["can_verify"] = (
+                obj.status == RequestStatus.QUEUED and request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
+            )
+            extra_context["verify_url"] = reverse("admin:posthog_datadeletionrequest_verify", args=[obj.pk])
+
+            # ClickHouse stats are calculated from this page (works for any status).
+            extra_context["fetch_stats_url"] = reverse("admin:posthog_datadeletionrequest_fetch_stats", args=[obj.pk])
+            extra_context["preview_stats_url"] = reverse(
+                "admin:posthog_datadeletionrequest_preview_stats", args=[obj.pk]
+            )
+            extra_context["is_clickhouse_team"] = request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
+            preview_stats = request.session.pop("data_deletion_preview_stats", None)
+            if preview_stats and str(preview_stats.get("obj_pk")) != str(obj.pk):
+                # Belongs to a different request — drop it rather than mislead the operator.
+                preview_stats = None
+            extra_context["preview_stats"] = preview_stats
+
+            if self._is_locked(obj):
+                # Locked requests have no editable fields — hide the misleading Save row.
+                extra_context["show_save"] = False
+                extra_context["show_save_and_continue"] = False
+                extra_context["show_save_and_add_another"] = False
         return super().change_view(request, object_id, form_url, extra_context)
 
     def get_urls(self):
@@ -628,6 +686,11 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 "<path:object_id>/retry/",
                 self.admin_site.admin_view(self.retry_view),
                 name="posthog_datadeletionrequest_retry",
+            ),
+            path(
+                "<path:object_id>/verify/",
+                self.admin_site.admin_view(self.verify_view),
+                name="posthog_datadeletionrequest_verify",
             ),
         ]
         return custom_urls + urls
@@ -686,12 +749,6 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.success(request, "Request submitted and is now pending.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
-        is_clickhouse_team = request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
-        preview_stats = request.session.pop("data_deletion_preview_stats", None)
-        if preview_stats and str(preview_stats.get("obj_pk")) != str(obj.pk):
-            # Belongs to a different request — drop it rather than mislead the operator.
-            preview_stats = None
-
         context = {
             **self.admin_site.each_context(request),
             "obj": obj,
@@ -700,10 +757,6 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             "missing_person_drop_flag": missing_person_drop_flag,
             "is_person_removal": obj.request_type == RequestType.PERSON_REMOVAL,
             "can_submit": can_submit,
-            "fetch_stats_url": reverse("admin:posthog_datadeletionrequest_fetch_stats", args=[obj.pk]),
-            "preview_stats_url": reverse("admin:posthog_datadeletionrequest_preview_stats", args=[obj.pk]),
-            "is_clickhouse_team": is_clickhouse_team,
-            "preview_stats": preview_stats,
             "opts": self.model._meta,
             "title": f"Submit deletion request {obj.pk}",
         }
@@ -715,7 +768,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_changelist"))
 
         if request.method != "POST":
-            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
         if obj.request_type == RequestType.PERSON_REMOVAL:
             # No ClickHouse query yet for person_removal — just count selectors.
@@ -724,7 +777,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             obj.save(update_fields=["count", "stats_calculated_at", "updated_at"])
             self.log_change(request, obj, "Counted person_removal selectors.")
             messages.success(request, f"Selector count: {obj.count} person target(s).")
-            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
         try:
             stats = fetch_deletion_stats(obj, user_id=request.user.id)
@@ -752,14 +805,14 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         except Exception as e:
             messages.error(request, f"Failed to fetch stats: {e}")
 
-        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
     def preview_stats_view(self, request, object_id):
         """ClickHouse-Team-only ephemeral stats run.
 
         Runs the same ClickHouse queries as ``fetch_stats_view`` but does **not**
         persist anything to the model — useful while iterating on a predicate.
-        Results are stashed in the session and rendered on the next submit page
+        Results are stashed in the session and rendered on the next change page
         render under a separate "Preview (not saved)" block.
         """
         obj = self.get_object(request, object_id)
@@ -768,10 +821,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
 
         if not request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists():
             messages.error(request, "Only ClickHouse Team members can preview stats.")
-            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
         if request.method != "POST":
-            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
         if obj.request_type == RequestType.PERSON_REMOVAL:
             count = len(obj.person_uuids) + len(obj.person_distinct_ids)
@@ -781,7 +834,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 "calculated_at": timezone.now().isoformat(),
             }
             messages.info(request, f"Preview selector count: {count} person target(s). Not saved.")
-            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
         try:
             stats = fetch_deletion_stats(obj, user_id=request.user.id)
@@ -802,7 +855,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         except Exception as e:
             messages.error(request, f"Failed to preview stats: {e}")
 
-        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
     def approve_view(self, request, object_id):
         obj = self.get_object(request, object_id)
@@ -923,4 +976,33 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             request,
             "Request requeued. The pickup sensor will launch a new run on its next tick.",
         )
+        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+    def verify_view(self, request, object_id):
+        obj = self.get_object(request, object_id)
+        if not obj:
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_changelist"))
+
+        if request.method != "POST":
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        if not request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists():
+            messages.error(request, "Only ClickHouse Team members can verify deletion requests.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        if obj.status != RequestStatus.QUEUED:
+            messages.error(request, "Only queued requests can be verified.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        outcome = verify_queued_request(obj)
+        if outcome.promoted:
+            obj.refresh_from_db()
+            self.log_change(request, obj, "Verified: 0 matching events remain, status queued → completed.")
+            messages.success(request, "Verified — no matching events remain. Marked completed.")
+        else:
+            messages.warning(
+                request,
+                f"{outcome.remaining} matching event(s) still present in ClickHouse. "
+                "Left queued — re-run after the next scheduled deletion.",
+            )
         return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))

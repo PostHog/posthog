@@ -2,7 +2,6 @@ import copy
 import logging
 from collections.abc import Callable, Iterator
 from typing import Any, Optional
-from urllib.parse import urljoin
 
 from requests import Request, Response, Session
 from requests.auth import AuthBase
@@ -10,9 +9,11 @@ from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_
 
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 
+from .auth import auth_secret_values
 from .exceptions import IgnoreResponseException
 from .jsonpath_utils import TJsonPath, find_values
 from .paginators import BasePaginator
+from .utils import resolve_request_url
 
 logger = logging.getLogger(__name__)
 
@@ -53,17 +54,14 @@ class RESTClient:
         # `RESTClient` participates in HTTP logging, metrics, and sample
         # capture. Callers can pass a pre-built `Session` for tests or
         # specialized auth (it should still be a tracked one in prod).
-        self.session = session or make_tracked_session()
+        # The auth's credential values are registered for value-based redaction
+        # so a key injected into a query param/custom header can't leak into logs.
+        self.session = session or make_tracked_session(redact_values=auth_secret_values(auth))
         if self.headers:
             self.session.headers.update(self.headers)
 
     def _join_url(self, path: str) -> str:
-        if path.startswith(("http://", "https://")):
-            return path
-        base = self.base_url
-        if not base.endswith("/"):
-            base += "/"
-        return urljoin(base, path.lstrip("/"))
+        return resolve_request_url(self.base_url, path)
 
     def paginate(
         self,

@@ -9,11 +9,83 @@
  */
 import * as zod from 'zod'
 
+export const datasetItemsCreateBodyRefTraceIdMax = 255
+
+export const datasetItemsCreateBodyRefSourceIdMax = 255
+
+export const DatasetItemsCreateBody = /* @__PURE__ */ zod.object({
+    dataset: zod.uuid(),
+    input: zod.unknown().optional(),
+    output: zod.unknown().optional(),
+    metadata: zod.unknown().optional(),
+    ref_trace_id: zod.string().max(datasetItemsCreateBodyRefTraceIdMax).nullish(),
+    ref_timestamp: zod.iso.datetime({ offset: true }).nullish(),
+    ref_source_id: zod.string().max(datasetItemsCreateBodyRefSourceIdMax).nullish(),
+    deleted: zod.boolean().nullish(),
+})
+
+export const datasetItemsUpdateBodyRefTraceIdMax = 255
+
+export const datasetItemsUpdateBodyRefSourceIdMax = 255
+
+export const DatasetItemsUpdateBody = /* @__PURE__ */ zod.object({
+    dataset: zod.uuid(),
+    input: zod.unknown().optional(),
+    output: zod.unknown().optional(),
+    metadata: zod.unknown().optional(),
+    ref_trace_id: zod.string().max(datasetItemsUpdateBodyRefTraceIdMax).nullish(),
+    ref_timestamp: zod.iso.datetime({ offset: true }).nullish(),
+    ref_source_id: zod.string().max(datasetItemsUpdateBodyRefSourceIdMax).nullish(),
+    deleted: zod.boolean().nullish(),
+})
+
+export const datasetItemsPartialUpdateBodyRefTraceIdMax = 255
+
+export const datasetItemsPartialUpdateBodyRefSourceIdMax = 255
+
+export const DatasetItemsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    dataset: zod.uuid().optional(),
+    input: zod.unknown().optional(),
+    output: zod.unknown().optional(),
+    metadata: zod.unknown().optional(),
+    ref_trace_id: zod.string().max(datasetItemsPartialUpdateBodyRefTraceIdMax).nullish(),
+    ref_timestamp: zod.iso.datetime({ offset: true }).nullish(),
+    ref_source_id: zod.string().max(datasetItemsPartialUpdateBodyRefSourceIdMax).nullish(),
+    deleted: zod.boolean().nullish(),
+})
+
+export const datasetsCreateBodyNameMax = 400
+
+export const DatasetsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(datasetsCreateBodyNameMax),
+    description: zod.string().nullish(),
+    metadata: zod.unknown().optional(),
+    deleted: zod.boolean().nullish(),
+})
+
+export const datasetsUpdateBodyNameMax = 400
+
+export const DatasetsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(datasetsUpdateBodyNameMax),
+    description: zod.string().nullish(),
+    metadata: zod.unknown().optional(),
+    deleted: zod.boolean().nullish(),
+})
+
+export const datasetsPartialUpdateBodyNameMax = 400
+
+export const DatasetsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(datasetsPartialUpdateBodyNameMax).optional(),
+    description: zod.string().nullish(),
+    metadata: zod.unknown().optional(),
+    deleted: zod.boolean().nullish(),
+})
+
 /**
  * Create a new evaluation run.
-
-This endpoint validates the request and enqueues a Temporal workflow
-to asynchronously execute the evaluation.
+ *
+ * This endpoint validates the request and enqueues a Temporal workflow
+ * to asynchronously execute the evaluation.
  */
 export const evaluationRunsCreateBodyEventDefault = `$ai_generation`
 
@@ -33,6 +105,12 @@ export const EvaluationRunsCreateBody = /* @__PURE__ */ zod.object({
 export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsCreateBodyConditionsItemIdMax = 100
+
+export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsCreateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsCreateBodyConditionsItemRolloutPercentageMax = 100
+
 export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 
 export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
@@ -79,10 +157,33 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
     conditions: zod
-        .unknown()
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsCreateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsCreateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsCreateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsCreateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
+        )
         .optional()
         .describe(
-            'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
+            'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
         ),
     model_configuration: zod
         .union([
@@ -115,6 +216,12 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
 export const evaluationsUpdateBodyNameMax = 400
 
 export const evaluationsUpdateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsUpdateBodyConditionsItemIdMax = 100
+
+export const evaluationsUpdateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsUpdateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsUpdateBodyConditionsItemRolloutPercentageMax = 100
+
 export const evaluationsUpdateBodyModelConfigurationOneModelMax = 100
 
 export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
@@ -161,10 +268,33 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
     conditions: zod
-        .unknown()
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsUpdateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsUpdateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsUpdateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsUpdateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
+        )
         .optional()
         .describe(
-            'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
+            'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
         ),
     model_configuration: zod
         .union([
@@ -197,6 +327,12 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
 export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
+
+export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax = 100
+
 export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 
 export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -245,10 +381,33 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
     conditions: zod
-        .unknown()
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsPartialUpdateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
+        )
         .optional()
         .describe(
-            'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
+            'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
         ),
     model_configuration: zod
         .union([
@@ -353,9 +512,9 @@ export const LlmAnalyticsClusteringJobsPartialUpdateBody = /* @__PURE__ */ zod.o
 
 /**
  * Trigger a new clustering workflow run.
-
-This endpoint validates the request parameters and starts a Temporal workflow
-to perform trace clustering with the specified configuration.
+ *
+ * This endpoint validates the request parameters and starts a Temporal workflow
+ * to perform trace clustering with the specified configuration.
  */
 export const llmAnalyticsClusteringRunsCreateBodyLookbackDaysDefault = 7
 export const llmAnalyticsClusteringRunsCreateBodyLookbackDaysMax = 90
@@ -764,19 +923,19 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
 
 /**
  *
-Generate an AI-powered summary of evaluation results.
-
-This endpoint analyzes evaluation runs and identifies patterns in passing
-and failing evaluations, providing actionable recommendations.
-
-Data is fetched server-side by evaluation ID to ensure data integrity.
-
-**Use Cases:**
-- Understand why evaluations are passing or failing
-- Identify systematic issues in LLM responses
-- Get recommendations for improving response quality
-- Review patterns across many evaluation runs at once
-
+ * Generate an AI-powered summary of evaluation results.
+ *
+ * This endpoint analyzes evaluation runs and identifies patterns in passing
+ * and failing evaluations, providing actionable recommendations.
+ *
+ * Data is fetched server-side by evaluation ID to ensure data integrity.
+ *
+ * **Use Cases:**
+ * - Understand why evaluations are passing or failing
+ * - Identify systematic issues in LLM responses
+ * - Get recommendations for improving response quality
+ * - Review patterns across many evaluation runs at once
+ *
  */
 export const llmAnalyticsEvaluationSummaryCreateBodyFilterDefault = `all`
 export const llmAnalyticsEvaluationSummaryCreateBodyGenerationIdsMax = 250
@@ -815,6 +974,27 @@ export const LlmAnalyticsOfflineEvaluationsExperimentItemsCreateBody = /* @__PUR
         .string()
         .nullish()
         .describe('Upper bound on `timestamp` (ISO-8601). Omit to leave the upper bound open.'),
+})
+
+export const llmAnalyticsParserRecipesCreateBodyNameMax = 255
+
+export const LlmAnalyticsParserRecipesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(llmAnalyticsParserRecipesCreateBodyNameMax)
+        .describe('Human-readable recipe name shown in the editor.'),
+    source: zod.string().describe('Raw YAML recipe source, compiled and validated client-side.'),
+})
+
+export const llmAnalyticsParserRecipesPartialUpdateBodyNameMax = 255
+
+export const LlmAnalyticsParserRecipesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(llmAnalyticsParserRecipesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable recipe name shown in the editor.'),
+    source: zod.string().optional().describe('Raw YAML recipe source, compiled and validated client-side.'),
 })
 
 export const llmAnalyticsProviderKeysCreateBodyNameMax = 255
@@ -1163,27 +1343,27 @@ export const LlmAnalyticsSentimentGenerationsCreateBody = /* @__PURE__ */ zod
 
 /**
  *
-Generate an AI-powered summary of an LLM trace or event.
-
-This endpoint analyzes the provided trace/event, generates a line-numbered text
-representation, and uses an LLM to create a concise summary with line references.
-
-**Two ways to use this endpoint:**
-
-1. **By ID (recommended):** Pass `trace_id` or `generation_id` with an optional `date_from`/`date_to`.
-   The backend fetches the data automatically. `summarize_type` is inferred.
-2. **By data:** Pass the full trace/event data blob in `data` with `summarize_type`.
-   This is how the frontend uses it.
-
-**Summary Format:**
-- Title (concise, max 10 words)
-- Mermaid flow diagram showing the main flow
-- 3-10 summary bullets with line references
-- "Interesting Notes" section for failures, successes, or unusual patterns
-- Line references in [L45] or [L45-52] format pointing to relevant sections
-
-The response includes the structured summary, the text representation, and metadata.
-
+ * Generate an AI-powered summary of an LLM trace or event.
+ *
+ * This endpoint analyzes the provided trace/event, generates a line-numbered text
+ * representation, and uses an LLM to create a concise summary with line references.
+ *
+ * **Two ways to use this endpoint:**
+ *
+ * 1. **By ID (recommended):** Pass `trace_id` or `generation_id` with an optional `date_from`/`date_to`.
+ *    The backend fetches the data automatically. `summarize_type` is inferred.
+ * 2. **By data:** Pass the full trace/event data blob in `data` with `summarize_type`.
+ *    This is how the frontend uses it.
+ *
+ * **Summary Format:**
+ * - Title (concise, max 10 words)
+ * - Mermaid flow diagram showing the main flow
+ * - 3-10 summary bullets with line references
+ * - "Interesting Notes" section for failures, successes, or unusual patterns
+ * - Line references in [L45] or [L45-52] format pointing to relevant sections
+ *
+ * The response includes the structured summary, the text representation, and metadata.
+ *
  */
 export const llmAnalyticsSummarizationCreateBodyModeDefault = `minimal`
 export const llmAnalyticsSummarizationCreateBodyForceRefreshDefault = false
@@ -1235,17 +1415,17 @@ export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  *
-Check which traces have cached summaries available.
-
-This endpoint allows batch checking of multiple trace IDs to see which ones
-have cached summaries. Returns only the traces that have cached summaries
-with their titles.
-
-**Use Cases:**
-- Load cached summaries on session view load
-- Avoid unnecessary LLM calls for already-summarized traces
-- Display summary previews without generating new summaries
-
+ * Check which traces have cached summaries available.
+ *
+ * This endpoint allows batch checking of multiple trace IDs to see which ones
+ * have cached summaries. Returns only the traces that have cached summaries
+ * with their titles.
+ *
+ * **Use Cases:**
+ * - Load cached summaries on session view load
+ * - Avoid unnecessary LLM calls for already-summarized traces
+ * - Display summary previews without generating new summaries
+ *
  */
 export const llmAnalyticsSummarizationBatchCheckCreateBodyTraceIdsMax = 100
 
@@ -1266,39 +1446,39 @@ export const LlmAnalyticsSummarizationBatchCheckCreateBody = /* @__PURE__ */ zod
 
 /**
  *
-Generate a human-readable text representation of an LLM trace event.
-
-This endpoint converts AI observability events ($ai_generation, $ai_span, $ai_embedding, or $ai_trace)
-into formatted text representations suitable for display, logging, or analysis.
-
-**Supported Event Types:**
-- `$ai_generation`: Individual LLM API calls with input/output messages
-- `$ai_span`: Logical spans with state transitions
-- `$ai_embedding`: Embedding generation events (text input → vector)
-- `$ai_trace`: Full traces with hierarchical structure
-
-**Options:**
-- `max_length`: Maximum character count (default: 2000000)
-- `truncated`: Enable middle-content truncation within events (default: true)
-- `truncate_buffer`: Characters at start/end when truncating (default: 1000)
-- `include_markers`: Use interactive markers vs plain text indicators (default: true)
-  - Frontend: set true for `<<<TRUNCATED|base64|...>>>` markers
-  - Backend/LLM: set false for `... (X chars truncated) ...` text
-- `collapsed`: Show summary vs full trace tree (default: false)
-- `include_hierarchy`: Include tree structure for traces (default: true)
-- `max_depth`: Maximum depth for hierarchical rendering (default: unlimited)
-- `tools_collapse_threshold`: Number of tools before auto-collapsing list (default: 5)
-  - Tool lists >5 items show `<<<TOOLS_EXPANDABLE|...>>>` marker for frontend
-  - Or `[+] AVAILABLE TOOLS: N` for backend when `include_markers: false`
-- `include_line_numbers`: Prefix each line with line number like L001:, L010: (default: false)
-
-**Use Cases:**
-- Frontend display: `truncated: true, include_markers: true, include_line_numbers: true`
-- Backend LLM context (summary): `truncated: true, include_markers: false, collapsed: true`
-- Backend LLM context (full): `truncated: false`
-
-The response includes the formatted text and metadata about the rendering.
-
+ * Generate a human-readable text representation of an LLM trace event.
+ *
+ * This endpoint converts AI observability events ($ai_generation, $ai_span, $ai_embedding, or $ai_trace)
+ * into formatted text representations suitable for display, logging, or analysis.
+ *
+ * **Supported Event Types:**
+ * - `$ai_generation`: Individual LLM API calls with input/output messages
+ * - `$ai_span`: Logical spans with state transitions
+ * - `$ai_embedding`: Embedding generation events (text input → vector)
+ * - `$ai_trace`: Full traces with hierarchical structure
+ *
+ * **Options:**
+ * - `max_length`: Maximum character count (default: 2000000)
+ * - `truncated`: Enable middle-content truncation within events (default: true)
+ * - `truncate_buffer`: Characters at start/end when truncating (default: 1000)
+ * - `include_markers`: Use interactive markers vs plain text indicators (default: true)
+ *   - Frontend: set true for `<<<TRUNCATED|base64|...>>>` markers
+ *   - Backend/LLM: set false for `... (X chars truncated) ...` text
+ * - `collapsed`: Show summary vs full trace tree (default: false)
+ * - `include_hierarchy`: Include tree structure for traces (default: true)
+ * - `max_depth`: Maximum depth for hierarchical rendering (default: unlimited)
+ * - `tools_collapse_threshold`: Number of tools before auto-collapsing list (default: 5)
+ *   - Tool lists >5 items show `<<<TOOLS_EXPANDABLE|...>>>` marker for frontend
+ *   - Or `[+] AVAILABLE TOOLS: N` for backend when `include_markers: false`
+ * - `include_line_numbers`: Prefix each line with line number like L001:, L010: (default: false)
+ *
+ * **Use Cases:**
+ * - Frontend display: `truncated: true, include_markers: true, include_line_numbers: true`
+ * - Backend LLM context (summary): `truncated: true, include_markers: false, collapsed: true`
+ * - Backend LLM context (full): `truncated: false`
+ *
+ * The response includes the formatted text and metadata about the rendering.
+ *
  */
 export const LlmAnalyticsTextReprCreateBody = /* @__PURE__ */ zod.object({
     event_type: zod
@@ -1842,6 +2022,267 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
         .optional(),
 })
 
+export const taggersUpdateBodyNameMax = 400
+
+export const taggersUpdateBodyTaggerTypeDefault = `llm`
+export const taggersUpdateBodyTaggerConfigOneOneTagsItemNameMax = 100
+
+export const taggersUpdateBodyTaggerConfigOneOneTagsItemDescriptionDefault = ``
+export const taggersUpdateBodyTaggerConfigOneOneTagsItemDescriptionMax = 500
+
+export const taggersUpdateBodyTaggerConfigOneOneMinTagsDefault = 0
+export const taggersUpdateBodyTaggerConfigOneOneMinTagsMin = 0
+
+export const taggersUpdateBodyTaggerConfigOneTwoTagsItemNameMax = 100
+
+export const taggersUpdateBodyTaggerConfigOneTwoTagsItemDescriptionDefault = ``
+export const taggersUpdateBodyTaggerConfigOneTwoTagsItemDescriptionMax = 500
+
+export const taggersUpdateBodyConditionsItemIdMax = 100
+
+export const taggersUpdateBodyConditionsItemRolloutPercentageDefault = 100
+export const taggersUpdateBodyConditionsItemRolloutPercentageMin = 0
+export const taggersUpdateBodyConditionsItemRolloutPercentageMax = 100
+
+export const taggersUpdateBodyModelConfigurationOneModelMax = 100
+
+export const TaggersUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(taggersUpdateBodyNameMax),
+    description: zod.string().optional(),
+    enabled: zod.boolean().optional(),
+    tagger_type: zod
+        .enum(['llm', 'hog'])
+        .describe('\* `llm` - LLM\n\* `hog` - Hog')
+        .default(taggersUpdateBodyTaggerTypeDefault),
+    tagger_config: zod
+        .union([
+            zod.object({
+                prompt: zod.string().min(1).describe('Prompt instructing the LLM how to tag generations'),
+                tags: zod
+                    .array(
+                        zod.object({
+                            name: zod
+                                .string()
+                                .max(taggersUpdateBodyTaggerConfigOneOneTagsItemNameMax)
+                                .describe('Tag identifier'),
+                            description: zod
+                                .string()
+                                .max(taggersUpdateBodyTaggerConfigOneOneTagsItemDescriptionMax)
+                                .default(taggersUpdateBodyTaggerConfigOneOneTagsItemDescriptionDefault)
+                                .describe('Description to help the LLM classify'),
+                        })
+                    )
+                    .describe('Available tags the LLM can assign'),
+                min_tags: zod
+                    .number()
+                    .min(taggersUpdateBodyTaggerConfigOneOneMinTagsMin)
+                    .default(taggersUpdateBodyTaggerConfigOneOneMinTagsDefault)
+                    .describe('Minimum number of tags to apply'),
+                max_tags: zod.number().min(1).nullish().describe('Maximum number of tags to apply (null = no limit)'),
+            }),
+            zod.object({
+                source: zod.string().min(1).describe('Hog source code to classify a generation into tags.'),
+                tags: zod
+                    .array(
+                        zod.object({
+                            name: zod
+                                .string()
+                                .max(taggersUpdateBodyTaggerConfigOneTwoTagsItemNameMax)
+                                .describe('Tag identifier'),
+                            description: zod
+                                .string()
+                                .max(taggersUpdateBodyTaggerConfigOneTwoTagsItemDescriptionMax)
+                                .default(taggersUpdateBodyTaggerConfigOneTwoTagsItemDescriptionDefault)
+                                .describe('Description to help the LLM classify'),
+                        })
+                    )
+                    .optional()
+                    .describe('Optional tag whitelist. Leave empty to allow any tag returned by the Hog code.'),
+            }),
+        ])
+        .describe(
+            "Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}."
+        ),
+    conditions: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .max(taggersUpdateBodyConditionsItemIdMax)
+                    .describe('Stable identifier for this condition'),
+                rollout_percentage: zod
+                    .number()
+                    .min(taggersUpdateBodyConditionsItemRolloutPercentageMin)
+                    .max(taggersUpdateBodyConditionsItemRolloutPercentageMax)
+                    .default(taggersUpdateBodyConditionsItemRolloutPercentageDefault)
+                    .describe('Percentage of matching events to apply this condition to'),
+                properties: zod
+                    .array(zod.record(zod.string(), zod.unknown()))
+                    .optional()
+                    .describe('Property filters that scope when this condition fires'),
+            })
+        )
+        .optional()
+        .describe('Conditions that scope when the tagger runs'),
+    model_configuration: zod
+        .union([
+            zod.object({
+                provider: zod
+                    .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
+                    .describe(
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+                    )
+                    .describe(
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+                    ),
+                model: zod
+                    .string()
+                    .max(taggersUpdateBodyModelConfigurationOneModelMax)
+                    .describe('Provider model identifier to use for this tagger.'),
+                provider_key_id: zod
+                    .uuid()
+                    .nullish()
+                    .describe(
+                        'Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit\/null when no provider key should be pinned.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional(),
+    deleted: zod.boolean().optional(),
+})
+
+export const taggersPartialUpdateBodyNameMax = 400
+
+export const taggersPartialUpdateBodyTaggerTypeDefault = `llm`
+export const taggersPartialUpdateBodyTaggerConfigOneOneTagsItemNameMax = 100
+
+export const taggersPartialUpdateBodyTaggerConfigOneOneTagsItemDescriptionDefault = ``
+export const taggersPartialUpdateBodyTaggerConfigOneOneTagsItemDescriptionMax = 500
+
+export const taggersPartialUpdateBodyTaggerConfigOneOneMinTagsDefault = 0
+export const taggersPartialUpdateBodyTaggerConfigOneOneMinTagsMin = 0
+
+export const taggersPartialUpdateBodyTaggerConfigOneTwoTagsItemNameMax = 100
+
+export const taggersPartialUpdateBodyTaggerConfigOneTwoTagsItemDescriptionDefault = ``
+export const taggersPartialUpdateBodyTaggerConfigOneTwoTagsItemDescriptionMax = 500
+
+export const taggersPartialUpdateBodyConditionsItemIdMax = 100
+
+export const taggersPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
+export const taggersPartialUpdateBodyConditionsItemRolloutPercentageMin = 0
+export const taggersPartialUpdateBodyConditionsItemRolloutPercentageMax = 100
+
+export const taggersPartialUpdateBodyModelConfigurationOneModelMax = 100
+
+export const TaggersPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(taggersPartialUpdateBodyNameMax).optional(),
+    description: zod.string().optional(),
+    enabled: zod.boolean().optional(),
+    tagger_type: zod
+        .enum(['llm', 'hog'])
+        .describe('\* `llm` - LLM\n\* `hog` - Hog')
+        .default(taggersPartialUpdateBodyTaggerTypeDefault),
+    tagger_config: zod
+        .union([
+            zod.object({
+                prompt: zod.string().min(1).describe('Prompt instructing the LLM how to tag generations'),
+                tags: zod
+                    .array(
+                        zod.object({
+                            name: zod
+                                .string()
+                                .max(taggersPartialUpdateBodyTaggerConfigOneOneTagsItemNameMax)
+                                .describe('Tag identifier'),
+                            description: zod
+                                .string()
+                                .max(taggersPartialUpdateBodyTaggerConfigOneOneTagsItemDescriptionMax)
+                                .default(taggersPartialUpdateBodyTaggerConfigOneOneTagsItemDescriptionDefault)
+                                .describe('Description to help the LLM classify'),
+                        })
+                    )
+                    .describe('Available tags the LLM can assign'),
+                min_tags: zod
+                    .number()
+                    .min(taggersPartialUpdateBodyTaggerConfigOneOneMinTagsMin)
+                    .default(taggersPartialUpdateBodyTaggerConfigOneOneMinTagsDefault)
+                    .describe('Minimum number of tags to apply'),
+                max_tags: zod.number().min(1).nullish().describe('Maximum number of tags to apply (null = no limit)'),
+            }),
+            zod.object({
+                source: zod.string().min(1).describe('Hog source code to classify a generation into tags.'),
+                tags: zod
+                    .array(
+                        zod.object({
+                            name: zod
+                                .string()
+                                .max(taggersPartialUpdateBodyTaggerConfigOneTwoTagsItemNameMax)
+                                .describe('Tag identifier'),
+                            description: zod
+                                .string()
+                                .max(taggersPartialUpdateBodyTaggerConfigOneTwoTagsItemDescriptionMax)
+                                .default(taggersPartialUpdateBodyTaggerConfigOneTwoTagsItemDescriptionDefault)
+                                .describe('Description to help the LLM classify'),
+                        })
+                    )
+                    .optional()
+                    .describe('Optional tag whitelist. Leave empty to allow any tag returned by the Hog code.'),
+            }),
+        ])
+        .optional()
+        .describe(
+            "Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}."
+        ),
+    conditions: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .max(taggersPartialUpdateBodyConditionsItemIdMax)
+                    .describe('Stable identifier for this condition'),
+                rollout_percentage: zod
+                    .number()
+                    .min(taggersPartialUpdateBodyConditionsItemRolloutPercentageMin)
+                    .max(taggersPartialUpdateBodyConditionsItemRolloutPercentageMax)
+                    .default(taggersPartialUpdateBodyConditionsItemRolloutPercentageDefault)
+                    .describe('Percentage of matching events to apply this condition to'),
+                properties: zod
+                    .array(zod.record(zod.string(), zod.unknown()))
+                    .optional()
+                    .describe('Property filters that scope when this condition fires'),
+            })
+        )
+        .optional()
+        .describe('Conditions that scope when the tagger runs'),
+    model_configuration: zod
+        .union([
+            zod.object({
+                provider: zod
+                    .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
+                    .describe(
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+                    )
+                    .describe(
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI'
+                    ),
+                model: zod
+                    .string()
+                    .max(taggersPartialUpdateBodyModelConfigurationOneModelMax)
+                    .describe('Provider model identifier to use for this tagger.'),
+                provider_key_id: zod
+                    .uuid()
+                    .nullish()
+                    .describe(
+                        'Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit\/null when no provider key should be pinned.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional(),
+    deleted: zod.boolean().optional(),
+})
+
 /**
  * Test Hog tagger code against sample events without saving.
  */
@@ -1881,76 +2322,4 @@ export const TaggersTestHogCreateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe('Optional tag whitelist. Returned tags outside this list are filtered out.'),
-})
-
-export const datasetItemsCreateBodyRefTraceIdMax = 255
-
-export const datasetItemsCreateBodyRefSourceIdMax = 255
-
-export const DatasetItemsCreateBody = /* @__PURE__ */ zod.object({
-    dataset: zod.uuid(),
-    input: zod.unknown().optional(),
-    output: zod.unknown().optional(),
-    metadata: zod.unknown().optional(),
-    ref_trace_id: zod.string().max(datasetItemsCreateBodyRefTraceIdMax).nullish(),
-    ref_timestamp: zod.iso.datetime({ offset: true }).nullish(),
-    ref_source_id: zod.string().max(datasetItemsCreateBodyRefSourceIdMax).nullish(),
-    deleted: zod.boolean().nullish(),
-})
-
-export const datasetItemsUpdateBodyRefTraceIdMax = 255
-
-export const datasetItemsUpdateBodyRefSourceIdMax = 255
-
-export const DatasetItemsUpdateBody = /* @__PURE__ */ zod.object({
-    dataset: zod.uuid(),
-    input: zod.unknown().optional(),
-    output: zod.unknown().optional(),
-    metadata: zod.unknown().optional(),
-    ref_trace_id: zod.string().max(datasetItemsUpdateBodyRefTraceIdMax).nullish(),
-    ref_timestamp: zod.iso.datetime({ offset: true }).nullish(),
-    ref_source_id: zod.string().max(datasetItemsUpdateBodyRefSourceIdMax).nullish(),
-    deleted: zod.boolean().nullish(),
-})
-
-export const datasetItemsPartialUpdateBodyRefTraceIdMax = 255
-
-export const datasetItemsPartialUpdateBodyRefSourceIdMax = 255
-
-export const DatasetItemsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    dataset: zod.uuid().optional(),
-    input: zod.unknown().optional(),
-    output: zod.unknown().optional(),
-    metadata: zod.unknown().optional(),
-    ref_trace_id: zod.string().max(datasetItemsPartialUpdateBodyRefTraceIdMax).nullish(),
-    ref_timestamp: zod.iso.datetime({ offset: true }).nullish(),
-    ref_source_id: zod.string().max(datasetItemsPartialUpdateBodyRefSourceIdMax).nullish(),
-    deleted: zod.boolean().nullish(),
-})
-
-export const datasetsCreateBodyNameMax = 400
-
-export const DatasetsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(datasetsCreateBodyNameMax),
-    description: zod.string().nullish(),
-    metadata: zod.unknown().optional(),
-    deleted: zod.boolean().nullish(),
-})
-
-export const datasetsUpdateBodyNameMax = 400
-
-export const DatasetsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(datasetsUpdateBodyNameMax),
-    description: zod.string().nullish(),
-    metadata: zod.unknown().optional(),
-    deleted: zod.boolean().nullish(),
-})
-
-export const datasetsPartialUpdateBodyNameMax = 400
-
-export const DatasetsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(datasetsPartialUpdateBodyNameMax).optional(),
-    description: zod.string().nullish(),
-    metadata: zod.unknown().optional(),
-    deleted: zod.boolean().nullish(),
 })

@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { dayjs } from 'lib/dayjs'
@@ -30,14 +30,8 @@ export interface TracingFilters {
     previousWindowOverride: OverlayWindow | null
 }
 
-export interface TracingFiltersLogicProps {
-    tabId?: string
-}
-
 export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
-    props({} as TracingFiltersLogicProps),
-    key((p) => p.tabId ?? 'default'),
-    path((tabId) => ['products', 'tracing', 'frontend', 'tracingFiltersLogic', tabId]),
+    path(['products', 'tracing', 'frontend', 'tracingFiltersLogic']),
 
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),

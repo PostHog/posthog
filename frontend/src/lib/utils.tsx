@@ -1850,6 +1850,10 @@ const WORD_PLURALIZATION_RULES = [
 ] as [RegExp, string][]
 
 export function wordPluralize(word: string): string {
+    if (!word) {
+        return word ?? ''
+    }
+
     let len = WORD_PLURALIZATION_RULES.length
 
     // Iterate over the sanitization rules and use the first one to match.

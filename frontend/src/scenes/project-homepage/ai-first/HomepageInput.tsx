@@ -29,11 +29,10 @@ import { HOMEPAGE_TAB_ID } from './constants'
 
 function IdleInput(): JSX.Element {
     const { query } = useValues(aiFirstHomepageLogic)
-    const { setQuery, submitQuery, enterAiMode, startNewConversation } = useActions(aiFirstHomepageLogic)
+    const { setQuery, submitQuery, enterAiMode, startHandsFreeChat } = useActions(aiFirstHomepageLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const handsFreeFlag = useFeatureFlag('MAX_HANDS_FREE')
-    const { canUseHandsFree } = useValues(handsFreeLogic({ tabId: HOMEPAGE_TAB_ID }))
-    const { enterHandsFree } = useActions(handsFreeLogic({ tabId: HOMEPAGE_TAB_ID }))
+    const { canUseHandsFree } = useValues(handsFreeLogic({ panelId: HOMEPAGE_TAB_ID }))
     const inputRef = useRef<HTMLTextAreaElement>(null)
 
     const handsFreeAvailable = handsFreeFlag && canUseHandsFree && dataProcessingAccepted
@@ -136,12 +135,7 @@ function IdleInput(): JSX.Element {
                                         iconOnly
                                         data-attr="homepage-hands-free"
                                         className="shrink-0"
-                                        onClick={() => {
-                                            posthog.capture('homepage hands-free started')
-                                            startNewConversation()
-                                            submitQuery('ai')
-                                            enterHandsFree()
-                                        }}
+                                        onClick={startHandsFreeChat}
                                     >
                                         <IconMicrophone className="size-4" />
                                     </ButtonPrimitive>
@@ -175,7 +169,7 @@ function HomepageAiInput(): JSX.Element {
 
     const fallbackConversationId = useMemo(() => uuid(), [])
     const threadProps: MaxThreadLogicProps = {
-        tabId: HOMEPAGE_TAB_ID,
+        panelId: HOMEPAGE_TAB_ID,
         conversationId: threadLogicKey || fallbackConversationId,
         conversation,
     }
@@ -480,6 +474,7 @@ function IdleGrid(): JSX.Element {
                                         <Link
                                             to={item.href}
                                             role="gridcell"
+                                            title={item.label}
                                             buttonProps={{
                                                 menuItem: true,
                                                 fullWidth: true,

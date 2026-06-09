@@ -9,8 +9,9 @@ from django.db.models import QuerySet
 from posthog.api.llm_prompt_serializers import MAX_PROMPT_PAYLOAD_BYTES
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
-from posthog.models.llm_prompt import LLMPrompt, annotate_llm_prompt_version_history_metadata
 from posthog.storage.llm_prompt_cache import invalidate_prompt_latest_cache, invalidate_prompt_version_caches
+
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt, annotate_llm_prompt_version_history_metadata
 
 SYNC_ARCHIVE_VERSION_INVALIDATION_LIMIT = 100
 MAX_PROMPT_VERSION = 2000

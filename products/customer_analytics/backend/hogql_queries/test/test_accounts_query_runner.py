@@ -7,6 +7,8 @@ from parameterized import parameterized
 
 from posthog.schema import AccountsQuery, AccountsQueryResponse
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.models import Tag
@@ -141,32 +143,27 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
     def test_csm_filter_by_id(self):
         match = create_account(team_id=self.team.id, name="Has CSM", _properties={"csm": {"id": 7, "email": "a@x.com"}})
         create_account(team_id=self.team.id, name="Other CSM", _properties={"csm": {"id": 9, "email": "b@x.com"}})
-        self.assertEqual(self._ids(csm=7), [str(match.id)])
+        self.assertEqual(self._ids(csm=[7]), [str(match.id)])
 
-    @parameterized.expand(
-        [
-            ("absent_keys", {"_properties": {}}),
-            ("null_valued_keys", {"properties": {}}),
-        ]
-    )
-    def test_csm_unassigned_matches_missing_and_null(self, _name, unassigned_kwargs):
-        create_account(team_id=self.team.id, name="Assigned", properties={"csm": {"id": 7, "email": "a@x.com"}})
-        unassigned = create_account(team_id=self.team.id, name="Unassigned", **unassigned_kwargs)
-        self.assertEqual(self._ids(csm="unassigned"), [str(unassigned.id)])
+    def test_csm_filter_matches_any_of_multiple_ids(self):
+        seven = create_account(team_id=self.team.id, name="Seven", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        nine = create_account(team_id=self.team.id, name="Nine", _properties={"csm": {"id": 9, "email": "b@x.com"}})
+        create_account(team_id=self.team.id, name="Eleven", _properties={"csm": {"id": 11, "email": "c@x.com"}})
+        self.assertEqual(set(self._ids(csm=[7, 9])), {str(seven.id), str(nine.id)})
 
     def test_account_executive_filter_by_id(self):
         match = create_account(
             team_id=self.team.id, name="A", _properties={"account_executive": {"id": 7, "email": "a@x.com"}}
         )
         create_account(team_id=self.team.id, name="B")
-        self.assertEqual(self._ids(accountExecutive=7), [str(match.id)])
+        self.assertEqual(self._ids(accountExecutive=[7]), [str(match.id)])
 
     def test_account_owner_filter_by_id(self):
         match = create_account(
             team_id=self.team.id, name="A", _properties={"account_owner": {"id": 7, "email": "a@x.com"}}
         )
         create_account(team_id=self.team.id, name="B")
-        self.assertEqual(self._ids(accountOwner=7), [str(match.id)])
+        self.assertEqual(self._ids(accountOwner=[7]), [str(match.id)])
 
     @parameterized.expand(
         [
@@ -192,13 +189,13 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         wrong_csm = create_account(team_id=self.team.id, name="C", _properties={"csm": {"id": 8, "email": "c@x.com"}})
         wrong_csm.tagged_items.create(tag=enterprise_tag)
 
-        self.assertEqual(self._ids(csm=7, tagNames=["enterprise"]), [str(match.id)])
+        self.assertEqual(self._ids(csm=[7], tagNames=["enterprise"]), [str(match.id)])
 
     def test_role_filter_respects_team_isolation(self):
         other_team = Team.objects.create(organization=self.organization)
         create_account(team_id=other_team.id, name="Theirs", _properties={"csm": {"id": 7, "email": "a@x.com"}})
         mine = create_account(team_id=self.team.id, name="Mine", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        self.assertEqual(self._ids(csm=7), [str(mine.id)])
+        self.assertEqual(self._ids(csm=[7]), [str(mine.id)])
 
     def test_ordering_by_name_asc(self):
         banana = create_account(team_id=self.team.id, name="Banana")
@@ -363,7 +360,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         # Mirror existing API test setup that uses set_tags_on_object.
         account = create_account(team_id=self.team.id, name="A", _properties={"csm": {"id": 7, "email": "a@x.com"}})
         set_tags_on_object(["enterprise"], account)
-        self.assertEqual(self._ids(csm=7, tagNames=["enterprise"]), [str(account.id)])
+        self.assertEqual(self._ids(csm=[7], tagNames=["enterprise"]), [str(account.id)])
 
     def test_custom_select_uses_only_requested_columns(self):
         create_account(team_id=self.team.id, name="A")
@@ -376,6 +373,64 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         create_account(team_id=self.team.id, name="A")
         runner = AccountsQueryRunner(query=AccountsQuery(select=["id", "name", "id"]), team=self.team)
         self.assertEqual(runner.columns, ["id", "name"])
+
+    def test_metrics_mode_returns_aggregations_and_no_rows(self):
+        create_account(team_id=self.team.id, name="A")
+        create_account(team_id=self.team.id, name="B")
+        create_account(team_id=self.team.id, name="C")
+        _, response = self._run_query(metrics=["count()"], select=[])
+        self.assertEqual(response.results, [])
+        self.assertEqual(response.columns, [])
+        self.assertEqual(response.metricsResults, [3])
+
+    def test_combined_mode_returns_rows_and_metrics_in_one_response(self):
+        create_account(team_id=self.team.id, name="A")
+        create_account(team_id=self.team.id, name="B")
+        create_account(team_id=self.team.id, name="C")
+        runner, response = self._run_query(select=["name"], metrics=["count()"])
+        name_idx = runner.columns.index("name")
+        self.assertEqual(len(response.results), 3)
+        self.assertTrue(all(row[name_idx]["name"] for row in response.results))
+        self.assertEqual(response.metricsResults, [3])
+
+    def test_metrics_mode_reuses_table_where_clause(self):
+        create_account(team_id=self.team.id, name="Acme")
+        create_account(team_id=self.team.id, name="Other")
+        _, response = self._run_query(metrics=["count()"], select=[], search="acme")
+        self.assertEqual(response.metricsResults, [1])
+
+    def test_metrics_mode_respects_team_isolation(self):
+        create_account(team_id=self.team.id, name="Mine")
+        other_team = Team.objects.create(organization=self.organization)
+        create_account(team_id=other_team.id, name="Theirs")
+        _, response = self._run_query(metrics=["count()"], select=[])
+        self.assertEqual(response.metricsResults, [1])
+
+    def test_bad_metric_raises_an_error_naming_the_offending_expression(self):
+        create_account(team_id=self.team.id, name="A")
+        with self.assertRaises(ExposedHogQLError) as ctx:
+            self._run_query(select=["name"], metrics=["count()", "sum(does_not_exist)"])
+        message = str(ctx.exception)
+        self.assertIn("sum(does_not_exist)", message)
+        # The healthy metric should not be blamed.
+        self.assertNotIn("`count()`", message)
+
+    def test_filter_expression_narrows_the_row_set(self):
+        create_account(team_id=self.team.id, name="A", _properties={"score": 80})
+        create_account(team_id=self.team.id, name="B", _properties={"score": 20})
+        create_account(team_id=self.team.id, name="C", _properties={"score": 10})
+        ids = self._ids(filterExpression="JSONExtract(properties, 'score', 'Nullable(Int64)') < 50")
+        self.assertEqual(len(ids), 2)
+
+    def test_filter_expression_combines_with_search(self):
+        create_account(team_id=self.team.id, name="Match", _properties={"score": 5})
+        create_account(team_id=self.team.id, name="WrongScore", _properties={"score": 99})
+        create_account(team_id=self.team.id, name="WrongName", _properties={"score": 5})
+        names = self._names(
+            search="match",
+            filterExpression="JSONExtract(properties, 'score', 'Nullable(Int64)') < 50",
+        )
+        self.assertEqual(names, ["Match"])
 
     def test_validate_query_runner_access_default(self):
         runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)

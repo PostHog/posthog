@@ -12,7 +12,8 @@ use std::sync::Arc;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembership, CohortMembershipResponse,
-    CountCohortMembersRequest, CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse,
+    CountCohortMembersRequest, CountCohortMembersResponse, CountGroupTypeMappingsRequest,
+    CountGroupTypeMappingsResponse, CreateGroupRequest, CreateGroupResponse,
     DeleteCohortMemberRequest, DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest,
     DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
     DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
@@ -29,15 +30,16 @@ use personhog_proto::personhog::types::v1::{
     GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
-    GetPersonsRequest, GroupKey, GroupTypeMapping, GroupTypeMappingsBatchResponse,
-    GroupTypeMappingsByKey, GroupTypeMappingsResponse, GroupWithKey, GroupsResponse,
-    HashKeyOverride, HashKeyOverrideContext as ProtoHashKeyOverrideContext,
-    InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
-    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, PersonDistinctIds,
-    PersonWithDistinctIds, PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse,
-    PersonsByDistinctIdsResponse, PersonsResponse, TeamDistinctId, UpdateGroupRequest,
-    UpdateGroupResponse, UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    GetPersonsRequest, GroupKey, GroupTypeMapping, GroupTypeMappingCount,
+    GroupTypeMappingsBatchResponse, GroupTypeMappingsByKey, GroupTypeMappingsResponse,
+    GroupWithKey, GroupsResponse, HashKeyOverride,
+    HashKeyOverrideContext as ProtoHashKeyOverrideContext, InsertCohortMembersRequest,
+    InsertCohortMembersResponse, ListCohortMemberIdsRequest, ListCohortMemberIdsResponse,
+    ListGroupsRequest, ListGroupsResponse, PersonDistinctIds, PersonWithDistinctIds,
+    PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
+    PersonsResponse, TeamDistinctId, UpdateGroupRequest, UpdateGroupResponse,
+    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
+    UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -948,6 +950,27 @@ impl PersonHogReplica for PersonHogReplicaService {
             .collect();
 
         Ok(Response::new(GroupTypeMappingsBatchResponse { results }))
+    }
+
+    async fn count_group_type_mappings(
+        &self,
+        request: Request<CountGroupTypeMappingsRequest>,
+    ) -> Result<Response<CountGroupTypeMappingsResponse>, Status> {
+        let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
+
+        let counts = self
+            .storage
+            .count_group_type_mappings(consistency)
+            .await
+            .map_err(|e| log_and_convert_error(e, "count_group_type_mappings"))?;
+
+        Ok(Response::new(CountGroupTypeMappingsResponse {
+            counts: counts
+                .into_iter()
+                .map(|(team_id, count)| GroupTypeMappingCount { team_id, count })
+                .collect(),
+        }))
     }
 
     async fn get_group_type_mapping_by_dashboard_id(

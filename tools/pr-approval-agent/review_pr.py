@@ -352,6 +352,7 @@ class Pipeline:
 
         print(_dim("  Calling reviewer..."))
         max_retries = 3
+        reviewer_unavailable = False
         for attempt in range(max_retries):
             try:
                 self.reviewer_output = reviewer.review(
@@ -368,9 +369,22 @@ class Pipeline:
                     time.sleep(wait)
                 else:
                     print(_fail(f"Reviewer failed after {max_retries} attempts: {e}"))
+                    print(
+                        _warn(
+                            "  This is an LLM backend failure (credentials, credit, or outage), "
+                            "not a verdict on the PR. Check the STAMPHOG_ANTHROPIC_API_KEY "
+                            "secret (or local ANTHROPIC_API_KEY)."
+                        )
+                    )
+                    reviewer_unavailable = True
                     self.reviewer_output = {
-                        "verdict": "ESCALATE",
-                        "reasoning": f"Review agent failed after {max_retries} attempts — needs human review.",
+                        "verdict": "ERROR",
+                        "reasoning": (
+                            "The review agent couldn't reach its LLM backend — an infrastructure "
+                            "or credentials issue, not a problem with this PR. The `stamphog` label "
+                            "has been kept; the review retries automatically on the next push, or "
+                            "re-apply the label once the backend recovers."
+                        ),
                         "risk": "unknown",
                         "issues": [str(e)],
                     }
@@ -383,10 +397,17 @@ class Pipeline:
         for issue in issues:
             print(_warn(f"  {issue}"))
 
-        # Gates are authoritative — LLM can tighten but never loosen
+        # Gates are authoritative — LLM can tighten but never loosen. A real
+        # gate denial outranks an unavailable reviewer: still REFUSE (and let
+        # the label strip), because the deny is deterministic and actionable.
         if gate_verdict == "DENIED":
             self.final_verdict = "REFUSED"
             print(f"\n{_fail('REFUSED')} — gates denied")
+        elif reviewer_unavailable:
+            # Distinct from a substantive REFUSE/ESCALATE: the workflow keeps
+            # the label so a transient outage doesn't drop it across every PR.
+            self.final_verdict = "ERROR"
+            print(f"\n{_warn('ERROR')} — review agent unavailable; label retained for retry")
         elif gate_verdict == "AUTO-APPROVED" and llm_verdict in ("REFUSE", "ESCALATE"):
             self.final_verdict = "ESCALATE"
             print(f"\n{_warn('ESCALATE')} — gates auto-approved but LLM disagrees")

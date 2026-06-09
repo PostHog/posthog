@@ -1,7 +1,7 @@
-import { buildGoalLineReferenceLines } from 'lib/hog-charts'
-import type { GoalLineConfig, ReferenceLineProps, Series } from 'lib/hog-charts'
+import { buildGoalLineReferenceLines } from '@posthog/quill-charts'
+import type { GoalLineConfig, ReferenceLineProps, Series } from '@posthog/quill-charts'
 
-import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
+import type { GoalLineLike as SchemaGoalLine } from './trendsChartDisplayOptions'
 
 export function schemaGoalLineToConfig(line: SchemaGoalLine): GoalLineConfig {
     return {
@@ -26,7 +26,7 @@ function schemaToReferenceLine(line: SchemaGoalLine, variant: 'goal' | 'alert'):
         value: line.value,
         orientation: 'horizontal',
         label: line.displayLabel === false ? undefined : line.label,
-        labelPosition: line.position ?? 'start',
+        labelPosition: line.position ?? 'end',
         variant,
         style: line.borderColor ? { color: line.borderColor } : undefined,
     }

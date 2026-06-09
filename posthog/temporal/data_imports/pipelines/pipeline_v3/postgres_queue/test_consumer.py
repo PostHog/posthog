@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 import pytest
@@ -5,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import structlog
 
+from posthog.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
     ConsumerConfig,
@@ -399,3 +401,43 @@ class TestLogContextBinding:
 
         assert "batch_id" not in structlog.contextvars.get_contextvars()
         assert "workflow_run_id" not in structlog.contextvars.get_contextvars()
+
+
+class TestHeartbeatLoop:
+    @pytest.mark.asyncio
+    async def test_reports_until_shutdown(self):
+        consumer = _make_consumer(heartbeat_interval_seconds=0.01)
+        calls = 0
+
+        def reporter():
+            nonlocal calls
+            calls += 1
+
+        consumer._health_reporter = reporter
+
+        task = asyncio.create_task(consumer._heartbeat_loop())
+        await asyncio.sleep(0.05)
+        consumer._shutdown.set()
+        await asyncio.wait_for(task, timeout=1.0)
+
+        assert calls >= 2
+
+    @pytest.mark.asyncio
+    async def test_keeps_liveness_healthy_through_long_batch(self):
+        # A poll cycle (large final-batch compaction) can run far longer than the
+        # health timeout; the dedicated heartbeat must keep liveness green so
+        # kubelet doesn't SIGTERM the pod mid-batch.
+        health = HealthState(timeout_seconds=0.1)
+        consumer = _make_consumer(heartbeat_interval_seconds=0.02)
+        consumer._health_reporter = health.report_healthy
+
+        task = asyncio.create_task(consumer._heartbeat_loop())
+        await asyncio.sleep(0.3)  # simulate a batch ~3x the health timeout
+        assert health.is_healthy() is True
+
+        consumer._shutdown.set()
+        await asyncio.wait_for(task, timeout=1.0)
+
+        # Once the heartbeat stops, liveness correctly goes stale again.
+        await asyncio.sleep(0.2)
+        assert health.is_healthy() is False

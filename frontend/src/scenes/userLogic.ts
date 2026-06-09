@@ -150,15 +150,11 @@ export const userLogic = kea<userLogicType>([
                     if (!values.user) {
                         throw new Error('Current user has not been loaded yet, so it cannot be updated!')
                     }
-                    try {
-                        const response = await api.update<UserType>('api/users/@me/', user)
-                        successCallback?.()
-                        return response
-                    } catch (error: any) {
-                        console.error(error)
-                        actions.updateUserFailure(error.message)
-                        return values.user
-                    }
+                    // Let failures throw so kea-loaders dispatches `updateUserFailure` — returning the old
+                    // user here would be treated as a success, silently masking backend errors.
+                    const response = await api.update<UserType>('api/users/@me/', user)
+                    successCallback?.()
+                    return response
                 },
                 cancelEmailChangeRequest: async () => {
                     if (!values.user) {
@@ -351,8 +347,9 @@ export const userLogic = kea<userLogicType>([
                 toastId: 'updateUser',
             })
         },
-        updateUserFailure: () => {
-            lemonToast.error(`Error saving preferences`, {
+        updateUserFailure: ({ errorObject }) => {
+            lemonToast.dismiss('updateUser')
+            lemonToast.error(errorObject?.detail || 'Error saving preferences', {
                 toastId: 'updateUser',
             })
         },

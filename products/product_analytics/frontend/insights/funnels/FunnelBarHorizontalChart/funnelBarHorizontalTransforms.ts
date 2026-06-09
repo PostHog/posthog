@@ -1,23 +1,27 @@
-import type { Series } from 'lib/hog-charts'
+import type { Series } from '@posthog/quill-charts'
+
 import { getReferenceStep, getStepBreakdownSeries } from 'scenes/funnels/funnelUtils'
 
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import { FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/types'
 
-export const FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX = 'funnel-bar-horizontal-segment-'
-export const FUNNEL_BAR_HORIZONTAL_FILLER_KEY = 'funnel-bar-horizontal-filler'
+import {
+    buildFunnelBarHorizontalFiller,
+    FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX,
+    RATE_TO_PERCENT,
+    type FunnelBarHorizontalSegmentMeta,
+    type FunnelBarHorizontalStepData,
+} from '../shared/funnelBarHorizontalShared'
 
-const RATE_TO_PERCENT = 100
-
-export interface FunnelBarHorizontalSegmentMeta {
-    isDropOff: boolean
-    breakdownIndex: number | null
-}
-
-export interface FunnelBarHorizontalData {
-    series: Series<FunnelBarHorizontalSegmentMeta>[]
-    labels: string[]
-}
+// Re-exported so existing importers (the chart component, tests) keep a single entry point even
+// though the neutral primitives now live in the shared module for the MCP bundle to reuse.
+export {
+    FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
+    FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX,
+    FUNNEL_BAR_HORIZONTAL_VALUE_DOMAIN,
+    type FunnelBarHorizontalSegmentMeta,
+    type FunnelBarHorizontalStepData,
+} from '../shared/funnelBarHorizontalShared'
 
 interface BuildOptions {
     stepReference: FunnelStepReference
@@ -42,86 +46,59 @@ function variantAtStep(
 export function buildFunnelBarHorizontalData(
     steps: FunnelStepWithConversionMetrics[],
     options: BuildOptions
-): FunnelBarHorizontalData {
+): FunnelBarHorizontalStepData[] {
     if (steps.length === 0) {
-        return { series: [], labels: [] }
+        return []
     }
-
-    // Band keys must be unique — funnels often repeat the same event, so step names collide and
-    // d3.scaleBand would collapse them into one band. The visible step names come from StepDecorations.
-    const labels = steps.map((_, stepIndex) => String(stepIndex))
-
-    if (isBreakdownLayout(steps)) {
-        return { series: buildBreakdownSeries(steps, options), labels }
-    }
-    return { series: buildSingleSeries(steps, options), labels }
+    const breakdown = isBreakdownLayout(steps)
+    return steps.map((step, stepIndex) => ({
+        label: String(stepIndex),
+        series: breakdown ? buildBreakdownSegments(steps, stepIndex, options) : buildSingleSegment(step, options),
+    }))
 }
 
-function buildBreakdownSeries(
+function buildBreakdownSegments(
     steps: FunnelStepWithConversionMetrics[],
+    stepIndex: number,
     options: BuildOptions
 ): Series<FunnelBarHorizontalSegmentMeta>[] {
+    const step = steps[stepIndex]
+    const basisCount = getReferenceStep(steps, options.stepReference, stepIndex).count
     const breakdownCount = steps[0].nested_breakdown!.length
-    const series: Series<FunnelBarHorizontalSegmentMeta>[] = []
+    const segments: Series<FunnelBarHorizontalSegmentMeta>[] = []
 
     for (let breakdownIndex = 0; breakdownIndex < breakdownCount; breakdownIndex++) {
-        const fractions = steps.map((step, stepIndex) => {
-            const variant = variantAtStep(step, breakdownIndex)
-            if (!variant) {
-                return 0
-            }
-            const basisCount = getReferenceStep(steps, options.stepReference, stepIndex).count
-            return basisCount > 0 ? variant.count / basisCount : 0
-        })
+        const variant = variantAtStep(step, breakdownIndex)
+        const fraction = variant && basisCount > 0 ? variant.count / basisCount : 0
+        // Color and label come from step 0's variant so the same breakdown reads consistently
+        // across steps even when a later step is missing that variant.
         const representative = variantAtStep(steps[0], breakdownIndex)!
-        series.push({
+        segments.push({
             key: `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}${breakdownIndex}`,
             label: options.getLabel(representative),
-            data: fractions.map((f) => f * RATE_TO_PERCENT),
+            data: [fraction * RATE_TO_PERCENT],
             color: options.getColor(representative),
             meta: { isDropOff: false, breakdownIndex },
         })
     }
 
-    series.push(buildFiller(steps, series, options.fillerColor))
-    return series
+    return [...segments, buildFunnelBarHorizontalFiller(segments, options.fillerColor)]
 }
 
-function buildSingleSeries(
-    steps: FunnelStepWithConversionMetrics[],
+function buildSingleSegment(
+    step: FunnelStepWithConversionMetrics,
     options: BuildOptions
 ): Series<FunnelBarHorizontalSegmentMeta>[] {
-    const displaySteps = steps.map((step) => getStepBreakdownSeries(step, options.breakdownFilter) ?? step)
-    const fractions = displaySteps.map((s) => s.conversionRates.fromBasisStep)
-    const representative = displaySteps[0]
-    const isSingleBreakdownCollapse = displaySteps[0] !== steps[0]
+    const displayStep = getStepBreakdownSeries(step, options.breakdownFilter) ?? step
+    const isSingleBreakdownCollapse = displayStep !== step
 
     const segment: Series<FunnelBarHorizontalSegmentMeta> = {
         key: `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}0`,
-        label: options.getLabel(representative),
-        data: fractions.map((f) => f * RATE_TO_PERCENT),
-        color: options.getColor(representative),
+        label: options.getLabel(displayStep),
+        data: [displayStep.conversionRates.fromBasisStep * RATE_TO_PERCENT],
+        color: options.getColor(displayStep),
         meta: { isDropOff: false, breakdownIndex: isSingleBreakdownCollapse ? 0 : null },
     }
 
-    return [segment, buildFiller(steps, [segment], options.fillerColor)]
-}
-
-function buildFiller(
-    steps: FunnelStepWithConversionMetrics[],
-    segments: Series<FunnelBarHorizontalSegmentMeta>[],
-    color: string
-): Series<FunnelBarHorizontalSegmentMeta> {
-    const fillerData = steps.map((_, stepIndex) => {
-        const covered = segments.reduce((sum, s) => sum + (s.data[stepIndex] ?? 0), 0)
-        return Math.max(0, RATE_TO_PERCENT - covered)
-    })
-    return {
-        key: FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
-        label: 'Drop-off',
-        data: fillerData,
-        color,
-        visibility: { tooltip: false },
-        meta: { isDropOff: true, breakdownIndex: null },
-    }
+    return [segment, buildFunnelBarHorizontalFiller([segment], options.fillerColor)]
 }

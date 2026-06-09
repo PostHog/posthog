@@ -8,7 +8,6 @@ ViewSet remains in experiments.py.
 
 from typing import Any
 
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers
@@ -18,17 +17,18 @@ from posthog.schema import ExperimentApiExposureCriteria, ExperimentApiMetric, E
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
-from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
-from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
-from posthog.models.llm_prompt import LLMPrompt
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
+from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
-from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
+from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricsRecalculation
+from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
@@ -289,10 +289,8 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             fields["holdout_id"].queryset = ExperimentHoldout.objects.none()  # type: ignore[attr-defined]
         return fields
 
-    @extend_schema_field(OpenApiTypes.OBJECT)
+    @extend_schema_field(MinimalFeatureFlagSerializer)
     def get_feature_flag(self, obj):
-        from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
-
         return MinimalFeatureFlagSerializer(obj.feature_flag).data if obj.feature_flag else None
 
     def to_representation(self, instance):
@@ -601,3 +599,29 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
             )
 
         return attrs
+
+
+class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
+    """Serializer for metrics recalculation status responses."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this recalculation job")
+    experiment_id = serializers.IntegerField(read_only=True, help_text="ID of the experiment being recalculated")
+    status = serializers.ChoiceField(
+        choices=ExperimentMetricsRecalculation.Status.choices,
+        read_only=True,
+        help_text="Current status of the recalculation job",
+    )
+    total_metrics = serializers.IntegerField(read_only=True, help_text="Total number of metrics to recalculate")
+    # Named metric_errors (not errors) to avoid shadowing DRF's reserved Serializer.errors property.
+    metric_errors = serializers.JSONField(read_only=True, help_text="Map of metric_uuid to error details")
+    trigger = serializers.ChoiceField(
+        choices=ExperimentMetricsRecalculation.Trigger.choices,
+        read_only=True,
+        help_text="What triggered this recalculation",
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the job was created")
+    started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing started")
+    completed_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing completed")
+    is_existing = serializers.BooleanField(
+        read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
+    )
