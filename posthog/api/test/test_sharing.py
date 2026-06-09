@@ -618,9 +618,11 @@ class TestSharing(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
 
         assert response.status_code == status.HTTP_200_OK
-        assert SharingConfiguration.objects.filter(dashboard=dashboard, expires_at__isnull=True).count() == 1
+        # Reads must not mutate sharing state — duplicates are only collapsed from authorized write paths
+        assert SharingConfiguration.objects.filter(dashboard=dashboard, expires_at__isnull=True).count() == 2
         body = response.json()
         assert body["enabled"] is True
+        # Returns an active config without expiring the older duplicate
         assert body["access_token"] in {"duplicate_token_one", "duplicate_token_two"}
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
