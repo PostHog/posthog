@@ -68,9 +68,12 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
 
     const handleClick = (): void => {
         if (isBlank) {
-            router.actions.push(combineUrl(urls.replayVision('new'), searchParams).url)
+            router.actions.push(combineUrl(urls.replayVisionScannerConfigure('new'), searchParams).url)
         } else {
-            const url = combineUrl(urls.replayVision('new'), { ...searchParams, template: template.key }).url
+            const url = combineUrl(urls.replayVisionScannerConfigure('new'), {
+                ...searchParams,
+                template: template.key,
+            }).url
             router.actions.push(url)
         }
     }
