@@ -64,14 +64,22 @@ impl SkipReason {
 pub struct EventOutcome {
     pub transitions: Vec<LeafTransition>,
     pub schedules: Vec<(Stage1Key, i64)>,
+    /// This event's parsed timestamp (epoch ms), Stage 2's `cf_stage2` recompute stamp. `0` on every
+    /// no-transition path (skips and the early no-applies return), which carry nothing to stamp.
+    pub event_ms: i64,
     pub skipped: Option<SkipReason>,
 }
 
 impl EventOutcome {
-    fn processed(transitions: Vec<LeafTransition>, schedules: Vec<(Stage1Key, i64)>) -> Self {
+    fn processed(
+        transitions: Vec<LeafTransition>,
+        schedules: Vec<(Stage1Key, i64)>,
+        event_ms: i64,
+    ) -> Self {
         Self {
             transitions,
             schedules,
+            event_ms,
             skipped: None,
         }
     }
@@ -80,6 +88,7 @@ impl EventOutcome {
         Self {
             transitions: Vec::new(),
             schedules: Vec::new(),
+            event_ms: 0,
             skipped: Some(reason),
         }
     }
@@ -169,7 +178,8 @@ pub fn process_event(
         person_globals.as_ref(),
     );
     if applies.is_empty() {
-        return Ok(EventOutcome::processed(Vec::new(), Vec::new()));
+        // No applies → no transitions; `event_ms` isn't parsed until below, so pass 0.
+        return Ok(EventOutcome::processed(Vec::new(), Vec::new(), 0));
     }
 
     // Parsed once; load-bearing for deadlines + argMax, so an unparseable value with work to do
@@ -308,8 +318,9 @@ pub fn process_event(
     }
 
     // Surfaced only now that the backing state is committed; the schedules ride alongside so the
-    // worker only ever queues an eviction for state that is durable.
-    Ok(EventOutcome::processed(transitions, schedules))
+    // worker only ever queues an eviction for state that is durable. `event_ms` rides too as Stage 2's
+    // `cf_stage2` recompute stamp.
+    Ok(EventOutcome::processed(transitions, schedules, event_ms))
 }
 
 /// The finite eviction deadline to schedule for a just-written state, or [`None`] when it never

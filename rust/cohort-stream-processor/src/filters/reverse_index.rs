@@ -78,8 +78,15 @@ pub struct TeamFilters {
     /// [`LeafStateKey`] (not `condition_hash`) so a 7d and a 30d leaf sharing one conditionHash get
     /// distinct keys and never cross-fire.
     pub by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>>,
+    /// `LeafStateKey → [CohortId]` for `Stage2Composable` cohorts, so a leaf flip re-evaluates only
+    /// the composable cohorts that own it. Keyed by [`LeafStateKey`] (not `condition_hash`), built by
+    /// walking each cohort's tree: a 7d and a 30d leaf sharing one `conditionHash` get distinct keys
+    /// and never cross-fire. A cohort owning the same leaf twice (`AND(L, L)`) is indexed once. A leaf
+    /// shared between a single-leaf and a composable cohort appears in both this map and
+    /// [`by_lsk_to_single_leaf_cohorts`](Self::by_lsk_to_single_leaf_cohorts).
+    pub by_lsk_to_composable_cohorts: HashMap<LeafStateKey, Vec<CohortId>>,
     /// Each cohort's composition class ([`CohortEligibility`]), computed once at freeze. The
-    /// single-leaf mapping above is derived from it.
+    /// single-leaf and composable mappings above are derived from it.
     pub eligibility: HashMap<CohortId, CohortEligibility>,
     /// Parsed trees by cohort, retained for the Stage 2 re-walk.
     pub cohorts: HashMap<CohortId, CohortTree>,
@@ -101,6 +108,7 @@ impl Default for TeamFilters {
             behavioral_conditions: HashSet::new(),
             person_property_conditions: HashSet::new(),
             by_lsk_to_single_leaf_cohorts: HashMap::new(),
+            by_lsk_to_composable_cohorts: HashMap::new(),
             eligibility: HashMap::new(),
             cohorts: HashMap::new(),
             timezone: UTC,
@@ -186,6 +194,7 @@ impl TeamFiltersBuilder {
         let mut person_property_conditions = HashSet::new();
         let mut by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>> =
             HashMap::new();
+        let mut by_lsk_to_composable_cohorts: HashMap<LeafStateKey, Vec<CohortId>> = HashMap::new();
         let mut eligibility: HashMap<CohortId, CohortEligibility> = HashMap::new();
         for tree in self.cohorts.values() {
             collect_leaf_meta(
@@ -194,20 +203,37 @@ impl TeamFiltersBuilder {
                 &mut behavioral_conditions,
                 &mut person_property_conditions,
             );
-            // Only `SingleLeaf` cohorts map: a leaf flip equals their whole membership. A cohort that
-            // lost a leaf at parse is `Excluded`, so its lone survivor never maps here.
             let flags = self.flags.get(&tree.cohort_id).copied().unwrap_or_default();
             let class = classify(tree, &flags);
             counter!(COHORT_ELIGIBILITY_TOTAL, "class" => class.metric_class()).increment(1);
-            if let CohortEligibility::SingleLeaf(lsk) = class {
-                by_lsk_to_single_leaf_cohorts
-                    .entry(lsk)
-                    .or_default()
-                    .push(tree.cohort_id);
+            match class {
+                // A `SingleLeaf` cohort's lone leaf flip equals its whole membership. A cohort that
+                // lost a leaf at parse is `Excluded`, so its lone survivor never maps here.
+                CohortEligibility::SingleLeaf(lsk) => {
+                    by_lsk_to_single_leaf_cohorts
+                        .entry(lsk)
+                        .or_default()
+                        .push(tree.cohort_id);
+                }
+                // Index each distinct leaf key → this cohort (deduped per cohort by the HashSet walk).
+                CohortEligibility::Stage2Composable => {
+                    let mut leaf_keys = HashSet::new();
+                    collect_leaf_state_keys(&tree.root, &mut leaf_keys);
+                    for lsk in leaf_keys {
+                        by_lsk_to_composable_cohorts
+                            .entry(lsk)
+                            .or_default()
+                            .push(tree.cohort_id);
+                    }
+                }
+                CohortEligibility::Excluded(_) => {}
             }
             eligibility.insert(tree.cohort_id, class);
         }
         for cohorts in by_lsk_to_single_leaf_cohorts.values_mut() {
+            cohorts.sort_unstable();
+        }
+        for cohorts in by_lsk_to_composable_cohorts.values_mut() {
             cohorts.sort_unstable();
         }
 
@@ -220,9 +246,26 @@ impl TeamFiltersBuilder {
             behavioral_conditions,
             person_property_conditions,
             by_lsk_to_single_leaf_cohorts,
+            by_lsk_to_composable_cohorts,
             eligibility,
             cohorts: self.cohorts,
             timezone,
+        }
+    }
+}
+
+/// The distinct [`LeafStateKey`]s of every state-keyed leaf in a tree (cohort-ref leaves have none).
+fn collect_leaf_state_keys(node: &FilterNode, out: &mut HashSet<LeafStateKey>) {
+    match node {
+        FilterNode::Group { children, .. } => {
+            for child in children {
+                collect_leaf_state_keys(child, out);
+            }
+        }
+        FilterNode::Leaf(leaf) => {
+            if let Some(lsk) = leaf.leaf_state_key() {
+                out.insert(lsk);
+            }
         }
     }
 }
@@ -879,5 +922,157 @@ mod tests {
             CohortEligibility::Excluded(ExcludedReason::HasNegation),
         );
         assert!(frozen.by_lsk_to_single_leaf_cohorts.is_empty());
+    }
+
+    #[test]
+    fn composable_cohort_indexes_each_distinct_leaf_to_itself() {
+        // AND(behavioral, person): both leaves index to the composable cohort, each under its own LSK.
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7), person_leaf()]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::Stage2Composable,
+        );
+        let beh_lsk = frozen.by_condition_to_lsk[&HASH][0];
+        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        assert_eq!(
+            frozen.by_lsk_to_composable_cohorts[&beh_lsk],
+            vec![CohortId(1)],
+        );
+        assert_eq!(
+            frozen.by_lsk_to_composable_cohorts[&per_lsk],
+            vec![CohortId(1)],
+        );
+        assert!(
+            frozen.by_lsk_to_single_leaf_cohorts.is_empty(),
+            "a composable cohort contributes no single-leaf mapping",
+        );
+    }
+
+    #[test]
+    fn composable_same_hash_different_windows_index_distinct_lsks_not_the_condition_hash() {
+        // AND of a 7d and a 30d `performed_event` on one conditionHash: the LSK-keyed walk keeps the
+        // two leaves distinct, so each window maps to the cohort under its own key — a conditionHash
+        // -keyed index would have collapsed them.
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![
+                    behavioral_performed_event(7),
+                    behavioral_performed_event(30),
+                ]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        let lsks = &frozen.by_condition_to_lsk[&HASH];
+        assert_eq!(
+            lsks.len(),
+            2,
+            "two windows fan out to two LSKs under one hash"
+        );
+        for lsk in lsks {
+            assert_eq!(
+                frozen.by_lsk_to_composable_cohorts[lsk],
+                vec![CohortId(1)],
+                "each window's LSK maps to the composable cohort",
+            );
+        }
+    }
+
+    #[test]
+    fn composable_cohort_with_duplicate_leaf_is_indexed_once() {
+        // AND(L, L): the tree has two leaf nodes (so the cohort is composable, count >= 2), but the
+        // HashSet walk indexes the cohort against the one shared LSK exactly once.
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![
+                    behavioral_performed_event(7),
+                    behavioral_performed_event(7),
+                ]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::Stage2Composable,
+        );
+        let lsk = frozen.by_condition_to_lsk[&HASH][0];
+        assert_eq!(
+            frozen.by_lsk_to_composable_cohorts[&lsk],
+            vec![CohortId(1)],
+            "a duplicated leaf indexes the cohort once, not twice",
+        );
+    }
+
+    #[test]
+    fn leaf_shared_by_single_leaf_and_composable_cohorts_appears_in_both_maps() {
+        // Cohort 1 is the bare 7d leaf (single-leaf); cohort 2 ANDs that same leaf with a person leaf
+        // (composable). The shared behavioral LSK lands in each cohort's respective map.
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7)]),
+            )
+            .unwrap();
+        builder
+            .add_cohort(
+                CohortId(2),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7), person_leaf()]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        let beh_lsk = frozen.by_condition_to_lsk[&HASH][0];
+        assert_eq!(
+            frozen.by_lsk_to_single_leaf_cohorts[&beh_lsk],
+            vec![CohortId(1)],
+            "the bare leaf drives cohort 1's whole membership",
+        );
+        assert_eq!(
+            frozen.by_lsk_to_composable_cohorts[&beh_lsk],
+            vec![CohortId(2)],
+            "the same leaf, as one input to cohort 2, fans Stage 2 back to cohort 2",
+        );
+    }
+
+    #[test]
+    fn single_leaf_and_excluded_cohorts_contribute_nothing_to_the_composable_map() {
+        let mut builder = TeamFiltersBuilder::default();
+        // Single-leaf.
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7)]),
+            )
+            .unwrap();
+        // Excluded (cohort ref).
+        builder
+            .add_cohort(CohortId(2), TeamId(7), &wrap(vec![cohort_ref()]))
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        assert!(
+            frozen.by_lsk_to_composable_cohorts.is_empty(),
+            "neither a single-leaf nor an excluded cohort is composable",
+        );
     }
 }

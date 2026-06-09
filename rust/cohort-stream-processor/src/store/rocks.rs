@@ -27,6 +27,7 @@ use crate::stage1::key::{LeafStateKey, Stage1Key};
 const OP_OPEN: &str = "open";
 const OP_DESTROY: &str = "destroy";
 const OP_GET: &str = "get";
+const OP_MULTI_GET: &str = "multi_get";
 const OP_WRITE_BATCH: &str = "write_batch";
 const OP_DELETE_PARTITION: &str = "delete_partition";
 const OP_FLUSH: &str = "flush";
@@ -153,6 +154,27 @@ impl CohortStore {
 
     pub fn get_stage1(&self, key: &Stage1Key) -> Result<Option<Vec<u8>>, StoreError> {
         self.get(Cf::Stage1, &key.encode())
+    }
+
+    /// Batch-read several `cf_stage1` values in one call, one entry per input key **in input order**
+    /// (RocksDB's `multi_get` preserves it). A single backend error fails the whole call, so the
+    /// caller skips-and-retries rather than composing from a partial read.
+    pub fn multi_get_stage1(&self, keys: &[Stage1Key]) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        let handle = self.cf(Cf::Stage1)?;
+        let encoded: Vec<_> = keys.iter().map(Stage1Key::encode).collect();
+        self.db
+            .multi_get_cf(encoded.iter().map(|key| (handle, key.as_slice())))
+            .into_iter()
+            .map(|result| {
+                result.map_err(|source| {
+                    counter!(STORE_ERRORS_TOTAL, "op" => OP_MULTI_GET).increment(1);
+                    StoreError::Backend {
+                        op: OP_MULTI_GET,
+                        source,
+                    }
+                })
+            })
+            .collect()
     }
 
     pub fn get_stage2(&self, key: &Stage2Key) -> Result<Option<Vec<u8>>, StoreError> {
@@ -370,6 +392,45 @@ mod tests {
         })
         .unwrap();
         assert_eq!(store.get_stage1(&stage1_key()).unwrap(), None);
+    }
+
+    #[test]
+    fn multi_get_stage1_preserves_order_and_reports_absent_keys() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+
+        let present = |person: u128, lsk: u8| Stage1Key {
+            partition_id: 3,
+            team_id: 7,
+            leaf_state_key: LeafStateKey([lsk; 16]),
+            person_id: Uuid::from_u128(person),
+        };
+        let a = present(1, 0xA0);
+        let b = present(2, 0xB0);
+        let absent = present(9, 0xFF);
+        store
+            .write_batch(|batch| {
+                batch.put_stage1(&a, b"alpha");
+                batch.put_stage1(&b, b"bravo");
+            })
+            .unwrap();
+
+        // Order: present, absent, present — the absent key must surface as a `None` hole, not shift
+        // the others.
+        let results = store.multi_get_stage1(&[a, absent, b]).unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].as_deref(), Some(b"alpha".as_slice()));
+        assert_eq!(results[1], None);
+        assert_eq!(results[2].as_deref(), Some(b"bravo".as_slice()));
+
+        assert!(
+            store.multi_get_stage1(&[]).unwrap().is_empty(),
+            "an empty key set reads no values",
+        );
     }
 
     #[test]

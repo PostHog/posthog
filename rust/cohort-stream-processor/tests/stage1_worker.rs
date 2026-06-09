@@ -892,7 +892,8 @@ fn non_boolean_person_result_coerces_to_false() {
 #[tokio::test]
 async fn spawned_worker_drains_a_batch_and_commits_state() {
     let (_dir, store) = temp_store();
-    // Multi-leaf cohort: neither leaf alone maps to the composite cohort, so the sink stays empty.
+    // Composable cohort: this one event matches and flips both leaves, so Stage 2 composes a single
+    // `entered` for the cohort.
     let filters = build_team_filters(vec![(
         CohortId(1),
         cohort(vec![behavioral_leaf(7), person_leaf()]),
@@ -929,10 +930,87 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
             .len(),
         2
     );
-    assert!(sink.changes().is_empty());
+    let changes = sink.changes();
+    assert_eq!(
+        changes.len(),
+        1,
+        "both leaves flipping in one event composes a single entered",
+    );
+    assert_eq!(changes[0].cohort_id, 1);
+    assert_eq!(changes[0].status, MembershipStatus::Entered);
+    assert_eq!(changes[0].person_id, alice.to_string());
     assert_eq!(
         tracker.committable_offsets().get(&(PARTITION_ID as i32)),
         Some(&1)
+    );
+}
+
+#[tokio::test]
+async fn spawned_worker_composes_two_leaf_cohort_and_emits_single_leaf_independently() {
+    let (_dir, store) = temp_store();
+    // Cohort 1 ANDs a behavioral and a person leaf (composable); cohort 2 is the bare behavioral leaf
+    // (single-leaf), sharing cohort 1's behavioral leaf.
+    let filters = build_team_filters(vec![
+        (CohortId(1), cohort(vec![behavioral_leaf(7), person_leaf()])),
+        (CohortId(2), cohort(vec![behavioral_leaf(7)])),
+    ]);
+    let alice = person(1);
+
+    let catalog = catalog_of(filters);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+
+    let (tx, rx) = mpsc::channel(16);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        rx,
+        store.clone(),
+        catalog,
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    // Event A flips only the behavioral leaf (non-matching email): the single-leaf cohort 2 enters,
+    // while the composable cohort 1 stays out — its person leaf is still false.
+    dispatch_to_worker(
+        &tracker,
+        &tx,
+        person_event(
+            alice,
+            "other@example.com",
+            "2026-05-26 12:00:00.000000",
+            1,
+            0,
+        ),
+        0,
+    )
+    .await;
+    // Event B flips the person leaf: cohort 1's AND is now satisfied, so it enters; cohort 2 is
+    // untouched (its leaf did not transition this event).
+    dispatch_to_worker(
+        &tracker,
+        &tx,
+        person_event(alice, "u@p.com", "2026-05-26 12:00:01.000000", 1, 1),
+        1,
+    )
+    .await;
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let mut emitted: Vec<(i32, MembershipStatus)> = sink
+        .changes()
+        .iter()
+        .map(|change| (change.cohort_id, change.status))
+        .collect();
+    emitted.sort_by_key(|(cohort, _)| *cohort);
+    assert_eq!(
+        emitted,
+        vec![
+            (1, MembershipStatus::Entered),
+            (2, MembershipStatus::Entered),
+        ],
+        "single-leaf cohort 2 enters on its leaf's flip; composable cohort 1 enters only once both \
+         of its leaves are true, and exactly once",
     );
 }
 

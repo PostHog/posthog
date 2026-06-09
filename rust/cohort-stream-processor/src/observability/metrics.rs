@@ -24,6 +24,22 @@ pub const FILTER_CATALOG_TZ_FALLBACK: &str = "filter_catalog_tz_fallback_total";
 /// `excluded_has_dropped_leaf`).
 pub const COHORT_ELIGIBILITY_TOTAL: &str = "cohort_eligibility_total";
 
+// ── Stage 2 composition ────────────────────────────────────────────────────────
+/// `(cohort, person)` pairs re-evaluated by event-driven Stage 2 composition (counter); pairs with
+/// [`STAGE2_TRANSITIONS`], the subset that flipped.
+pub const STAGE2_COHORTS_EVALUATED: &str = "stage2_cohorts_evaluated_total";
+/// Composable-cohort membership flips emitted by Stage 2, labelled by `kind` (`entered`|`left`)
+/// (counter).
+pub const STAGE2_TRANSITIONS: &str = "stage2_transitions_total";
+/// Values that failed to decode during a Stage 2 read — a corrupt `cf_stage1`/`cf_stage2` record, or a
+/// leaf whose stored variant disagreed with its catalog meta (counter). The leaf reads as a
+/// non-member; surfaced, never panicked.
+pub const STAGE2_STATE_DECODE_ERROR: &str = "stage2_state_decode_error_total";
+/// Cohort-reference leaves reached while composing a `Stage2Composable` cohort (counter). Composable
+/// cohorts are cohort-ref-free, so a non-zero rate signals a classification regression; the ref reads
+/// as `false`.
+pub const STAGE2_UNEXPECTED_COHORT_REF: &str = "stage2_unexpected_cohort_ref_total";
+
 // ── Store ──────────────────────────────────────────────────────────────────────
 /// RocksDB batch commits, labelled by `op` (counter).
 pub const STORE_WRITE_BATCH_TOTAL: &str = "store_write_batch_total";

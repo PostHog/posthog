@@ -48,6 +48,7 @@ use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::CohortStore;
 use crate::sweep::EvictionQueue;
 use crate::workers::event_path::{process_event, SkipReason};
+use crate::workers::stage2_path::compose_stage2;
 use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReason};
 
 /// A long-lived worker owning one partition's Stage 1 state. The task ends when the channel
@@ -245,6 +246,25 @@ fn handle_event(
                     counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(1);
                 }
                 changes.extend(map_transition(filters, transition, last_updated));
+            }
+            // Stage 2: re-evaluate the composable cohorts owning any flipped leaf. A store error is
+            // already counted under `store_errors_total{op}`; log and skip — the recompute self-heals
+            // the missed flip on the person's next event.
+            match compose_stage2(
+                partition_id,
+                store,
+                filters,
+                &outcome.transitions,
+                outcome.event_ms,
+                last_updated,
+            ) {
+                Ok(stage2_changes) => changes.extend(stage2_changes),
+                Err(error) => warn!(
+                    partition_id,
+                    team_id = event.team_id,
+                    error = %error,
+                    "stage 2 composition failed; skipping (self-heals on the person's next event)",
+                ),
             }
             (changes, outcome.schedules)
         }
