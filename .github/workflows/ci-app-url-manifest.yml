@@ -2,7 +2,8 @@ name: App URL Manifest
 
 # Keeps services/mcp/src/tools/links/app-url-manifest.json — the route table the MCP `generate-app-url`
 # tool resolves entity links from — in sync with the frontend URL builders it is generated from. Mirrors
-# the way generated OpenAPI/MCP schemas are checked: regenerate, then fail if the committed file drifts.
+# how the generated OpenAPI types are kept current: regenerate, and on same-repo PRs auto-commit the
+# refreshed manifest back to the branch (fork PRs and master pushes fail with fix instructions instead).
 
 on:
     push:
@@ -32,6 +33,11 @@ jobs:
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # For same-repo PRs, check out the actual branch (not the merge commit) so the
+                  # regenerated manifest can be committed directly. Fork PRs and master pushes fall
+                  # back to the default ref (auto-commit bails out for those).
+                  ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.ref }}
 
             - name: Setup pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
@@ -46,10 +52,72 @@ jobs:
             - name: Install dependencies
               run: pnpm --filter=@posthog/frontend install --frozen-lockfile
 
-            - name: Check app-url-manifest.json is up to date
+            - name: Regenerate and check app-url-manifest.json
+              id: manifest-check
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+                  HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+                  BRANCH: ${{ github.event.pull_request.head.ref }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
-                  if ! pnpm --filter=@posthog/frontend build:app-urls:check; then
-                    echo ""
-                    echo "::error::services/mcp/src/tools/links/app-url-manifest.json is out of date. Run 'pnpm --filter=@posthog/frontend build:app-urls' and commit the result."
-                    exit 1
+                  pnpm --filter=@posthog/frontend build:app-urls
+                  if git diff --exit-code -- services/mcp/src/tools/links/app-url-manifest.json; then
+                      echo "app-url-manifest.json is up to date"
+                      echo "needs-commit=false" >> "$GITHUB_OUTPUT"
+                      exit 0
                   fi
+
+                  echo "app-url-manifest.json is out of date"
+
+                  # On master pushes or fork PRs we can't push back — fail with instructions instead.
+                  if [ "$EVENT_NAME" != "pull_request" ] || [ "$HEAD_REPO" != "PostHog/posthog" ]; then
+                      echo ""
+                      echo "::error::services/mcp/src/tools/links/app-url-manifest.json is out of date!"
+                      echo ""
+                      echo "It is generated from the frontend URL builders (frontend/src/scenes/urls.ts"
+                      echo "and products/*/manifest.tsx). When you change a URL, regenerate it."
+                      echo ""
+                      echo "To fix, run locally:  pnpm --filter=@posthog/frontend build:app-urls"
+                      echo "Then commit the updated manifest."
+                      echo ""
+                      exit 1
+                  fi
+
+                  # Guard against committing onto a branch that advanced while CI was running.
+                  CURRENT_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+                  if [ "$CURRENT_SHA" != "$HEAD_SHA" ]; then
+                      echo "::error::Branch advanced during workflow ($HEAD_SHA -> $CURRENT_SHA) — cannot auto-commit the manifest."
+                      echo ""
+                      echo "Run locally and push:  pnpm --filter=@posthog/frontend build:app-urls"
+                      echo "needs-commit=false" >> "$GITHUB_OUTPUT"
+                      exit 1
+                  fi
+
+                  echo "::notice::Committing updated app-url-manifest.json to PR branch"
+                  echo "needs-commit=true" >> "$GITHUB_OUTPUT"
+
+            - name: Get app token for manifest commit
+              if: steps.manifest-check.outputs.needs-commit == 'true'
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - name: Disable auto-merge before manifest commit
+              if: steps.manifest-check.outputs.needs-commit == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
+
+            - name: Commit app-url-manifest.json via GitHub API (signed)
+              if: steps.manifest-check.outputs.needs-commit == 'true'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'chore: update app-url-manifest.json'
+                  repo: ${{ github.repository }}
+                  branch: ${{ github.event.pull_request.head.ref }}
+                  file_pattern: 'services/mcp/src/tools/links/app-url-manifest.json'
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
