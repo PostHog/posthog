@@ -32,17 +32,42 @@ class BackfillCredentialGatewayBindingsTest(NonAtomicTestMigrations):
         self.default_gateway = Gateway._default_manager.create(team=self.team, slug="default")
         user = User.objects.create(email="u@example.com", current_team=self.team)
 
+        # Scoped to a single team → binds to that team's gateway.
         self.eligible = PersonalAPIKey.objects.create(
             label="eligible",
             user=user,
             secure_value=hash_key_value(generate_random_token_personal()),
             scopes=[GATEWAY_SCOPE],
+            scoped_teams=[self.team.id],
         )
         self.ineligible = PersonalAPIKey.objects.create(
             label="ineligible",
             user=user,
             secure_value=hash_key_value(generate_random_token_personal()),
             scopes=["feature_flag:read"],
+        )
+        # Eligible but no scoped_teams/scoped_organizations → no authoritative team,
+        # so left unbound rather than guessed from mutable current_team session state.
+        self.unscoped = PersonalAPIKey.objects.create(
+            label="unscoped",
+            user=user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=[GATEWAY_SCOPE],
+        )
+
+        # A single-team org so scoped_organizations resolves to one unambiguous root.
+        org_solo = Organization.objects.create(name="solo", slug="solo")
+        project_solo = Project.objects.create(id=987654323, organization=org_solo, name="psolo")
+        self.team_solo = Team.objects.create(
+            id=project_solo.id, name="tsolo", organization=org_solo, project=project_solo
+        )
+        self.default_gateway_solo = Gateway._default_manager.create(team=self.team_solo, slug="default")
+        self.scoped_to_org = PersonalAPIKey.objects.create(
+            label="scoped_org",
+            user=user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=[GATEWAY_SCOPE],
+            scoped_organizations=[str(org_solo.id)],
         )
 
         # A second project whose gateway the scoped key should bind to, proving
@@ -94,11 +119,23 @@ class BackfillCredentialGatewayBindingsTest(NonAtomicTestMigrations):
         self.assertEqual(eligible.gateway_id, self.default_gateway.pk)
         self.assertIsNone(ineligible.gateway_id)
 
+    def test_leaves_unscoped_key_unbound(self):
+        PersonalAPIKey = self.apps.get_model("posthog", "PersonalAPIKey")  # type: ignore
+
+        unscoped = PersonalAPIKey.objects.get(pk=self.unscoped.pk)
+        self.assertIsNone(unscoped.gateway_id)
+
     def test_binds_personal_key_to_its_scoped_team(self):
         PersonalAPIKey = self.apps.get_model("posthog", "PersonalAPIKey")  # type: ignore
 
         scoped = PersonalAPIKey.objects.get(pk=self.scoped_to_team2.pk)
         self.assertEqual(scoped.gateway_id, self.default_gateway2.pk)
+
+    def test_binds_personal_key_to_its_scoped_organization_root(self):
+        PersonalAPIKey = self.apps.get_model("posthog", "PersonalAPIKey")  # type: ignore
+
+        scoped = PersonalAPIKey.objects.get(pk=self.scoped_to_org.pk)
+        self.assertEqual(scoped.gateway_id, self.default_gateway_solo.pk)
 
     def test_binds_only_oauth_apps_with_an_eligible_token(self):
         OAuthApplication = self.apps.get_model("posthog", "OAuthApplication")  # type: ignore

@@ -91,12 +91,11 @@ def backfill_credential_gateway_bindings(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    # Non-atomic: the OAuth scope lookup is a regex scan over the access-token table
-    # (regex isn't indexable), so keep it out of one long transaction. Safe because the
-    # backfill is idempotent — only gateway__isnull rows are touched, so a mid-run
-    # failure just re-runs.
-    atomic = False
-
+    # Atomic (the default): only the small set of pre-existing llm_gateway:read
+    # credentials is touched, so the transaction is short and re-runs are idempotent
+    # (only gateway__isnull rows are bound). The OAuth scope lookup is an unindexable
+    # regex scan, but it's a read (ACCESS SHARE snapshot, no heavy lock); the writes
+    # are bulk updates on a bounded set.
     dependencies = [
         ("posthog", "1217_backfill_default_gateways"),
     ]
