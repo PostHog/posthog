@@ -1,6 +1,7 @@
 import json
 import base64
 from io import StringIO
+from typing import Any, cast
 
 from posthog.test.base import BaseTest
 
@@ -256,7 +257,9 @@ class TestAuditCommandEndToEnd(BaseTest):
         connection = connections[router.db_for_write(Integration)]
         quote = connection.ops.quote_name
         table = quote(Integration._meta.db_table)
-        column = quote(Integration._meta.get_field("sensitive_config").column)
+        # cast to Any: sensitive_config is wrapped in field_access_control, so the django-stubs
+        # plugin doesn't see it as a model field and rejects the get_field string literal.
+        column = quote(cast(Any, Integration)._meta.get_field("sensitive_config").column)
         pk_column = quote(Integration._meta.pk.column)
         with connection.cursor() as cursor:
             cursor.execute(
