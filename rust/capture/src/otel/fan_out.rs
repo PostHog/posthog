@@ -184,16 +184,19 @@ pub fn expand_into_events(
                     Value::String("otel".to_string()),
                 );
 
-                // Stamp $lib so OTel-synthesized events self-identify like SDK-captured
-                // ones do. $lib_version comes from the OTel instrumentation scope version
-                // when present (e.g. the @posthog/ai exporter's version).
-                properties.insert("$lib".to_string(), Value::String(OTEL_LIB_NAME.to_string()));
+                // $lib lets these events self-identify like SDK-captured ones. OTLP
+                // submissions don't carry $lib (OTel uses telemetry.sdk.* and the
+                // instrumentation scope, not PostHog's $lib), but if a submission ever
+                // sets it explicitly, preserve it and only fall back to OTEL_LIB_NAME.
+                // $lib_version likewise falls back to the instrumentation scope version.
+                properties
+                    .entry("$lib".to_string())
+                    .or_insert_with(|| Value::String(OTEL_LIB_NAME.to_string()));
                 if let Some(scope) = ss.scope.as_ref() {
                     if !scope.version.is_empty() {
-                        properties.insert(
-                            "$lib_version".to_string(),
-                            Value::String(scope.version.clone()),
-                        );
+                        properties
+                            .entry("$lib_version".to_string())
+                            .or_insert_with(|| Value::String(scope.version.clone()));
                     }
                 }
 
@@ -420,6 +423,52 @@ mod tests {
             Some(v) => assert_eq!(props["$lib_version"], v),
             None => assert!(!props.contains_key("$lib_version")),
         }
+    }
+
+    #[test]
+    fn test_explicit_lib_attributes_are_preserved_over_fallback() {
+        use opentelemetry_proto::tonic::common::v1::InstrumentationScope;
+
+        // A submission that explicitly carries $lib / $lib_version (as span attributes)
+        // should keep those values; the OTel fallback must not clobber them.
+        let request = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(Resource {
+                    attributes: vec![],
+                    dropped_attributes_count: 0,
+                }),
+                scope_spans: vec![ScopeSpans {
+                    scope: Some(InstrumentationScope {
+                        name: "@posthog/ai".to_string(),
+                        version: "6.7.1".to_string(),
+                        ..Default::default()
+                    }),
+                    spans: vec![make_span(
+                        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+                        vec![1, 2, 3, 4, 5, 6, 7, 8],
+                        vec![],
+                        1_704_067_200_000_000_000,
+                        1_704_067_201_500_000_000,
+                        "chat gpt-4",
+                        vec![
+                            make_kv(
+                                "gen_ai.operation.name",
+                                any_value::Value::StringValue("chat".to_string()),
+                            ),
+                            make_kv("$lib", any_value::Value::StringValue("posthog-python".to_string())),
+                            make_kv("$lib_version", any_value::Value::StringValue("3.1.0".to_string())),
+                        ],
+                    )],
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+
+        let events = expand_into_events(&request, "user-1");
+        let props = events[0].properties.as_object().unwrap();
+        assert_eq!(props["$lib"], "posthog-python");
+        assert_eq!(props["$lib_version"], "3.1.0");
     }
 
     #[test]
