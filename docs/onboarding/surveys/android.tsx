@@ -29,7 +29,7 @@ function getSurveysAndroidSteps(ctx: OnboardingComponentsContext): StepDefinitio
                                 file: 'build.gradle',
                                 code: dedent`
                                     dependencies {
-                                        implementation("com.posthog:posthog-android:3.+")
+                                        // ... existing dependencies
                                         implementation("com.posthog:posthog-android-surveys-compose:0.+")
                                     }
                                 `,
