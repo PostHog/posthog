@@ -510,3 +510,16 @@ class SignalReportArtefactWriteResponseSerializer(serializers.Serializer):
     updated_at = serializers.DateTimeField(
         read_only=True, allow_null=True, help_text="When the artefact was last updated (null if never)."
     )
+
+
+class PushedBranchDiffResponseSerializer(serializers.Serializer):
+    """Response for the `pushed_branch` artefact diff endpoint — the branch rendered against base."""
+
+    diff = serializers.CharField(
+        read_only=True,
+        help_text="Unified diff (patch) text of the pushed branch against its base branch, from the GitHub compare API.",
+    )
+    base_branch = serializers.CharField(
+        read_only=True,
+        help_text="The base branch the diff was computed against (resolved to the repo default when the artefact omits one).",
+    )

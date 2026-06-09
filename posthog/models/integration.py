@@ -2577,6 +2577,31 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "status_code": response.status_code,
             }
 
+    def get_branch_diff(self, repository: str, branch: str, base_branch: str | None = None) -> dict[str, Any]:
+        """Return the unified diff of ``branch`` against ``base_branch`` for ``repository``.
+
+        ``repository`` may be ``owner/name`` or a bare name (resolved against the installation's
+        org). ``base_branch`` defaults to the repository's default branch. Uses the GitHub compare
+        API with the ``diff`` media type, so the response body is raw unified-diff text.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        access_token = self.integration.sensitive_config["access_token"]
+        if not base_branch:
+            base_branch = self.get_default_branch(repository)
+
+        response = self._github_api_get(
+            f"https://api.github.com/repos/{repo_path}/compare/{base_branch}...{branch}",
+            endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+            headers={
+                "Accept": "application/vnd.github.diff",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
+            },
+        )
+        if response.status_code != 200:
+            return {"success": False, "error": response.text, "status_code": response.status_code}
+        return {"success": True, "diff": response.text, "base_branch": base_branch}
+
     def update_file(
         self, repository: str, file_path: str, content: str, commit_message: str, branch: str, sha: str | None = None
     ) -> dict[str, Any]:

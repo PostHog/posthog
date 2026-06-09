@@ -45,7 +45,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import Team, User
-from posthog.models.integration import Integration
+from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.permissions import APIScopePermission
 from posthog.temporal.common.client import sync_connect
@@ -71,6 +71,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
 )
 from products.signals.backend.serializers import (
+    PushedBranchDiffResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
     SignalReportArtefactSerializer,
@@ -1239,6 +1240,60 @@ class SignalReportArtefactViewSet(
             )
         artefact.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=PushedBranchDiffResponseSerializer,
+                description="The pushed branch's unified diff against its base branch.",
+            ),
+            400: OpenApiResponse(description="Artefact is not a pushed_branch, or is missing repository/branch."),
+            404: OpenApiResponse(description="Artefact not found, or no GitHub integration can access the repository."),
+            502: OpenApiResponse(
+                description="GitHub could not produce the diff (branch not found, comparison failed)."
+            ),
+        },
+        summary="Fetch the diff for a pushed_branch artefact",
+        description=(
+            "Fetch the unified diff of a `pushed_branch` artefact's branch against its base branch via the "
+            "team's GitHub integration — lets the UI render the would-be PR diff without a PR being opened."
+        ),
+        operation_id="signals_report_artefacts_diff",
+    )
+    @action(detail=True, methods=["get"], url_path="diff", required_scopes=["task:read"])
+    def diff(self, request: Request, *args, **kwargs) -> Response:
+        artefact = cast(SignalReportArtefact, self.get_object())
+        if artefact.type != SignalReportArtefact.ArtefactType.PUSHED_BRANCH:
+            return Response(
+                {"error": f"Diffs are only available for pushed_branch artefacts, not '{artefact.type}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            content = json.loads(artefact.content)
+        except (json.JSONDecodeError, ValueError):
+            content = {}
+        repository = content.get("repository")
+        branch = content.get("branch")
+        base_branch = content.get("base_branch")
+        if not repository or not branch:
+            return Response(
+                {"error": "Artefact is missing a repository or branch."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        github = GitHubIntegration.first_for_team_repository(self.team.id, repository)
+        if github is None:
+            return Response(
+                {"error": f"No GitHub integration can access '{repository}'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        result = github.get_branch_diff(repository, branch, base_branch)
+        if not result.get("success"):
+            return Response(
+                {"error": result.get("error", "Failed to fetch diff from GitHub.")},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({"diff": result["diff"], "base_branch": result["base_branch"]})
 
 
 @extend_schema_view(list=extend_schema(exclude=True))

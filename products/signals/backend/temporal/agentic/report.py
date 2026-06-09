@@ -1,8 +1,6 @@
 import json
 from dataclasses import dataclass
 
-from django.db import transaction
-
 import structlog
 import temporalio
 import posthoganalytics
@@ -78,14 +76,19 @@ async def _load_previous_research(report_id: str) -> ReportResearchOutput | None
         ],
     ).order_by("created_at")
 
-    findings: list[SignalFinding] = []
+    # Artefacts are append-only, so there may be several versions of each. Iterating in
+    # ascending `created_at` order means the last value seen wins: judgments collapse to their
+    # latest, and findings are keyed by `signal_id` so a re-researched signal supersedes its
+    # prior version while distinct signals each keep an entry.
+    findings_by_signal: dict[str, SignalFinding] = {}
     actionability: ActionabilityAssessment | None = None
     priority: PriorityAssessment | None = None
 
     async for artefact in artefacts_qs:
         match artefact.type:
             case SignalReportArtefact.ArtefactType.SIGNAL_FINDING:
-                findings.append(SignalFinding.model_validate_json(artefact.content))
+                finding = SignalFinding.model_validate_json(artefact.content)
+                findings_by_signal[finding.signal_id] = finding
             case SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT:
                 try:
                     actionability = ActionabilityAssessment.model_validate_json(artefact.content)
@@ -98,6 +101,7 @@ async def _load_previous_research(report_id: str) -> ReportResearchOutput | None
             case SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
                 priority = PriorityAssessment.model_validate_json(artefact.content)
 
+    findings = list(findings_by_signal.values())
     if not findings or actionability is None:
         logger.info(
             "load previous research: missing artefacts, treating as first run",
@@ -171,19 +175,14 @@ def _build_reviewers_content(
     return reviewers_content
 
 
-def _replace_agentic_report_artefacts(
-    team_id: int,
-    report_id: str,
-    artefacts: list[SignalReportArtefact],
-) -> None:
-    with transaction.atomic():
-        # Delete artefacts from previous agentic runs (re-promotion) before writing new ones.
-        # Only deletes types owned by this path — safety_judgment is created by the safety judge
-        # activity and left untouched.
-        SignalReportArtefact.objects.filter(
-            team_id=team_id, report_id=report_id, type__in=_AGENTIC_ARTEFACT_TYPES
-        ).delete()
-        SignalReportArtefact.objects.bulk_create(artefacts)
+def _append_agentic_report_artefacts(artefacts: list[SignalReportArtefact]) -> None:
+    # Append-only: each (re-promotion) run adds a new version of its artefacts rather than
+    # replacing the previous ones. The report's current judgments / repo selection / reviewers are
+    # the latest row of each type; findings are keyed by `signal_id` (latest per signal wins).
+    # Prior versions are intentionally retained as report-log history. `_AGENTIC_ARTEFACT_TYPES`
+    # is kept as the documented set these versions belong to (and is asserted disjoint from the
+    # log types in tests).
+    SignalReportArtefact.objects.bulk_create(artefacts)
 
 
 async def _persist_agentic_report_artefacts(
@@ -240,9 +239,7 @@ async def _persist_agentic_report_artefacts(
             )
         )
 
-    await database_sync_to_async(_replace_agentic_report_artefacts, thread_sensitive=False)(
-        team_id=team_id,
-        report_id=report_id,
+    await database_sync_to_async(_append_agentic_report_artefacts, thread_sensitive=False)(
         artefacts=artefacts,
     )
 

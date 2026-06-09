@@ -25,8 +25,8 @@ class TestSignalReportArtefactHelpers(BaseTest):
             content=json.dumps({"note": note}),
         )
 
-    def _upsert_priority(self, report: SignalReport, priority: str) -> SignalReportArtefact:
-        return SignalReportArtefact.upsert_status(
+    def _append_priority(self, report: SignalReport, priority: str) -> SignalReportArtefact:
+        return SignalReportArtefact.append_status(
             team_id=self.team.id,
             report_id=str(report.id),
             type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
@@ -38,9 +38,9 @@ class TestSignalReportArtefactHelpers(BaseTest):
     def test_status_and_log_types_are_disjoint(self):
         assert SignalReportArtefact.STATUS_ARTEFACT_TYPES.isdisjoint(SignalReportArtefact.LOG_ARTEFACT_TYPES)
 
-    def test_agentic_replace_set_never_touches_log_types(self):
-        # The agentic pipeline bulk deletes+recreates _AGENTIC_ARTEFACT_TYPES on every run. If a
-        # log type ever leaked into that set, re-promotion would wipe agent-authored work-log entries.
+    def test_agentic_set_never_touches_log_types(self):
+        # The agentic pipeline appends _AGENTIC_ARTEFACT_TYPES versions on every run. The set must
+        # stay disjoint from the log types so the two write paths never collide on a type.
         assert set(_AGENTIC_ARTEFACT_TYPES).isdisjoint(SignalReportArtefact.LOG_ARTEFACT_TYPES)
 
     # --- add_log ---
@@ -68,44 +68,26 @@ class TestSignalReportArtefactHelpers(BaseTest):
                 content=json.dumps({"priority": "P1"}),
             )
 
-    # --- upsert_status ---
+    # --- append_status ---
 
-    def test_upsert_status_creates_then_replaces_in_place(self):
+    def test_append_status_appends_each_version(self):
         report = self._report()
-        created = self._upsert_priority(report, "P2")
-        updated = self._upsert_priority(report, "P0")
+        first = self._append_priority(report, "P2")
+        second = self._append_priority(report, "P0")
 
-        # Same row, content replaced, exactly one row of this type.
-        assert created.id == updated.id
+        # Distinct rows — the prior version is retained as history, not overwritten.
+        assert first.id != second.id
         rows = SignalReportArtefact.objects.filter(
             report=report, type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
-        )
-        assert rows.count() == 1
-        assert json.loads(rows.first().content)["priority"] == "P0"
+        ).order_by("created_at")
+        assert rows.count() == 2
+        # Current status is the latest row.
+        assert json.loads(rows.last().content)["priority"] == "P0"
 
-    def test_upsert_status_collapses_pre_existing_duplicates(self):
-        report = self._report()
-        # Two duplicate rows can exist from before the singleton helper landed.
-        for priority in ("P1", "P2"):
-            SignalReportArtefact.objects.create(
-                team=self.team,
-                report=report,
-                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-                content=json.dumps({"priority": priority}),
-            )
-
-        self._upsert_priority(report, "P0")
-
-        rows = SignalReportArtefact.objects.filter(
-            report=report, type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
-        )
-        assert rows.count() == 1
-        assert json.loads(rows.first().content)["priority"] == "P0"
-
-    def test_upsert_status_rejects_log_type(self):
+    def test_append_status_rejects_log_type(self):
         report = self._report()
         with self.assertRaises(ValueError):
-            SignalReportArtefact.upsert_status(
+            SignalReportArtefact.append_status(
                 team_id=self.team.id,
                 report_id=str(report.id),
                 type=SignalReportArtefact.ArtefactType.NOTE,

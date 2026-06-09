@@ -125,9 +125,9 @@ async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOu
             signals=input.signals,
         )
 
-        # Singleton: a report carries at most one safety judgment. Upserting (rather than
-        # creating) keeps a re-promoted report from stacking duplicate safety_judgment rows.
-        await database_sync_to_async(SignalReportArtefact.upsert_status, thread_sensitive=False)(
+        # Append-only: each safety assessment is a point-in-time entry in the report log. The
+        # report's current safety status is the latest safety_judgment row.
+        await database_sync_to_async(SignalReportArtefact.append_status, thread_sensitive=False)(
             team_id=input.team_id,
             report_id=input.report_id,
             type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,

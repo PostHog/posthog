@@ -3,7 +3,7 @@ from typing import Any
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models, transaction
+from django.db import models
 from django.utils import timezone
 
 from django_deprecate_fields import deprecate_field
@@ -353,15 +353,17 @@ class SignalReportArtefact(UUIDModel):
         TASK_RUN = "task_run"
         NOTE = "note"
 
-    # Artefacts come in two flavours:
-    #   - status artefacts are singletons: at most one per (report, type). They describe the
-    #     report's *current* state (judgments, repo selection, suggested reviewers). Writing one
-    #     replaces the existing row of that type via `upsert_status`.
-    #   - log artefacts are a log: many per (report, type), time-ordered, append-but-deletable.
-    #     They record the work done on a report (code references, diffs, branches, task runs,
-    #     notes) and make it read like a living document. Appended via `add_log`.
-    # `signal_finding` is N-per-report and owned by the agentic pipeline's bulk
-    # delete-and-replace (see temporal/agentic/report.py); it is intentionally in neither set.
+    # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
+    # the producers. The two sets below classify *what an entry means*, not how it is written:
+    #   - status artefacts describe the report's current state (judgments, repo selection,
+    #     suggested reviewers). They are appended on each (re)assessment via `append_status`; the
+    #     report's *current* status is the latest row of that type by `created_at` (the serializer
+    #     derives priority/actionability/reviewers with `order_by("-created_at")[:1]` subqueries).
+    #   - log artefacts record discrete work done on a report (code references, diffs, branches,
+    #     task runs, notes). Appended via `add_log`.
+    # `signal_finding` is appended too, but its logical identity is `(report, content.signal_id)`:
+    # a new signal yields a new entry, re-researching an existing signal appends a new version
+    # (latest per signal_id wins). It is intentionally in neither set.
     STATUS_ARTEFACT_TYPES: frozenset[str] = frozenset(
         {
             ArtefactType.SAFETY_JUDGMENT,
@@ -399,25 +401,15 @@ class SignalReportArtefact(UUIDModel):
         ]
 
     @classmethod
-    def upsert_status(cls, *, team_id: int, report_id: str, type: str, content: str) -> "SignalReportArtefact":
-        """Create or replace the single status artefact of `type` for a report.
+    def append_status(cls, *, team_id: int, report_id: str, type: str, content: str) -> "SignalReportArtefact":
+        """Append a new version of a status artefact (see `STATUS_ARTEFACT_TYPES`) and return it.
 
-        Status artefacts are singletons (see `STATUS_ARTEFACT_TYPES`): the existing row of this
-        type is updated in place, and any accidental duplicates are removed so exactly one
-        remains. `content` is serialized JSON text.
+        Status artefacts are append-only: each (re)assessment creates a new row, and the report's
+        current status is the latest row of that type (by `created_at`). `content` is JSON text.
         """
         if type not in cls.STATUS_ARTEFACT_TYPES:
             raise ValueError(f"{type!r} is not a status artefact type")
-        with transaction.atomic():
-            existing = list(cls.objects.filter(report_id=report_id, type=type).order_by("created_at"))
-            if existing:
-                keep = existing[0]
-                keep.content = content
-                keep.save(update_fields=["content", "updated_at"])
-                if len(existing) > 1:
-                    cls.objects.filter(pk__in=[a.pk for a in existing[1:]]).delete()
-                return keep
-            return cls.objects.create(team_id=team_id, report_id=report_id, type=type, content=content)
+        return cls.objects.create(team_id=team_id, report_id=report_id, type=type, content=content)
 
     @classmethod
     def add_log(cls, *, team_id: int, report_id: str, type: str, content: str) -> "SignalReportArtefact":
