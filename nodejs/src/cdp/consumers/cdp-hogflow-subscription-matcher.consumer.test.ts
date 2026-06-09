@@ -195,6 +195,17 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(lookup.params[4]).toEqual(['flow-1']) // functionIds
         })
 
+        it('does not constrain the lookup by queue_name so waits parked on any queue are found', async () => {
+            // A wait that follows an email step parks on the email queue, not hogflow. The lookup
+            // must not filter queue_name or it would silently miss those parked jobs; function_id
+            // already scopes the results to hogflow jobs.
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1' }) })
+            await matcher.runWake([makeGlobals({})])
+            const lookup = matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))!
+            expect(lookup).not.toBeUndefined()
+            expect(lookup.sql).not.toContain('queue_name')
+        })
+
         it('correlates team_id with distinct_id so a cross-team pairing is never queried or woken', async () => {
             // Bug scenario: event A is (team 1, alice), event B is (team 2, bob). A naive
             // `team_id = ANY([1,2]) AND distinct_id = ANY([alice,bob])` query would also match

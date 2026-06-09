@@ -2,7 +2,7 @@ from posthog.clickhouse.query_tagging import Product
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
+from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
@@ -27,6 +27,22 @@ class NoPageleaveEventsCheck(HealthCheck):
     policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
     schedule = "30 3 * * *"
     active_since_days = 30
+    remediation = Remediation(
+        human="""
+            Open the Web analytics health page. The fix is almost always on the SDK side — make sure you're
+            on a recent posthog-js with pageview autocapture enabled, which emits $pageleave automatically
+            when the user navigates away.
+        """,
+        agent="""
+            Use `execute-sql` to confirm the gap (`SELECT event, count() FROM events WHERE event IN
+            ('$pageview', '$pageleave') AND timestamp > now() - INTERVAL 7 DAY GROUP BY event`). Then fix it
+            in the user's codebase: locate the `posthog.init` call and ensure pageview autocapture is
+            enabled; if pageviews are captured manually (`capture_pageview: false`), add a matching
+            `posthog.capture` of `$pageleave` on route changes / unload. Use `docs-search` for the
+            pageview/pageleave capture docs. Once $pageleave events arrive, the issue resolves on the next
+            check run.
+        """,
+    )
 
     @classmethod
     def render_alert(cls, issue: HealthIssue) -> AlertContent:
