@@ -5,7 +5,7 @@ from collections.abc import Callable
 from typing import Any, Optional, TypeVar, Union, cast
 from zoneinfo import ZoneInfo
 
-from django.db.models import Exists, OuterRef, Q, Value
+from django.db.models import Q, Value
 
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
@@ -20,7 +20,7 @@ from posthog.models.team import Team
 from posthog.queries.util import convert_to_datetime_aware
 from posthog.utils import get_compare_period_dates, is_valid_regex
 
-from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortPeople
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 
 FilterType = TypeVar("FilterType", Filter, PathFilter)
 
@@ -346,41 +346,29 @@ def property_to_Q(
             return Q(pk__isnull=True)
 
         if cohort.is_static:
+            resolved_team_id = team_id if team_id is not None else cohort.team_id
+
             # When a concrete person is in scope, short-circuit the Exists subquery
             # with a direct membership check — routes through personhog when enabled,
             # falling back to the persons-DB ORM otherwise. Mirrors the override
             # short-circuit below (returning Q(pk__isnull=False|True)).
-            if person_id is not None and team_id is not None:
+            if person_id is not None:
                 from products.cohorts.backend.models.util import is_person_in_cohort
 
-                if is_person_in_cohort(team_id=team_id, person_id=person_id, cohort_id=cohort_id):
+                if is_person_in_cohort(team_id=resolved_team_id, person_id=person_id, cohort_id=cohort_id):
                     return Q(pk__isnull=False)
                 return Q(pk__isnull=True)
 
-            # When team_id is available, list all member IDs and filter with
-            # Q(id__in=…) — routes through personhog when the gate is on,
-            # falling back to the CohortPeople table otherwise. This avoids
-            # the Exists(CohortPeople) subquery so the persons DB is not
-            # required on the personhog path.
-            if team_id is not None:
-                from products.cohorts.backend.models.util import list_cohort_member_ids
+            # List all member IDs and filter with Q(id__in=…) — routes through
+            # personhog when the gate is on, falling back to the CohortPeople
+            # table otherwise. This avoids the Exists(CohortPeople) subquery so
+            # the persons DB is not required on the personhog path.
+            from products.cohorts.backend.models.util import list_cohort_member_ids
 
-                member_ids = list_cohort_member_ids(team_id=team_id, cohort_id=cohort_id)
-                if not member_ids:
-                    return Q(pk__isnull=True)
-                return Q(id__in=member_ids)
-
-            return Q(
-                Exists(
-                    CohortPeople.objects.db_manager(using_database)  # nosemgrep: no-direct-persons-db-orm
-                    .filter(
-                        cohort_id=cohort_id,
-                        person_id=OuterRef("id"),
-                        cohort__id=cohort_id,
-                    )
-                    .only("id")
-                )
-            )
+            member_ids = list_cohort_member_ids(team_id=resolved_team_id, cohort_id=cohort_id)
+            if not member_ids:
+                return Q(pk__isnull=True)
+            return Q(id__in=member_ids)
         else:
             # :TRICKY: This has potential to create an infinite loop if the cohort is recursive.
             # But, this shouldn't happen because we check for cyclic cohorts on creation.

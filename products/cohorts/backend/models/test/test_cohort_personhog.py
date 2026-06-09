@@ -339,8 +339,8 @@ class TestCheckCohortMembershipFallback(BaseTest):
 
 @parameterized_class(("personhog",), [(False,), (True,)])
 class TestPropertyToQStaticCohortShortCircuit(PersonhogTestMixin, BaseTest):
-    """property_to_Q short-circuits the Exists(CohortPeople) subquery when
-    caller passes person_id + team_id for a static cohort."""
+    """property_to_Q routes static cohort membership through personhog,
+    resolving team_id from cohort.team_id when not explicitly passed."""
 
     def _make_cohort_property(self, cohort_id: int):
         from posthog.models.property import Property
@@ -380,21 +380,50 @@ class TestPropertyToQStaticCohortShortCircuit(PersonhogTestMixin, BaseTest):
 
         assert q == Q(pk__isnull=True)
 
-    def test_falls_back_to_exists_without_person_id_or_team_id(self):
+    def test_resolves_team_id_from_cohort_without_explicit_team_id(self):
+        from posthog.queries.base import property_to_Q
+
+        p1 = self._seed_person(team=self.team, distinct_ids=["d1"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
+        CohortPeople.objects.create(cohort=cohort, person=p1)
+        self._seed_cohort_membership(person_id=p1.id, cohort_id=cohort.id, is_member=True)
+
+        q = property_to_Q(self.team.project_id, self._make_cohort_property(cohort.id))
+
+        matched = Person.objects.filter(team_id=self.team.id).filter(q)
+        assert list(matched.values_list("id", flat=True)) == [p1.id]
+        self._assert_personhog_called("list_cohort_member_ids")
+
+    def test_resolves_team_id_from_cohort_with_person_id_no_team_id(self):
         from posthog.queries.base import property_to_Q
 
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
         CohortPeople.objects.create(cohort=cohort, person=person)
+        self._seed_cohort_membership(person_id=person.id, cohort_id=cohort.id, is_member=True)
 
-        q = property_to_Q(self.team.project_id, self._make_cohort_property(cohort.id))
+        q = property_to_Q(
+            self.team.project_id,
+            self._make_cohort_property(cohort.id),
+            person_id=person.id,
+        )
 
-        # Not a short-circuit Q — it's an Exists() wrapped in Q
-        assert q != Q(pk__isnull=False)
-        assert q != Q(pk__isnull=True)
-        # The Exists subquery path never calls either RPC
-        self._assert_personhog_not_called("check_cohort_membership")
-        self._assert_personhog_not_called("list_cohort_member_ids")
+        assert q == Q(pk__isnull=False)
+        self._assert_personhog_called("check_cohort_membership")
+
+    def test_no_match_when_no_team_id_and_person_not_member(self):
+        from posthog.queries.base import property_to_Q
+
+        person = self._seed_person(team=self.team, distinct_ids=["d1"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
+
+        q = property_to_Q(
+            self.team.project_id,
+            self._make_cohort_property(cohort.id),
+            person_id=person.id,
+        )
+
+        assert q == Q(pk__isnull=True)
 
     def test_isolates_cohort_by_team_id(self):
         """A cohort owned by a different team (even within the same project)
@@ -496,7 +525,7 @@ class TestListCohortMemberIdsFallback(BaseTest):
 @parameterized_class(("personhog",), [(False,), (True,)])
 class TestPropertyToQStaticCohortMemberList(PersonhogTestMixin, BaseTest):
     """property_to_Q uses list_cohort_member_ids to produce Q(id__in=…) when
-    team_id is provided but person_id is not (queryset-wide filtering)."""
+    person_id is not provided (queryset-wide filtering)."""
 
     def _make_cohort_property(self, cohort_id: int):
         from posthog.models.property import Property
