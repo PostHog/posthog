@@ -26,3 +26,9 @@ PERSONHOG_TEAM_MISMATCH_TOTAL = Counter(
     "Persons dropped because personhog returned a mismatched team_id",
     labelnames=["operation", "client_name"],
 )
+
+PERSONHOG_ERRORS_TOTAL = Counter(
+    "personhog_errors_total",
+    "Total PersonHog gRPC errors — every failed gRPC attempt",
+    labelnames=["method", "client", "error_type"],
+)

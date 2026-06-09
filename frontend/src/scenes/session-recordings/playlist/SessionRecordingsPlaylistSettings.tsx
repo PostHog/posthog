@@ -1,15 +1,23 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
-import { IconEllipsis, IconPlus, IconSort, IconTrash } from '@posthog/icons'
+import { IconChevronRight, IconEllipsis, IconEye, IconPlus, IconSort, IconTrash } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
+import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, RecordingUniversalFilters } from '~/types'
+
+import { bulkScanLogic } from 'products/replay_vision/frontend/logics/bulkScanLogic'
+import { visionQuotaLogic } from 'products/replay_vision/frontend/logics/visionQuotaLogic'
+import { quotaUx } from 'products/replay_vision/frontend/utils/quotaProjection'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import {
@@ -334,6 +342,61 @@ export function AddToCollectionModal({ shortId }: { shortId?: string }): JSX.Ele
     )
 }
 
+/** Bulk "Scan these recordings" row whose scanner list opens on hover (a nested `items` menu is click-only). */
+function BulkScanMenuItem(): JSX.Element {
+    const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
+    const { scanners, scannersLoading, scanning } = useValues(bulkScanLogic)
+    const { scanRecordings } = useActions(bulkScanLogic)
+    const { quota } = useValues(visionQuotaLogic)
+    const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
+
+    const submenuItems: LemonMenuItem[] = scannersLoading
+        ? [{ label: 'Loading scanners…', disabledReason: 'Loading' }]
+        : scanners.length === 0
+          ? [
+                {
+                    label: 'No scanners yet — create one',
+                    onClick: () => router.actions.push(urls.replayVision()),
+                    'data-attr': 'vision-bulk-scan-create-scanner',
+                },
+            ]
+          : scanners.map((scanner) => ({
+                label: scanner.name,
+                onClick: () => scanRecordings(scanner.id, selectedRecordingsIds),
+                'data-attr': 'vision-bulk-scan-scanner-item',
+            }))
+
+    return (
+        <LemonMenu
+            items={submenuItems}
+            placement="right-start"
+            trigger="hover"
+            buttonSize="xsmall"
+            closeOnClickInside
+            closeParentPopoverOnClickInside
+        >
+            <LemonButton
+                fullWidth
+                role="menuitem"
+                size="xsmall"
+                icon={<IconEye />}
+                sideIcon={<IconChevronRight />}
+                disabledReason={
+                    scanning
+                        ? 'Starting scans…'
+                        : selectedRecordingsIds.length === 0
+                          ? 'Select recordings to scan'
+                          : quotaDisabledReason
+                }
+                tooltip={quotaTooltip}
+                data-attr="vision-bulk-scan-recordings"
+            >
+                Scan these recordings
+            </LemonButton>
+        </LemonMenu>
+    )
+}
+
 export function SessionRecordingsPlaylistTopSettings({
     filters,
     setFilters,
@@ -360,6 +423,7 @@ export function SessionRecordingsPlaylistTopSettings({
         handleBulkMarkAsViewed,
         handleBulkMarkAsNotViewed,
     } = useActions(sessionRecordingsPlaylistLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const recordings = type === 'filters' ? otherRecordings : pinnedRecordings
     const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
@@ -368,6 +432,8 @@ export function SessionRecordingsPlaylistTopSettings({
         AccessControlResourceType.SessionRecording,
         AccessControlLevel.Editor
     )
+
+    const visionEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION]
 
     const getActionsMenuItems = (): LemonMenuItem[] => {
         const menuItems: LemonMenuItem[] = [
@@ -399,6 +465,15 @@ export function SessionRecordingsPlaylistTopSettings({
             onClick: () => handleBulkMarkAsNotViewed(shortId),
             'data-attr': 'mark-as-not-viewed',
         })
+
+        if (visionEnabled) {
+            // Custom item so the scanner list opens on hover (the nested `items` API is click-only).
+            menuItems.push({
+                key: 'bulk-scan-recordings',
+                label: () => <BulkScanMenuItem />,
+                custom: true,
+            })
+        }
 
         menuItems.push({
             label: 'Delete',
