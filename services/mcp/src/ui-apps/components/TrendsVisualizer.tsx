@@ -94,29 +94,34 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     }))
     const yAxisLabel = results.length === 1 && results[0] ? getSeriesLabel(results[0], 0) : undefined
 
-    const lineSeries = buildTrendsSeries(trendResults, {
-        isArea: displayType === 'ActionsAreaGraph',
-        getColor: (_, index) => colorAt(index),
-    })
-
-    const lineConfig = buildTrendsLineTimeSeriesConfig({
-        results: trendResults,
-        trendsFilter: query?.trendsFilter,
-        yAxisLabel,
-        isPercentStackView: false,
-        showCrosshair: true,
-        xAxisTickFormatter: (value) => formatDate(value),
-    })
-
-    const { series: barSeries, config: barConfig } = buildTrendsBarChartModel(trendResults, {
-        getColor: (_, index) => colorAt(index),
-        labels,
-        yAxisLabel,
-        isPercentStackView: false,
-        isGrouped: false,
-        xAxisTickFormatter: (value) => formatDate(value),
-        tooltip: TOOLTIP_CONFIG,
-    })
+    // Build only the active mode's chart model — toggling shouldn't recompute the hidden one.
+    const renderChart = (): ReactElement => {
+        if (chartMode === 'bar') {
+            const { series, config } = buildTrendsBarChartModel(trendResults, {
+                getColor: (_, index) => colorAt(index),
+                labels,
+                yAxisLabel,
+                isPercentStackView: false,
+                isGrouped: false,
+                xAxisTickFormatter: (value) => formatDate(value),
+                tooltip: TOOLTIP_CONFIG,
+            })
+            return <TimeSeriesBarChart series={series} labels={labels} theme={CHART_THEME} config={config} />
+        }
+        const series = buildTrendsSeries(trendResults, {
+            isArea: displayType === 'ActionsAreaGraph',
+            getColor: (_, index) => colorAt(index),
+        })
+        const config = buildTrendsLineTimeSeriesConfig({
+            results: trendResults,
+            trendsFilter: query?.trendsFilter,
+            yAxisLabel,
+            isPercentStackView: false,
+            showCrosshair: true,
+            xAxisTickFormatter: (value) => formatDate(value),
+        })
+        return <TimeSeriesLineChart series={series} labels={labels} theme={CHART_THEME} config={config} />
+    }
 
     return (
         <div>
@@ -124,13 +129,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                 {/* eslint-disable-next-line react/forbid-elements */}
                 <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
             </div>
-            <div className="flex flex-col w-full h-[400px]">
-                {chartMode === 'bar' ? (
-                    <TimeSeriesBarChart series={barSeries} labels={labels} theme={CHART_THEME} config={barConfig} />
-                ) : (
-                    <TimeSeriesLineChart series={lineSeries} labels={labels} theme={CHART_THEME} config={lineConfig} />
-                )}
-            </div>
+            <div className="flex flex-col w-full h-[400px]">{renderChart()}</div>
         </div>
     )
 }

@@ -156,15 +156,14 @@ export interface BuildTrendsBarChartModelOpts<
     buildMeta?: (r: R, index: number) => M
 }
 
-/** The complete input a host hands to quill's `TimeSeriesBarChart` for a time-series bar chart. */
 export interface TrendsBarChartModel<M = unknown> {
     series: Series<M>[]
     labels: string[]
     config: TimeSeriesBarChartConfig
 }
 
-/** Assembles the full time-series bar chart model (series + config) so the web container and the MCP
- *  visualizer share one tested path; each injects only host-specific bits (color, labels, layout). */
+/** Assembles the time-series bar chart model (series + config) in one call so the MCP visualizer
+ *  builds the same series + config the web container assembles piecewise. */
 export function buildTrendsBarChartModel<R extends TrendsBarResultLike, M = unknown>(
     results: R[],
     opts: BuildTrendsBarChartModelOpts<R, M>

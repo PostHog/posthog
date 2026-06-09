@@ -41,6 +41,17 @@ describe('buildTrendsBarTimeSeries', () => {
         }
     )
 
+    // The inlined hex dimming must match lib/utils' hexToRGBA for valid hex (incl. 3-digit shorthand);
+    // a non-hex color is passed through unchanged (the one intentional divergence from hexToRGBA).
+    it.each([
+        { base: '#ff0000', expected: hexToRGBA('#ff0000', 0.5) },
+        { base: '#f00', expected: hexToRGBA('#f00', 0.5) },
+        { base: 'not-a-hex', expected: 'not-a-hex' },
+    ])('dims a compare-previous bar for $base', ({ base, expected }) => {
+        const series = buildTrendsBarTimeSeries([makeResult({ compare_label: 'previous' })], { getColor: () => base })
+        expect(series[0].color).toBe(expected)
+    })
+
     it('marks a series excluded when getHidden returns true', () => {
         const series = buildTrendsBarTimeSeries([makeResult()], {
             getColor: () => RED,
@@ -362,6 +373,7 @@ describe('buildTrendsBarChartModel', () => {
         expect(model.labels).toEqual(['Mon', 'Tue', 'Wed'])
         expect(model.series.map((s) => s.key)).toEqual(['a', 'b'])
         expect(model.series[0].data).toEqual([1, 2, 3])
+        expect(model.series[0].color).toBe(RED)
         expect(model.config.barLayout).toBe('stacked')
     })
 
@@ -369,6 +381,7 @@ describe('buildTrendsBarChartModel', () => {
         { isGrouped: false, isPercentStackView: false, expected: 'stacked' },
         { isGrouped: true, isPercentStackView: false, expected: 'grouped' },
         { isGrouped: false, isPercentStackView: true, expected: 'percent' },
+        { isGrouped: true, isPercentStackView: true, expected: 'percent' },
     ])('maps layout flags to barLayout=$expected', ({ isGrouped, isPercentStackView, expected }) => {
         const model = buildTrendsBarChartModel(results, {
             getColor: () => RED,
@@ -387,6 +400,8 @@ describe('buildTrendsBarChartModel', () => {
             isGrouped: false,
             xAxisTickFormatter: (value) => `~${value}`,
         })
-        expect(model.config.xAxis?.tickFormatter?.('2024-01-01', 0)).toBe('~2024-01-01')
+        const { tickFormatter } = model.config.xAxis!
+        expect(tickFormatter).toBeTruthy()
+        expect(tickFormatter!('2024-01-01', 0)).toBe('~2024-01-01')
     })
 })
