@@ -10,7 +10,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1213_filesystemfolderinstructions"),
+        ("posthog", "1214_oauthapplication_sessions_revoked_at"),
     ]
 
     operations = [
