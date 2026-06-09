@@ -17,6 +17,7 @@ from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DA
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
 from posthog.hogql.printer.hogql import HogQLPrinter
+from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
@@ -428,41 +429,12 @@ class ClickHousePrinter(BasePrinter):
         if resolved_field.name not in ("properties", "person_properties"):
             return field_sql
 
-        keys_to_drop = self._get_restricted_keys_for_table_type(type.table_type)
+        keys_to_drop = restricted_property_keys_for_table_type(type.table_type, self.context)
         if not keys_to_drop:
             return field_sql
 
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
         return f"JSONDropKeys({keys_placeholder})({field_sql})"
-
-    def _get_restricted_keys_for_table_type(self, table_type: ast.Type) -> set[str]:
-        """
-        Given a table type, returns the set of property names that should be stripped
-        from the JSON blob based on restricted_properties in the context.
-        """
-        from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
-        from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
-
-        from products.event_definitions.backend.models.property_definition import PropertyDefinition
-
-        if not isinstance(table_type, ast.BaseTableType):
-            return set()
-
-        try:
-            table = table_type.resolve_database_table(self.context)
-        except Exception:
-            return set()
-
-        if isinstance(table, EventsPersonSubTable):
-            prop_def_type = PropertyDefinition.Type.PERSON
-        elif isinstance(table, EventsTable):
-            prop_def_type = PropertyDefinition.Type.EVENT
-        elif isinstance(table, (PersonsTable, RawPersonsTable)):
-            prop_def_type = PropertyDefinition.Type.PERSON
-        else:
-            return set()
-
-        return {name for name, ptype in self.context.restricted_properties or set() if ptype == prop_def_type}
 
     def _get_events_session_id_table_type(self, node: ast.Expr) -> ast.BaseTableType | None:
         """If the expression resolves to $session_id on the events table, return the table type."""
