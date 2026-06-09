@@ -15,12 +15,13 @@ from dateutil import parser
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ProductKey
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, ProductKey
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.resolver_utils import extract_select_queries
 
@@ -43,7 +44,6 @@ from posthog.models.person.sql import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.models.property import Property, PropertyGroup
-from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 from products.actions.backend.models.action import Action
 from products.actions.backend.models.util import format_action_filter
@@ -51,7 +51,6 @@ from products.cohorts.backend.models.calculation_history import CohortCalculatio
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.dependencies import get_cohort_dependents
 from products.cohorts.backend.models.sql import (
-    CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
     GET_COHORTS_BY_PERSON_UUID,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
@@ -277,7 +276,7 @@ def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: dat
     return None
 
 
-def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext) -> tuple[str, dict[str, Any]]:
+def format_person_query(cohort: Cohort, index: int) -> tuple[str, dict[str, Any]]:
     if cohort.is_static:
         return format_static_cohort_query(cohort, index, prepend="")
 
@@ -285,22 +284,9 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
         # No person can match an empty cohort
         return "SELECT generateUUIDv4() as id WHERE 0 = 19", {}
 
-    from posthog.queries.cohort_query import CohortQuery
-
-    query_builder = CohortQuery(
-        Filter(
-            data={"properties": cohort.properties},
-            team=cohort.team,
-            hogql_context=hogql_context,
-        ),
-        cohort.team,
-        cohort_pk=cohort.pk,
-        persons_on_events_mode=cohort.team.person_on_events_mode,
-    )
-
-    query, params = query_builder.get_query()
-
-    return query, params
+    # Compile the cohort criteria via HogQLCohortQuery and embed the result as a person-id subquery.
+    cohort_query, cohort_context = hogql_cohort_subquery_sql(cohort, team=cohort.team)
+    return _prefix_cohort_hogql_params(cohort_query, cohort_context.values, cohort=cohort, index=index)
 
 
 def _sanitize_query_for_cohort(query_dict: dict) -> dict:
@@ -551,31 +537,77 @@ def is_precalculated_query(cohort: Cohort) -> bool:
         return False
 
 
-def format_filter_query(
-    cohort: Cohort,
-    index: int,
-    hogql_context: HogQLContext,
-    id_column: str = "distinct_id",
-    custom_match_field="person_id",
-) -> tuple[str, dict[str, Any]]:
-    person_query, params = format_cohort_subquery(cohort, index, hogql_context, custom_match_field=custom_match_field)
+def _trim_trailing_settings(sql: str) -> str:
+    # ClickHouse rejects a top-level SETTINGS clause when the SELECT is embedded as a subquery, so trim it.
+    return sql[: sql.rfind("SETTINGS")]
 
-    person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
-        query=person_query,
-        id_column=id_column,
-        GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
+
+def _prefix_cohort_hogql_params(
+    sql: str, values: dict[str, Any], *, cohort: Cohort, index: int
+) -> tuple[str, dict[str, Any]]:
+    # HogQLCohortQuery builds its own HogQLContext, so its %(hogql_val_N)s placeholders would collide with
+    # the parent query's context and with sibling cohort subqueries in the same query. Prefix them per
+    # cohort+index so they stay unique once embedded in the legacy parent query. The `)s` terminator in the
+    # search string keeps hogql_val_1 from also matching hogql_val_10.
+    prefix = f"cohort_{cohort.pk}_{index}_"
+    params: dict[str, Any] = {}
+    for key, value in values.items():
+        prefixed_key = f"{prefix}{key}"
+        sql = sql.replace(f"%({key})s", f"%({prefixed_key})s")
+        params[prefixed_key] = value
+    return sql, params
+
+
+def _cohort_distinct_ids_sql(cohort: Cohort, index: int, *, team: Team) -> tuple[str, dict[str, Any]]:
+    # Distinct_ids of the cohort's members, via HogQL's person_distinct_ids table — it owns the
+    # argMax(person_id, version)/is_deleted dedup and the team scoping, so this path no longer
+    # hand-rolls them. Members come from the cohortpeople tables for static/precalculated cohorts
+    # and from evaluating the criteria (HogQLCohortQuery) otherwise.
+    from posthog.hogql.query import HogQLQueryExecutor
+
+    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+
+    if cohort.is_static:
+        members: ast.SelectQuery | ast.SelectSetQuery = parse_select(
+            "SELECT person_id FROM static_cohort_people WHERE cohort_id = {id}",
+            {"id": ast.Constant(value=cohort.pk)},
+        )
+    elif is_precalculated_query(cohort):
+        members = parse_select(
+            "SELECT person_id FROM raw_cohort_people WHERE cohort_id = {id} AND version = {version}",
+            {"id": ast.Constant(value=cohort.pk), "version": ast.Constant(value=cohort.version)},
+        )
+    else:
+        members = HogQLCohortQuery(cohort=cohort, team=team).get_query()
+
+    query = parse_select(
+        "SELECT distinct_id FROM person_distinct_ids WHERE person_id IN {members}",
+        {"members": members},
     )
-    return person_id_query, params
+    sql, context = HogQLQueryExecutor(
+        query_type="CohortFilterDistinctIds",
+        query=query,
+        modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+        team=team,
+        limit_context=LimitContext.COHORT_CALCULATION,
+        settings=HogQLGlobalSettings(),
+    ).generate_clickhouse_sql()
+    sql = _trim_trailing_settings(sql)
+    return _prefix_cohort_hogql_params(sql, context.values, cohort=cohort, index=index)
 
 
-def format_cohort_subquery(
-    cohort: Cohort, index: int, hogql_context: HogQLContext, custom_match_field="person_id"
-) -> tuple[str, dict[str, Any]]:
+def format_filter_query(cohort: Cohort, index: int) -> tuple[str, dict[str, Any]]:
+    distinct_ids_sql, params = _cohort_distinct_ids_sql(cohort, index, team=cohort.team)
+    # The leading `SELECT distinct_id` is load-bearing: breakdown_props rewrites it via string replace.
+    return f"SELECT distinct_id FROM ({distinct_ids_sql})", params
+
+
+def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="person_id") -> tuple[str, dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
     if is_precalculated:
         query, params = format_precalculated_cohort_query(cohort, index)
     else:
-        query, params = format_person_query(cohort, index, hogql_context)
+        query, params = format_person_query(cohort, index)
 
     person_query = f"{custom_match_field} IN ({query})"
     return person_query, params
@@ -700,8 +732,7 @@ def hogql_cohort_subquery_sql(cohort: Cohort, *, team: Team) -> tuple[str, HogQL
 
     sql, hogql_context = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor().generate_clickhouse_sql()
 
-    # Clickhouse rejects a top-level SETTINGS clause when the SELECT is used as a subquery, so we trim it.
-    return sql[: sql.rfind("SETTINGS")], hogql_context
+    return _trim_trailing_settings(sql), hogql_context
 
 
 def _recalculate_cohortpeople_for_team_hogql(

@@ -21,6 +21,13 @@ Each engineer needs their own GitHub App. The setup command will print these
 instructions and offer to open the creation page in your browser, but for
 reference:
 
+> **Shortcut:** `python manage.py create_github_app` automates everything below
+> via GitHub's [App Manifest flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest).
+> It opens the browser with the manifest pre-filled; on the single "Create
+> GitHub App" click it writes the four `GITHUB_APP_*` values straight to your
+> `.env` and verifies the key works. Add `--org <name>` to create it under an
+> organization. The manual steps below remain the fallback / reference.
+
 | Permission    | Access       | Purpose                                   |
 | ------------- | ------------ | ----------------------------------------- |
 | Contents      | Read & Write | Read files, create branches, push commits |

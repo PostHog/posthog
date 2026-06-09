@@ -467,6 +467,8 @@ SPECTACULAR_SETTINGS = {
         "ExperimentMetricKindEnum": "products.ai_observability.backend.models.score_definitions.ScoreDefinition.Kind",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
+        "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
+        "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
         "LLMProviderEnum": "products.ai_observability.backend.models.provider_keys.LLMProvider",
         "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
