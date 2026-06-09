@@ -329,14 +329,17 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     def delete_table(self):
         if self.table is not None:
-            try:
-                client = get_s3_client()
-                client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
-            except Exception as e:
-                capture_exception(e)
+            # Prevent deleting S3 data and soft-deleting the table if another active schema shares it
+            other_schemas = ExternalDataSchema.objects.filter(table_id=self.table_id).exclude(id=self.id).exclude(deleted=True)
+            if not other_schemas.exists():
+                try:
+                    client = get_s3_client()
+                    client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
+                except Exception as e:
+                    capture_exception(e)
 
-            if not self.table.deleted:
-                self.table.soft_delete()
+                if not self.table.deleted:
+                    self.table.soft_delete()
 
             self.table_id = None
             self.last_synced_at = None

@@ -220,10 +220,20 @@ async def validate_schema_and_update_table(
                     )
                     existing_tables_count = existing_tables.count()
                     if existing_tables_count > 0:
-                        table_created = existing_tables[0]
-                        logger.debug(
-                            f"Found {existing_tables_count} existing tables - skipping creating and using {table_created.id}"
-                        )
+                        for existing_table in existing_tables:
+                            other_schemas = ExternalDataSchema.objects.filter(
+                                table_id=existing_table.id
+                            ).exclude(id=_schema_id).exclude(deleted=True)
+                            
+                            if not other_schemas.exists():
+                                table_created = existing_table
+                                logger.debug(
+                                    f"Found existing orphaned table - skipping creating and using {table_created.id}"
+                                )
+                                break
+                        
+                        if not table_created:
+                            logger.debug(f"Found {existing_tables_count} existing tables, but all are actively used by other schemas. Creating a new table.")
 
                     if not table_created:
                         logger.debug(f"Creating table for schema: {str(schema_id)}")
