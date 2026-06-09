@@ -76,7 +76,17 @@ services:
                 ) &
                 exec /usr/bin/weed "$$@"
             - --
-        command: ['server', '-master.port=19001', '-s3', '-s3.port=19000', '-dir=/data']
+        # volumePreallocate=false so per-bucket collections grow on demand instead of
+        # reserving 1 GiB per volume — see docker-compose.base.yml `objectstorage`.
+        command:
+            [
+                'server',
+                '-master.port=19001',
+                '-s3',
+                '-s3.port=19000',
+                '-dir=/data',
+                '-master.volumePreallocate=false',
+            ]
         healthcheck:
             test: ['CMD', 'test', '-f', '/tmp/objectstorage-ready']
             interval: 5s

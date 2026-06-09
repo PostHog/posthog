@@ -264,12 +264,23 @@ services:
                 ) &
                 exec /usr/bin/weed "$$@"
             - --
-        # -volume.max raised from the default 8: every S3 bucket is its own SeaweedFS
-        # collection needing a dedicated volume, and the empty default collection
-        # pre-grows several. With three buckets (posthog, ducklake-dev, ai-blobs) the
-        # default cap is exhausted and writes to the starved buckets fail with
-        # "no writable volumes". 100 leaves ample headroom (empty volumes are sparse).
-        command: ['server', '-master.port=19001', '-s3', '-s3.port=19000', '-dir=/data', '-volume.max=100']
+        # Every S3 bucket is its own SeaweedFS collection that grows volumes in batches.
+        # By default SeaweedFS preallocates 1 GiB per volume, so a workload that creates
+        # many buckets (the test suite uses a unique bucket per test) reserves many GiB
+        # up front and exhausts disk/volumes — writes then fail with HTTP 500
+        # ("no writable volumes"). volumePreallocate=false makes volumes grow on demand so
+        # capacity tracks actual data, not bucket count; volume.max is raised well above the
+        # default 8 since each collection consumes several volume slots.
+        command:
+            [
+                'server',
+                '-master.port=19001',
+                '-s3',
+                '-s3.port=19000',
+                '-dir=/data',
+                '-volume.max=1000',
+                '-master.volumePreallocate=false',
+            ]
         # SeaweedFS creates buckets after startup via the background loop above, so without
         # this sentinel bin/wait-for-docker would treat the container as ready the instant
         # weed execs and race the bucket bootstrap. The loop touches the sentinel once every
