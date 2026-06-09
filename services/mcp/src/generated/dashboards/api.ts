@@ -3,10 +3,50 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 15 enabled ops
+ * PostHog API - MCP 17 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const DashboardTemplatesListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const DashboardTemplatesListQueryParams = /* @__PURE__ */ zod.object({
+    is_featured: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Omit for all templates. When set, filter by featured flag; parsed with str_to_bool (same as other API query booleans).'
+        ),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    ordering: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional. When not using `search`, results are sorted with featured templates first (`is_featured=true`), then by `template_name` (case-insensitive A–Z; `-template_name` for Z–A) or by `created_at` (`-created_at` for newest first). When `search` is set, order is featured first, then relevance rank, then case-insensitive name for ties.'
+        ),
+    scope: zod
+        .enum(['feature_flag', 'global', 'team'])
+        .optional()
+        .describe(
+            "Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `feature_flag`: feature-flag dashboard templates only. Omit for both official and this project's templates (default dashboard template picker behavior)."
+        ),
+})
+
+export const DashboardTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this dashboard template.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
 export const DashboardsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -65,7 +105,9 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
         use_template: zod
             .string()
             .optional()
-            .describe('Template key to create the dashboard from a predefined template.'),
+            .describe(
+                'Template key to create the dashboard from a predefined template — this is the `template_name` of an available dashboard template (list them via the dashboard templates endpoint). Omit for an empty dashboard.'
+            ),
         use_dashboard: zod.number().nullish().describe('ID of an existing dashboard to duplicate.'),
         delete_insights: zod
             .boolean()
@@ -135,7 +177,9 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
         use_template: zod
             .string()
             .optional()
-            .describe('Template key to create the dashboard from a predefined template.'),
+            .describe(
+                'Template key to create the dashboard from a predefined template — this is the `template_name` of an available dashboard template (list them via the dashboard templates endpoint). Omit for an empty dashboard.'
+            ),
         use_dashboard: zod.number().nullish().describe('ID of an existing dashboard to duplicate.'),
         delete_insights: zod
             .boolean()

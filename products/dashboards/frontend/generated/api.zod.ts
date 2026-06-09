@@ -151,7 +151,9 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
         use_template: zod
             .string()
             .optional()
-            .describe('Template key to create the dashboard from a predefined template.'),
+            .describe(
+                'Template key to create the dashboard from a predefined template — this is the `template_name` of an available dashboard template (list them via the dashboard templates endpoint). Omit for an empty dashboard.'
+            ),
         use_dashboard: zod.number().nullish().describe('ID of an existing dashboard to duplicate.'),
         delete_insights: zod
             .boolean()
@@ -198,7 +200,9 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
         use_template: zod
             .string()
             .optional()
-            .describe('Template key to create the dashboard from a predefined template.'),
+            .describe(
+                'Template key to create the dashboard from a predefined template — this is the `template_name` of an available dashboard template (list them via the dashboard templates endpoint). Omit for an empty dashboard.'
+            ),
         use_dashboard: zod.number().nullish().describe('ID of an existing dashboard to duplicate.'),
         delete_insights: zod
             .boolean()
@@ -236,7 +240,9 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
         use_template: zod
             .string()
             .optional()
-            .describe('Template key to create the dashboard from a predefined template.'),
+            .describe(
+                'Template key to create the dashboard from a predefined template — this is the `template_name` of an available dashboard template (list them via the dashboard templates endpoint). Omit for an empty dashboard.'
+            ),
         use_dashboard: zod.number().nullish().describe('ID of an existing dashboard to duplicate.'),
         delete_insights: zod
             .boolean()
@@ -802,7 +808,9 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
         use_template: zod
             .string()
             .optional()
-            .describe('Template key to create the dashboard from a predefined template.'),
+            .describe(
+                'Template key to create the dashboard from a predefined template — this is the `template_name` of an available dashboard template (list them via the dashboard templates endpoint). Omit for an empty dashboard.'
+            ),
         use_dashboard: zod.number().nullish().describe('ID of an existing dashboard to duplicate.'),
         delete_insights: zod
             .boolean()
@@ -845,7 +853,9 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
         use_template: zod
             .string()
             .optional()
-            .describe('Template key to create the dashboard from a predefined template.'),
+            .describe(
+                'Template key to create the dashboard from a predefined template — this is the `template_name` of an available dashboard template (list them via the dashboard templates endpoint). Omit for an empty dashboard.'
+            ),
         use_dashboard: zod.number().nullish().describe('ID of an existing dashboard to duplicate.'),
         delete_insights: zod
             .boolean()

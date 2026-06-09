@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    DashboardTemplatesListQueryParams,
+    DashboardTemplatesRetrieveParams,
     DashboardsCopyTileCreateBody,
     DashboardsCopyTileCreateParams,
     DashboardsCreateBody,
@@ -33,7 +35,11 @@ import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const DashboardCreateSchema = DashboardsCreateBody
+const DashboardCreateSchema = DashboardsCreateBody.extend({
+    use_template: DashboardsCreateBody.shape['use_template'].describe(
+        "Optional template key to pre-populate the dashboard with tiles. This is the `template_name` of an existing dashboard template — call dashboard-templates-list to discover valid keys (and dashboard-templates-retrieve to inspect a candidate's tiles). Do not guess a key; an unknown key returns an error. Omit to create an empty dashboard."
+    ),
+})
 
 const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUrl<Schemas.Dashboard>> => ({
     name: 'dashboard-create',
@@ -330,6 +336,63 @@ const dashboardReorderTiles = (): ToolBase<typeof DashboardReorderTilesSchema, W
     },
 })
 
+const DashboardTemplatesListSchema = DashboardTemplatesListQueryParams
+
+const dashboardTemplatesList = (): ToolBase<
+    typeof DashboardTemplatesListSchema,
+    WithPostHogUrl<Schemas.PaginatedDashboardTemplateList>
+> => ({
+    name: 'dashboard-templates-list',
+    schema: DashboardTemplatesListSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardTemplatesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedDashboardTemplateList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboard_templates/`,
+            query: {
+                is_featured: params.is_featured,
+                limit: params.limit,
+                offset: params.offset,
+                ordering: params.ordering,
+                scope: params.scope,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, ['tiles', 'variables', 'dashboard_filters', 'deleted', 'created_by'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/dashboard')
+    },
+})
+
+const DashboardTemplatesRetrieveSchema = DashboardTemplatesRetrieveParams.omit({ project_id: true })
+
+const dashboardTemplatesRetrieve = (): ToolBase<
+    typeof DashboardTemplatesRetrieveSchema,
+    Schemas.DashboardTemplate
+> => ({
+    name: 'dashboard-templates-retrieve',
+    schema: DashboardTemplatesRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardTemplatesRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.DashboardTemplate>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboard_templates/${encodeURIComponent(String(params.id))}/`,
+        })
+        const filtered = omitResponseFields(result, [
+            'created_by',
+            'deleted',
+            'dashboard_filters',
+            'tiles.*.query',
+            'tiles.*.layouts',
+            'tiles.*.color',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 const DashboardTileCopySchema = DashboardsCopyTileCreateParams.omit({ project_id: true })
     .extend(DashboardsCopyTileCreateBody.shape)
     .extend({ id: z.preprocess(castStringToInt, DashboardsCopyTileCreateParams.shape['id']) })
@@ -616,6 +679,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-get': dashboardGet,
     'dashboard-insights-run': dashboardInsightsRun,
     'dashboard-reorder-tiles': dashboardReorderTiles,
+    'dashboard-templates-list': dashboardTemplatesList,
+    'dashboard-templates-retrieve': dashboardTemplatesRetrieve,
     'dashboard-tile-copy': dashboardTileCopy,
     'dashboard-update': dashboardUpdate,
     'dashboard-update-text-tile': dashboardUpdateTextTile,

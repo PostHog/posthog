@@ -333,7 +333,7 @@ export interface DashboardApi {
     quick_filter_ids?: string[] | null
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
-    /** Template key to create the dashboard from a predefined template. */
+    /** Template key to create the dashboard from a predefined template — this is the `template_name` of an available dashboard template (list them via the dashboard templates endpoint). Omit for an empty dashboard. */
     use_template?: string
     /**
      * ID of an existing dashboard to duplicate.
@@ -429,7 +429,7 @@ export interface PatchedDashboardApi {
     quick_filter_ids?: string[] | null
     /** @nullable */
     readonly tiles?: readonly PatchedDashboardApiTilesItem[] | null
-    /** Template key to create the dashboard from a predefined template. */
+    /** Template key to create the dashboard from a predefined template — this is the `template_name` of an available dashboard template (list them via the dashboard templates endpoint). Omit for an empty dashboard. */
     use_template?: string
     /**
      * ID of an existing dashboard to duplicate.
