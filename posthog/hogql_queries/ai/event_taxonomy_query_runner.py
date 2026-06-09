@@ -180,10 +180,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                 ast.Or(
                     exprs=[
                         ast.CompareOperation(
-                            left=ast.Call(
-                                name="JSONExtractString",
-                                args=[ast.Field(chain=["properties"]), ast.Constant(value=prop)],
-                            ),
+                            left=self._property_expr(prop),
                             op=ast.CompareOperationOp.NotEq,
                             right=ast.Constant(value=""),
                         )
@@ -193,6 +190,13 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
             )
 
         return ast.And(exprs=filter_expr)
+
+    def _property_expr(self, prop: str) -> ast.Expr:
+        # Access the property through the HogQL property path rather than a raw JSONExtractString call so the
+        # printer can substitute a materialized column / property-group lookup in production instead of parsing
+        # the JSON blob at query time. toString keeps the ARRAY JOIN tuple element types homogeneous regardless
+        # of how the property value is stored.
+        return ast.Call(name="toString", args=[ast.Field(chain=["properties", prop])])
 
     def _get_subquery(self) -> ast.SelectQuery:
         if self.query.properties:
@@ -220,10 +224,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                             ast.Tuple(
                                 exprs=[
                                     ast.Constant(value=prop),
-                                    ast.Call(
-                                        name="JSONExtractString",
-                                        args=[ast.Field(chain=["properties"]), ast.Constant(value=prop)],
-                                    ),
+                                    self._property_expr(prop),
                                 ]
                             )
                             for prop in self.query.properties
