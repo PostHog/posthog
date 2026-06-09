@@ -1,6 +1,7 @@
 import json
 import asyncio
 from collections.abc import AsyncGenerator
+from datetime import datetime
 from typing import Optional
 
 from django.conf import settings
@@ -9,8 +10,7 @@ import structlog
 import redis.exceptions as redis_exceptions
 from asgiref.sync import async_to_sync
 
-from posthog.redis import get_async_client
-
+from products.tasks.backend.redis import get_tasks_stream_redis_async
 from products.tasks.backend.services.connection_token import SANDBOX_EVENT_INGEST_TOKEN_TTL
 from products.tasks.backend.services.sandbox_config import SANDBOX_TTL_SECONDS
 
@@ -112,11 +112,12 @@ class TaskRunRedisStream:
     def __init__(
         self,
         stream_key: str,
+        created_at: datetime | None = None,
         timeout: int = TASK_RUN_STREAM_TIMEOUT,
         max_length: int = TASK_RUN_STREAM_MAX_LENGTH,
     ):
         self._stream_key = stream_key
-        self._redis_client = get_async_client(settings.REDIS_URL)
+        self._redis_client = get_tasks_stream_redis_async(created_at)
         self._timeout = timeout
         self._sequence_timeout = max(timeout, TASK_RUN_STREAM_SEQUENCE_TIMEOUT)
         self._max_length = max_length
@@ -507,7 +508,7 @@ class TaskRunRedisStream:
             return False
 
 
-def publish_task_run_stream_event(run_id: str, event: dict) -> str | None:
+def publish_task_run_stream_event(run_id: str, event: dict, created_at: datetime | None = None) -> str | None:
     """Synchronously publish a task-run event to Redis.
 
     This is intended for sync Django model/view code that needs to mirror
@@ -515,7 +516,7 @@ def publish_task_run_stream_event(run_id: str, event: dict) -> str | None:
     """
 
     async def _publish() -> str:
-        redis_stream = TaskRunRedisStream(get_task_run_stream_key(run_id))
+        redis_stream = TaskRunRedisStream(get_task_run_stream_key(run_id), created_at)
         return await redis_stream.write_event(event)
 
     try:
@@ -525,11 +526,11 @@ def publish_task_run_stream_event(run_id: str, event: dict) -> str | None:
         return None
 
 
-def publish_task_run_stream_complete(run_id: str) -> None:
+def publish_task_run_stream_complete(run_id: str, created_at: datetime | None = None) -> None:
     """Synchronously publish a completion sentinel for a task-run stream."""
 
     async def _publish() -> None:
-        redis_stream = TaskRunRedisStream(get_task_run_stream_key(run_id))
+        redis_stream = TaskRunRedisStream(get_task_run_stream_key(run_id), created_at)
         await redis_stream.mark_complete()
 
     try:
