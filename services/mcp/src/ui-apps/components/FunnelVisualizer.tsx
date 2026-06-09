@@ -3,14 +3,23 @@ import type { ReactElement } from 'react'
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
-import { type HorizontalBar, HorizontalBarChart } from './charts'
+import { SingleStepBar } from 'products/product_analytics/frontend/insights/funnels/FunnelBarHorizontalChart/SingleStepBar'
+import { buildFunnelBars } from 'products/product_analytics/frontend/insights/funnels/shared/funnelBarHorizontalShared'
+
+import { CHART_THEME, FILLER_COLOR, FUNNEL_COLOR } from './charts/theme'
 import type { FunnelVisualizerProps } from './types'
 import { formatNumber, formatPercent, normalizeFunnelSteps } from './utils'
 
-export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactElement {
-    const steps = normalizeFunnelSteps(results)
+const NOOP = (): void => {}
+const NO_TOOLTIP = (): null => null
 
-    if (steps.length === 0) {
+export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactElement {
+    const { rows, overall } = buildFunnelBars(normalizeFunnelSteps(results), {
+        color: FUNNEL_COLOR,
+        fillerColor: FILLER_COLOR,
+    })
+
+    if (rows.length === 0) {
         return (
             <Empty>
                 <EmptyHeader>
@@ -21,32 +30,40 @@ export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactEleme
         )
     }
 
-    const firstCount = steps[0]?.count || 1
-
-    const bars: HorizontalBar[] = steps.map((step) => ({
-        label: step.name,
-        value: step.count,
-        innerText: formatPercent(step.count / firstCount),
-    }))
-
-    const funnelColor = (index: number): string => {
-        if (index === 0) {
-            return 'var(--posthog-chart-1, #1d4ed8)'
-        }
-        // Fade color for subsequent steps
-        return `color-mix(in srgb, var(--posthog-chart-1, #1d4ed8) ${100 - index * 15}%, var(--card))`
-    }
-
-    const lastCount = steps[steps.length - 1]?.count ?? 0
-
     return (
-        <div>
-            <HorizontalBarChart bars={bars} color={funnelColor} />
+        <div data-attr="funnel-bar-horizontal" className="w-full">
+            <div className="flex flex-col">
+                {rows.map((row) => (
+                    <div key={row.stepIndex} className="pb-3">
+                        <div className="flex items-baseline justify-between text-sm">
+                            <span className="font-medium text-foreground">
+                                {row.stepIndex + 1}. {row.name}
+                            </span>
+                            <span className="text-muted-foreground">
+                                {formatPercent(row.fractionOfBasis)} · {formatNumber(row.count)}
+                            </span>
+                        </div>
+                        <SingleStepBar
+                            stepData={row.stepData}
+                            theme={CHART_THEME}
+                            interactive={false}
+                            onSegmentClick={NOOP}
+                            renderTooltip={NO_TOOLTIP}
+                            onError={NOOP}
+                        />
+                        {row.stepIndex > 0 && (
+                            <div className="text-xs text-muted-foreground">
+                                {formatPercent(row.fromPrevious)} from previous step
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
 
-            {steps.length >= 2 && (
+            {rows.length >= 2 && (
                 <div className="mt-4 rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
-                    <strong className="text-foreground">Overall conversion:</strong>{' '}
-                    {formatPercent(lastCount / firstCount)} ({formatNumber(lastCount)} of {formatNumber(firstCount)})
+                    <strong className="text-foreground">Overall conversion:</strong> {formatPercent(overall.rate)} (
+                    {formatNumber(overall.lastCount)} of {formatNumber(overall.firstCount)})
                 </div>
             )}
         </div>
