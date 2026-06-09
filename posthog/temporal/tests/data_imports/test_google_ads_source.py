@@ -394,13 +394,16 @@ class TestGoogleAdsSourceValidation:
     @pytest.mark.parametrize(
         "customer_id,expected_valid",
         [
+            # Any value that normalizes to exactly 10 digits is accepted, regardless of dashes/spaces.
             ("123-456-7890", True),
             ("000-000-0000", True),
             ("999-999-9999", True),
-            ("1234567890", False),
+            ("1234567890", True),
+            ("123-4567-890", True),
+            ("12-3456-7890", True),
+            ("123 456 7890", True),
+            # Fewer or more than 10 digits, or non-numeric input, is rejected.
             ("123-456-789", False),
-            ("123-4567-890", False),
-            ("12-3456-7890", False),
             ("abc-def-ghij", False),
             ("", True),  # Empty is valid at config level, caught by required field validation
         ],

@@ -70,9 +70,9 @@ export const VisualReviewRunsRetrieveParams = /* @__PURE__ */ zod.object({
 
 /**
  * Mark snapshots reviewed (DB only).
-
-Records the per-snapshot "Accept change" decision. Does not commit the baseline
-or change the GitHub gate — call finalize to ship the run.
+ *
+ * Records the per-snapshot "Accept change" decision. Does not commit the baseline
+ * or change the GitHub gate — call finalize to ship the run.
  */
 export const VisualReviewRunsApproveCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
@@ -102,11 +102,11 @@ export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Finalize a fully-reviewed run: commit the approved baseline and green the gate.
-
-Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
-and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
-any still-pending changed/new snapshot is approved first. With commit_to_github=false
-the server returns the signed baseline YAML instead of committing it.
+ *
+ * Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
+ * and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
+ * any still-pending changed/new snapshot is approved first. With commit_to_github=false
+ * the server returns the signed baseline YAML instead of committing it.
  */
 export const VisualReviewRunsFinalizeCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
