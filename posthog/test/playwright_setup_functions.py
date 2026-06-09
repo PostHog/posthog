@@ -219,9 +219,11 @@ def create_organization_with_team(
     # Skip the post-login /account/credential-review interstitial that fires for users with unreviewed PersonalAPIKey
     user.credentials_reviewed_at = timezone.now()
     # Staff access gates instance-admin areas (e.g. the help menu's admin/system-status link)
+    update_fields = ["credentials_reviewed_at"]
     if data.staff:
         user.is_staff = True
-    user.save(update_fields=["credentials_reviewed_at", "is_staff"])
+        update_fields.append("is_staff")
+    user.save(update_fields=update_fields)
 
     # Skip all onboarding tasks if requested (prevents Quick Start popover in tests)
     if data.skip_onboarding:
