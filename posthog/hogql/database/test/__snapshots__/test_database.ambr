@@ -1327,7 +1327,7 @@
                   "name": "$virt_initial_referring_domain_type",
                   "schema_valid": true,
                   "table": null,
-                  "type": "string"
+                  "type": "expression"
               },
               "$virt_initial_channel_type": {
                   "chain": null,
@@ -1337,7 +1337,7 @@
                   "name": "$virt_initial_channel_type",
                   "schema_valid": true,
                   "table": null,
-                  "type": "string"
+                  "type": "expression"
               },
               "$virt_revenue": {
                   "chain": [
@@ -9334,7 +9334,7 @@
                   "name": "$virt_initial_referring_domain_type",
                   "schema_valid": true,
                   "table": null,
-                  "type": "string"
+                  "type": "expression"
               },
               "$virt_initial_channel_type": {
                   "chain": null,
@@ -9344,7 +9344,7 @@
                   "name": "$virt_initial_channel_type",
                   "schema_valid": true,
                   "table": null,
-                  "type": "string"
+                  "type": "expression"
               },
               "$virt_revenue": {
                   "chain": [
