@@ -110,6 +110,57 @@ export function getDashboardTileDisplayName(tile: DashboardTile<QueryBasedInsigh
     return 'Tile'
 }
 
+const hasRenderableResult = (insight: QueryBasedInsightModel | null | undefined): boolean =>
+    insight?.result !== null && insight?.result !== undefined
+
+/**
+ * Dashboard PATCH responses (saving layouts, renaming, duplicating a tile, …) never request a refresh,
+ * so the backend serializes tiles in cache-only mode and returns `result: null` on a cache miss.
+ * Swapping such a response into state as-is wipes results that are already rendered, making tiles
+ * show "Chart data didn't load". Keep the previously loaded result for tiles whose incoming payload
+ * has none.
+ */
+export function preserveExistingTileResults(
+    incoming: DashboardType<QueryBasedInsightModel> | null,
+    previous: DashboardType<QueryBasedInsightModel> | null
+): DashboardType<QueryBasedInsightModel> | null {
+    if (!incoming?.tiles || !previous?.tiles || incoming.id !== previous.id) {
+        return incoming
+    }
+
+    const previousTilesById = new Map(previous.tiles.map((tile) => [tile.id, tile]))
+
+    return {
+        ...incoming,
+        tiles: incoming.tiles.map((tile) => {
+            if (!tile.insight || hasRenderableResult(tile.insight)) {
+                return tile
+            }
+            const previousInsight = previousTilesById.get(tile.id)?.insight
+            if (
+                !previousInsight ||
+                previousInsight.short_id !== tile.insight.short_id ||
+                !hasRenderableResult(previousInsight)
+            ) {
+                return tile
+            }
+            return {
+                ...tile,
+                insight: {
+                    ...tile.insight,
+                    result: previousInsight.result,
+                    // The carried-over result was computed for the previous refresh metadata
+                    last_refresh: tile.insight.last_refresh ?? previousInsight.last_refresh,
+                    cache_target_age: tile.insight.cache_target_age ?? previousInsight.cache_target_age,
+                    next_allowed_client_refresh:
+                        tile.insight.next_allowed_client_refresh ?? previousInsight.next_allowed_client_refresh,
+                    is_cached: previousInsight.is_cached,
+                },
+            }
+        }),
+    }
+}
+
 /** Which widget payload is set on a dashboard tile row. Add a branch per `DashboardWidgetType` when new tile kinds ship. */
 export function getDashboardWidgetType(
     tile: Pick<DashboardTile<InsightModel | QueryBasedInsightModel>, 'insight' | 'text' | 'button_tile' | 'widget'>

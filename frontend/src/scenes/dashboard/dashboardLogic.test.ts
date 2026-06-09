@@ -353,6 +353,41 @@ describe('dashboardLogic', () => {
             )
         })
 
+        it('saving keeps existing tile results when the PATCH response has no cached results', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const tileBefore = logic.values.dashboard!.tiles.find((t) => t.insight?.short_id === '175')!
+            expect(tileBefore.insight!.result).not.toBeNull()
+
+            const currentLayouts = logic.values.layouts
+            const modifiedLayouts: any = {
+                ...currentLayouts,
+                sm: currentLayouts.sm?.map((layout) =>
+                    layout.i === String(tileBefore.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(modifiedLayouts)
+            }).toFinishAllListeners()
+
+            // saving never sends `refresh`, so on a backend cache miss the PATCH
+            // response serializes every tile insight with `result: null`
+            jest.spyOn(api, 'update').mockResolvedValueOnce({
+                ...dashboards[5],
+                tiles: logic.values.dashboard!.tiles.map((tile) => ({
+                    ...tile,
+                    ...(tile.insight ? { insight: { ...tile.insight, result: null, last_refresh: null } } : {}),
+                })),
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            const tileAfter = logic.values.dashboard!.tiles.find((t) => t.insight?.short_id === '175')!
+            expect(tileAfter.insight!.result).toEqual(tileBefore.insight!.result)
+        })
+
         it('saving after filter change calls api', async () => {
             await expectLogic(logic).toFinishAllListeners()
 

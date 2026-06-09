@@ -117,6 +117,7 @@ import {
     layoutsByTile,
     parseURLFilters,
     parseURLVariables,
+    preserveExistingTileResults,
     runWithLimit,
     shouldSharedDashboardAutoForceForStaleTime,
 } from './dashboardUtils'
@@ -547,7 +548,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         if (shouldRefreshTilesAfterSave) {
                             cache.shouldRefreshTilesAfterSave = true
                         }
-                        return getQueryBasedDashboard(updatedDashboard)
+                        return preserveExistingTileResults(getQueryBasedDashboard(updatedDashboard), values.dashboard)
                     } catch (e) {
                         lemonToast.error('Could not update dashboard: ' + String(e))
                         return values.dashboard
@@ -605,7 +606,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 tiles: tilesToUpdate.length > 0 ? tilesToUpdate : undefined,
                             }
                         )
-                        return getQueryBasedDashboard(dashboard)
+                        return preserveExistingTileResults(getQueryBasedDashboard(dashboard), values.dashboard)
                     } catch (e) {
                         lemonToast.error('Could not duplicate tile: ' + String(e))
                         return values.dashboard
@@ -626,7 +627,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             to_dashboard: toDashboard,
                         }
                     )
-                    return getQueryBasedDashboard(dashboard)
+                    return preserveExistingTileResults(getQueryBasedDashboard(dashboard), values.dashboard)
                 },
                 copyToDashboard: async ({ tile, fromDashboard, toDashboard, toDashboardName }) => {
                     if (!tile?.insight && !tile?.text && !tile?.button_tile && !tile?.widget) {
@@ -927,7 +928,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return null
                 },
                 [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
-                    return state && dashboard && state.id === dashboard.id ? dashboard : state
+                    return state && dashboard && state.id === dashboard.id
+                        ? preserveExistingTileResults(dashboard, state)
+                        : state
                 },
                 [insightsModel.actionTypes.renameInsightSuccess]: (
                     state,

@@ -1,12 +1,13 @@
 import { dayjs } from 'lib/dayjs'
 
-import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile, DashboardType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import {
     getDashboardTileDisplayName,
     isWidgetTileVisibleOnPlacement,
     parseURLFilters,
     parseURLVariables,
+    preserveExistingTileResults,
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     shouldSharedDashboardAutoForceForStaleTime,
@@ -97,6 +98,98 @@ describe('parseURLFilters', () => {
         }
         expect(parseURLFilters(searchParams)).toEqual({})
         consoleSpy.mockRestore()
+    })
+})
+
+describe('preserveExistingTileResults', () => {
+    const insightTile = (
+        tileId: number,
+        shortId: string,
+        insightOverrides: Partial<QueryBasedInsightModel> = {}
+    ): DashboardTile<QueryBasedInsightModel> =>
+        ({
+            id: tileId,
+            layouts: {},
+            color: null,
+            insight: {
+                id: tileId * 100,
+                short_id: shortId as InsightShortId,
+                result: null,
+                last_refresh: null,
+                ...insightOverrides,
+            } as QueryBasedInsightModel,
+        }) as DashboardTile<QueryBasedInsightModel>
+
+    const dashboardWith = (
+        tiles: DashboardTile<QueryBasedInsightModel>[],
+        id: number = 1
+    ): DashboardType<QueryBasedInsightModel> => ({ id, tiles }) as DashboardType<QueryBasedInsightModel>
+
+    it('copies the previous result into incoming tiles whose result is null', () => {
+        const previous = dashboardWith([
+            insightTile(1, 'abc', { result: [{ count: 42 }], last_refresh: '2026-06-01T00:00:00Z', is_cached: true }),
+        ])
+        const incoming = dashboardWith([insightTile(1, 'abc')])
+
+        const merged = preserveExistingTileResults(incoming, previous)
+
+        expect(merged?.tiles?.[0]?.insight).toMatchObject({
+            result: [{ count: 42 }],
+            last_refresh: '2026-06-01T00:00:00Z',
+            is_cached: true,
+        })
+    })
+
+    it.each([
+        [
+            'the incoming tile already has a result',
+            insightTile(1, 'abc', { result: [{ count: 1 }] }),
+            insightTile(1, 'abc', { result: [{ count: 99 }] }),
+            [{ count: 99 }],
+        ],
+        ['the previous tile has no result either', insightTile(1, 'abc'), insightTile(1, 'abc'), null],
+        [
+            'the tile now holds a different insight',
+            insightTile(1, 'abc', { result: [{ count: 1 }] }),
+            insightTile(1, 'xyz'),
+            null,
+        ],
+        [
+            'the incoming result is an empty array (valid empty result)',
+            insightTile(1, 'abc', { result: [{ count: 1 }] }),
+            insightTile(1, 'abc', { result: [] }),
+            [],
+        ],
+    ])('keeps the incoming result when %s', (_, previousTile, incomingTile, expectedResult) => {
+        const merged = preserveExistingTileResults(dashboardWith([incomingTile]), dashboardWith([previousTile]))
+
+        expect(merged?.tiles?.[0]?.insight?.result).toEqual(expectedResult)
+    })
+
+    it('returns incoming unchanged when dashboards have different ids', () => {
+        const previous = dashboardWith([insightTile(1, 'abc', { result: [{ count: 1 }] })], 1)
+        const incoming = dashboardWith([insightTile(1, 'abc')], 2)
+
+        expect(preserveExistingTileResults(incoming, previous)).toBe(incoming)
+    })
+
+    it('returns incoming unchanged when either dashboard is null', () => {
+        const dashboard = dashboardWith([insightTile(1, 'abc')])
+
+        expect(preserveExistingTileResults(dashboard, null)).toBe(dashboard)
+        expect(preserveExistingTileResults(null, dashboard)).toBe(null)
+    })
+
+    it('leaves non-insight tiles untouched', () => {
+        const textTile = {
+            id: 7,
+            layouts: {},
+            color: null,
+            text: { body: 'hello' },
+        } as unknown as DashboardTile<QueryBasedInsightModel>
+        const merged = preserveExistingTileResults(dashboardWith([textTile]), dashboardWith([textTile]))
+
+        expect(merged?.tiles?.[0]).toBe(textTile)
     })
 })
 
