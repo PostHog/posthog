@@ -2,10 +2,13 @@ import json
 from dataclasses import dataclass
 from typing import Optional
 
+from django.db import close_old_connections
+
 import structlog
 import temporalio
 from pydantic import BaseModel, Field, model_validator
 
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.models import SignalReportArtefact
@@ -112,6 +115,24 @@ class SafetyJudgeOutput:
     explanation: Optional[str]
 
 
+def _store_safety_judgment(team_id: int, report_id: str, result: SafetyJudgeResponse) -> None:
+    # The preceding LLM call can leave the pooled connection idle long enough to be reaped
+    # server-side. Temporal activities have no request cycle to fire close_old_connections, so
+    # discard any dead connection before writing rather than reusing it.
+    close_old_connections()
+    SignalReportArtefact.objects.create(
+        team_id=team_id,
+        report_id=report_id,
+        type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+        content=json.dumps(
+            {
+                "choice": result.choice,
+                "explanation": result.explanation,
+            }
+        ),
+    )
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOutput:
@@ -122,16 +143,8 @@ async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOu
             signals=input.signals,
         )
 
-        await SignalReportArtefact.objects.acreate(
-            team_id=input.team_id,
-            report_id=input.report_id,
-            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
-            content=json.dumps(
-                {
-                    "choice": result.choice,
-                    "explanation": result.explanation,
-                }
-            ),
+        await database_sync_to_async(_store_safety_judgment, thread_sensitive=False)(
+            input.team_id, input.report_id, result
         )
 
         logger.debug(
