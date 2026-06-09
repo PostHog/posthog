@@ -293,6 +293,12 @@ def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
 # ServiceNow `auth_method`) keep their secrets one level down, not at the top level.
 _NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type")
 
+# Secrets the edit form can never re-supply (parsed into the individual fields on create, then
+# stripped from API reads and hidden in the edit form), so gating credential re-entry on them would
+# permanently block host changes. Excluded from the gate but still preserved by the merge: MongoDB
+# connects via `connection_string`, while SQL sources use the individual fields and gate `password`.
+_CREATION_ONLY_SECRET_FIELDS = frozenset({"connection_string"})
+
 
 def has_preserved_credentials(existing: dict[str, Any], incoming: dict[str, Any], sensitive_fields: set[str]) -> bool:
     """True if any stored secret would be reused because the update didn't re-supply it.
@@ -796,7 +802,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             manifest_host_added = bool(new_hosts - existing_hosts)
 
         if connection_host_changed or ssh_tunnel_changed or manifest_host_added:
-            if has_preserved_credentials(existing_job_inputs, incoming_job_inputs, sensitive_fields):
+            gate_sensitive_fields = sensitive_fields - _CREATION_ONLY_SECRET_FIELDS
+            if has_preserved_credentials(existing_job_inputs, incoming_job_inputs, gate_sensitive_fields):
                 if ssh_tunnel_changed:
                     raise ValidationError("Changing the SSH tunnel requires re-entering your database credentials.")
                 if manifest_host_added:
@@ -2497,6 +2504,39 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_serializer = self.get_serializer(external_data_source, context=self.get_serializer_context())
         return Response(source_serializer.data)
 
+    def _compute_missing_webhook_events(
+        self,
+        source: WebhookSource,
+        config: Any,
+        instance: ExternalDataSource,
+        external_status: ExternalWebhookInfo | None,
+    ) -> list[str]:
+        """Desired events not yet on the provider webhook — surfaced so manual-webhook users
+        (or keys lacking webhook-write scope) know what to add."""
+        if not external_status or not external_status.exists or external_status.error:
+            return []
+
+        eligible_schema_names = list(
+            ExternalDataSchema.objects.filter(
+                source=instance,
+                team_id=self.team_id,
+                sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+                should_sync=True,
+            )
+            .exclude(deleted=True)
+            .values_list("name", flat=True)
+        )
+
+        desired = source.get_desired_webhook_events(config, eligible_schema_names)
+        if not desired:
+            return []
+
+        current = set(external_status.enabled_events or [])
+        if "*" in current:
+            return []
+
+        return sorted(e for e in desired if e not in current)
+
     @action(methods=["GET"], detail=True)
     def webhook_info(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
@@ -2531,11 +2571,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         webhook_url = get_webhook_url(hog_function.id)
 
         external_status: ExternalWebhookInfo | None = None
+        missing_events: list[str] = []
 
         if instance.job_inputs:
             try:
                 config = source.parse_config(instance.job_inputs)
                 external_status = source.get_external_webhook_info(config, webhook_url, self.team_id)
+                missing_events = self._compute_missing_webhook_events(source, config, instance, external_status)
             except Exception as e:
                 capture_exception(e)
 
@@ -2563,6 +2605,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "schema_mapping": schema_mapping,
                 "inputs": webhook_inputs,
                 "external_status": dataclasses.asdict(external_status) if external_status else None,
+                "missing_events": missing_events,
             },
         )
 

@@ -20,15 +20,20 @@ import type {
     HogFlowTemplateApi,
     HogFlowTemplatesListParams,
     HogFlowTemplatesLogsRetrieveParams,
+    HogFlowsInvocationResultsRetrieveParams,
     HogFlowsListParams,
     HogFlowsLogsRetrieveParams,
+    HogFlowsMetricsGlobalRetrieveParams,
     HogFlowsMetricsRetrieveParams,
     HogFlowsMetricsTotalsRetrieveParams,
+    HogInvocationResultApi,
+    HogInvocationResultDetailApi,
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowTemplateListApi,
     PatchedHogFlowApi,
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
+    WorkflowStatsRowApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -343,6 +348,57 @@ export const hogFlowsBatchJobsCreate = async (
     })
 }
 
+export const getHogFlowsInvocationResultsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: HogFlowsInvocationResultsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/invocation_results/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/invocation_results/`
+}
+
+export const hogFlowsInvocationResultsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowsInvocationResultsRetrieveParams,
+    options?: RequestInit
+): Promise<HogInvocationResultApi[]> => {
+    return apiMutator<HogInvocationResultApi[]>(getHogFlowsInvocationResultsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsInvocationResultRetrieveUrl = (projectId: string, id: string, invocationId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/invocation_results/${invocationId}/`
+}
+
+export const hogFlowsInvocationResultRetrieve = async (
+    projectId: string,
+    id: string,
+    invocationId: string,
+    options?: RequestInit
+): Promise<HogInvocationResultDetailApi> => {
+    return apiMutator<HogInvocationResultDetailApi>(
+        getHogFlowsInvocationResultRetrieveUrl(projectId, id, invocationId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getHogFlowsInvocationsCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/invocations/`
 }
@@ -535,6 +591,36 @@ export const hogFlowsBulkDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowApi),
+    })
+}
+
+export const getHogFlowsMetricsGlobalRetrieveUrl = (
+    projectId: string,
+    params?: HogFlowsMetricsGlobalRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/metrics/global/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/metrics/global/`
+}
+
+export const hogFlowsMetricsGlobalRetrieve = async (
+    projectId: string,
+    params?: HogFlowsMetricsGlobalRetrieveParams,
+    options?: RequestInit
+): Promise<WorkflowStatsRowApi[]> => {
+    return apiMutator<WorkflowStatsRowApi[]>(getHogFlowsMetricsGlobalRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
