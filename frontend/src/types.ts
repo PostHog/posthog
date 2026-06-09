@@ -5326,8 +5326,6 @@ export interface ReplayExportContext {
     duration?: number
     mode?: SessionRecordingPlayerMode
     skip_inactivity?: boolean
-    skip_inactivity_auto_adjusted?: boolean
-    skip_inactivity_adjustment_message?: string
 }
 
 export interface HeatmapExportContext {

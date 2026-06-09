@@ -37,20 +37,6 @@ export const pickPollDelayMs = (pendingAssets: ExportedAssetType[]): number => {
 const isLocalExport = (context: ExportContext | undefined): context is LocalExportContext =>
     !!(context && 'localData' in context)
 
-const maybeNotifySkipInactivityAdjustment = (exportContext: ExportContext | undefined): void => {
-    if (!exportContext || !('skip_inactivity_auto_adjusted' in exportContext)) {
-        return
-    }
-    if (!exportContext.skip_inactivity_auto_adjusted) {
-        return
-    }
-    lemonToast.info(
-        exportContext.skip_inactivity_adjustment_message ??
-            'Idle periods were skipped automatically so this export can finish within the render time limit.',
-        { autoClose: false }
-    )
-}
-
 export const exportsLogic = kea<exportsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'exportsLogic']),
 
@@ -75,6 +61,7 @@ export const exportsLogic = kea<exportsLogicType>([
                 height?: number
                 css_selector?: string
                 filename?: string
+                skip_inactivity?: boolean
             }
         ) => ({ sessionRecordingId, format, timestamp, duration, mode, options }),
         startHeatmapExport: (export_context: ExportContext) => ({ export_context }),
@@ -188,7 +175,7 @@ export const exportsLogic = kea<exportsLogicType>([
                     height: options?.height || 600,
                     filename: options?.filename || `replay-${sessionRecordingId}${timestamp ? `-t${timestamp}` : ''}`,
                     duration: duration,
-                    skip_inactivity: false,
+                    skip_inactivity: options?.skip_inactivity ?? true,
                 },
             }
 
@@ -238,8 +225,6 @@ export const exportsLogic = kea<exportsLogicType>([
                                 export_context: exportData.export_context,
                                 expires_after: dayjs().add(6, 'hour').toJSON(),
                             })
-
-                            maybeNotifySkipInactivityAdjustment(response.export_context)
 
                             const currentExports = values.exports
                             const updatedExports = [response, ...currentExports.filter((e) => e.id !== response.id)]
