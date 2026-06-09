@@ -50,10 +50,11 @@ export const postponeInviteLogic = kea<postponeInviteLogicType>([
         result: [
             null as PostponeInviteResult | null,
             {
-                postpone: async ({ sendAt }: { sendAt: Dayjs }) => {
+                postpone: async ({ sendAt, option }: { sendAt: Dayjs; option: PostponeOptionKey | 'custom' }) => {
                     return await api.create<PostponeInviteResult>('api/invite_postpone', {
                         token: values.token,
                         send_at: sendAt.toISOString(),
+                        option,
                     })
                 },
             },
@@ -104,12 +105,12 @@ export const postponeInviteLogic = kea<postponeInviteLogicType>([
                 sendAt = dayjs().add(1, 'day').hour(TOMORROW_HOUR).minute(0).second(0).millisecond(0)
             }
             actions.setSubmittingOption(option)
-            actions.postpone({ sendAt })
+            actions.postpone({ sendAt, option })
         },
         postponeCustom: () => {
             if (values.customDate) {
                 actions.setSubmittingOption('custom')
-                actions.postpone({ sendAt: values.customDate })
+                actions.postpone({ sendAt: values.customDate, option: 'custom' })
             }
         },
     })),

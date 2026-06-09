@@ -28,7 +28,7 @@ from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.utils import UUIDT
-from posthog.ph_client import get_client
+from posthog.ph_client import get_client, ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
@@ -341,6 +341,20 @@ def send_invite(invite_id: str) -> None:
     else:
         message.send()
         OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
+
+    # postpone_count > 0 means this send is a recipient-requested re-send, not the original invite.
+    # ph_scoped_capture (not posthoganalytics.capture) because this runs in a Celery worker.
+    if invite.postpone_count:
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=f"invite_{invite_id}",
+                event="organization invite email resent after postpone",
+                properties={
+                    "invite_id": str(invite_id),
+                    "postpone_count": invite.postpone_count,
+                },
+                groups=groups(invite.organization),
+            )
 
 
 # How many due invites a single poll dispatches. Postpones are rare, so this is a generous

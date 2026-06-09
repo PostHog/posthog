@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
+from unittest.mock import ANY, MagicMock, patch
 
 from django.utils import timezone
 
@@ -78,6 +79,34 @@ class TestInvitePostponeAPI(APIBaseTest):
 
         self.invite.refresh_from_db()
         self.assertIsNone(self.invite.scheduled_send_at)
+
+    @patch("posthoganalytics.capture")
+    def test_post_captures_postpone_event(self, mock_capture: MagicMock) -> None:
+        send_at = timezone.now() + timedelta(hours=1)
+        response = self.client.post(
+            "/api/invite_postpone",
+            {"token": _token_for(self.invite.id), "send_at": send_at.isoformat(), "option": "hour"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_capture.assert_called_once_with(
+            event="organization invite postponed",
+            distinct_id=f"invite_{self.invite.id}",
+            properties={
+                "invite_id": str(self.invite.id),
+                "option": "hour",
+                "prior_postpone_count": 0,
+                "hours_until_resend": 1.0,
+            },
+            groups={"instance": ANY, "organization": str(self.organization.id)},
+        )
+
+    @patch("posthoganalytics.capture")
+    def test_post_does_not_capture_when_token_invalid(self, mock_capture: MagicMock) -> None:
+        send_at = timezone.now() + timedelta(hours=1)
+        response = self.client.post("/api/invite_postpone", {"token": "bad", "send_at": send_at.isoformat()})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_capture.assert_not_called()
 
     def test_post_rejects_invalid_token(self) -> None:
         send_at = timezone.now() + timedelta(hours=3)

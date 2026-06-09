@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 
 import jwt
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import permissions, serializers, status
@@ -12,6 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.constants import INVITE_DAYS_VALIDITY
+from posthog.event_usage import groups
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.organization_invite import OrganizationInvite
 
@@ -42,6 +44,12 @@ class InvitePostponeRequestSerializer(serializers.Serializer):
             "Absolute time (ISO 8601, with timezone) to re-send the invite email. Computed in the "
             "recipient's browser timezone from the chosen option (in an hour, tonight, tomorrow, custom)."
         )
+    )
+    option = serializers.ChoiceField(
+        choices=["hour", "tonight", "tomorrow", "custom"],
+        required=False,
+        allow_null=True,
+        help_text="Which preset the recipient picked (hour/tonight/tomorrow) or 'custom'. Captured for usage analytics only.",
     )
 
     def validate_send_at(self, value: datetime) -> datetime:
@@ -150,6 +158,7 @@ class InvitePostponeView(APIView):
         request_serializer = InvitePostponeRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         send_at = request_serializer.validated_data["send_at"]
+        option = request_serializer.validated_data.get("option")
 
         invite = _invite_from_token(request_serializer.validated_data["token"])
         if invite is None:
@@ -157,6 +166,7 @@ class InvitePostponeView(APIView):
         if invite.is_expired():
             return _error("This invite has expired. Please ask your admin for a new one.", "expired")
 
+        now = timezone.now()
         # Extend validity so the rescheduled email's accept link is still good when it lands.
         new_expiry = send_at + timedelta(days=INVITE_DAYS_VALIDITY)
         # Bypass save()/activity logging: this is an unauthenticated, system-level write with no user.
@@ -166,6 +176,21 @@ class InvitePostponeView(APIView):
         OrganizationInvite.objects.filter(pk=invite.pk).update(
             scheduled_send_at=send_at,
             expires_at=new_expiry,
-            updated_at=timezone.now(),
+            updated_at=now,
+        )
+
+        # Track usage. distinct_id mirrors send_invite's recipient id so these events tie to the
+        # same person once the invite is accepted (the invite_<id> alias becomes the user).
+        posthoganalytics.capture(
+            distinct_id=f"invite_{invite.id}",
+            event="organization invite postponed",
+            properties={
+                "invite_id": str(invite.id),
+                "option": option,
+                # How many times this invite's email had already been re-sent before this postpone.
+                "prior_postpone_count": invite.postpone_count,
+                "hours_until_resend": round((send_at - now).total_seconds() / 3600, 1),
+            },
+            groups=groups(invite.organization),
         )
         return Response(InvitePostponeResultSerializer({"scheduled_send_at": send_at, "expires_at": new_expiry}).data)

@@ -11,6 +11,7 @@ import { postponeInviteLogic } from './postponeInviteLogic'
 interface PostBody {
     token: string
     send_at: string
+    option: string
 }
 
 describe('postponeInviteLogic', () => {
@@ -81,6 +82,7 @@ describe('postponeInviteLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.result).not.toBeNull()
         expect(dayjs(lastPostBody?.send_at).isAfter(dayjs())).toBe(true)
+        expect(lastPostBody?.option).toEqual('hour')
     })
 
     it('does not submit a custom postpone until a date is chosen', async () => {
@@ -101,5 +103,6 @@ describe('postponeInviteLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.result).not.toBeNull()
         expect(dayjs(lastPostBody?.send_at).isSame(target)).toBe(true)
+        expect(lastPostBody?.option).toEqual('custom')
     })
 })

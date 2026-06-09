@@ -3,7 +3,7 @@ from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
 from django.utils import timezone
@@ -118,9 +118,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin_resend@posthog.com")
-        invite = OrganizationInvite.objects.create(
-            organization=org, created_by=user, target_email="resend@posthog.com"
-        )
+        invite = OrganizationInvite.objects.create(organization=org, created_by=user, target_email="resend@posthog.com")
 
         send_invite(invite.id)
         OrganizationInvite.objects.filter(id=invite.id).update(postpone_count=1)
@@ -131,6 +129,44 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Same template + same context data means the re-send carries the postpone CTA again.
         assert "I'll do this later" in resend_html
         assert first_html == resend_html
+
+    @patch("posthog.tasks.email.ph_scoped_capture")
+    def test_send_invite_resend_captures_usage_event(
+        self, mock_scoped_capture: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        mock_email_messages(MockEmailMessage)
+        capture = MagicMock()
+        mock_scoped_capture.return_value.__enter__.return_value = capture
+
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin_resent_event@posthog.com")
+        invite = OrganizationInvite.objects.create(
+            organization=org, created_by=user, target_email="resent_event@posthog.com"
+        )
+        OrganizationInvite.objects.filter(id=invite.id).update(postpone_count=2)
+
+        send_invite(invite.id)
+
+        capture.assert_called_once_with(
+            distinct_id=f"invite_{invite.id}",
+            event="organization invite email resent after postpone",
+            properties={"invite_id": str(invite.id), "postpone_count": 2},
+            groups={"instance": ANY, "organization": str(org.id)},
+        )
+
+    @patch("posthog.tasks.email.ph_scoped_capture")
+    def test_send_invite_first_send_does_not_capture_resend_event(
+        self, mock_scoped_capture: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        mock_email_messages(MockEmailMessage)
+
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin_first_send@posthog.com")
+        invite = OrganizationInvite.objects.create(
+            organization=org, created_by=user, target_email="first_send@posthog.com"
+        )
+
+        send_invite(invite.id)
+
+        mock_scoped_capture.assert_not_called()
 
     @parameterized.expand(
         [
