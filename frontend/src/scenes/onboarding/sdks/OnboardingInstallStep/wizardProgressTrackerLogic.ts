@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
 
+import { wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
 import type { wizardProgressTrackerLogicType } from './wizardProgressTrackerLogicType'
 
 export type DisplayState =
@@ -78,7 +79,12 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
             wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }),
             ['latestSession', 'connectionStatus', 'lastError'],
         ],
-        actions: [wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }), ['connect', 'disconnect']],
+        actions: [
+            wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }),
+            ['connect', 'disconnect'],
+            wizardActiveSessionDetectorLogic,
+            ['markActive', 'scheduleMarkInactive', 'cancelScheduledMarkInactive'],
+        ],
     })),
     actions({
         appendActivity: (text: string) => ({ text, at: Date.now() }),
@@ -197,8 +203,19 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
             }
             const now = Date.now()
             const updatedAt = new Date(session.updated_at).getTime()
-            if (!Number.isNaN(updatedAt) && now - updatedAt < SESSION_CURRENT_THRESHOLD_MS) {
+            const isFresh = !Number.isNaN(updatedAt) && now - updatedAt < SESSION_CURRENT_THRESHOLD_MS
+            if (isFresh) {
                 actions.markSessionCurrent()
+            }
+            // Keep the global detector in sync so the FAB survives a navigation
+            // away from the install step. Active = fresh + non-terminal; once we
+            // hit a terminal phase, schedule a grace-period teardown so the FAB
+            // can show the completion / error UI before the stream tears down.
+            const isTerminal = session.run_phase === 'completed' || session.run_phase === 'error'
+            if (isFresh && !isTerminal) {
+                actions.markActive()
+            } else if (isTerminal) {
+                actions.scheduleMarkInactive()
             }
             if (!prev) {
                 actions.appendActivity(`session started for ${session.skill_id}`)
