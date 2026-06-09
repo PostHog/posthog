@@ -333,13 +333,11 @@ start:
         description: Block until the detached dev stack is ready
         preserve_exit_code: true
     stop:
-        cmd: phrocs stop
-        description: Stop the detached dev stack gracefully
-        preserve_exit_code: true
+        click: hogli_commands.devenv.cli:dev_stop
+        description: Stop the detached dev stack gracefully and clean up any leftover processes
     down:
-        cmd: phrocs stop
+        click: hogli_commands.devenv.cli:dev_down
         description: Alias for `hogli stop`
-        preserve_exit_code: true
     start:backend:
         bin_script: start-backend
         description: Run Django development server on port 8000 with auto-reload

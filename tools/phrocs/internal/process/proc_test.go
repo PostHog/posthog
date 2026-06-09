@@ -3,6 +3,7 @@ package process
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"syscall"
@@ -274,6 +275,82 @@ func TestStop_kills_entire_process_group(t *testing.T) {
 	}
 	if pidAlive(grandchildPID) {
 		t.Errorf("grandchild PID %d still alive after Stop — process group kill didn't work", grandchildPID)
+	}
+	if p.Status() != StatusStopped {
+		t.Errorf("status: got %s, want stopped", p.Status())
+	}
+}
+
+func TestStop_kills_escaped_process_group(t *testing.T) {
+	// Reproduces the dangling-builder leak: a descendant that escapes into its
+	// own session (setsid → new pgid) AND ignores SIGTERM (like a build daemon
+	// that doesn't shut down gracefully) is reached by neither the group kill
+	// (wrong pgid) nor the tree-walk SIGTERM (ignored). Stop() must capture the
+	// tree before teardown and force-kill it anyway.
+	if _, err := exec.LookPath("setsid"); err != nil {
+		t.Skip("setsid not available; cannot create an escaped process group")
+	}
+
+	// The trailing `true` stops bash from exec-replacing itself with sleep,
+	// which would drop the SIGTERM trap.
+	p := NewProcess("test-escaped", config.ProcConfig{
+		Shell: `setsid bash -c 'trap "" TERM; sleep 999; true' & echo "ESCAPED_PID=$!"; wait`,
+	}, 1000, "")
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("skipping: cannot spawn subprocess: %v", err)
+	}
+
+	var escapedPID int
+	deadline := time.After(5 * time.Second)
+	for escapedPID == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for escaped PID in output")
+		default:
+		}
+		for _, line := range p.Lines() {
+			if strings.HasPrefix(line, "ESCAPED_PID=") {
+				_, _ = fmt.Sscanf(line, "ESCAPED_PID=%d", &escapedPID)
+			}
+		}
+		if escapedPID == 0 {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	// Never leak the escaped process if an assertion below fails — it ignores
+	// SIGTERM, so without this a failing run leaves it running.
+	t.Cleanup(func() { _ = syscall.Kill(escapedPID, syscall.SIGKILL) })
+
+	if !pidAlive(escapedPID) {
+		t.Fatalf("escaped PID %d not alive before Stop", escapedPID)
+	}
+	// Confirm it really escaped into its own process group, otherwise the test
+	// would pass trivially via the group kill rather than exercising the reap.
+	if pgid, err := syscall.Getpgid(escapedPID); err == nil && pgid == p.PID() {
+		t.Fatalf("escaped PID %d shares the tracked process group (pgid %d); test setup invalid", escapedPID, pgid)
+	}
+
+	p.Stop()
+
+	// Poll for actual death: a just-SIGKILLed process lingers as a zombie until
+	// its reparented init reaps it, and kill(pid, 0) still succeeds during that
+	// window, so a single immediate check would be racy.
+	dead := false
+	deadline = time.After(2 * time.Second)
+	for !dead {
+		select {
+		case <-deadline:
+			t.Errorf("escaped PID %d still alive after Stop — tree reap didn't reach it", escapedPID)
+			return
+		default:
+		}
+		dead = !pidAlive(escapedPID)
+		if !dead {
+			time.Sleep(50 * time.Millisecond)
+		}
 	}
 	if p.Status() != StatusStopped {
 		t.Errorf("status: got %s, want stopped", p.Status())

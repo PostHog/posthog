@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import enum
 import time
 import shutil
@@ -1066,6 +1067,47 @@ def doctor_zombies(dry_run: bool, yes: bool, include_all: bool) -> None:
         click.echo(f"   {failed} process(es) could not be killed")
 
     _record()
+
+
+def sweep_orphaned_processes(*, assume_yes: bool) -> int:
+    """Find PostHog dev processes that escaped phrocs shutdown and offer to kill them.
+
+    Used by `hogli stop`/`down` as a post-shutdown safety net: after phrocs exits,
+    any dev process it didn't manage to reap is now reparented (orphaned), which is
+    exactly what `_scan_posthog_processes` flags. Stays silent when nothing leaked.
+    Returns the number of processes killed.
+    """
+
+    from hogli.manifest import REPO_ROOT
+
+    orphans = [p for p in _scan_posthog_processes(REPO_ROOT) if p.is_orphan]
+    if not orphans:
+        return 0
+
+    click.echo(f"\n⚠️  {len(orphans)} dev process(es) survived shutdown and are still running:\n")
+    _display_process_table(orphans, "Leftover processes", REPO_ROOT)
+    total_rss = sum(p.memory_rss_kb for p in orphans)
+    click.echo(f"   Total: {len(orphans)} process(es) using ~{_format_rss(total_rss)}\n")
+
+    if assume_yes:
+        selected = orphans
+    elif not sys.stdin.isatty():
+        click.echo("Not an interactive terminal; leaving them running. Run `hogli doctor:zombies` to clean up.")
+        return 0
+    elif click.confirm(f"   Kill these {len(orphans)} leftover process(es)?", default=True):
+        selected = orphans
+    else:
+        click.echo("Left running. Run `hogli doctor:zombies` later to clean up.")
+        return 0
+
+    killed_pids, failed = _kill_processes(selected)
+    freed_rss = sum(p.memory_rss_kb for p in selected if p.pid in killed_pids)
+    click.echo(f"\nCleaned up {len(killed_pids)} leftover process(es).")
+    if freed_rss > 0:
+        click.echo(f"   Freed ~{_format_rss(freed_rss)} RSS")
+    if failed > 0:
+        click.echo(f"   {failed} process(es) could not be killed")
+    return len(killed_pids)
 
 
 def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:

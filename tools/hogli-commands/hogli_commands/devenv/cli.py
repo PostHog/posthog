@@ -352,3 +352,59 @@ def docker_services_up(yes: bool) -> None:
     # cmd is built from internal config (intent-map.yaml), not user input
     result = subprocess.run(cmd, shell=True)  # nosemgrep: subprocess-shell-true
     raise SystemExit(result.returncode)
+
+
+def _stop_dev_stack(timeout: int, yes: bool, no_sweep: bool) -> None:
+    """Stop the detached dev stack via phrocs, then sweep up any dev processes
+    that escaped phrocs shutdown (build daemons, compilers) so nothing is left
+    serving stale content. The sweep stays silent when nothing leaked. Raises
+    SystemExit with phrocs' own exit code.
+    """
+    import shutil
+    import subprocess
+
+    from hogli.manifest import REPO_ROOT
+
+    from ..doctor import sweep_orphaned_processes
+
+    phrocs = shutil.which("phrocs")
+    if phrocs is None:
+        click.echo(click.style("💥 phrocs not found on PATH; cannot stop the dev stack", fg="red", bold=True), err=True)
+        raise SystemExit(127)
+
+    cmd = [phrocs, "stop", "--timeout", str(timeout)]
+    click.echo(f"🚀 {' '.join(cmd)}")
+    # phrocs stop owns its own exit-code contract; preserve it for callers.
+    result = subprocess.run(cmd, cwd=REPO_ROOT, check=False)
+
+    if not no_sweep:
+        # Safety net: phrocs now reaps escaped descendants itself, but processes
+        # orphaned by an earlier unclean shutdown still linger — clean those too.
+        sweep_orphaned_processes(assume_yes=yes)
+
+    raise SystemExit(result.returncode)
+
+
+_STOP_TIMEOUT_OPTION = click.option(
+    "--timeout", type=int, default=300, show_default=True, help="Seconds to wait for graceful shutdown"
+)
+_STOP_YES_OPTION = click.option("--yes", "-y", is_flag=True, help="Auto-confirm cleanup of any leftover processes")
+_STOP_NO_SWEEP_OPTION = click.option("--no-sweep", is_flag=True, help="Skip the post-shutdown cleanup sweep")
+
+
+@click.command(name="stop", help="Stop the detached dev stack gracefully and clean up any leftovers")
+@_STOP_TIMEOUT_OPTION
+@_STOP_YES_OPTION
+@_STOP_NO_SWEEP_OPTION
+def dev_stop(timeout: int, yes: bool, no_sweep: bool) -> None:
+    """Stop the detached dev stack and clean up any leftover processes."""
+    _stop_dev_stack(timeout, yes, no_sweep)
+
+
+@click.command(name="down", help="Alias for `hogli stop`")
+@_STOP_TIMEOUT_OPTION
+@_STOP_YES_OPTION
+@_STOP_NO_SWEEP_OPTION
+def dev_down(timeout: int, yes: bool, no_sweep: bool) -> None:
+    """Alias for `hogli stop`."""
+    _stop_dev_stack(timeout, yes, no_sweep)

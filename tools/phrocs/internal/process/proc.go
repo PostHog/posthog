@@ -25,6 +25,11 @@ import (
 const metricsSampleInterval = 1 * time.Second
 const flushInterval = 16 * time.Millisecond
 const stopGracePeriod = 3 * time.Second
+
+// stragglerGracePeriod is the brief window we give descendants that escaped the
+// tracked process group (build daemons, pnpm-spawned workers) to honor the
+// earlier SIGTERM before we force-kill them on shutdown.
+const stragglerGracePeriod = 500 * time.Millisecond
 const defaultShell = "/bin/bash"
 
 type Status int
@@ -824,39 +829,56 @@ func (p *Process) stopSignal() syscall.Signal {
 	}
 }
 
-// killProcessGroup sends the configured stop signal to the process group
-// and walks the tree to catch escaped descendants. Must hold p.mu.
-func (p *Process) killProcessGroup() {
+// killProcessGroup sends the configured stop signal to the process group and
+// walks the tree to catch escaped descendants. It returns the PIDs of every
+// process it signalled (the tracked process plus all descendants found while
+// the tree was still intact) so the caller can force-kill any that outlive the
+// group kill. Must hold p.mu.
+func (p *Process) killProcessGroup() []int {
 	if p.cmd == nil || p.cmd.Process == nil {
-		return
+		return nil
 	}
 	// If the tracked command has already exited, avoid signaling based on a potentially reused PID.
 	if p.waitDone != nil {
 		select {
 		case <-p.waitDone:
-			return
+			return nil
 		default:
 		}
 	}
 
 	sig := p.stopSignal()
 	pid := p.cmd.Process.Pid
+
+	// Capture the full process tree BEFORE signalling. If we signalled first, a
+	// fast-exiting parent could reparent its escaped descendants to init before
+	// the walk runs, and we'd never find them again to force-kill them later.
+	var treePIDs []int
+	if ps, err := gops.NewProcess(int32(pid)); err == nil {
+		for _, proc := range collectProcessTree(ps) {
+			treePIDs = append(treePIDs, int(proc.Pid))
+		}
+	}
+
+	// Signal the whole group in one shot (catches same-group descendants), then
+	// every captured PID directly to reach those that escaped into their own
+	// process group (e.g. pnpm spawns node as a detached child).
 	if err := syscall.Kill(-pid, sig); err != nil {
 		_ = p.cmd.Process.Signal(sig)
 	}
-	// Walk the full process tree to catch any descendants that escaped the
-	// process group (e.g. pnpm spawns node as a detached child).
-	if ps, err := gops.NewProcess(int32(pid)); err == nil {
-		for _, proc := range collectProcessTree(ps) {
-			_ = proc.SendSignal(sig)
+	for _, dpid := range treePIDs {
+		if dpid != pid {
+			_ = syscall.Kill(dpid, sig)
 		}
 	}
+	return treePIDs
 }
 
-// Stop sends SIGTERM, waits for exit, and escalates to SIGKILL.
+// Stop sends SIGTERM, waits for exit, escalates to SIGKILL, and finally reaps
+// any descendant that escaped the tracked process group.
 func (p *Process) Stop() {
 	p.mu.Lock()
-	p.killProcessGroup()
+	treePIDs := p.killProcessGroup()
 	if p.ptmx != nil {
 		_ = p.ptmx.Close()
 		p.ptmx = nil
@@ -873,25 +895,66 @@ func (p *Process) Stop() {
 	if cmd == nil || cmd.Process == nil {
 		return
 	}
+	pid := cmd.Process.Pid
 
-	// Wait for graceful exit, then escalate to SIGKILL
+	// Wait for graceful exit, then escalate to SIGKILL on the tracked group.
 	if waitDone != nil {
 		select {
 		case <-waitDone:
-			return
 		case <-time.After(stopGracePeriod):
+			if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
+				_ = cmd.Process.Kill()
+			}
+			// Give the kernel a moment to reap after SIGKILL
+			select {
+			case <-waitDone:
+			case <-time.After(200 * time.Millisecond):
+			}
 		}
+	}
 
-		pid := cmd.Process.Pid
-		if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
-			_ = cmd.Process.Kill()
-		}
+	// A single kill(-pid) only reaches the tracked process group. Descendants
+	// that set up their own session (build daemons, pnpm-spawned workers)
+	// survive it and keep serving stale content, so reap the tree we captured
+	// before teardown — this is what prevents dangling builders/compilers.
+	p.reapEscapedDescendants(treePIDs, pid)
+}
 
-		// Give the kernel a moment to reap after SIGKILL
-		select {
-		case <-waitDone:
-		case <-time.After(200 * time.Millisecond):
+// reapEscapedDescendants force-kills any captured descendant that is still alive
+// after the tracked process has been stopped. The PIDs were collected while the
+// tree was still intact; we give well-behaved descendants a brief grace to honor
+// the earlier SIGTERM, then SIGKILL whatever remains. PIDs may have been recycled
+// during the grace window, so this is best-effort by design.
+func (p *Process) reapEscapedDescendants(pids []int, mainPID int) {
+	self := os.Getpid()
+	survivors := func() []int {
+		var out []int
+		for _, pid := range pids {
+			// Skip the tracked process (already handled), our own PID, and
+			// init — never signal those.
+			if pid <= 1 || pid == mainPID || pid == self {
+				continue
+			}
+			if syscall.Kill(pid, syscall.Signal(0)) == nil {
+				out = append(out, pid)
+			}
 		}
+		return out
+	}
+
+	remaining := survivors()
+	if len(remaining) == 0 {
+		return
+	}
+	deadline := time.Now().Add(stragglerGracePeriod)
+	for time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+		if remaining = survivors(); len(remaining) == 0 {
+			return
+		}
+	}
+	for _, pid := range remaining {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
 }
 

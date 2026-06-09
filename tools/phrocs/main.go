@@ -175,6 +175,12 @@ func runInteractive(configPath string, debug bool) int {
 	mgr := process.NewManager(cfg)
 	m := tui.New(mgr, cfg, resolved, logger)
 
+	// Safety net: tear down all child processes on every exit path, not just the
+	// quit keybinding. StopAll is idempotent, so the explicit call in the quit
+	// handler is harmless; this catches early returns and Run() errors that would
+	// otherwise leave orphaned builders/compilers behind.
+	defer mgr.StopAll()
+
 	// If stdout isn't a TTY (e.g. Zed task runner, wrapped launches), open
 	// /dev/tty directly so Bubble Tea can query terminal size and render.
 	var opts []tea.ProgramOption
