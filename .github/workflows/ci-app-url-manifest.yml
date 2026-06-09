@@ -1,0 +1,55 @@
+name: App URL Manifest
+
+# Keeps services/mcp/src/tools/links/app-url-manifest.json — the route table the MCP `generate-app-url`
+# tool resolves entity links from — in sync with the frontend URL builders it is generated from. Mirrors
+# the way generated OpenAPI/MCP schemas are checked: regenerate, then fail if the committed file drifts.
+
+on:
+    push:
+        branches:
+            - master
+    pull_request:
+        paths:
+            - '.github/workflows/ci-app-url-manifest.yml'
+            # The generator and its source-of-truth inputs.
+            - 'frontend/bin/build-app-url-manifest.mjs'
+            - 'frontend/src/scenes/urls.ts'
+            - 'products/**/manifest.tsx'
+            # The committed artifact itself.
+            - 'services/mcp/src/tools/links/app-url-manifest.json'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    check:
+        name: Check app-url-manifest.json is up to date
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+            - name: Setup Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  cache: 'pnpm'
+                  token: ${{ github.token }}
+
+            - name: Install dependencies
+              run: pnpm --filter=@posthog/frontend install --frozen-lockfile
+
+            - name: Check app-url-manifest.json is up to date
+              run: |
+                  if ! pnpm --filter=@posthog/frontend build:app-urls:check; then
+                    echo ""
+                    echo "::error::services/mcp/src/tools/links/app-url-manifest.json is out of date. Run 'pnpm --filter=@posthog/frontend build:app-urls' and commit the result."
+                    exit 1
+                  fi
