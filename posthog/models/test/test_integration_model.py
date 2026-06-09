@@ -472,6 +472,27 @@ class TestOauthIntegrationModel(BaseTest):
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
+    def test_refresh_access_token_handles_non_json_response(self, mock_post, mock_reload):
+        # Token endpoint returns a non-JSON body (empty response, HTML error page). The decode
+        # must not crash the request — it should route into the graceful failure path instead.
+        mock_post.return_value.status_code = 502
+        mock_post.return_value.json.side_effect = ValueError("Expecting value: line 1 column 1 (char 0)")
+        mock_post.return_value.text = "<html><body>502 Bad Gateway</body></html>"
+
+        integration = self.create_integration(kind="hubspot", config={"expires_in": 1000, "refreshed_at": 1700000000})
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        assert integration.config["expires_in"] == 1000
+        assert integration.config["refreshed_at"] == 1700000000
+        assert integration.errors == "TOKEN_REFRESH_FAILED"
+
+        mock_reload.assert_not_called()
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
     def test_refresh_access_token_resets_errors(self, mock_post, mock_reload):
         """Test that errors field is reset to empty string after successful refresh_access_token"""
         mock_post.return_value.status_code = 200

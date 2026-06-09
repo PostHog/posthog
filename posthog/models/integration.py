@@ -1091,7 +1091,12 @@ class OauthIntegration:
                 },
             )
 
-        config: dict = res.json()
+        try:
+            config: dict = res.json()
+        except ValueError:
+            # Non-JSON body (e.g. an empty response or an HTML 502 from a proxy). Keep going so the
+            # status-code branch below routes this into the graceful ERROR_TOKEN_REFRESH_FAILED path.
+            config = {}
 
         if res.status_code != 200 or not config.get("access_token"):
             logger.warning(f"Failed to refresh token for {self}", response=res.text)
@@ -2891,7 +2896,12 @@ class MetaAdsIntegration:
             },
         )
 
-        config: dict = res.json()
+        try:
+            config: dict = res.json()
+        except ValueError:
+            # Non-JSON body (e.g. an empty response or an HTML 502 from a proxy). Keep going so the
+            # status-code branch below routes this into the graceful ERROR_TOKEN_REFRESH_FAILED path.
+            config = {}
 
         if res.status_code != 200 or not config.get("access_token"):
             logger.warning(f"Failed to refresh token for {self}", response=res.text)
