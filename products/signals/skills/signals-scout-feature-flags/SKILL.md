@@ -95,18 +95,24 @@ SELECT
     count(DISTINCT person_id) AS persons_14d
 FROM events
 WHERE event = '$feature_flag_called'
+  AND properties.$feature_flag IS NOT NULL
   AND timestamp >= now() - INTERVAL 14 DAY
 GROUP BY flag_key
 ORDER BY calls_14d DESC
 LIMIT 100
 ```
 
-This single read powers cliff candidates (`calls_24h` far below `calls_14d / 14`), ghost
-candidates (keys not in the roster), and the volume ranking that scopes everything else.
-Pull the roster side from `feature-flag-get-all` (paginate; `id`, `key`, `active`,
-`filters` per flag). **Timezone footgun:** HogQL string timestamp literals parse in the
-_project_ timezone, not UTC — use `now() - INTERVAL N DAY` for recency windows, never
-hand-written timestamp strings.
+This single read powers cliff candidates (`calls_24h` far below `calls_14d / 14`) and
+the volume ranking that scopes everything else — it scales fine even on projects where
+`$feature_flag_called` is the top event at millions/day. It does **not** power ghost
+detection: ghost keys live in the tail below the `LIMIT`, so use the dedicated
+anti-join in the ghost pattern instead. For the roster side, query
+`system.feature_flags` via `execute-sql` (`id`, `key`, `name`, `filters`,
+`rollout_percentage`, `deleted`) — on projects with hundreds of flags this beats
+paginating `feature-flag-get-all`; note it carries **no `active` column**, so config
+state still comes from the flag tools. **Timezone footgun:** HogQL string timestamp
+literals parse in the _project_ timezone, not UTC — use `now() - INTERVAL N DAY` for
+recency windows, never hand-written timestamp strings.
 
 Before any per-flag deep dive, normalize against the whole stream: if **total**
 `$feature_flag_called` volume cliffed across all flags at once, that's one
@@ -145,32 +151,64 @@ WHERE event = '$feature_flag_called'
 GROUP BY day ORDER BY day
 ```
 
+**Reading footgun:** days with zero calls return no row at all — a cliff to zero looks
+like the series simply ending early, not a row of zeros. Compare the last returned day
+against today before concluding anything.
+
 Then explain it before emitting:
 
 - `feature-flags-activity-retrieve {id}` — was the flag edited near the cliff? A
   deliberate retirement (team deactivated it _and_ shipped the code removal) is hygiene
   at most, not an anomaly. Remember: deactivation alone does not stop calls — an edit
   plus a cliff means a coordinated code change, which is usually intentional.
-- A cliff with **no** flag edit is the strong shape: the code path was removed or broke
-  in a deploy. If the flag's response was gating a live feature (rollout > 0%), users
-  silently lost it — that's the emit-worthy story. Cite baseline vs current volume and
-  the cliff date.
+- A cliff with **no** flag edit splits two ways, and the flag's name/description usually
+  tells you which. **Deliberate cleanup:** migration, rollout, and infra flags (names
+  like "gradual migration", "proxy traffic", "rollout") cliff when the migration
+  completes and the code check is removed — the flag is now debt awaiting archive, a
+  debt-bundle item, not an incident. **Silent breakage:** a flag gating user-facing
+  functionality at rollout > 0% whose calls vanish with no edit and no migration story —
+  users lost the feature; that's the P2 emit. Cite baseline vs current volume and the
+  cliff date either way.
 - Check one or two sibling high-volume flags for the same cliff date — shared cliffs
-  point at an SDK release or platform path, and the finding should say so.
+  point at one cause (a service's flag checks removed together, an SDK release, a
+  platform path) and should be one finding, not N.
 
 #### Ghost flags
 
-Diff the traffic keys against the roster: keys in the orientation query that match no
-non-deleted flag. The SDK returns `false`/`undefined` for unknown keys without erroring,
-so shipped code can evaluate a deleted flag for months, silently running the fallback
-path. Sustained volume (≥ ~100 calls/day) on a ghost key is the bar.
+Calls to keys with no live flag behind them. The SDK returns `false`/`undefined` for
+unknown keys without erroring, so shipped code can evaluate a deleted flag for months,
+silently running the fallback path. Do the diff entirely in SQL — one anti-join, no
+roster pagination:
 
-- Confirm the key isn't just renamed or freshly created mid-window
-  (`feature-flag-get-all {"search": "<key>"}` — search matches key and name).
-- If the flag was deleted, `activity-log-list {scope: "FeatureFlag"}` can often date the
-  deletion; calls continuing after it measure exactly how stale the shipped code is.
-- The finding: name the key, the call volume and reach (`persons_14d`), how long it's
-  been orphaned, and what the silent fallback means (users get the off path).
+```sql
+SELECT properties.$feature_flag AS flag_key,
+       count() AS calls_7d,
+       count(DISTINCT person_id) AS persons_7d
+FROM events
+WHERE event = '$feature_flag_called'
+  AND properties.$feature_flag IS NOT NULL
+  AND timestamp >= now() - INTERVAL 7 DAY
+  AND flag_key NOT IN (SELECT key FROM system.feature_flags WHERE deleted = 0)
+GROUP BY flag_key
+ORDER BY calls_7d DESC
+LIMIT 50
+```
+
+Two ghost classes come back, with different stories:
+
+- **Soft-deleted but still called** — the key exists in `system.feature_flags` with
+  `deleted = 1`. `activity-log-list {scope: "FeatureFlag"}` can often date the deletion;
+  calls continuing after it measure exactly how stale the shipped code is.
+- **Absent entirely** — no row at any `deleted` value: the flag was hard-deleted or the
+  code shipped a check for a flag that was never created. These can run shockingly hot
+  (six-figure weekly calls) because nothing in the flag UI ever surfaces them.
+
+Sustained volume (≥ ~100 calls/day) is the bar. Before claiming either class, confirm
+with `feature-flag-get-all {"search": "<key>"}` that the key isn't renamed, freshly
+created mid-window, or visible to the API but not the system table — the REST roster is
+the authority when the two disagree. The finding: name the key, the call volume and
+reach (`persons_7d`), how long it's been orphaned, and what the silent fallback means
+(users get the off path).
 
 #### Response-distribution shift
 
@@ -293,6 +331,10 @@ via `signals-scout-runs-list`. Don't write a separate "run metadata" scratchpad 
   at least one sibling flag.
 - **Rollout-percentage changes in the activity log** — deliberate operator actions.
   Context for a distribution shift, never a finding by themselves.
+- **Seasonal and intentionally-flagless code references** — code that evaluates a key
+  whose flag only exists part of the year (holiday overrides) or that probes an
+  optional flag by design. These look like ghosts forever; identify once, write a
+  `noise:` entry, and skip thereafter.
 
 When in doubt, write a memory entry instead of emitting.
 
@@ -317,6 +359,9 @@ Direct calls (read-only):
 - `execute-sql` against `events` — the traffic side. Properties on
   `$feature_flag_called`: `$feature_flag` (key), `$feature_flag_response`
   (`true`/`false`/variant key).
+- `execute-sql` against `system.feature_flags` — the bulk roster side (`id`, `key`,
+  `name`, `filters`, `rollout_percentage`, `deleted`; no `active` column). Powers the
+  ghost anti-join and any roster-wide aggregation without pagination.
 - `read-data-schema` — confirm `$feature_flag_called` exists and check property shape
   before aggregating.
 - `inbox-reports-list` — pre-emit dedupe against the inbox.
