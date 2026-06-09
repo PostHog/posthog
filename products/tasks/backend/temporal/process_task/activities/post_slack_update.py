@@ -42,7 +42,12 @@ def _viewer_has_posthog_code_access(viewer: User | None) -> bool:
 @close_db_connections
 def post_slack_update(input: PostSlackUpdateInput) -> None:
     """Post Slack update based on current task run state. Idempotent."""
-    from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+    from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.slack_app.backend.slack_thread import (
+        SlackThreadContext,
+        SlackThreadHandler,
+        resolve_reply_target_slack_user_id,
+    )
     from products.tasks.backend.models import TaskRun
 
     try:
@@ -54,6 +59,12 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
         handler = SlackThreadHandler(context)
+        # Resolve the reply target from the live mapping rather than the
+        # frozen workflow context — multiplayer follow-ups update the
+        # mapping's ``latest_actor_slack_user_id`` so subsequent bot replies
+        # tag the current actor instead of the thread starter.
+        mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
+        reply_target_slack_user_id = resolve_reply_target_slack_user_id(mapping) if mapping else None
         creator_has_access = _viewer_has_posthog_code_access(task_run.task.created_by)
         task_url: str | None = (
             f"{settings.SITE_URL}/project/{task_run.task.team_id}/tasks/{task_run.task_id}?runId={task_run.id}"
@@ -98,7 +109,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             handler.post_error(error, task_url)
         else:
             if pr_url:
-                _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
+                _post_pr_opened_notification_once(task_run, handler, pr_url, task_url, reply_target_slack_user_id)
                 # Task is still running (PR opened mid-run) — keep the :eyes: reaction
                 # so the thread reads as in-progress until it genuinely completes.
                 handler.update_reaction("eyes")
@@ -125,11 +136,17 @@ def _get_stage_from_status(status: str, stage: str | None = None) -> str:
     return status_map.get(status, "In progress...")
 
 
-def _post_pr_opened_notification_once(task_run, handler, pr_url: str, task_url: str | None) -> None:
+def _post_pr_opened_notification_once(
+    task_run,
+    handler,
+    pr_url: str,
+    task_url: str | None,
+    reply_target_slack_user_id: str | None,
+) -> None:
     if _is_pr_opened_notified(task_run, pr_url):
         return
 
-    handler.post_pr_opened(pr_url, task_url)
+    handler.post_pr_opened(pr_url, task_url, reply_target_slack_user_id=reply_target_slack_user_id)
 
     _mark_pr_opened_notified(task_run, pr_url)
 

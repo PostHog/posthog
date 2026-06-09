@@ -1202,6 +1202,15 @@ def forward_posthog_code_followup_activity(
     ):
         return True
 
+    # Record who triggered this turn so async reply paths (agent relays via the
+    # relay API, workflow-driven status updates) tag them instead of the
+    # thread's original mentioner. The thread creator stays in
+    # ``mentioning_slack_user_id``; the live actor lives on
+    # ``latest_actor_slack_user_id``.
+    if slack_user_id != mapping.latest_actor_slack_user_id:
+        mapping.latest_actor_slack_user_id = slack_user_id
+        mapping.save(update_fields=["latest_actor_slack_user_id", "updated_at"])
+
     if task_run.is_terminal:
         return _resume_task_with_new_run(
             mapping,
