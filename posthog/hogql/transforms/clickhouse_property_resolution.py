@@ -32,6 +32,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
+from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.utils import ilike_matches, like_matches
@@ -199,20 +200,6 @@ def _sentinel(value: str) -> ast.Constant:
     return ast.Constant(value=value, inline_sentinel=True)
 
 
-def _json_extract_trim_quotes_expr(field_expr: ast.Expr, keys: list[str | int]) -> ast.Expr:
-    """The raw JSON read for a key path: `JSONExtractRaw(blob, *keys)`, with `''`/`'null'` nulled out and quotes trimmed.
-
-    Integer keys are emitted as integers so they index into a JSON array; string keys are object lookups. This is the
-    fallback shape used when no backing column exists.
-    """
-    extract = ast.Call(name="JSONExtractRaw", args=[field_expr, *[ast.Constant(value=key) for key in keys]])
-    scrubbed = ast.Call(
-        name="nullIf",
-        args=[ast.Call(name="nullIf", args=[extract, _sentinel("")]), _sentinel("null")],
-    )
-    return ast.Call(name="replaceRegexpAll", args=[scrubbed, _sentinel('^"|"$'), _sentinel("")])
-
-
 def _augment_plain_table_type(table_type: ast.TableType, column_name: str, is_nullable: bool) -> ast.TableType:
     table = table_type.table
     if table.has_field(column_name):
@@ -330,8 +317,12 @@ def _substitute_value_read(node: ast.JSONFieldAccess, context: HogQLContext) -> 
     )
     if head is None:
         return None
-    # Deeper keys read the materialized value as a JSON string, same as the printer's chain[1:] handling.
-    return head if not deeper_keys else _json_extract_trim_quotes_expr(head, deeper_keys)
+    if not deeper_keys:
+        return head
+    # Deeper keys read the column value as a JSON string. Emit a JSONFieldAccess rather than building the extract here:
+    # the printer renders that node via `json_extract_trim_quotes` (kafka_engine.py), the one implementation of the
+    # extract-and-trim SQL shape.
+    return ast.JSONFieldAccess(expr=head, keys=deeper_keys, type=ast.StringType(nullable=True))
 
 
 # --- comparison rewrites: keep the bare column eligible for skip indexes -----------------------------------------------
@@ -359,14 +350,6 @@ def _lower(expr: ast.Expr) -> ast.Call:
 def _coalesce_empty(expr: ast.Expr) -> ast.Call:
     """`coalesce(expr, '')`, typed non-nullable String — matches the lower-index expression and prints bare."""
     return ast.Call(name="coalesce", args=[expr, _sentinel("")], type=ast.StringType(nullable=False))
-
-
-def _resolve_field_type(expr: ast.Expr) -> ast.Type | None:
-    """An operand's resolved type, unwrapping any field-alias wrappers (the same unwrapping the printer does)."""
-    expr_type = expr.type
-    while isinstance(expr_type, ast.FieldAliasType):
-        expr_type = expr_type.type
-    return expr_type
 
 
 def _string_pattern_constant(expr: ast.Expr) -> ast.Constant | None:
@@ -482,7 +465,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         # Fallback for a property buried inside a cast: a boolean/numeric property gets wrapped by the swapper (e.g.
         # `toBool(transform(toString(...)))`) and aliased, so the `JSONFieldAccess` isn't the bare operand. Detect the
         # property from the operand's resolved `PropertyType` instead; the optimizer then drops the cast wrapper.
-        prop_type = _resolve_field_type(expr)
+        prop_type = resolve_field_type(expr)
         if isinstance(prop_type, ast.PropertyType) and len(prop_type.chain) == 1:
             return prop_type.field_type, str(prop_type.chain[0])
         return None
@@ -629,7 +612,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             # JSONHas(blob, key): the key is the literal second arg, and the first arg is the blob Field. Resolve the
             # property group for that key off the blob's FieldType.
             field_expr = node.args[0]
-            field_type = _resolve_field_type(field_expr)
+            field_type = resolve_field_type(field_expr)
             if not isinstance(field_type, ast.FieldType):
                 return None
             key = str(node.args[1].value)

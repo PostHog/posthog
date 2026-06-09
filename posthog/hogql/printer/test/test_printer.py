@@ -2595,6 +2595,26 @@ class TestPrinter(BaseTest):
         self.assertIn("mat_foo", sql)
         self.assertNotIn("JSONExtractRaw(events.properties", sql)
 
+    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
+    def test_deep_key_materialized_read_prints_shared_json_extract_shape(self, mock_get_mat_col):
+        # Reading properties.foo.bar through materialized column mat_foo extracts key "bar" from the column value.
+        # That extract must print exactly what `json_extract_trim_quotes` (kafka_engine.py) builds — the one
+        # implementation of the extract-and-trim SQL shape, which backfill and ingest also match byte-for-byte.
+        from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
+
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        mock_get_mat_col.return_value = MaterializedColumn(
+            name="mat_foo",
+            details=MaterializedColumnDetails(table_column="properties", property_name="foo", is_disabled=False),
+            is_nullable=False,
+        )
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._expr("properties.foo.bar", context)
+        head = "nullIf(nullIf(events.mat_foo, ''), 'null')"
+        self.assertEqual(printed, json_extract_trim_quotes(head, "%(hogql_val_0)s"))
+        self.assertEqual(context.values, {"hogql_val_0": "bar"})
+
     def _print_constant(self, node: ast.Constant) -> str:
         return print_prepared_ast(
             node, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "clickhouse", stack=[]
