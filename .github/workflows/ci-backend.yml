@@ -441,9 +441,7 @@ jobs:
             needs.turbo-discover.outputs.matrix != '[]' &&
             needs.turbo-discover.outputs.matrix != ''
         runs-on: depot-ubuntu-latest
-        # DIAGNOSTIC (do not merge as-is): headroom over the 1800s autopsy bound so a
-        # slow setup (schema-cache miss) can't push a caught hang into job cancellation.
-        timeout-minutes: 50
+        timeout-minutes: 40
         name: Product tests (${{ matrix.group }})
         strategy:
             fail-fast: false
@@ -595,10 +593,11 @@ jobs:
                       --reuse-db
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations --durations-path ../../.test_durations' || '' }}
-                  # Bound below the job's timeout-minutes: on a hang, dump native stacks of
-                  # the wedged pytest process and fail the step — preserving the log that a
-                  # job-level cancellation would discard. See run-with-hang-autopsy.sh.
-                  AUTOPSY_BOUND_SECONDS: '1800'
+                  # Bound well below the job's timeout-minutes: on a hang, dump native stacks
+                  # of the wedged pytest process and fail the step — preserving the log that a
+                  # job-level cancellation would discard. Healthy buckets finish in 5-13 min
+                  # (hunted bucket: ~5.5 min), so 12 min only trips on a real hang.
+                  AUTOPSY_BOUND_SECONDS: '720'
               run: .github/scripts/run-with-hang-autopsy.sh pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
 
             - name: Upload timing data
