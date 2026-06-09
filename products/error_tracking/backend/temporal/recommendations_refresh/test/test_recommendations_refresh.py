@@ -71,6 +71,22 @@ class TestGetTeamsWithRecentExceptionsActivity(ClickhouseTestMixin, APIBaseTest)
         assert team_pageview_only.id not in team_ids
         assert team_old_exception.id not in team_ids
 
+    def test_drops_teams_deleted_from_postgres(self):
+        # ClickHouse keeps events for deleted teams; their team_id must not survive enumeration.
+        deleted_team = Team.objects.create(organization=self.organization, name="Deleted")
+        deleted_team_id = deleted_team.id
+
+        _create_event(distinct_id="u1", event="$exception", team=self.team, timestamp=timezone.now().isoformat())
+        _create_event(distinct_id="u2", event="$exception", team=deleted_team, timestamp=timezone.now().isoformat())
+        flush_persons_and_events()
+
+        deleted_team.delete()
+
+        team_ids = get_teams_with_recent_exceptions_activity(RecommendationsRefreshInputs(lookback_days=7))
+
+        assert self.team.id in team_ids
+        assert deleted_team_id not in team_ids
+
 
 class TestRefreshRecommendationsBatchActivity(NonAtomicBaseTest):
     # Inline compute fans out over the shared thread pool, each thread with its own DB
