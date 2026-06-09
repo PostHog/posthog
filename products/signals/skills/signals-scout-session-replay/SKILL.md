@@ -67,8 +67,10 @@ skill is shaped around them:
    The friendly view's `start_time` is an aggregate projection; `WHERE start_time >= ...`
    on it returns zero rows even when recordings exist. Window on
    `raw_session_replay_events.min_first_timestamp` instead.
-2. **The raw table has multiple rows per session** — count sessions with
-   `uniq(session_id)`, never `count()`.
+2. **Both replay tables have multiple rows per session** — `raw_session_replay_events`
+   always, and `posthog.session_replay_features` (AggregatingMergeTree) until parts
+   merge. Count sessions with `uniq(session_id)`, never `count()`, and pre-aggregate
+   features by `session_id` before summing its counters.
 3. **Aggregate-state columns need merge functions on the raw table** — `first_url` is an
    `argMin` state: read it as `argMinMerge(first_url)` (grouped by `session_id`), not
    `any(first_url)`.
@@ -119,26 +121,30 @@ Then orient on both sides of the discriminator with two queries. Capture side �
 recordings against daily traffic:
 
 ```sql
-SELECT r.day AS day, r.recorded_sessions AS recorded_sessions,
+SELECT t.day AS day, coalesce(r.recorded_sessions, 0) AS recorded_sessions,
        t.event_sessions AS event_sessions,
-       round(r.recorded_sessions / t.event_sessions, 4) AS capture_ratio
+       round(coalesce(r.recorded_sessions, 0) / t.event_sessions, 4) AS capture_ratio
 FROM (
-    SELECT toStartOfDay(min_first_timestamp) AS day, uniq(session_id) AS recorded_sessions
-    FROM raw_session_replay_events
-    WHERE min_first_timestamp >= now() - INTERVAL 14 DAY
-      AND min_first_timestamp <= now() + INTERVAL 1 DAY
-    GROUP BY day
-) r
-JOIN (
     SELECT toStartOfDay(timestamp) AS day, uniq(properties.$session_id) AS event_sessions
     FROM events
     WHERE timestamp >= now() - INTERVAL 14 DAY
       AND properties.$session_id IS NOT NULL
       AND event = '$pageview'
     GROUP BY day
-) t ON r.day = t.day
+) t
+LEFT JOIN (
+    SELECT toStartOfDay(min_first_timestamp) AS day, uniq(session_id) AS recorded_sessions
+    FROM raw_session_replay_events
+    WHERE min_first_timestamp >= now() - INTERVAL 14 DAY
+      AND min_first_timestamp <= now() + INTERVAL 1 DAY
+    GROUP BY day
+) r ON r.day = t.day
 ORDER BY day
 ```
+
+The traffic side must drive the join (`LEFT JOIN` from `events`): a day with traffic but
+zero recordings — the exact cliff this scout exists to catch — has no recordings row, and
+an inner join would silently drop it from the series instead of showing `capture_ratio` 0.
 
 (`$pageview` keeps the traffic side cheap; if the project doesn't capture it, substitute
 its top web event from the profile — you need a stable denominator, not completeness.)
@@ -153,6 +159,8 @@ SELECT properties.$host AS host,
        replaceRegexpAll(properties.$pathname, '[0-9]+', ':id') AS path,
        count() AS rageclicks_14d,
        countIf(timestamp >= now() - INTERVAL 1 DAY) AS rageclicks_24h,
+       uniqIf(properties.$session_id, timestamp >= now() - INTERVAL 1 DAY) AS sessions_24h,
+       uniqIf(person_id, timestamp >= now() - INTERVAL 1 DAY) AS persons_24h,
        count(DISTINCT person_id) AS persons_14d
 FROM events
 WHERE event = '$rageclick'
@@ -216,8 +224,8 @@ recording counts before/after and the dated onset.
 #### Friction concentration
 
 From the orientation query, a cluster candidate is a path whose `rageclicks_24h` runs
-≥ ~3× its own 14-day daily mean, with ≥ ~10 sessions and ≥ ~5 distinct persons in the
-24h window (gates below which this is variance). For each candidate, find the element:
+≥ ~3× its own 14-day daily mean, with `sessions_24h` ≥ ~10 and `persons_24h` ≥ ~5
+(gates below which this is variance). For each candidate, find the element:
 
 ```sql
 SELECT properties.$el_text AS el_text, count() AS clicks,
@@ -264,21 +272,25 @@ Friction where the page fights back — errors and failed requests tied to inter
 not just background noise:
 
 ```sql
-SELECT r.first_url AS url, count() AS sessions,
+SELECT r.first_url AS url, uniq(f.session_id) AS sessions,
        uniq(f.distinct_id) AS users,
-       sum(f.console_error_after_click_count) AS errors_after_click,
-       sum(f.network_failed_request_count) AS failed_requests
+       sum(f.errors_after_click) AS errors_after_click,
+       sum(f.failed_requests) AS failed_requests
 FROM (
-    SELECT session_id, distinct_id, console_error_after_click_count,
-           network_failed_request_count
+    SELECT session_id, any(distinct_id) AS distinct_id,
+           sum(console_error_after_click_count) AS errors_after_click,
+           sum(network_failed_request_count) AS failed_requests
     FROM posthog.session_replay_features
     WHERE min_first_timestamp >= now() - INTERVAL 1 DAY
-      AND console_error_after_click_count > 0
+      AND min_first_timestamp <= now() + INTERVAL 1 DAY
+    GROUP BY session_id
+    HAVING errors_after_click > 0 OR failed_requests > 0
 ) f
 JOIN (
     SELECT session_id, argMinMerge(first_url) AS first_url
     FROM raw_session_replay_events
     WHERE min_first_timestamp >= now() - INTERVAL 1 DAY
+      AND min_first_timestamp <= now() + INTERVAL 1 DAY
     GROUP BY session_id
 ) r ON r.session_id = f.session_id
 GROUP BY url
@@ -287,9 +299,15 @@ ORDER BY sessions DESC
 LIMIT 20
 ```
 
-Keep both sides pre-filtered exactly like this — joining the two tables raw runs out of
-memory on high-volume projects, and `first_url` on the raw table is an aggregate state
-that needs `argMinMerge`.
+Keep both sides pre-aggregated and pre-filtered exactly like this — joining the two
+tables raw runs out of memory on high-volume projects; the features table is
+AggregatingMergeTree, so unmerged parts can hold multiple rows per `session_id` (group
+by `session_id` before counting or summing, or the session counts inflate); and
+`first_url` on the raw table is an aggregate state that needs `argMinMerge`.
+Failed-request-only sessions (no console error) are in scope by design — a silently
+failing API is a broken experience too — but they're ad-blocker-prone, so a
+failed-request-only cohort needs the step-change comparison and corroboration before it
+counts as a candidate.
 
 Compare each URL against its own prior-13-day rate (same query, earlier window) — the
 emit case is a step-change, not a steady grumble.
