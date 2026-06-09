@@ -3,6 +3,7 @@ from temporalio import activity
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
+from posthog.models import Team
 
 from products.error_tracking.backend.recommendations.refresh import refresh_team_recommendations_inline
 from products.error_tracking.backend.temporal.recommendations_refresh.types import (
@@ -30,10 +31,16 @@ def get_teams_with_recent_exceptions_activity(inputs: RecommendationsRefreshInpu
         {"lookback_days": inputs.lookback_days},
         workload=Workload.OFFLINE,
     )
-    team_ids = [int(row[0]) for row in rows]
+    candidate_team_ids = [int(row[0]) for row in rows]
+    # ClickHouse retains $exception events for teams that have since been deleted from Postgres,
+    # so drop any team that no longer exists before refreshing — otherwise inserting a
+    # recommendation row would hit a foreign-key violation.
+    existing_team_ids = set(Team.objects.filter(id__in=candidate_team_ids).values_list("id", flat=True))
+    team_ids = [team_id for team_id in candidate_team_ids if team_id in existing_team_ids]
     logger.info(
         "error_tracking.recommendations_refresh.teams_enumerated",
         team_count=len(team_ids),
+        deleted_teams_skipped=len(candidate_team_ids) - len(team_ids),
         lookback_days=inputs.lookback_days,
     )
     return team_ids

@@ -7,6 +7,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 import structlog
+import psycopg.errors
 from posthoganalytics import capture_exception
 
 from posthog.sync import database_sync_to_async_pool
@@ -44,7 +45,13 @@ def is_stale(rec: Recommendation, obj: ErrorTrackingRecommendation, now: datetim
     )
 
 
-def ensure_recommendation_row(rec: Recommendation, team_id: int) -> ErrorTrackingRecommendation:
+def ensure_recommendation_row(rec: Recommendation, team_id: int) -> ErrorTrackingRecommendation | None:
+    """Return the recommendation row for a team, creating it if missing.
+
+    Returns ``None`` when the team no longer exists in Postgres — the cross-team sweep is
+    seeded from ClickHouse ``$exception`` events, which linger after a team is deleted, so a
+    foreign-key violation here just means there's nothing to recommend for a missing team.
+    """
     try:
         return ErrorTrackingRecommendation.objects.get(team_id=team_id, type=rec.type)
     except ErrorTrackingRecommendation.DoesNotExist:
@@ -54,7 +61,13 @@ def ensure_recommendation_row(rec: Recommendation, team_id: int) -> ErrorTrackin
                 type=rec.type,
                 status=ErrorTrackingRecommendation.Status.READY,
             )
-        except IntegrityError:
+        except IntegrityError as e:
+            # A foreign-key violation means the team was deleted — skip it rather than retry,
+            # since the row could never have been created.
+            if isinstance(e.__cause__, psycopg.errors.ForeignKeyViolation):
+                return None
+            # Otherwise this is a unique-constraint race: another worker created the row
+            # between our get() and create(), so re-reading it is safe.
             return ErrorTrackingRecommendation.objects.get(team_id=team_id, type=rec.type)
 
 
@@ -96,6 +109,8 @@ def revert_to_ready(obj_id, team_id: int) -> None:
 def _refresh_one(rec: Recommendation, team_id: int, now: datetime, *, compute_sync: bool) -> int:
     try:
         obj = ensure_recommendation_row(rec, team_id)
+        if obj is None:
+            return 0
         if not is_stale(rec, obj, now):
             return 0
         if not claim_for_compute(obj.id, team_id, now):

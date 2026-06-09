@@ -21,6 +21,8 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.models import Team
 
 from products.error_tracking.backend.models import ErrorTrackingRecommendation
+from products.error_tracking.backend.recommendations import RECOMMENDATIONS
+from products.error_tracking.backend.recommendations.refresh import ensure_recommendation_row
 from products.error_tracking.backend.temporal.recommendations_refresh.activities import (
     get_teams_with_recent_exceptions_activity,
     refresh_recommendations_batch_activity,
@@ -71,6 +73,23 @@ class TestGetTeamsWithRecentExceptionsActivity(ClickhouseTestMixin, APIBaseTest)
         assert team_pageview_only.id not in team_ids
         assert team_old_exception.id not in team_ids
 
+    def test_excludes_teams_deleted_from_postgres(self):
+        # ClickHouse keeps $exception events for teams that were deleted from Postgres; those
+        # team_ids must be dropped so we never attempt a recommendation row for a missing team.
+        deleted_team_id = self.team.id + 10_000_000
+        assert not Team.objects.filter(id=deleted_team_id).exists()
+
+        _create_event(distinct_id="u1", event="$exception", team=self.team, timestamp=timezone.now().isoformat())
+        _create_event(
+            distinct_id="u2", event="$exception", team_id=deleted_team_id, timestamp=timezone.now().isoformat()
+        )
+        flush_persons_and_events()
+
+        team_ids = get_teams_with_recent_exceptions_activity(RecommendationsRefreshInputs(lookback_days=7))
+
+        assert self.team.id in team_ids
+        assert deleted_team_id not in team_ids
+
 
 class TestRefreshRecommendationsBatchActivity(NonAtomicBaseTest):
     # Inline compute fans out over the shared thread pool, each thread with its own DB
@@ -114,6 +133,41 @@ class TestRefreshRecommendationsBatchActivity(NonAtomicBaseTest):
         # `alerts` and `rate_limits` have no refresh_interval, so they recompute for both teams;
         # long_running_issues and source_maps (both 6h) are still fresh and are skipped.
         assert second.recommendations_kicked == 4
+
+
+class TestEnsureRecommendationRow(NonAtomicBaseTest):
+    # Triggers a real foreign-key violation, which aborts the transaction, so data must be
+    # committed rather than wrapped in TestCase's atomic block.
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_creates_row_for_existing_team(self):
+        rec = RECOMMENDATIONS[0]
+
+        obj = ensure_recommendation_row(rec, self.team.id)
+
+        assert obj is not None
+        assert obj.team_id == self.team.id
+        assert obj.type == rec.type
+
+    def test_returns_existing_row(self):
+        rec = RECOMMENDATIONS[0]
+        first = ensure_recommendation_row(rec, self.team.id)
+        second = ensure_recommendation_row(rec, self.team.id)
+
+        assert first is not None and second is not None
+        assert first.id == second.id
+
+    def test_skips_team_deleted_from_postgres(self):
+        # A team present in ClickHouse but absent from Postgres yields a foreign-key violation
+        # on create() — we should skip it (return None) rather than re-raise DoesNotExist.
+        rec = RECOMMENDATIONS[0]
+        deleted_team_id = self.team.id + 10_000_000
+        assert not Team.objects.filter(id=deleted_team_id).exists()
+
+        obj = ensure_recommendation_row(rec, deleted_team_id)
+
+        assert obj is None
+        assert not ErrorTrackingRecommendation.objects.filter(team_id=deleted_team_id).exists()
 
 
 async def _run_refresh_workflow(
