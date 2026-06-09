@@ -20,11 +20,13 @@ const rateLimitForm = (overrides: Partial<LogsSamplingFormType> = {}): LogsSampl
 })
 
 describe('logsSamplingFormLogic rate-limit serialization', () => {
-    it('converts amount + unit into KB/s', () => {
-        expect(rateLimitAmountToKbPerSecond('1', 'MB/s')).toEqual(1000)
-        expect(rateLimitAmountToKbPerSecond('50', 'KB/s')).toEqual(50)
-        expect(rateLimitAmountToKbPerSecond('1.5', 'MB/s')).toEqual(1500)
-        expect(rateLimitAmountToKbPerSecond('2', 'GB/s')).toEqual(2_000_000)
+    it.each([
+        ['1', 'MB/s', 1000],
+        ['50', 'KB/s', 50],
+        ['1.5', 'MB/s', 1500],
+        ['2', 'GB/s', 2_000_000],
+    ] as const)('converts %s %s into %s KB/s', (amount, unit, expected) => {
+        expect(rateLimitAmountToKbPerSecond(amount, unit)).toEqual(expected)
     })
 
     it('serializes a rate-limit rule into byte-mode config the ingestion worker enforces on', () => {
