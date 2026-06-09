@@ -2268,8 +2268,18 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
         provider = self._build_ses_provider(tenants_for_domain={"partner.com": ["team-1"]})
 
         with pytest.raises(Exception) as exc:
-            provider.create_email_domain("partner.com", "feedback", team_id=999)
-        assert "already associated with another team" in str(exc.value)
+            provider.create_email_domain("partner.com", "feedback", team_id=999, org_team_ids=[999])
+        assert "already associated with another organization" in str(exc.value)
+
+    def test_create_email_domain_allows_sibling_team_in_same_org(self):
+        provider = self._build_ses_provider(tenants_for_domain={"partner.com": ["team-1"]})
+
+        provider.create_email_domain(
+            "partner.com",
+            "feedback",
+            team_id=2,
+            org_team_ids=[1, 2, 3, 4, 5],
+        )
 
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
@@ -2313,6 +2323,16 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
         assert result["status"] == "pending"
         integration_b.refresh_from_db()
         assert integration_b.config.get("verified") is False
+
+    def test_aws_account_id_is_cached_per_provider(self):
+        provider = self._build_ses_provider()
+        provider.sts_client.get_caller_identity.reset_mock()
+
+        for _ in range(5):
+            provider._identity_arn("partner.com")
+            provider._identity_arn("other.com")
+
+        assert provider.sts_client.get_caller_identity.call_count == 1
 
 
 class TestGitLabIntegrationSSRFProtection:

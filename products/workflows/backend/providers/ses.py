@@ -1,5 +1,7 @@
 import re
 import logging
+from collections.abc import Iterable
+from functools import cached_property
 
 from django.conf import settings
 
@@ -37,8 +39,12 @@ class SESProvider:
     def _tenant_name_for_team(self, team_id: int) -> str:
         return f"team-{team_id}"
 
+    @cached_property
+    def _aws_account_id(self) -> str:
+        return self.sts_client.get_caller_identity()["Account"]
+
     def _identity_arn(self, domain: str) -> str:
-        return f"arn:aws:ses:{settings.SES_REGION}:{self.sts_client.get_caller_identity()['Account']}:identity/{domain}"
+        return f"arn:aws:ses:{settings.SES_REGION}:{self._aws_account_id}:identity/{domain}"
 
     def _list_identity_tenants(self, domain: str) -> set[str]:
         try:
@@ -49,12 +55,19 @@ class SESProvider:
             raise
         return {t.get("TenantName") for t in resp.get("Tenants", []) if t.get("TenantName")}
 
-    def create_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int):
+    def create_email_domain(
+        self,
+        domain: str,
+        mail_from_subdomain: str,
+        team_id: int,
+        org_team_ids: Iterable[int] | None = None,
+    ):
         expected_tenant = self._tenant_name_for_team(team_id)
-        foreign_tenants = self._list_identity_tenants(domain) - {expected_tenant}
+        friendly_tenants = {self._tenant_name_for_team(t) for t in (org_team_ids or [team_id])}
+        foreign_tenants = self._list_identity_tenants(domain) - friendly_tenants
         if foreign_tenants:
             raise exceptions.ValidationError(
-                "This domain is already associated with another team in SES. "
+                "This domain is already associated with another organization in SES. "
                 "Please contact support if you believe this is a mistake."
             )
 
