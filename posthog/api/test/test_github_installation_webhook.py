@@ -6,9 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
-from rest_framework.test import APIClient
-
 from parameterized import parameterized
+from rest_framework.test import APIClient
 
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
