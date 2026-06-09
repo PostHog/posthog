@@ -242,7 +242,7 @@ def _fetch_evaluation_rows(
         WHERE event = '$ai_evaluation'
             AND timestamp >= {start_dt}
             AND timestamp < {end_dt}
-            AND toString(uuid) IN {eval_ids}
+            AND uuid IN {eval_ids}
         LIMIT {limit}
         """
     )
@@ -310,7 +310,7 @@ def _fetch_linked_generations(
         WHERE event = '$ai_generation'
             AND timestamp >= {start_dt}
             AND timestamp < {end_dt}
-            AND toString(uuid) IN {ids}
+            AND uuid IN {ids}
         LIMIT {limit}
         """
     )
@@ -401,7 +401,7 @@ def fetch_generation_contents(
         FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
             AND trace_id IN {trace_ids}
-            AND toString(uuid) IN {ids}
+            AND uuid IN {ids}
         LIMIT {limit}
         """
     )
