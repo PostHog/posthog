@@ -30,11 +30,14 @@ cd "$REPO_ROOT/services/llm-gateway"
 unset VIRTUAL_ENV
 export UV_PROJECT_ENVIRONMENT="$PWD/.venv"
 
+# llm-gateway requires Python >=3.13; pin it so the venv isn't built with the
+# repo's default interpreter (3.12), and target the venv explicitly so the
+# editable install resolves against 3.13 rather than the discovered interpreter.
 if [ ! -d ".venv" ]; then
-    uv venv .venv
+    uv venv --python 3.13 .venv
 fi
 
-uv pip install -e . --quiet
+uv pip install -e . --python .venv/bin/python --quiet
 
 exec .venv/bin/uvicorn llm_gateway.main:app \
     --host 0.0.0.0 \
