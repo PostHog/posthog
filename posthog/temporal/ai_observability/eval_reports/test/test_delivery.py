@@ -2,6 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.temporal.ai_observability.eval_reports.delivery import (
     _format_period_for_display,
     _inline_email_styles,
@@ -413,42 +415,30 @@ class TestDeliverSlackReport(SimpleTestCase):
         run.id = "run-id"
         return run
 
+    @parameterized.expand(
+        [
+            ("one_section_no_thread", [ReportSection(title="Summary", content="All good.")], 1),
+            (
+                "two_sections_with_thread_reply",
+                [
+                    ReportSection(title="Summary", content="All good."),
+                    ReportSection(title="Details", content="More detail."),
+                ],
+                2,
+            ),
+        ]
+    )
     @patch("posthog.models.integration.SlackIntegration")
     @patch("posthog.models.integration.Integration")
-    def test_strips_channel_name_suffix_before_sending(self, mock_integration, mock_slack_integration):
+    def test_channel_id_is_used(self, _name, sections, expected_call_count, mock_integration, mock_slack_integration):
         # Regression: the channel picker stores "<id>|#<name>" (e.g. "C0B5CHB0JQH|#tech-devops-cron").
         # chat.postMessage only accepts the channel ID, so the "|#name" suffix must be stripped or
-        # Slack returns channel_not_found.
+        # Slack returns channel_not_found. Covers both the single-section (no thread) and
+        # multi-section (thread replies) paths.
         client = MagicMock()
         client.chat_postMessage.return_value = {"ts": "123.456"}
         mock_slack_integration.return_value.client = client
 
-        targets = [{"type": "slack", "integration_id": 1, "channel": "C0B5CHB0JQH|#tech-devops-cron"}]
-        errors = deliver_slack_report(
-            self._make_report_run(),
-            targets,
-            evaluation_name="Test Eval",
-            team_id=1,
-            project_id=1,
-            period_start="2026-03-01T00:00:00+00:00",
-            period_end="2026-03-02T00:00:00+00:00",
-        )
-
-        self.assertEqual(errors, [])
-        client.chat_postMessage.assert_called_once()
-        self.assertEqual(client.chat_postMessage.call_args.kwargs["channel"], "C0B5CHB0JQH")
-
-    @patch("posthog.models.integration.SlackIntegration")
-    @patch("posthog.models.integration.Integration")
-    def test_thread_replies_use_channel_id(self, mock_integration, mock_slack_integration):
-        client = MagicMock()
-        client.chat_postMessage.return_value = {"ts": "123.456"}
-        mock_slack_integration.return_value.client = client
-
-        sections = [
-            ReportSection(title="Summary", content="All good."),
-            ReportSection(title="Details", content="More detail."),
-        ]
         targets = [{"type": "slack", "integration_id": 1, "channel": "C0B5CHB0JQH|#tech-devops-cron"}]
         errors = deliver_slack_report(
             self._make_report_run(sections=sections),
@@ -461,6 +451,6 @@ class TestDeliverSlackReport(SimpleTestCase):
         )
 
         self.assertEqual(errors, [])
-        self.assertEqual(client.chat_postMessage.call_count, 2)
+        self.assertEqual(client.chat_postMessage.call_count, expected_call_count)
         for call in client.chat_postMessage.call_args_list:
             self.assertEqual(call.kwargs["channel"], "C0B5CHB0JQH")
