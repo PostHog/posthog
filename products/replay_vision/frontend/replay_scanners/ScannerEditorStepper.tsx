@@ -47,6 +47,7 @@ export function ScannerEditorStepper({
                         <button
                             type="button"
                             onClick={() => onStepClick(step.key)}
+                            data-attr={`vision-editor-step-${step.key}`}
                             className={cn(
                                 'group flex items-center gap-1.5 px-2 py-1 rounded transition-all duration-150',
                                 'focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',

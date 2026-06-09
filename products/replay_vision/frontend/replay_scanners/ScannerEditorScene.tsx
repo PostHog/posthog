@@ -157,6 +157,7 @@ function ConfigureStep(): JSX.Element {
             {isTypeSelectable ? (
                 <LemonField name="scanner_type" label="Scanner type" className="items-start">
                     <LemonSelect
+                        data-attr="vision-editor-type-select"
                         value={scanner.scanner_type}
                         onChange={(next) => {
                             if (next === scanner.scanner_type) {
@@ -258,25 +259,42 @@ function EditorFooter({
     onAdvance: () => void
     onSave: () => void
 }): JSX.Element {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     return (
         <div className="flex items-center justify-between">
             {step === 'configure' ? (
                 <>
                     {isNew && (
-                        <LemonButton type="tertiary" to={urls.replayVisionTemplates()}>
+                        <LemonButton type="tertiary" to={urls.replayVisionTemplates()} data-attr="vision-editor-back">
                             Back to templates
                         </LemonButton>
                     )}
-                    <LemonButton type="primary" loading={isSubmitting} onClick={onAdvance} className="ml-auto">
+                    <LemonButton
+                        type="primary"
+                        loading={isSubmitting}
+                        onClick={onAdvance}
+                        className="ml-auto"
+                        data-attr="vision-editor-next"
+                    >
                         Next: triggers
                     </LemonButton>
                 </>
             ) : (
                 <>
-                    <LemonButton type="tertiary" to={urls.replayVisionScannerConfigure(scannerId)}>
+                    <LemonButton
+                        type="tertiary"
+                        to={urls.replayVisionScannerConfigure(scannerId)}
+                        data-attr="vision-editor-back"
+                    >
                         Back
                     </LemonButton>
-                    <LemonButton type="primary" loading={isSubmitting} onClick={onSave}>
+                    <LemonButton
+                        type="primary"
+                        loading={isSubmitting}
+                        onClick={onSave}
+                        data-attr="vision-editor-save"
+                        data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
+                    >
                         {isNew ? 'Create scanner' : 'Save changes'}
                     </LemonButton>
                 </>

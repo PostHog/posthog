@@ -81,7 +81,8 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
     return (
         <button
             className="relative flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left group p-6 cursor-pointer min-h-[180px]"
-            data-attr={isBlank ? 'blank-scanner-template' : `scanner-template-${template.key}`}
+            data-attr={isBlank ? 'vision-template-blank' : `vision-template-${template.key}`}
+            data-ph-capture-attribute-template={isBlank ? 'blank' : template.key}
             onClick={handleClick}
         >
             <div className="flex flex-col items-center text-center gap-4 h-full">
@@ -137,6 +138,7 @@ function TemplateGrid({
                             icon={<IconArrowLeft />}
                             onClick={() => router.actions.push(combineUrl(urls.replayVision(), searchParams).url)}
                             size="small"
+                            data-attr="vision-templates-back"
                         >
                             Back to Replay vision
                         </LemonButton>

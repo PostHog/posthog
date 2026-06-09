@@ -92,6 +92,8 @@ export function ReplayScannersScene(): JSX.Element {
                             onChange={() => toggleScannerEnabled(scanner.id)}
                             disabled={togglingIds.includes(scanner.id)}
                             size="small"
+                            data-attr="vision-scanner-toggle-enabled"
+                            data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                         />
                     </AccessControlAction>
                     <span className={`inline-block min-w-[4.5rem] ${scanner.enabled ? 'text-success' : 'text-muted'}`}>
@@ -156,6 +158,8 @@ export function ReplayScannersScene(): JSX.Element {
                             icon={<IconPencil />}
                             onClick={() => push(urls.replayVision(scanner.id))}
                             tooltip="Edit"
+                            data-attr="vision-scanner-edit-row"
+                            data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                         />
                     </AccessControlAction>
                     <AccessControlAction
@@ -180,6 +184,8 @@ export function ReplayScannersScene(): JSX.Element {
                                 })
                             }
                             tooltip="Delete"
+                            data-attr="vision-scanner-delete"
+                            data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                         />
                     </AccessControlAction>
                 </div>
@@ -219,7 +225,7 @@ export function ReplayScannersScene(): JSX.Element {
                             type="primary"
                             icon={<IconPlus />}
                             to={urls.replayVisionTemplates()}
-                            data-attr="create-replay-scanner"
+                            data-attr="vision-scanner-create"
                         >
                             New scanner
                         </LemonButton>
@@ -293,7 +299,12 @@ export function ReplayScannersScene(): JSX.Element {
                         scannersTotal === 0 && !hasActiveFilters ? (
                             <div className="flex flex-col items-center gap-3 p-8 text-center">
                                 <div className="text-muted">No scanners yet.</div>
-                                <LemonButton type="primary" icon={<IconPlus />} to={urls.replayVisionTemplates()}>
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconPlus />}
+                                    to={urls.replayVisionTemplates()}
+                                    data-attr="vision-scanner-create-empty"
+                                >
                                     Create your first scanner
                                 </LemonButton>
                             </div>
