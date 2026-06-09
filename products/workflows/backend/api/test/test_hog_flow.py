@@ -8,12 +8,14 @@ from rest_framework import status
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
+from posthog.event_usage import EventSource
 from posthog.models import Organization, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cohorts.backend.models.cohort import Cohort
+from products.workflows.backend.api.hog_flow import _should_validate_strictly
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
@@ -1182,6 +1184,21 @@ class TestHogFlowAPI(APIBaseTest):
         cohort = self._make_cohort(behavioral=True)
         response = self._post_event_trigger_with_cohort(cohort.pk)
         assert response.status_code == 201, response.json()
+
+    @parameterized.expand(
+        [
+            # (name, is_draft, event_source, expected_strict)
+            ("active_no_source", False, None, True),
+            ("active_web", False, EventSource.WEB, True),
+            ("draft_no_source", True, None, False),  # internal re-saves (e.g. refresh command) stay lenient
+            ("draft_web", True, EventSource.WEB, False),
+            ("draft_mcp", True, EventSource.MCP, True),
+            ("draft_api", True, EventSource.API, True),
+        ]
+    )
+    def test_should_validate_strictly(self, _name, is_draft, event_source, expected_strict):
+        context = {} if event_source is None else {"event_source": event_source}
+        assert _should_validate_strictly(context, is_draft) is expected_strict
 
     def test_hog_flow_user_blast_radius_requires_filters(self):
         with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:

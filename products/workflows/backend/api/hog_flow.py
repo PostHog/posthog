@@ -57,15 +57,16 @@ DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhm]$")
 
 
 def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
-    # Non-draft saves always validate fully. Drafts stay lenient only for the web UI builder, which saves
-    # incomplete graphs mid-edit; programmatic callers (MCP, posthog-code, API) send complete graphs, so
-    # validate their drafts fully and fail fast at create time. Otherwise an unsupported config (e.g. a
-    # behavioral cohort, or a filter that can't compile to real-time bytecode) is silently stored and only
-    # rejected later at enable — which reads to the caller as a successful create.
+    # Non-draft saves always validate fully. Drafts stay lenient for the web UI builder (which saves
+    # incomplete graphs mid-edit) and for internal re-saves (e.g. the refresh management command), which
+    # only re-persist already-accepted data. Programmatic authoring clients (MCP, posthog-code, raw API)
+    # validate drafts fully too, so an unsupported config is rejected at create rather than silently stored
+    # and surfacing only at enable. The viewset sets event_source; absent it (internal/no request), drafts
+    # stay lenient.
     if not is_draft:
         return True
-    request = context.get("request")
-    return request is None or get_event_source(request) != EventSource.WEB
+    source = context.get("event_source")
+    return source is not None and source != EventSource.WEB
 
 
 class BlastRadiusRequestSerializer(serializers.Serializer):
@@ -359,23 +360,16 @@ class HogFlowMaskingSerializer(serializers.Serializer):
         min_value=60,
         max_value=60 * 60 * 24 * 365 * 3,
         allow_null=True,
-        help_text="Window in seconds (60 to ~94M / 3y) over which firings sharing the same hash are suppressed.",
+        help_text="Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.",
     )
     threshold = serializers.IntegerField(
         required=False,
         allow_null=True,
-        help_text=(
-            "k-anonymity floor: hold firings for a given hash until at least this many have accrued within "
-            "ttl, then release. NOT a per-person event-frequency filter — it does not mean 'only people who "
-            "did event X N times' and can't express behavioral targeting."
-        ),
+        help_text="k-anonymity floor: hold firings for a hash until this many accrue within ttl. Not an event-frequency filter.",
     )
     hash = serializers.CharField(
         required=True,
-        help_text=(
-            "HogQL template identifying what to dedup on, e.g. '{person.id}' (once per person) or "
-            "'{person.properties.email}'. The masking key only — it can't count events or filter entry."
-        ),
+        help_text="HogQL template to dedup on, e.g. '{person.id}' (once per person). Dedup key only — can't count events or filter entry.",
     )
     bytecode = serializers.JSONField(required=False, allow_null=True, help_text="Auto-compiled from hash. Do not set.")
 
@@ -496,13 +490,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Optional per-person dedup/throttle on an already-matched trigger: "
-            "{hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. After the trigger "
-            "fires, suppresses repeat firings sharing the same hash within ttl (e.g. hash '{person.id}' = "
-            "at most once per person). It does NOT gate who enters the workflow and CANNOT express event "
-            "frequency or behavioral conditions like 'did event X N times in a week' — those aren't "
-            "supported in workflows at all; do not approximate them with masking. Server compiles bytecode "
-            "from hash. Omit to disable."
+            "Optional per-person dedup on an already-matched trigger: {hash: <HogQL template>, "
+            "ttl: <seconds, 60-94608000>, threshold?: <int>}. Suppresses repeat firings of the same hash "
+            "within ttl (hash '{person.id}' = once per person). Not a filter: can't gate entry or express "
+            "event frequency / behavioral conditions ('did event X N times'). Server compiles bytecode from "
+            "hash; omit to disable."
         ),
     )
     conversion = serializers.JSONField(
@@ -740,6 +732,15 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return HogFlowMinimalSerializer if self.action == "list" else HogFlowSerializer
+
+    def get_serializer_context(self) -> dict:
+        # Drives draft strictness in the serializers: web-builder drafts stay lenient, programmatic
+        # (MCP/API) drafts validate fully. Set here so the decision is tied to the request entry point,
+        # not inferred deep in the serializer (which would also catch internal re-saves like the refresh
+        # command). See _should_validate_strictly.
+        context = super().get_serializer_context()
+        context["event_source"] = get_event_source(self.request)
+        return context
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":

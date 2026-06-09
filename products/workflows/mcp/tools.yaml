@@ -131,12 +131,10 @@ tools:
             references ({type:'cohort',key:'id',value:<id>,operator:'in'}). Prefer inline person-property conditions or
             a dynamic (filter-based) cohort via cohorts-create — these re-evaluate as people qualify; a static cohort is
             a frozen list, use only when given an explicit set. Behavioral (event-based) cohorts are rejected — for 'did
-            event X', use an 'event' trigger instead. Workflows CANNOT do event-frequency or behavioral targeting like
-            'did event X at least N times in a week' — there is no supported way to express this; if asked, say so
-            rather than approximating it. In particular trigger_masking is per-person dedup/throttle on an
-            already-matched trigger (e.g. 'send at most once per person'), NOT a frequency filter — never use it as a
-            substitute for behavioral targeting. A batch workflow fires only once enabled and a recurring schedule is
-            attached (workflows-schedule-create).
+            event X', use an 'event' trigger instead. Workflows can't do event-frequency/behavioral targeting ('did
+            event X N times in a week') — say so rather than approximating; trigger_masking is per-person dedup (e.g.
+            once per person), not a frequency filter. A batch workflow fires only once enabled and a recurring schedule
+            is attached (workflows-schedule-create).
         ui_app: workflow
     workflows-get:
         operation: hog_flows_retrieve
@@ -217,9 +215,8 @@ tools:
             / workflows-disable / workflows-archive. A batch audience is config.filters.properties — person-property
             conditions and/or cohort references. Prefer person properties or a dynamic (filter-based) cohort, which
             re-evaluate, over a static frozen-list cohort; behavioral (event-based) cohorts are rejected. Workflows
-            CANNOT do event-frequency or behavioral targeting ('did event X at least N times in a week');
-            trigger_masking is per-person dedup/throttle, NOT a frequency filter — don't use it to approximate
-            behavioral targeting.
+            can't do event-frequency/behavioral targeting ('did event X N times'); trigger_masking is per-person dedup,
+            not a frequency filter.
         exclude_params:
             - status
         ui_app: workflow

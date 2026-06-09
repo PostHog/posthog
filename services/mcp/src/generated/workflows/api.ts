@@ -67,19 +67,17 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsCreateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsCreateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe(
-                        'Window in seconds (60 to ~94M / 3y) over which firings sharing the same hash are suppressed.'
-                    ),
+                    .describe('Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.'),
                 threshold: zod
                     .number()
                     .nullish()
                     .describe(
-                        "k-anonymity floor: hold firings for a given hash until at least this many have accrued within ttl, then release. NOT a per-person event-frequency filter — it does not mean 'only people who did event X N times' and can't express behavioral targeting."
+                        'k-anonymity floor: hold firings for a hash until this many accrue within ttl. Not an event-frequency filter.'
                     ),
                 hash: zod
                     .string()
                     .describe(
-                        "HogQL template identifying what to dedup on, e.g. '{person.id}' (once per person) or '{person.properties.email}'. The masking key only — it can't count events or filter entry."
+                        "HogQL template to dedup on, e.g. '{person.id}' (once per person). Dedup key only — can't count events or filter entry."
                     ),
                 bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
@@ -87,7 +85,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            "Optional per-person dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. After the trigger fires, suppresses repeat firings sharing the same hash within ttl (e.g. hash '{person.id}' = at most once per person). It does NOT gate who enters the workflow and CANNOT express event frequency or behavioral conditions like 'did event X N times in a week' — those aren't supported in workflows at all; do not approximate them with masking. Server compiles bytecode from hash. Omit to disable."
+            "Optional per-person dedup on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Suppresses repeat firings of the same hash within ttl (hash '{person.id}' = once per person). Not a filter: can't gate entry or express event frequency / behavioral conditions ('did event X N times'). Server compiles bytecode from hash; omit to disable."
         ),
     conversion: zod
         .unknown()
@@ -244,19 +242,17 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe(
-                        'Window in seconds (60 to ~94M / 3y) over which firings sharing the same hash are suppressed.'
-                    ),
+                    .describe('Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.'),
                 threshold: zod
                     .number()
                     .nullish()
                     .describe(
-                        "k-anonymity floor: hold firings for a given hash until at least this many have accrued within ttl, then release. NOT a per-person event-frequency filter — it does not mean 'only people who did event X N times' and can't express behavioral targeting."
+                        'k-anonymity floor: hold firings for a hash until this many accrue within ttl. Not an event-frequency filter.'
                     ),
                 hash: zod
                     .string()
                     .describe(
-                        "HogQL template identifying what to dedup on, e.g. '{person.id}' (once per person) or '{person.properties.email}'. The masking key only — it can't count events or filter entry."
+                        "HogQL template to dedup on, e.g. '{person.id}' (once per person). Dedup key only — can't count events or filter entry."
                     ),
                 bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
@@ -264,7 +260,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            "Optional per-person dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. After the trigger fires, suppresses repeat firings sharing the same hash within ttl (e.g. hash '{person.id}' = at most once per person). It does NOT gate who enters the workflow and CANNOT express event frequency or behavioral conditions like 'did event X N times in a week' — those aren't supported in workflows at all; do not approximate them with masking. Server compiles bytecode from hash. Omit to disable."
+            "Optional per-person dedup on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Suppresses repeat firings of the same hash within ttl (hash '{person.id}' = once per person). Not a filter: can't gate entry or express event frequency / behavioral conditions ('did event X N times'). Server compiles bytecode from hash; omit to disable."
         ),
     conversion: zod
         .unknown()

@@ -19245,18 +19245,18 @@ export namespace Schemas {
 
     export interface HogFlowMasking {
       /**
-         * Window in seconds (60 to ~94M / 3y) over which firings sharing the same hash are suppressed.
+         * Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.
          * @minimum 60
          * @maximum 94608000
          * @nullable
          */
       ttl?: number | null;
       /**
-         * k-anonymity floor: hold firings for a given hash until at least this many have accrued within ttl, then release. NOT a per-person event-frequency filter — it does not mean 'only people who did event X N times' and can't express behavioral targeting.
+         * k-anonymity floor: hold firings for a hash until this many accrue within ttl. Not an event-frequency filter.
          * @nullable
          */
       threshold?: number | null;
-      /** HogQL template identifying what to dedup on, e.g. '{person.id}' (once per person) or '{person.properties.email}'. The masking key only — it can't count events or filter entry. */
+      /** HogQL template to dedup on, e.g. '{person.id}' (once per person). Dedup key only — can't count events or filter entry. */
       hash: string;
       /** Auto-compiled from hash. Do not set. */
       bytecode?: unknown;
@@ -19435,7 +19435,7 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly updated_at: string;
       readonly trigger: unknown;
-      /** Optional per-person dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. After the trigger fires, suppresses repeat firings sharing the same hash within ttl (e.g. hash '{person.id}' = at most once per person). It does NOT gate who enters the workflow and CANNOT express event frequency or behavioral conditions like 'did event X N times in a week' — those aren't supported in workflows at all; do not approximate them with masking. Server compiles bytecode from hash. Omit to disable. */
+      /** Optional per-person dedup on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Suppresses repeat firings of the same hash within ttl (hash '{person.id}' = once per person). Not a filter: can't gate entry or express event frequency / behavioral conditions ('did event X N times'). Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
       /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: unknown;
@@ -30023,7 +30023,7 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly updated_at?: string;
       readonly trigger?: unknown;
-      /** Optional per-person dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. After the trigger fires, suppresses repeat firings sharing the same hash within ttl (e.g. hash '{person.id}' = at most once per person). It does NOT gate who enters the workflow and CANNOT express event frequency or behavioral conditions like 'did event X N times in a week' — those aren't supported in workflows at all; do not approximate them with masking. Server compiles bytecode from hash. Omit to disable. */
+      /** Optional per-person dedup on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Suppresses repeat firings of the same hash within ttl (hash '{person.id}' = once per person). Not a filter: can't gate entry or express event frequency / behavioral conditions ('did event X N times'). Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
       /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: unknown;
