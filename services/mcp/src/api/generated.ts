@@ -12599,7 +12599,7 @@ export namespace Schemas {
          * @nullable
          */
       widget_type: string | null;
-      /** Live widget query result payload. */
+      /** Live widget query result payload. List widgets return results (array), limit (configured page size), hasMore (boolean), totalCount (matching rows for current filters), totalCountCapped (true when totalCount hit the widget max and more may exist), and optional offset/nextOffset. error_tracking_list results are issue summaries; session_replay_list results are recording metadata. */
       result: unknown;
       /**
          * Error message when the widget could not be run.
@@ -14436,6 +14436,7 @@ export namespace Schemas {
       mcp_trace_id?: string | null;
       /**
          * Stable id for this finding, baked into the signal's source_id for traceability. NOT a dedupe key — re-emitting the same id creates another signal.
+         * @maxLength 100
          * @nullable
          */
       finding_id?: string | null;
@@ -16812,10 +16813,21 @@ export namespace Schemas {
       Product: 'product',
     } as const;
 
+    export type Kind1 = typeof Kind1[keyof typeof Kind1];
+
+
+    export const Kind1 = {
+      ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
+      ActionsNode: 'ActionsNode',
+    } as const;
+
     export interface ExperimentApiExposureConfig {
-      /** Custom exposure event name. */
-      event: string;
-      kind?: 'ExperimentEventExposureConfig';
+      /** Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'. */
+      event?: string | null;
+      /** Action ID. Required when kind is 'ActionsNode'. */
+      id?: number | null;
+      /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
+      kind?: Kind1 | null;
       /** Event property filters. Pass an empty array if no filters needed. */
       properties: EventPropertyFilter[];
     }
@@ -19955,6 +19967,49 @@ export namespace Schemas {
       readonly execution_order: number | null;
     }
 
+    export interface HogInvocationResult {
+      invocation_id: string;
+      status: string;
+      error_kind: string;
+      error_message: string;
+      distinct_id: string;
+      person_id: string;
+      scheduled_at: string;
+      /** @nullable */
+      started_at: string | null;
+      /** @nullable */
+      finished_at: string | null;
+      /** @nullable */
+      duration_ms: number | null;
+      attempts: number;
+      is_retry: boolean;
+    }
+
+    /**
+     * The triggering payload (event/person/groups) the run executed against, as a JSON object.
+     */
+    export type HogInvocationResultDetailInvocationGlobals = { [key: string]: unknown };
+
+    export interface HogInvocationResultDetail {
+      /** The triggering payload (event/person/groups) the run executed against, as a JSON object. */
+      invocation_globals: HogInvocationResultDetailInvocationGlobals;
+      invocation_id: string;
+      status: string;
+      error_kind: string;
+      error_message: string;
+      distinct_id: string;
+      person_id: string;
+      scheduled_at: string;
+      /** @nullable */
+      started_at: string | null;
+      /** @nullable */
+      finished_at: string | null;
+      /** @nullable */
+      duration_ms: number | null;
+      attempts: number;
+      is_retry: boolean;
+    }
+
     export type HogLanguage = typeof HogLanguage[keyof typeof HogLanguage];
 
 
@@ -21222,7 +21277,7 @@ export namespace Schemas {
       interview_url: string;
       /** True if an email was queued for delivery. False when the recipient was skipped — see `reason`. */
       sent: boolean;
-      /** Why the email was skipped (e.g., `not_an_email`, `already_sent`). Empty when sent=true. */
+      /** Why the email was skipped (e.g., `not_an_email`, `duplicate_recipient`, `already_sent`). Empty when sent=true. */
       reason?: string;
     }
 
@@ -21880,20 +21935,6 @@ export namespace Schemas {
       condition?: string | null;
       readonly created_at: string;
       readonly updated_at: string;
-    }
-
-    export type LocalEvaluationResponseGroupTypeMapping = {[key: string]: string};
-
-    /**
-     * Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters).
-     */
-    export type LocalEvaluationResponseCohorts = { [key: string]: unknown };
-
-    export interface LocalEvaluationResponse {
-      flags: MinimalFeatureFlag[];
-      group_type_mapping: LocalEvaluationResponseGroupTypeMapping;
-      /** Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters). */
-      cohorts: LocalEvaluationResponseCohorts;
     }
 
     export interface LogsAlertFilters {
@@ -38850,6 +38891,46 @@ export namespace Schemas {
     }
 
     /**
+     * One finding a scout run emitted to the inbox — the persisted, queryable record of
+    *what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
+    lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
+    back into the underlying signal store.
+     */
+    export interface SignalScoutEmission {
+      readonly id: string;
+      /** UUID of the `SignalScoutRun` that emitted this finding. */
+      run_id: string;
+      /** Stable id the finding was emitted under; matches an entry in the run's `emitted_finding_ids`. */
+      finding_id: string;
+      /** The emitted finding prose — the signal's `description` as surfaced to the inbox. */
+      description: string;
+      /**
+         * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
+         * @minimum 0
+         * @maximum 1
+         */
+      weight: number;
+      /**
+         * Agent's confidence the finding is real in [0, 1].
+         * @minimum 0
+         * @maximum 1
+         */
+      confidence: number;
+      /** Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.
+
+      * `P0` - P0
+      * `P1` - P1
+      * `P2` - P2
+      * `P3` - P3
+      * `P4` - P4 */
+      severity: AutonomyPriorityEnum | null;
+      /** Deterministic `run:<run_id>:finding:<finding_id>` — the join key into the underlying signal store. */
+      source_id: string;
+      /** ISO-8601 timestamp the finding was emitted. */
+      emitted_at: string;
+    }
+
+    /**
      * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
     today; kept distinct so future detail-only extensions (linked Signal rows,
     LLMA token-cost join) can land here without bloating the list response.
@@ -41410,6 +41491,15 @@ export namespace Schemas {
       last_failure_at: string | null;
     }
 
+    export interface WorkflowStatsRow {
+      /** The workflow these counts are for. */
+      workflow_id: string;
+      /** Successful invocations in the window. */
+      succeeded: number;
+      /** Failed invocations in the window. */
+      failed: number;
+    }
+
     export interface _CompareFilter {
       /** When true, also fetch results for a comparison window and return them under `compare`. */
       compare?: boolean;
@@ -43622,6 +43712,35 @@ export namespace Schemas {
       Draft: 'draft',
     } as const;
 
+    export type EnvironmentsHogFlowsInvocationResultsRetrieveParams = {
+    /**
+     * Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Only return invocations triggered for this distinct_id (the person the run executed for).
+     * @minLength 1
+     */
+    distinct_id?: string;
+    /**
+     * Maximum number of invocations to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'.
+     * @minLength 1
+     */
+    status?: string;
+    };
+
     export type EnvironmentsHogFlowsLogsRetrieveParams = {
     /**
      * Only return entries after this ISO 8601 timestamp.
@@ -43777,6 +43896,19 @@ export namespace Schemas {
       Day: 'day',
       Week: 'week',
     } as const;
+
+    export type EnvironmentsHogFlowsMetricsGlobalRetrieveParams = {
+    /**
+     * Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the window. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    };
 
     export type EnvironmentsHogFunctionsListParams = {
     created_at?: string;
@@ -48871,14 +49003,6 @@ export namespace Schemas {
     groups?: string;
     };
 
-    export type FeatureFlagsLocalEvaluationRetrieveParams = {
-    /**
-     * Include cohorts in response
-     * @nullable
-     */
-    send_cohorts?: boolean | null;
-    };
-
     export type FeatureFlagsMyFlagsRetrieveParams = {
     /**
      * Groups for feature flag evaluation (JSON object string)
@@ -49313,6 +49437,35 @@ export namespace Schemas {
       Draft: 'draft',
     } as const;
 
+    export type HogFlowsInvocationResultsRetrieveParams = {
+    /**
+     * Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Only return invocations triggered for this distinct_id (the person the run executed for).
+     * @minLength 1
+     */
+    distinct_id?: string;
+    /**
+     * Maximum number of invocations to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'.
+     * @minLength 1
+     */
+    status?: string;
+    };
+
     export type HogFlowsLogsRetrieveParams = {
     /**
      * Only return entries after this ISO 8601 timestamp.
@@ -49468,6 +49621,19 @@ export namespace Schemas {
       Day: 'day',
       Week: 'week',
     } as const;
+
+    export type HogFlowsMetricsGlobalRetrieveParams = {
+    /**
+     * Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the window. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    };
 
     export type HogFunctionTemplatesListParams = {
     /**

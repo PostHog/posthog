@@ -42,6 +42,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.rate_limit import UserInterviewInviteThrottle
 from posthog.security.spreadsheet_safety import sanitize_formula_injection
 from posthog.utils import absolute_uri
 
@@ -820,7 +821,10 @@ class InterviewInviteResultSerializer(serializers.Serializer):
     reason = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Why the email was skipped (e.g., `not_an_email`, `already_sent`). Empty when sent=true.",
+        help_text=(
+            "Why the email was skipped (e.g., `not_an_email`, `duplicate_recipient`, `already_sent`). "
+            "Empty when sent=true."
+        ),
     )
 
 
@@ -871,6 +875,9 @@ def _disable_shares_for_identifiers(*, topic: UserInterviewTopic, identifiers: l
         interviewee_context__interviewee_identifier__in=identifiers,
         enabled=True,
     ).update(enabled=False)
+
+
+MAX_INVITE_RECIPIENTS_PER_SEND = 500
 
 
 class SendInvitesRequestSerializer(serializers.Serializer):
@@ -1025,7 +1032,7 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "token rotation produce a fresh send."
         ),
     )
-    @action(detail=True, methods=["post"], url_path="send_invites")
+    @action(detail=True, methods=["post"], url_path="send_invites", throttle_classes=[UserInterviewInviteThrottle])
     def send_invites(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         if not is_email_available():
             return response.Response(
@@ -1037,8 +1044,15 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         params.is_valid(raise_exception=True)
 
         topic = self.get_object()
-        links = _materialize_links_for_topic(topic=topic, team=self.team, created_by=request.user)
-        if not links:
+        # Enforce the cap on targeted identifiers BEFORE materializing share links, so an oversized
+        # topic is rejected without first minting an IntervieweeContext + SharingConfiguration for
+        # every target. dict.fromkeys dedups while preserving order, matching _materialize_links_for_topic.
+        targeted_identifiers = list(
+            dict.fromkeys(
+                raw for raw in [*(topic.interviewee_emails or []), *(topic.interviewee_distinct_ids or [])] if raw
+            )
+        )
+        if not targeted_identifiers:
             return response.Response(
                 {
                     "error": (
@@ -1048,6 +1062,18 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if len(targeted_identifiers) > MAX_INVITE_RECIPIENTS_PER_SEND:
+            return response.Response(
+                {
+                    "error": (
+                        f"Topic targets {len(targeted_identifiers)} interviewees, more than the per-send limit of "
+                        f"{MAX_INVITE_RECIPIENTS_PER_SEND}. Split the targeting across multiple topics."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        links = _materialize_links_for_topic(topic=topic, team=self.team, created_by=request.user)
 
         subject_override = params.validated_data.get("subject") or ""
         reply_to = params.validated_data.get("reply_to")
@@ -1056,6 +1082,7 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         send_async = params.validated_data["send_async"]
 
         results: list[dict[str, Any]] = []
+        seen_emails: set[str] = set()
         for link in links:
             base = {
                 "interviewee_identifier": link["identifier"],
@@ -1065,6 +1092,14 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if not link["email"]:
                 results.append({**base, "sent": False, "reason": "not_an_email"})
                 continue
+
+            # Collapse display-name aliases that resolve to the same mailbox (e.g.
+            # "A1 <x@host>" and "A2 <x@host>") so one mailbox can't be invited repeatedly.
+            email_key = link["email"].strip().lower()
+            if email_key in seen_emails:
+                results.append({**base, "sent": False, "reason": "duplicate_recipient"})
+                continue
+            seen_emails.add(email_key)
 
             built = build_invite_email_context(
                 topic=topic,
