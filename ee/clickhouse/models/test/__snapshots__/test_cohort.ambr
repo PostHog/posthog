@@ -272,7 +272,7 @@
                                                                                       cohortpeople.team_id AS team_id
                                                                       FROM cohortpeople
                                                                       WHERE 0) AS cohort_people
-                                                                   WHERE and(ifNull(equals(cohort_people.cohort_id, 99999), 0), ifNull(equals(cohort_people.team_id, 99999), 0))))))
+                                                                   WHERE and(equals(cohort_people.cohort_id, 99999), equals(cohort_people.team_id, 99999))))))
                LIMIT 1000000000)))
   '''
 # ---
