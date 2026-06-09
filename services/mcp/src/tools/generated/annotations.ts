@@ -19,7 +19,6 @@ const AnnotationCreateSchema = AnnotationsCreateBody.omit({
     dashboard_item: true,
     dashboard_id: true,
     deleted: true,
-    emoji: true,
 })
 
 const annotationCreate = (): ToolBase<typeof AnnotationCreateSchema, Schemas.Annotation> => ({
@@ -36,6 +35,9 @@ const annotationCreate = (): ToolBase<typeof AnnotationCreateSchema, Schemas.Ann
         }
         if (params.scope !== undefined) {
             body['scope'] = params.scope
+        }
+        if (params.emoji !== undefined) {
+            body['emoji'] = params.emoji
         }
         const result = await context.api.request<Schemas.Annotation>({
             method: 'POST',
@@ -108,7 +110,6 @@ const AnnotationsPartialUpdateSchema = AnnotationsPartialUpdateParams.omit({ pro
         dashboard_item: true,
         dashboard_id: true,
         deleted: true,
-        emoji: true,
     }).shape
 )
 
@@ -126,6 +127,9 @@ const annotationsPartialUpdate = (): ToolBase<typeof AnnotationsPartialUpdateSch
         }
         if (params.scope !== undefined) {
             body['scope'] = params.scope
+        }
+        if (params.emoji !== undefined) {
+            body['emoji'] = params.emoji
         }
         const result = await context.api.request<Schemas.Annotation>({
             method: 'PATCH',
