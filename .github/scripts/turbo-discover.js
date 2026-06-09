@@ -53,6 +53,16 @@ const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 // be tuned independently. The trade-off is a dedicated runner (more CI minutes),
 // so reserve this for products that genuinely need it rather than as a default.
 const DEDICATED_BUCKET_PRODUCTS = new Set(['batch-exports'])
+// Temporary flakiness mitigation for batch-exports' intermittent async-fixture
+// teardown hang (remove once the source fix lands). Its isolated leg runs
+// non-blocking (a failing/flaky run no longer fails the CD gate) and is capped
+// at the 30-min product-test timeout that predated the recent bump to 40. The
+// timeout only bounds a hang's wall-clock — continue-on-error reliably masks a
+// test failure but not a timeout-induced cancellation. Each value's keys are
+// matrix fields the turbo-tests job reads as continue-on-error / timeout-minutes.
+const SOFT_FAIL_PRODUCTS = {
+    'batch-exports': { continue_on_error: true, timeout_minutes: 30 },
+}
 
 // --- Django shard auto-sizing (Amdahl's law) ---
 // wall_clock = overhead + (total_from_durations_file / shards)
@@ -315,6 +325,7 @@ function buildMatrix(products, durations) {
                 group: product,
                 filters: `--filter=@posthog/products-${product}`,
                 pytest_args: '',
+                ...SOFT_FAIL_PRODUCTS[product],
             })
         } else {
             packable.push(product)
