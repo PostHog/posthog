@@ -3,6 +3,7 @@ import './FloatingSuggestions.scss'
 import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
+import { getTiptapEditorDom } from 'lib/components/MarkdownEditor/shared/tiptapEditorDom'
 import { richContentEditorLogic } from 'lib/components/RichContentEditor/richContentEditorLogic'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
@@ -22,7 +23,8 @@ export function FloatingSuggestions(): JSX.Element | null {
     const { Component } = activeSuggestion
 
     const handleUpdate = (): void => {
-        if (ttEditor.isDestroyed) {
+        const dom = getTiptapEditorDom(ttEditor)
+        if (!dom) {
             return
         }
 
@@ -30,7 +32,7 @@ export function FloatingSuggestions(): JSX.Element | null {
 
         if (selection && selection.anchorNode && selection.anchorNode.parentElement) {
             if (selection.anchorNode.nodeType === Node.ELEMENT_NODE) {
-                const editorPos = ttEditor.view.dom.getBoundingClientRect()
+                const editorPos = dom.getBoundingClientRect()
                 const selectionPos = (selection.anchorNode as HTMLElement).getBoundingClientRect()
 
                 setPosition({ top: selectionPos.top - editorPos.top })
@@ -52,7 +54,10 @@ export function FloatingSuggestions(): JSX.Element | null {
     useOnMountEffect(() => {
         ttEditor.on('update', handleUpdate)
         ttEditor.on('selectionUpdate', handleUpdate)
-        setRef(ttEditor.view.dom)
+        const dom = getTiptapEditorDom(ttEditor)
+        if (dom) {
+            setRef(dom)
+        }
         return () => {
             ttEditor.off('update', handleUpdate)
             ttEditor.off('selectionUpdate', handleUpdate)
