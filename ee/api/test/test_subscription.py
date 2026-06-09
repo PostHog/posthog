@@ -2323,17 +2323,6 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert gate_calls[-1].args[1] == str(self.user.distinct_id)
         assert gate_calls[-1].kwargs.get("groups") is None
 
-    def test_rejects_when_feature_flag_disabled_for_user(self, mock_is_cloud, mock_flag, mock_sync):
-        self._enable_ai()
-        self._mock_temporal(mock_sync)
-        mock_flag.return_value = False
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(),
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "not enabled for your account" in str(response.json())
-
     def test_rejects_when_not_cloud_or_debug(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()
         mock_is_cloud.return_value = False
@@ -2355,7 +2344,7 @@ class TestAISubscriptionAPI(APILicensedTest):
             self._make_ai_payload(),
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "not enabled" in str(response.json())
+        assert "not enabled for your account" in str(response.json())
 
     @parameterized.expand(
         [
