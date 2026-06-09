@@ -26,8 +26,8 @@ actually act on.
 - Tuning the spike detector itself (multiplier, window, threshold). That lives behind the spike detection
   config endpoint and is not exposed via MCP today.
 - Investigating an active incident — query the issue / its events directly via
-  `posthog:error-tracking-issues-retrieve` and `posthog:query-error-tracking-issues` instead of authoring
-  more alerts mid-fire.
+  `posthog:query-error-tracking-issue` and `posthog:query-error-tracking-issue-events` instead of
+  authoring more alerts mid-fire.
 - Configuring volume-threshold alerts (count of `$exception` events over a window). That's a logs-style
   alert and is not in scope here — error tracking alerts ride the lifecycle events instead.
 
@@ -123,16 +123,18 @@ The canonical Slack `blocks` payload for each event lives in
 [references/block-templates.md](./references/block-templates.md). Copy the matching block verbatim — it
 matches the in-product alert wizard, so agent-created alerts look identical to UI-created ones.
 
-For per-issue scoping, add to `filters`:
+For per-issue scoping — `created` / `reopened` only, spiking events carry no exception properties — add
+to `filters`:
 
 ```json
 "properties": [
-  { "key": "$issue_id", "value": "<issue_uuid>", "operator": "exact", "type": "event" }
+  { "key": "$exception_issue_id", "value": "<issue_uuid>", "operator": "exact", "type": "event" }
 ]
 ```
 
-Other useful property filters: `exception_type`, `assignee_id`, `name` (issue title). See
-[references/event-triggers.md](./references/event-triggers.md) for the full property surface per event.
+Other useful property filters: `$exception_types` (exception class names, an array), `name` (issue
+title). See [references/event-triggers.md](./references/event-triggers.md) for the full property surface
+per event.
 
 ### 5. Verify
 

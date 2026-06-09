@@ -66,11 +66,14 @@ tools:
                    "events": [{"id": "$error_tracking_issue_created", "type": "events"}]
                  }
 
-               Optional per-issue scoping: add a `filters.properties` clause referencing the issue id —
-               for example to alert only on a specific known-flaky issue, or to exclude issues already
-               assigned to a team. The recommendations probe in
-               `products/error_tracking/backend/recommendations/alerts.py` only inspects `filters.events`,
-               so adding property filters does not break the "alerts configured" recommendation.
+               Optional per-issue scoping (`created`/`reopened` only): add a `filters.properties` clause
+               on `$exception_issue_id` — for example
+               `[{"key": "$exception_issue_id", "value": "<issue_uuid>", "operator": "exact", "type": "event"}]`
+               to alert only on a specific known-flaky issue. `$error_tracking_issue_spiking` events carry
+               no exception properties, so spiking alerts cannot be scoped per issue. The recommendations
+               probe in `products/error_tracking/backend/recommendations/alerts.py` only inspects
+               `filters.events`, so adding property filters does not break the "alerts configured"
+               recommendation.
 
 
             5. Slack message body. Mirror the shape the in-product alert wizard produces so agent-created
@@ -78,7 +81,7 @@ tools:
                `HOG_FUNCTION_SUB_TEMPLATES['error-tracking-issue-created' | '_reopened' | '_spiking']` for
                `template-slack` in `frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts`.
 
-               For `$error_tracking_issue_created` and `$error_tracking_issue_reopened` (Slack):
+               For `$error_tracking_issue_created` (Slack):
 
                  inputs = {
                    "slack_workspace": {"value": <slack_integration_id_int>},
@@ -98,13 +101,18 @@ tools:
                      {"type": "divider"},
                      {"type": "actions", "elements": [
                        {"type": "button", "text": {"type": "plain_text", "text": "View Issue"},
-                        "url": "{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert"}
+                        "url": "{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"}
                      ]}
                    ]}
                  }
 
+               For `$error_tracking_issue_reopened`, use the same blocks with the header swapped to
+               `🔄 {event.properties.name}`, the section text to `Issue reopened`, and `text` to
+               `Issue reopened: {event.properties.name}`.
+
                For `$error_tracking_issue_spiking` (Slack), use the same shape but swap the header to
-               `📈 Issue spiking` and add a context line referencing
+               `📈 Issue spiking`, drop the `fingerprint`/`timestamp` params from the button URL (spiking
+               events do not carry them), and add a context line referencing
                `{event.properties.current_bucket_value}` and `{event.properties.computed_baseline}`. See
                the sub-templates file for the exact block layout, which is reproduced verbatim in the
                `authoring-error-tracking-alerts` skill references.
@@ -118,11 +126,14 @@ tools:
 
 
             Event property reference — common across all three events: `event.properties.name` (issue title),
-            `event.properties.description` (truncated body), `event.properties.status`, `event.properties.fingerprint`,
-            `event.properties.exception_timestamp`, `event.distinct_id` (issue id used in the deep link). Spiking events
-            additionally expose `event.properties.current_bucket_value` and `event.properties.computed_baseline`.
-            Project context is available as `{project.url}` (already includes `/project/<team_id>`), `{project.name}`,
-            and the alert's own metadata as `{source.url}` and `{source.name}`.
+            `event.properties.description` (truncated body), `event.distinct_id` (issue id used in the deep link).
+            `created`/`reopened` additionally expose `event.properties.status`, `event.properties.fingerprint`,
+            `event.properties.exception_timestamp`, and the originating exception's properties (e.g.
+            `$exception_types`, `$exception_issue_id`). Spiking events instead expose
+            `event.properties.current_bucket_value` and `event.properties.computed_baseline` — no status,
+            fingerprint, or exception properties. Project context is available as `{project.url}` (already
+            includes `/project/<team_id>`), `{project.name}`, and the alert's own metadata as `{source.url}`
+            and `{source.name}`.
         exclude_params:
             - _create_in_folder
             - batch_export_id
@@ -196,8 +207,8 @@ tools:
             List error tracking alerts in the project. Pass `type=internal_destination` and inspect each entry's
             `filters.events` for one of `$error_tracking_issue_created`, `$error_tracking_issue_reopened`, or
             `$error_tracking_issue_spiking` to identify alerts. The same endpoint backs `cdp-functions-list`, so
-            non-error-tracking destinations are also returned — filter client-side by event id. Pagination caps at 100
-            per page; pass `limit=1000` (max 1000) when scanning for an existing alert by trigger and channel.
+            non-error-tracking destinations are also returned — filter client-side by event id. Pagination defaults to
+            100 per page; pass a higher `limit` (e.g. 1000) when scanning for an existing alert by trigger and channel.
         response:
             include:
                 - id

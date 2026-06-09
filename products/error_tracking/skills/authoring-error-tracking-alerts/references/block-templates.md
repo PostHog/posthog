@@ -50,7 +50,7 @@ time against the live event — leave the curly-braced segments as-is.
             {
               "type": "button",
               "text": { "type": "plain_text", "text": "View Issue" },
-              "url": "{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert"
+              "url": "{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"
             }
           ]
         }
@@ -92,7 +92,7 @@ time against the live event — leave the curly-braced segments as-is.
 ```json
 "inputs": {
   "text": {
-    "value": "**🔴 {event.properties.name} created:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert))"
+    "value": "**🔴 {event.properties.name} created:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=microsoft_teams))"
   }
 }
 ```
@@ -137,7 +137,7 @@ Same as `_created`, with the header swapped to `🔄` and the section text to "I
         {
           "type": "button",
           "text": { "type": "plain_text", "text": "View Issue" },
-          "url": "{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert"
+          "url": "{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"
         }
       ]
     }
@@ -177,7 +177,7 @@ Use the same shape as `_created`, swap `🔴` → `🔄` and "created" → "reop
         {
           "type": "button",
           "text": { "type": "plain_text", "text": "View Issue" },
-          "url": "{project.url}/error_tracking/{event.distinct_id}?utm_source=alert"
+          "url": "{project.url}/error_tracking/{event.distinct_id}?utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"
         }
       ]
     }
@@ -186,7 +186,7 @@ Use the same shape as `_created`, swap `🔴` → `🔄` and "created" → "reop
 "text": { "value": "Issue spiking: {event.properties.name}" }
 ````
 
-The `current_bucket_value > 0 ? ... : 'no baseline yet'` guard handles the first spike of the project's
+The `computed_baseline > 0 ? ... : 'no baseline yet'` guard handles the first spike of the project's
 lifetime, when the detector has not built up enough history to compute a baseline. Without the guard you
 end up with `0x over baseline` in the message, which is wrong.
 
@@ -195,7 +195,7 @@ end up with `0x over baseline` in the message, which is wrong.
 ````json
 "inputs": {
   "content": {
-    "value": "**📈 Issue spiking**\n\n```\n{event.properties.name}: {substring(event.properties.description, 1, 1000)}\n```\n**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'})\n**Project:** [{project.name}]({project.url})\n**Alert:** [{source.name}]({source.url})\n\n[View issue]({project.url}/error_tracking/{event.distinct_id}?utm_source=alert)"
+    "value": "**📈 Issue spiking**\n\n```\n{event.properties.name}: {substring(event.properties.description, 1, 1000)}\n```\n**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'})\n**Project:** [{project.name}]({project.url})\n**Alert:** [{source.name}]({source.url})\n\n[View issue]({project.url}/error_tracking/{event.distinct_id}?utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=discord)"
   }
 }
 ````
@@ -205,7 +205,7 @@ end up with `0x over baseline` in the message, which is wrong.
 ```json
 "inputs": {
   "text": {
-    "value": "**📈 Issue spiking: {event.properties.name}:** {event.properties.description}\n**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'}) (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?utm_source=alert))"
+    "value": "**📈 Issue spiking: {event.properties.name}:** {event.properties.description}\n**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'}) (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=microsoft_teams))"
   }
 }
 ```

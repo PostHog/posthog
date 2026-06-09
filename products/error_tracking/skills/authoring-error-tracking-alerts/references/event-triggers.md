@@ -28,6 +28,8 @@ firehose into the user's primary channel will train them to ignore it.
 - `event.properties.fingerprint` — used in the deep link.
 - `event.properties.exception_timestamp` — used in the deep link.
 - `event.distinct_id` — the issue id.
+- The originating exception's event properties are also spread onto the alert event, so property
+  filters can reference keys like `$exception_issue_id` (per-issue scoping) and `$exception_types`.
 
 ## `$error_tracking_issue_reopened`
 
@@ -65,9 +67,13 @@ a typical production project; tighter thresholds make this much noisier.
 **Avoid for:** projects where the spike detector hasn't been configured. Without a tuned baseline the
 detector either over-fires or under-fires.
 
-**Useful event properties for templating:**
+**Useful event properties for templating** — spiking events carry a smaller surface than `_created`:
+no `status`, no `fingerprint`, no `exception_timestamp`, and no exception properties (so no per-issue
+property scoping). Available:
 
-- All `_created` properties, plus:
+- `event.properties.name` — issue title.
+- `event.properties.description` — truncated body / message.
+- `event.distinct_id` — the issue id.
 - `event.properties.current_bucket_value` — exception count in the current detection window (typically
   5 minutes).
 - `event.properties.computed_baseline` — the historical baseline the current value is being compared
@@ -88,8 +94,10 @@ useful for "manage this alert" links inside the message body.
 **Deep-link shape** for the issue page (used by the canonical block templates):
 
 ```text
-{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert
+{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack
 ```
 
-The `utm_source=alert` tag lets the team measure how often issues get clicked from alerts later via
-product analytics on `$pageview`.
+`utm_medium` matches the destination (`slack`, `discord`, `microsoft_teams`). For `_spiking` links, drop
+the `fingerprint` and `timestamp` params — spiking events do not carry those properties. The `utm_*`
+tags let the team measure how often issues get clicked from alerts later via product analytics on
+`$pageview`.
