@@ -39,12 +39,14 @@ use crate::{
         endpoint, flag_definitions,
         flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
         flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
+        remote_config,
     },
     cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
     config::{Config, ServiceMode, TeamIdCollection},
     flags::{
         flag_definitions_cache::FlagDefinitionsCache,
         flag_group_type_mapping::GroupTypeCacheManager,
+        flag_payload_decryptor::{FlagPayloadDecryptor, FlagPayloadDecryptorError},
     },
     handler::body_logger::BodyLogger,
     metrics::{
@@ -111,6 +113,10 @@ pub struct State {
     /// Per-team request/response body logging for `/flags`. Refreshed
     /// every ~60s from `posthog_instancesetting`.
     pub body_logger: Arc<BodyLogger>,
+    /// Decrypts encrypted remote-config flag payloads. `None` when no keys are
+    /// configured (e.g. local dev without FLAGS_SECRET_KEYS/SECRET_KEY); in that
+    /// case encrypted payloads cannot be served and the handler errors.
+    pub flag_payload_decryptor: Option<FlagPayloadDecryptor>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -214,6 +220,23 @@ pub fn router(
         .clone()
         .spawn_refresh_task(database_pools.non_persons_reader.clone());
 
+    // Build the remote-config payload decryptor from FLAGS_SECRET_KEYS (or SECRET_KEY
+    // fallback). Malformed keys fail boot loudly (the documented prep trap); a fully
+    // empty config is tolerated (local dev) — encrypted payloads just can't be served.
+    let flag_payload_decryptor = match FlagPayloadDecryptor::from_config(
+        &config.flags_secret_keys,
+        &config.secret_key,
+    ) {
+        Ok(d) => Some(d),
+        Err(FlagPayloadDecryptorError::NoKeys) => {
+            tracing::warn!(
+                    "No FLAGS_SECRET_KEYS or SECRET_KEY configured; encrypted remote config payloads cannot be decrypted"
+                );
+            None
+        }
+        Err(e) => panic!("Invalid FLAGS_SECRET_KEYS configuration: {e}"),
+    };
+
     let state = State {
         redis_client,
         dedicated_redis_client,
@@ -240,6 +263,7 @@ pub fn router(
         auth_token_cache,
         billing_aggregator,
         body_logger,
+        flag_payload_decryptor,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -322,6 +346,16 @@ pub fn router(
             .route(
                 "/api/feature_flag/local_evaluation/",
                 any(flag_definitions::flags_definitions),
+            )
+            // Alias for Django's remote_config endpoint — Contour routes to Rust
+            // without path rewriting (same pattern as local_evaluation).
+            .route(
+                "/api/projects/:project_id/feature_flags/:key/remote_config",
+                any(remote_config::remote_config),
+            )
+            .route(
+                "/api/projects/:project_id/feature_flags/:key/remote_config/",
+                any(remote_config::remote_config),
             );
     }
 

@@ -376,6 +376,16 @@ pub struct Config {
     #[envconfig(default = "")]
     pub behavioral_cohorts_read_database_url: String,
 
+    // Decryption keys for encrypted remote-config flag payloads (comma-separated, ordered:
+    // first encrypts, all decrypt). Empty falls back to SECRET_KEY, matching Django's
+    // FLAGS_SECRET_KEYS default for self-hosted. See flags::flag_payload_decryptor.
+    #[envconfig(from = "FLAGS_SECRET_KEYS", default = "")]
+    pub flags_secret_keys: String,
+
+    // Django SECRET_KEY, used only as the FLAGS_SECRET_KEYS fallback (self-hosted).
+    #[envconfig(from = "SECRET_KEY", default = "")]
+    pub secret_key: String,
+
     // Team-scoped gate for realtime cohort evaluation. When "none" (default), the
     // realtime cohort block in prepare_flag_evaluation_state is skipped entirely, even
     // if the behavioral cohorts DB is configured and cohorts with CohortType::Realtime
@@ -994,6 +1004,8 @@ impl Config {
                 .to_string(),
             behavioral_cohorts_read_database_url:
                 "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
+            flags_secret_keys: String::new(),
+            secret_key: "test-secret-key-at-least-32-bytes-long".to_string(),
             realtime_cohort_evaluation_team_ids: TeamIdCollection::None,
             cohort_membership_cache_ttl_seconds: 60,
             cohort_membership_cache_max_entries: 50_000,
