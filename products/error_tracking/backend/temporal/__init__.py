@@ -8,7 +8,7 @@ from products.error_tracking.backend.temporal.recommendations_refresh import (
     ACTIVITIES as RECOMMENDATIONS_REFRESH_ACTIVITIES,
     WORKFLOWS as RECOMMENDATIONS_REFRESH_WORKFLOWS,
     ErrorTrackingRecommendationsRefreshWorkflow,
-    get_teams_with_recent_exceptions_activity,
+    get_team_batches_activity,
     refresh_recommendations_batch_activity,
 )
 from products.error_tracking.backend.temporal.spike_event_cleanup import (
@@ -46,7 +46,7 @@ __all__ = [
     "ErrorTrackingSymbolSetCleanupWorkflow",
     "cleanup_spike_events_activity",
     "cleanup_symbol_sets_activity",
-    "get_teams_with_recent_exceptions_activity",
+    "get_team_batches_activity",
     "merge_similar_fingerprints_activity",
     "refresh_recommendations_batch_activity",
 ]
