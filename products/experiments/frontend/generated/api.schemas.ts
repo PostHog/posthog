@@ -729,6 +729,10 @@ export type ExperimentSavedMetricsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
 }
 
 export type ExperimentsListParams = {

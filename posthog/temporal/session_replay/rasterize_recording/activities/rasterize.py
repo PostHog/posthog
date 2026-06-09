@@ -4,8 +4,9 @@ from django.db import close_old_connections, transaction
 import structlog
 from temporalio import activity
 
-from posthog.models.exported_asset import ExportedAsset
 from posthog.storage import object_storage
+
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 from ..types import (
     BuildRasterizationResult,

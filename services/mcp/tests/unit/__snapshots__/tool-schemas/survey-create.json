@@ -688,6 +688,11 @@
                             ],
                             "description": "Group type index for group-based feature flags."
                         },
+                        "early_exit": {
+                            "default": false,
+                            "description": "When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups.",
+                            "type": "boolean"
+                        },
                         "feature_enrollment": {
                             "anyOf": [
                                 {

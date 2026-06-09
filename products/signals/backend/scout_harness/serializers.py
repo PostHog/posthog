@@ -12,6 +12,7 @@ from rest_framework import serializers
 
 from posthog.schema import Severity
 
+from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 
 # --- Run history -----------------------------------------------------------
@@ -58,6 +59,21 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "runs that errored before close-out. The dedupe key for non-emitting runs."
         ),
     )
+    emitted_count = serializers.IntegerField(
+        help_text=(
+            "Number of findings this run actually emitted to the inbox. 0 for runs that "
+            "investigated but surfaced nothing, or ran dry-run / before AI approval. "
+            "`> 0` means the run produced at least one `Signal`."
+        ),
+    )
+    emitted_finding_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The `finding_id`s behind `emitted_count`, in emit order. Each maps to a "
+            "`Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for "
+            "non-emitting runs."
+        ),
+    )
 
 
 class SignalScoutRunDetailSerializer(SignalScoutRunSummarySerializer):
@@ -84,6 +100,14 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
     text = serializers.CharField(
         required=False,
         help_text="Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.",
+    )
+    emitted = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Filter by emit outcome. `true` returns only runs that emitted at least one finding "
+            "(`emitted_count > 0`); `false` returns only runs that emitted nothing. Omit for both."
+        ),
     )
     limit = serializers.IntegerField(
         required=False,
@@ -804,3 +828,43 @@ class ProjectProfileSerializer(serializers.Serializer):
     payload = ProjectProfilePayloadSerializer(
         help_text="Structured profile content. v1 has `inventory` only.",
     )
+
+
+# --- Scout config ----------------------------------------------------------
+
+
+class SignalScoutConfigSerializer(serializers.ModelSerializer):
+    """Per-(team, skill) scout config: schedule, enablement, and emit posture.
+
+    One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+    when it discovers a scout skill; this serializer lets agents tune the row.
+    """
+
+    skill_name = serializers.CharField(
+        read_only=True,
+        help_text="The `signals-scout-*` skill this config controls. Set at creation, not editable.",
+    )
+    enabled = serializers.BooleanField(
+        required=False,
+        help_text="Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.",
+    )
+    emit = serializers.BooleanField(
+        required=False,
+        help_text="Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.",
+    )
+    run_interval_minutes = serializers.IntegerField(
+        required=False,
+        min_value=10,
+        max_value=43200,
+        help_text="Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.",
+    )
+    last_run_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the coordinator last dispatched this scout. Null if it has never run.",
+    )
+
+    class Meta:
+        model = SignalScoutConfig
+        fields = ["id", "skill_name", "enabled", "emit", "run_interval_minutes", "last_run_at", "created_at"]
+        read_only_fields = ["id", "created_at"]

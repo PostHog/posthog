@@ -60,7 +60,7 @@ class MultiTurnSession:
         internal: bool = False,
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
     ) -> tuple[MultiTurnSession, _ModelT]:
-        """Start a multi-turn sandbox session and wait for the first response.
+        """Start a multi-turn sandbox session and wait for the first structured response.
 
         `on_task_run_created`, if given, is awaited once the `TaskRun` exists but
         BEFORE the agent's first turn runs. Callers that need a row linked to the
@@ -68,11 +68,54 @@ class MultiTurnSession:
         scout creates its `SignalScoutRun` bridge here so first-turn finding emits
         can resolve the run by id instead of 404ing on a not-yet-created row.
         """
+        session, last_message = await cls.start_raw(
+            prompt=prompt,
+            context=context,
+            branch=branch,
+            step_name=step_name,
+            verbose=verbose,
+            output_fn=output_fn,
+            origin_product=origin_product,
+            signal_report_id=signal_report_id,
+            internal=internal,
+            on_task_run_created=on_task_run_created,
+        )
+        try:
+            parsed = cls._parse_and_validate(last_message, model, label="initial turn")
+        except (Exception, asyncio.CancelledError) as e:
+            # `start()` is about to raise so the caller never receives the session to run its
+            # own teardown. End it here so a first-turn parse failure (or a Temporal timeout,
+            # which raises CancelledError — a BaseException) doesn't leave the run wedged in
+            # IN_PROGRESS. Shield so the failure signal still lands if the cancel re-fires.
+            await asyncio.shield(session.end(status="failed", error=str(e)))
+            raise
+        return session, parsed
+
+    @classmethod
+    async def start_raw(
+        cls,
+        prompt: str,
+        context: CustomPromptSandboxContext,
+        *,
+        branch: str | None = None,
+        step_name: str = "",
+        verbose: bool = False,
+        output_fn: OutputFn = None,
+        origin_product: Task.OriginProduct | None = None,
+        signal_report_id: str | None = None,
+        internal: bool = False,
+        on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
+    ) -> tuple[MultiTurnSession, str]:
+        """Start a multi-turn sandbox session and return the first raw agent response.
+
+        `on_task_run_created`, if given, is awaited once the `TaskRun` exists but
+        BEFORE the agent's first turn runs — see `start` for the rationale.
+        """
         task, task_run = await create_task_and_trigger(
             prompt,
             context,
-            branch,
-            step_name,
+            branch=branch,
+            step_name=step_name,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
             internal=internal,
@@ -111,16 +154,15 @@ class MultiTurnSession:
                 task_run.id,
                 time.monotonic() - started_at,
             )
-            parsed = cls._parse_and_validate(last_message, model, label="initial turn")
         except (Exception, asyncio.CancelledError) as e:
-            # The session + sandbox workflow are already spawned, but `start()` is about to
+            # The session + sandbox workflow are already spawned, but `start_raw()` is about to
             # raise so the caller never receives the session to run its own teardown. End it
-            # here so a first-turn poll/parse failure (or a Temporal timeout, which raises
+            # here so a first-turn poll failure (or a Temporal timeout, which raises
             # CancelledError — a BaseException) doesn't leave the run wedged in IN_PROGRESS.
             # Shield so the failure signal still lands if the cancel re-fires mid-cleanup.
             await asyncio.shield(session.end(status="failed", error=str(e)))
             raise
-        return session, parsed
+        return session, last_message
 
     async def send_followup(
         self,
@@ -129,7 +171,18 @@ class MultiTurnSession:
         *,
         label: str = "",
     ) -> _ModelT:
-        """Send a follow-up message and wait for the agent's next response."""
+        """Send a follow-up message and wait for the agent's next structured response."""
+        last_message = await self.send_followup_raw(message, label=label)
+        parsed = self._parse_and_validate(last_message, model, label=label or "followup")
+        return parsed
+
+    async def send_followup_raw(
+        self,
+        message: str,
+        *,
+        label: str = "",
+    ) -> str:
+        """Send a follow-up message and return the agent's raw response text."""
         if not self._workflow_handle:
             raise RuntimeError("Workflow handle is not available in this session.")
         started_at = time.monotonic()
@@ -151,8 +204,7 @@ class MultiTurnSession:
             label,
             time.monotonic() - started_at,
         )
-        parsed = self._parse_and_validate(last_message, model, label=label or "followup")
-        return parsed
+        return last_message
 
     async def _send_and_poll(self, message: str, *, label: str, attempt: int) -> str | None:
         """Signal the followup and poll for the next turn. Returns None on empty end_turn."""

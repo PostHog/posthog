@@ -596,30 +596,6 @@ export const PersonsFunnelCreateFormat = {
     Json: 'json',
 } as const
 
-export type PersonsFunnelCorrelationRetrieveParams = {
-    format?: PersonsFunnelCorrelationRetrieveFormat
-}
-
-export type PersonsFunnelCorrelationRetrieveFormat =
-    (typeof PersonsFunnelCorrelationRetrieveFormat)[keyof typeof PersonsFunnelCorrelationRetrieveFormat]
-
-export const PersonsFunnelCorrelationRetrieveFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type PersonsFunnelCorrelationCreateParams = {
-    format?: PersonsFunnelCorrelationCreateFormat
-}
-
-export type PersonsFunnelCorrelationCreateFormat =
-    (typeof PersonsFunnelCorrelationCreateFormat)[keyof typeof PersonsFunnelCorrelationCreateFormat]
-
-export const PersonsFunnelCorrelationCreateFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
 export type PersonsLifecycleRetrieveParams = {
     format?: PersonsLifecycleRetrieveFormat
 }

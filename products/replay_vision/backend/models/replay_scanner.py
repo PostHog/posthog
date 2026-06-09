@@ -61,6 +61,13 @@ class ReplayScanner(UUIDModel):
         default=timezone.now,
         help_text="Watermark for the scanner schedule's last fire; mirrors Temporal schedule state for recovery.",
     )
+    last_seen_session_id = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Keyset tiebreaker; set when the last batch saturated so the next sweep resumes past session_end ties.",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")

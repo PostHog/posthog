@@ -531,6 +531,11 @@ class FeatureFlagFiltersSchemaSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.",
     )
+    early_exit = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups.",
+    )
 
 
 property_help_text = "Filter events by event property, person property, cohort, groups and more."

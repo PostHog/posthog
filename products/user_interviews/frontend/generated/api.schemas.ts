@@ -76,6 +76,16 @@ export interface UserInterviewTopicApi {
     agent_context?: string
     /** Ordered list of questions the voice agent should work through during the interview. */
     questions?: string[]
+    /**
+     * Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.
+     * @maxLength 255
+     */
+    invite_subject?: string
+    /**
+     * Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.
+     * @maxLength 1000
+     */
+    invite_message?: string
 }
 
 export interface PaginatedUserInterviewTopicListApi {
@@ -101,6 +111,16 @@ export interface PatchedUserInterviewTopicApi {
     agent_context?: string
     /** Ordered list of questions the voice agent should work through during the interview. */
     questions?: string[]
+    /**
+     * Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.
+     * @maxLength 255
+     */
+    invite_subject?: string
+    /**
+     * Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.
+     * @maxLength 1000
+     */
+    invite_message?: string
 }
 
 export interface IntervieweeIdentifierRequestApi {
@@ -136,7 +156,7 @@ export interface PaginatedInterviewLinkListApi {
 
 export interface SendInvitesRequestApi {
     /**
-     * Override the default email subject line. Defaults to a friendly prompt referencing the topic.
+     * Override the email subject line for this send. Plain text only — URLs, angle brackets, and control characters are rejected. Falls back to the topic's saved subject, then a default.
      * @maxLength 200
      */
     subject?: string
@@ -255,6 +275,17 @@ export interface BulkIntervieweeContextResponseApi {
     skipped_identifiers: string[]
 }
 
+/**
+ * * `abandoned` - Abandoned
+ * `off-topic` - Off-topic
+ */
+export type ClassificationsEnumApi = (typeof ClassificationsEnumApi)[keyof typeof ClassificationsEnumApi]
+
+export const ClassificationsEnumApi = {
+    Abandoned: 'abandoned',
+    OffTopic: 'off-topic',
+} as const
+
 export interface UserInterviewApi {
     readonly id: string
     readonly created_by: UserBasicApi
@@ -265,6 +296,8 @@ export interface UserInterviewApi {
     readonly topic: string | null
     readonly transcript: string
     summary?: string
+    /** Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta. */
+    classifications?: ClassificationsEnumApi[]
     audio: string
 }
 
@@ -287,6 +320,8 @@ export interface PatchedUserInterviewApi {
     readonly topic?: string | null
     readonly transcript?: string
     summary?: string
+    /** Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta. */
+    classifications?: ClassificationsEnumApi[]
     audio?: string
 }
 
@@ -318,6 +353,11 @@ export interface UserInterviewSearchRequestApi {
      * @nullable
      */
     topic_id?: string | null
+    /**
+     * Optional. Restrict results to interviews carrying any of these classifications (OR). Combines with `topic_id` as AND.
+     * @minItems 1
+     */
+    classifications?: ClassificationsEnumApi[]
     /**
      * Maximum number of matches to return (1-50). Defaults to 10. Two matches per interview are possible — one for the transcript, one for the summary.
      * @minimum 1
@@ -376,6 +416,10 @@ export type UserInterviewTopicsIntervieweesListParams = {
 }
 
 export type UserInterviewsListParams = {
+    /**
+     * Comma-separated classifications; returns responses carrying any of them (OR). Valid values: abandoned, off-topic.
+     */
+    classifications?: string
     /**
      * Number of results to return per page.
      */

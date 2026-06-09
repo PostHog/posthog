@@ -1,0 +1,238 @@
+import clsx from 'clsx'
+import React from 'react'
+
+import { IconLock } from '@posthog/icons'
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
+import { GraphsHog } from 'lib/components/hedgehogs'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
+
+export type WidgetCardBodyProps = React.HTMLAttributes<HTMLDivElement> & {
+    locked?: boolean
+    lockedMessage?: string
+    error?: string | null
+    onRefresh?: () => void
+    refreshing?: boolean
+    children?: React.ReactNode
+}
+
+function WidgetCardBodyContent({
+    locked,
+    lockedMessage,
+    error,
+    onRefresh,
+    refreshing,
+    children,
+}: Pick<
+    WidgetCardBodyProps,
+    'locked' | 'lockedMessage' | 'error' | 'onRefresh' | 'refreshing' | 'children'
+>): JSX.Element {
+    if (locked) {
+        return (
+            <WidgetCardBodySlot>
+                <WidgetCardContent>
+                    <WidgetCardBodyMessage variant="locked">{lockedMessage}</WidgetCardBodyMessage>
+                </WidgetCardContent>
+            </WidgetCardBodySlot>
+        )
+    }
+
+    if (error) {
+        return (
+            <WidgetCardBodySlot>
+                <WidgetCardContent>
+                    <WidgetCardBodyMessage variant="error" onRefresh={onRefresh} refreshing={refreshing}>
+                        {error}
+                    </WidgetCardBodyMessage>
+                </WidgetCardContent>
+            </WidgetCardBodySlot>
+        )
+    }
+
+    return <WidgetCardBodySlot>{children}</WidgetCardBodySlot>
+}
+
+export function WidgetCardBody({
+    locked,
+    lockedMessage = 'You do not have access to view this widget.',
+    error,
+    onRefresh,
+    refreshing = false,
+    children,
+    className,
+    ...divProps
+}: WidgetCardBodyProps): JSX.Element {
+    return (
+        <div
+            data-slot="widget-card-body"
+            className={clsx(
+                '@container/widget-card WidgetCard__body flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-4 pt-2',
+                className
+            )}
+            {...divProps}
+        >
+            <WidgetCardBodyContent
+                locked={locked}
+                lockedMessage={lockedMessage}
+                error={error}
+                onRefresh={onRefresh}
+                refreshing={refreshing}
+            >
+                {children}
+            </WidgetCardBodyContent>
+        </div>
+    )
+}
+
+/** Passes flex height from the card shell into widget body content. Scroll lives in `WidgetCardContent`. */
+function WidgetCardBodySlot({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
+}
+
+type WidgetCardBodyMessageProps = {
+    variant?: 'muted' | 'error' | 'locked'
+    onRefresh?: () => void
+    refreshing?: boolean
+    children: React.ReactNode
+}
+
+export function WidgetCardBodyMessage({
+    variant = 'muted',
+    onRefresh,
+    refreshing = false,
+    children,
+}: WidgetCardBodyMessageProps): JSX.Element {
+    let content: React.ReactNode = children
+
+    if (variant === 'locked') {
+        content = (
+            <div
+                className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
+                data-attr="widget-card-body-locked"
+            >
+                <IconLock className="text-4xl text-muted" />
+                <span>{children}</span>
+            </div>
+        )
+    } else if (variant === 'error') {
+        content = (
+            <div
+                className="flex max-w-xs flex-col items-center gap-3 px-2 text-balance"
+                data-attr="widget-card-body-error"
+            >
+                <span>{children}</span>
+                {onRefresh ? (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        data-attr="widget-card-body-refresh"
+                        loading={refreshing}
+                        disabledReason={refreshing ? 'Refreshing…' : undefined}
+                        onClick={onRefresh}
+                    >
+                        Refresh data
+                    </LemonButton>
+                ) : null}
+            </div>
+        )
+    }
+
+    return (
+        <div
+            data-slot="widget-card-body-message"
+            className={clsx(
+                'flex min-h-full w-full items-center justify-center text-center text-sm',
+                variant === 'error' ? 'text-danger' : 'text-muted'
+            )}
+        >
+            {content}
+        </div>
+    )
+}
+
+type WidgetCardBodySkeletonProps = {
+    rowCount?: number
+    className?: string
+}
+
+/** Generic skeleton rows for dashboard widget loading UI. Prefer wrapping in `WidgetLoadingState`. */
+export function WidgetCardBodySkeleton({ rowCount = 4, className }: WidgetCardBodySkeletonProps): JSX.Element {
+    return (
+        <div className={cn('flex flex-col gap-3', className)} aria-busy aria-label="Loading widget">
+            {Array.from({ length: rowCount }, (_, index) => (
+                <div key={index} className="flex flex-col gap-2" aria-hidden>
+                    <LemonSkeleton className="h-4 w-[70%] max-w-md" />
+                    <LemonSkeleton className="h-3 w-full max-w-lg" />
+                    <LemonSkeleton className="h-3 w-[45%] max-w-xs" />
+                </div>
+            ))}
+        </div>
+    )
+}
+
+export type WidgetLoadingStateProps = {
+    /** Custom loading UI. When omitted, renders the generic body skeleton. */
+    children?: React.ReactNode
+    /** Row count for the generic skeleton when `children` is omitted. */
+    rowCount?: number
+    className?: string
+}
+
+/** Centers widget loading UI in the card body. Use from widget components while `loading` is true. */
+export function WidgetLoadingState({ children, rowCount, className }: WidgetLoadingStateProps): JSX.Element {
+    return (
+        <WidgetCardContent>
+            <div data-slot="widget-loading-state" className="flex min-h-min w-full items-center justify-center">
+                {children ?? (
+                    <WidgetCardBodySkeleton rowCount={rowCount} className={clsx('w-full max-w-lg', className)} />
+                )}
+            </div>
+        </WidgetCardContent>
+    )
+}
+
+type WidgetCardContentProps = {
+    children: React.ReactNode
+    footer?: React.ReactNode
+    className?: string
+}
+
+/** Scrollable widget body — use for all tile content (lists, setup prompts, empty states). */
+export function WidgetCardContent({ children, footer, className }: WidgetCardContentProps): JSX.Element {
+    return (
+        <div data-slot="widget-card-content" className={clsx('flex min-h-0 min-w-0 flex-1 flex-col gap-2', className)}>
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">{children}</div>
+            {footer ? (
+                <div className="flex shrink-0 justify-center pt-0.5" data-slot="widget-card-content-footer">
+                    {footer}
+                </div>
+            ) : null}
+        </div>
+    )
+}
+
+export type WidgetCardSharedPlaceholderCopy = {
+    title: string
+    message: string
+}
+
+/** Shared/public dashboard placeholder when live widget data is not loaded. */
+export function WidgetCardSharedPlaceholderBody({ copy }: { copy: WidgetCardSharedPlaceholderCopy }): JSX.Element {
+    return (
+        <WidgetCardBody>
+            <WidgetCardContent>
+                <WidgetCardBodyMessage>
+                    <div
+                        className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
+                        data-attr="shared-dashboard-widget-placeholder"
+                    >
+                        <GraphsHog className="size-20 shrink-0" />
+                        <p className="m-0 text-base font-semibold text-primary">{copy.title}</p>
+                        <p className="m-0 text-sm text-muted">{copy.message}</p>
+                    </div>
+                </WidgetCardBodyMessage>
+            </WidgetCardContent>
+        </WidgetCardBody>
+    )
+}

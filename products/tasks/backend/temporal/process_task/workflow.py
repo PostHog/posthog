@@ -121,6 +121,16 @@ _PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT = "tasks-ci-follow-up-pr-context"
 # which workflow task records it. Same two-step lifecycle as above.
 _PATCH_ID_FOLLOWUP_QUEUE = "tasks-follow-up-message-queue"
 
+# #60923 dropped the redundant slack post that ran immediately after sandbox
+# provisioning — between `_get_sandbox_for_repository` and the agent-start
+# progress emit. Pre-rollout histories scheduled a `post_slack_update` activity
+# at that point, so removing it unconditionally broke replay of in-flight
+# workflows with TMPRL1100: the next command (`emit_progress_activity`) no
+# longer matched the recorded `post_slack_update` event. Gate the removal —
+# post-rollout executions skip the call, replays of older histories still
+# schedule it. Same two-step cleanup lifecycle as the patches above.
+_PATCH_ID_DROP_SLACK_POST_AFTER_PROVISIONING = "tasks-drop-slack-post-after-provisioning"
+
 
 def _deprecate_ci_follow_up_pr_context_patch() -> None:
     workflow.deprecate_patch(_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT)
@@ -387,7 +397,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # if sandbox_output.should_create_snapshot and self.context.repository and self.context.github_integration_id:
             #     await self._trigger_snapshot_workflow()
 
-            await self._post_slack_update()
+            # See `_PATCH_ID_DROP_SLACK_POST_AFTER_PROVISIONING`: only replays of
+            # pre-rollout histories still post here; new executions skip the
+            # redundant update to keep determinism for in-flight workflows.
+            if not workflow.patched(_PATCH_ID_DROP_SLACK_POST_AFTER_PROVISIONING):
+                await self._post_slack_update()
 
             # Start agent-server for direct connection from PostHog Code
             await self._emit_progress("agent", "in_progress", "Starting agent", "setup")

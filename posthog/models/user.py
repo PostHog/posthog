@@ -1,8 +1,9 @@
 from collections.abc import Callable
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, Any, NoReturn, Optional, TypedDict, cast
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.core.management.base import CommandError
 from django.db import models, transaction
 from django.utils.translation import gettext_lazy as _
 
@@ -114,6 +115,22 @@ class UserManager(BaseUserManager):
             user.set_password(password)
         user.save()
         return user
+
+    def create_superuser(self, *args: Any, **kwargs: Any) -> NoReturn:
+        # PostHog has no superuser concept — the `is_superuser` field was removed in 2020 (PR #2026)
+        # and `User.is_superuser` is now a read-only alias for `is_staff`. Django's `createsuperuser`
+        # command calls this method, so we shadow it here to fail with guidance instead of a confusing
+        # `AttributeError`. (We can't override the command itself: `django.contrib.auth` is listed
+        # before `posthog` in INSTALLED_APPS, so its `createsuperuser` always wins resolution.)
+        raise CommandError(
+            "PostHog doesn't support `createsuperuser`. There's no superuser concept here — "
+            "`is_superuser` is a read-only alias for `is_staff`.\n\n"
+            "To set up a local admin instead:\n\n"
+            "  • Demo environment:  python manage.py generate_demo_data\n"
+            "  • Existing account:  sign up in the web app, then grant staff access:\n"
+            '      python manage.py shell -c "from posthog.models import User; '
+            "u = User.objects.get(email='you@example.com'); u.is_staff = True; u.save()\""
+        )
 
     def bootstrap(
         self,

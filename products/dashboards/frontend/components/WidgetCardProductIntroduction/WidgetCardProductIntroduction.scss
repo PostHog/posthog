@@ -1,0 +1,64 @@
+// ProductIntroduction uses viewport `md:` breakpoints. Remap layout to the widget-card
+// container so setup prompts stack in narrow tiles and go horizontal when the tile is wide.
+.WidgetCardProductIntroduction {
+    [data-attr^='product-introduction'] > div {
+        flex-direction: column;
+        gap: 1rem;
+        align-items: center;
+
+        > div:first-child {
+            display: flex;
+            justify-content: center;
+            width: 100%;
+
+            > div {
+                margin-bottom: 1rem;
+
+                @container widget-card (min-width: 36rem) {
+                    margin-bottom: 0;
+                }
+            }
+
+            @container widget-card (min-width: 36rem) {
+                width: auto;
+            }
+        }
+
+        > div:last-child {
+            width: 100%;
+            text-align: center;
+
+            > div:last-child {
+                justify-content: center;
+
+                @container widget-card (min-width: 36rem) {
+                    justify-content: flex-start;
+                }
+            }
+
+            @container widget-card (min-width: 36rem) {
+                text-align: left;
+            }
+        }
+
+        @container widget-card (min-width: 36rem) {
+            flex-direction: row;
+            gap: 2rem;
+        }
+    }
+
+    // Dashboard widget setup prompts: stay stacked even in wide tiles.
+    &--stacked {
+        [data-attr^='product-introduction'] > div {
+            flex-direction: column !important;
+
+            @container widget-card (min-width: 36rem) {
+                flex-direction: column !important;
+            }
+        }
+
+        .flex.flex-wrap.gap-2 {
+            justify-content: center;
+        }
+    }
+}

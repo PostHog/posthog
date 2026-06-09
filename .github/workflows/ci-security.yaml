@@ -16,7 +16,7 @@ env:
 jobs:
     semgrep-python:
         runs-on: ubuntu-latest
-        timeout-minutes: 15
+        timeout-minutes: 30
         container:
             image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
@@ -44,7 +44,7 @@ jobs:
 
     semgrep-go:
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 10
         container:
             image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
@@ -68,7 +68,7 @@ jobs:
 
     semgrep-rust:
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 10
         container:
             image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
@@ -94,7 +94,7 @@ jobs:
 
     semgrep-js:
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        timeout-minutes: 20
         container:
             image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
@@ -117,7 +117,7 @@ jobs:
 
     semgrep-products-frontend:
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        timeout-minutes: 20
         container:
             image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
@@ -153,7 +153,7 @@ jobs:
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        timeout-minutes: 20
         container:
             image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
@@ -196,7 +196,7 @@ jobs:
     # See `.semgrep/devex-rules/README.md`.
     semgrep-devex:
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        timeout-minutes: 20
         container:
             image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
@@ -230,7 +230,7 @@ jobs:
 
     semgrep-test-rules:
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 10
         container:
             image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 

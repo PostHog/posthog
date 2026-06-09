@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    HogFlowsBatchJobsListParams,
     HogFlowsCreateBody,
     HogFlowsInvocationsCreateBody,
     HogFlowsInvocationsCreateParams,
@@ -14,6 +15,8 @@ import {
     HogFlowsPartialUpdateBody,
     HogFlowsPartialUpdateParams,
     HogFlowsRetrieveParams,
+    HogFlowsSchedulesPartialUpdateBody,
+    HogFlowsSchedulesPartialUpdateParams,
 } from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -156,6 +159,24 @@ const workflowsList = (): ToolBase<typeof WorkflowsListSchema, WithPostHogUrl<Sc
         },
     })
 
+const WorkflowsListBatchJobsSchema = HogFlowsBatchJobsListParams.omit({ project_id: true })
+
+const workflowsListBatchJobs = (): ToolBase<
+    typeof WorkflowsListBatchJobsSchema,
+    WithPostHogUrl<Schemas.HogFlowBatchJob[]>
+> => ({
+    name: 'workflows-list-batch-jobs',
+    schema: WorkflowsListBatchJobsSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsListBatchJobsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.HogFlowBatchJob[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/batch_jobs/`,
+        })
+        return await withPostHogUrl(context, result, '/pipeline/destinations')
+    },
+})
+
 const WorkflowsRunSchema = HogFlowsInvocationsCreateParams.omit({ project_id: true }).extend(
     HogFlowsInvocationsCreateBody.shape
 )
@@ -228,12 +249,45 @@ const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUr
         },
     })
 
+const WorkflowsUpdateScheduleSchema = HogFlowsSchedulesPartialUpdateParams.omit({ project_id: true }).extend(
+    HogFlowsSchedulesPartialUpdateBody.shape
+)
+
+const workflowsUpdateSchedule = (): ToolBase<typeof WorkflowsUpdateScheduleSchema, Schemas.HogFlowSchedule> => ({
+    name: 'workflows-update-schedule',
+    schema: WorkflowsUpdateScheduleSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsUpdateScheduleSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.rrule !== undefined) {
+            body['rrule'] = params.rrule
+        }
+        if (params.starts_at !== undefined) {
+            body['starts_at'] = params.starts_at
+        }
+        if (params.timezone !== undefined) {
+            body['timezone'] = params.timezone
+        }
+        if (params.variables !== undefined) {
+            body['variables'] = params.variables
+        }
+        const result = await context.api.request<Schemas.HogFlowSchedule>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/schedules/${encodeURIComponent(String(params.schedule_id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'hog-flows-logs-retrieve': hogFlowsLogsRetrieve,
     'hog-flows-metrics-retrieve': hogFlowsMetricsRetrieve,
     'workflows-create': workflowsCreate,
     'workflows-get': workflowsGet,
     'workflows-list': workflowsList,
+    'workflows-list-batch-jobs': workflowsListBatchJobs,
     'workflows-run': workflowsRun,
     'workflows-update': workflowsUpdate,
+    'workflows-update-schedule': workflowsUpdateSchedule,
 }

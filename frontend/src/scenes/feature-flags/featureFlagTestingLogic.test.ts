@@ -201,6 +201,36 @@ describe('featureFlagTestingLogic', () => {
         })
     })
 
+    describe('setSelectedPerson', () => {
+        it.each([
+            {
+                description: 'stores a full person (from Persons tab)',
+                person: { name: 'Jane Doe', uuid: 'uuid-abc', distinct_ids: ['user-123'] },
+                expected: { name: 'Jane Doe', uuid: 'uuid-abc', distinct_ids: ['user-123'] },
+            },
+            {
+                description: 'stores a partial person (from recent tab — name only, no uuid or distinct_ids)',
+                person: { name: 'Jane Doe' },
+                expected: { name: 'Jane Doe' },
+            },
+        ])('$description', async ({ person, expected }) => {
+            await expectLogic(logic, () => {
+                logic.actions.setSelectedPerson(person)
+            }).toMatchValues({ selectedPerson: expected })
+        })
+    })
+
+    describe('hasValidPerson selector', () => {
+        it.each([
+            { description: 'is true when distinct_id is set', formData: { distinct_id: 'user-123' }, expected: true },
+            { description: 'is false when distinct_id is empty', formData: {}, expected: false },
+        ])('$description', async ({ formData, expected }) => {
+            await expectLogic(logic, () => {
+                logic.actions.setTestFormData(formData)
+            }).toMatchValues({ hasValidPerson: expected })
+        })
+    })
+
     describe('errorDisplay selector', () => {
         const errorTestCases = [
             {
@@ -258,6 +288,38 @@ describe('featureFlagTestingLogic', () => {
         })
     })
 
+    describe('testFlagEvaluation person identifier', () => {
+        it.each([
+            {
+                description: 'sends distinct_id when set',
+                formData: { distinct_id: 'user-123', timestamp: '', groups: '' },
+                expectedBody: { distinct_id: 'user-123' },
+            },
+            {
+                description: 'omits distinct_id when empty',
+                formData: { distinct_id: '', timestamp: '', groups: '' },
+                expectedBody: {},
+            },
+        ])('$description', async ({ formData, expectedBody }) => {
+            let capturedBody: Record<string, any> = {}
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/1/test_evaluation': async (req) => {
+                        capturedBody = await req.json()
+                        return [200, {}]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.testFlagEvaluation({ flagId: 1, formData })
+            }).toFinishAllListeners()
+
+            expect(capturedBody).toMatchObject(expectedBody)
+            expect(capturedBody).not.toHaveProperty('person_id')
+        })
+    })
+
     describe('groups validation through testFlagEvaluation', () => {
         it.each([
             { description: 'valid object succeeds', groups: '{"team": "backend"}', expectedError: null },
@@ -279,7 +341,7 @@ describe('featureFlagTestingLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.testFlagEvaluation({
                     flagId: 1,
-                    formData: { person_id: 'p1', timestamp: '', groups },
+                    formData: { distinct_id: 'p1', timestamp: '', groups },
                 })
             }).toFinishAllListeners()
 

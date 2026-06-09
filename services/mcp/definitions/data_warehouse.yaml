@@ -93,8 +93,14 @@ tools:
     external-data-sources-bulk-update-schemas-partial-update:
         operation: external_data_sources_bulk_update_schemas_partial_update
         enabled: false
+    external-data-sources-cdc-status-retrieve:
+        operation: external_data_sources_cdc_status_retrieve
+        enabled: false
     external-data-sources-check-cdc-prerequisites-create:
         operation: external_data_sources_check_cdc_prerequisites_create
+        enabled: false
+    external-data-sources-check-cdc-prerequisites-for-source-create:
+        operation: external_data_sources_check_cdc_prerequisites_for_source_create
         enabled: false
     external-data-sources-connections-list:
         operation: external_data_sources_connections_list
@@ -113,6 +119,12 @@ tools:
         enabled: false
     external-data-sources-destroy:
         operation: external_data_sources_destroy
+        enabled: false
+    external-data-sources-disable-cdc-create:
+        operation: external_data_sources_disable_cdc_create
+        enabled: false
+    external-data-sources-enable-cdc-create:
+        operation: external_data_sources_enable_cdc_create
         enabled: false
     external-data-sources-jobs-retrieve:
         operation: external_data_sources_jobs_retrieve
@@ -140,6 +152,9 @@ tools:
         enabled: false
     external-data-sources-update:
         operation: external_data_sources_update
+        enabled: false
+    external-data-sources-update-cdc-settings-create:
+        operation: external_data_sources_update_cdc_settings_create
         enabled: false
     external-data-sources-update-webhook-inputs-create:
         operation: external_data_sources_update_webhook_inputs_create

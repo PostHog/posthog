@@ -40,7 +40,7 @@ from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_h
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.user_devices import set_known_device_cookie
-from posthog.models import Cohort, Team, User
+from posthog.models import Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
@@ -53,6 +53,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import _is_valid_ip_address, get_ip_address
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
@@ -1189,6 +1190,8 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     # for a data warehouse schema. Validates external credentials and lists schemas
     # against the customer's source — no PostHog-side mutations.
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/external_data_schemas/[^/]+/incremental_fields/?$"),
+    # POST but read-only: kicks off insight/dashboard/session replay export renders (e.g. MP4)
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/exports/?$"),
     # Allow upgrading from read-only to read-write impersonation
     "/admin/impersonation/upgrade/",
     # Logout is POST in Django 5; the frontend submits to `/logout` (no trailing slash),

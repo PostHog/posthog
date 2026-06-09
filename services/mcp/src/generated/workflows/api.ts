@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -360,6 +360,15 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Workflow vars (key, type, default). Total <5KB.'),
 })
 
+export const HogFlowsBatchJobsListParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
 export const HogFlowsInvocationsCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
@@ -456,4 +465,35 @@ export const HogFlowsMetricsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         ),
     kind: zod.string().min(1).optional().describe("Comma-separated metric kinds to filter by, e.g. 'success,failure'."),
     name: zod.string().min(1).optional().describe('Comma-separated metric names to filter by.'),
+})
+
+export const HogFlowsSchedulesPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this hog flow.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    schedule_id: zod.string(),
+})
+
+export const hogFlowsSchedulesPartialUpdateBodyTimezoneMax = 64
+
+export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    rrule: zod
+        .string()
+        .optional()
+        .describe(
+            "iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour."
+        ),
+    starts_at: zod.iso.datetime({ offset: true }).optional().describe('ISO 8601 datetime the schedule starts from.'),
+    timezone: zod
+        .string()
+        .max(hogFlowsSchedulesPartialUpdateBodyTimezoneMax)
+        .optional()
+        .describe("IANA timezone for interpreting the RRULE (default 'UTC')."),
+    variables: zod
+        .unknown()
+        .optional()
+        .describe('Variable value overrides merged with the workflow defaults on each run.'),
 })

@@ -15,6 +15,7 @@ import pytest
 
 from hogli_commands.workflow_lint.check import CheckResult, WorkflowCheck
 from hogli_commands.workflow_lint.checks import CHECKS, _build_lookup, get_check
+from hogli_commands.workflow_lint.checks.checkout_full_depth import CheckoutFullDepthCheck
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
@@ -518,6 +519,184 @@ class TestSemgrepServicesCoverageCheck:
         [issue] = SemgrepServicesCoverageCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
         assert issue.workflow == "ci-security.yaml"
         assert "services/worker/" in issue.message
+
+
+# ---------------------------------------------------------------------------
+# CheckoutFullDepthCheck
+# ---------------------------------------------------------------------------
+
+
+class TestCheckoutFullDepthCheck:
+    def test_passes_default_checkout(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: x
+            on: [pull_request]
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - uses: actions/checkout@v6
+            """,
+        )
+        assert CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_passes_blobless_full_depth_checkout(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: x
+            on: [pull_request]
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - uses: actions/checkout@v6
+                    with:
+                      fetch-depth: 0
+                      filter: blob:none
+            """,
+        )
+        assert CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_passes_sparse_full_depth_checkout(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: x
+            on: [pull_request]
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - uses: actions/checkout@v6
+                    with:
+                      fetch-depth: 0
+                      sparse-checkout: |
+                        rust/
+                        proto/
+            """,
+        )
+        assert CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_passes_explicit_allow_marker_with_reason(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: x
+            on: [push]
+            jobs:
+              mirror:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  # hogli-lint: allow-full-depth-checkout -- mirror needs full blobs
+                  - name: Checkout mirror
+                    uses: "actions/checkout@v6"
+                    with:
+                      fetch-depth: 0
+            """,
+        )
+        assert CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_fails_full_depth_without_optimization(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: x
+            on: [pull_request]
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - uses: actions/checkout@v6
+                    with:
+                      fetch-depth: "0"
+            """,
+        )
+        [issue] = CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues
+        assert issue.workflow == "wf.yml"
+        assert issue.job == "build"
+        assert "fetch-depth: 0" in issue.message
+
+    def test_allow_marker_requires_reason(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: x
+            on: [push]
+            jobs:
+              mirror:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  # hogli-lint: allow-full-depth-checkout
+                  - uses: actions/checkout@v6
+                    with:
+                      fetch-depth: 0
+            """,
+        )
+        [issue] = CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues
+        assert "allow-full-depth-checkout" in issue.message
+
+    def test_allow_marker_does_not_apply_to_previous_checkout(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: x
+            on: [push]
+            jobs:
+              mirror:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - uses: "actions/checkout@v6"
+                    with:
+                      fetch-depth: 0
+
+                  # hogli-lint: allow-full-depth-checkout -- mirror needs full blobs
+                  - uses: actions/checkout@v6
+                    with:
+                      fetch-depth: 0
+            """,
+        )
+        [issue] = CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues
+        assert issue.step == "step[0]"
+        assert "fetch-depth: 0" in issue.message
+
+    def test_passes_filter_combined_with_sparse_checkout(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: x
+            on: [pull_request]
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - uses: actions/checkout@v6
+                    with:
+                      fetch-depth: 0
+                      filter: blob:none
+                      sparse-checkout: |
+                        rust/
+            """,
+        )
+        assert CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues == []
 
 
 # ---------------------------------------------------------------------------

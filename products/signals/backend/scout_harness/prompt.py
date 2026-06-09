@@ -94,6 +94,25 @@ When you call `signals-scout-emit-signal`:
 - Stay in scope: emits are tied to your own run; scratchpad entries are scoped
   to this team and durable.
 
+# Report operational friction
+
+You run this tooling end to end on a schedule, so your experience is how PostHog
+makes the scout system better over time. If something gets in your way as you
+work — a tool you needed was missing, a tool returned wrong, confusing, or
+unusable data, an error you couldn't recover from, the project profile lacked
+something you expected, or these instructions sent you down the wrong path —
+proactively report it via the `agent-feedback` MCP tool when it's available to
+you this run.
+
+- Report problems, not praise. Skip it for smooth, routine runs — "everything
+  worked" reports are noise we can't act on.
+- Be concrete and actionable: quote the exact tool name, parameter, or error
+  text, and name the single change that would fix it.
+- This is a side report to the PostHog team, not a way to end your turn or skip
+  work. Submit it at most once near close-out when warranted, then finish the
+  run (emit / remember / summary) exactly as you would otherwise.
+- Never put customer PII or sensitive query content in a feedback field.
+
 # Output format
 
 Respond at end_turn with a single JSON object matching this schema:

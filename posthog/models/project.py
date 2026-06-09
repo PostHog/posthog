@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Optional, cast
 from django.core.validators import MinLengthValidator
 from django.db import models, transaction
 
-from posthog.models.utils import sane_repr
+from posthog.models.utils import UpdatedMetaFields, sane_repr
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -34,7 +34,7 @@ class ProjectManager(models.Manager):
             return project, team
 
 
-class Project(models.Model):
+class Project(UpdatedMetaFields):
     id = models.BigIntegerField(primary_key=True, verbose_name="ID")  # Same as Team.id field
     organization = models.ForeignKey(
         "posthog.Organization",

@@ -4,7 +4,7 @@ from django.db import connection
 
 from temporalio import activity
 
-from posthog.models import ExportedAsset, ObjectMediaPreview
+from posthog.models import ObjectMediaPreview
 from posthog.sync import database_sync_to_async
 from posthog.tasks.exporter import export_asset_direct
 from posthog.temporal.common.clickhouse import get_client as get_ch_client
@@ -17,6 +17,8 @@ from posthog.temporal.event_screenshots.types import (
     TakeEventScreenshotInput,
     TakeEventScreenshotResult,
 )
+
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 LOGGER = get_write_only_logger()
 

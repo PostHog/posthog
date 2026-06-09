@@ -502,7 +502,7 @@ export const featureFlagsBulkDeleteCreate = async (
     })
 }
 
-export const getFeatureFlagsBulkKeysCreateUrl = (projectId: string) => {
+export const getFeatureFlagsBulkKeysRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/feature_flags/bulk_keys/`
 }
 
@@ -510,12 +510,12 @@ export const getFeatureFlagsBulkKeysCreateUrl = (projectId: string) => {
  * Get feature flag keys by IDs.
 Accepts a list of feature flag IDs and returns a mapping of ID to key.
  */
-export const featureFlagsBulkKeysCreate = async (
+export const featureFlagsBulkKeysRetrieve = async (
     projectId: string,
     bulkKeysRequestApi?: BulkKeysRequestApi,
     options?: RequestInit
 ): Promise<BulkKeysResponseApi> => {
-    return apiMutator<BulkKeysResponseApi>(getFeatureFlagsBulkKeysCreateUrl(projectId), {
+    return apiMutator<BulkKeysResponseApi>(getFeatureFlagsBulkKeysRetrieveUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

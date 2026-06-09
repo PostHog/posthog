@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -9,6 +9,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, LLMTrace, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
 
 import { SortDirection, SortState, aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
+import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
 import type { aiObservabilityGenerationsLogicType } from './aiObservabilityGenerationsLogicType'
 
 export interface AIObservabilityGenerationsLogicProps {
@@ -33,7 +34,9 @@ export function getDefaultGenerationsColumns(showSentiment: boolean = false, sho
 
 export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tabs', 'aiObservabilityGenerationsLogic']),
-    key((props: AIObservabilityGenerationsLogicProps) => props.tabId || 'default'),
+    // Intentionally not keyed by tabId: the in-app multi-tab feature was removed, so tabId is now a
+    // fresh random id per page load. Keying by it would make the persisted column selection's
+    // localStorage key change on every refresh, losing the user's choice.
     props({} as AIObservabilityGenerationsLogicProps),
     connect((props: AIObservabilityGenerationsLogicProps) => ({
         values: [
@@ -59,7 +62,7 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
         clearExpandedGenerations: true,
     }),
 
-    reducers({
+    reducers(() => ({
         generationsQueryOverride: [
             null as DataTableNode | null,
             {
@@ -69,7 +72,7 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
 
         generationsColumns: [
             null as string[] | null,
-            { persist: true },
+            buildAiObservabilityStorageConfig('generations.columns'),
             {
                 setGenerationsColumns: (_, { columns }) => columns,
             },
@@ -118,7 +121,7 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
                 applyUrlState: () => ({}),
             },
         ],
-    }),
+    })),
 
     listeners(({ actions, values }) => ({
         toggleGenerationExpanded: async ({ uuid, traceId }) => {
@@ -156,48 +159,12 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
             (override, defQuery) => override || defQuery,
         ],
 
-        // Ensure feature-flag-gated columns are present in persisted column sets.
-        // Without this, users who visited the page before a flag was enabled would
-        // never see the new column because their persisted selection takes priority.
-        effectiveGenerationsColumns: [
-            (s) => [s.generationsColumns, s.featureFlags],
-            (generationsColumns, featureFlags): string[] | null => {
-                if (!generationsColumns) {
-                    return null
-                }
-
-                let columns = generationsColumns
-
-                const sentimentCol = "'' -- Sentiment"
-                if (!!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] && !columns.includes(sentimentCol)) {
-                    // Insert after person column, or before Model
-                    const modelIdx = columns.findIndex((c) => c.includes('ai_model'))
-                    columns =
-                        modelIdx >= 0
-                            ? [...columns.slice(0, modelIdx), sentimentCol, ...columns.slice(modelIdx)]
-                            : [...columns, sentimentCol]
-                }
-
-                const toolsCol = 'properties.$ai_tools_called'
-                if (!!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB] && !columns.includes(toolsCol)) {
-                    // Insert before the Error column, or at the end
-                    const errorIdx = columns.findIndex((c) => c.includes('ai_is_error'))
-                    columns =
-                        errorIdx >= 0
-                            ? [...columns.slice(0, errorIdx), toolsCol, ...columns.slice(errorIdx)]
-                            : [...columns, toolsCol]
-                }
-
-                return columns
-            },
-        ],
-
         defaultGenerationsQuery: [
             (s) => [
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
-                s.effectiveGenerationsColumns,
+                s.generationsColumns,
                 s.generationsSort,
                 s.groupsTaxonomicTypes,
                 s.featureFlags,
@@ -206,7 +173,7 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
                 dateFilter,
                 shouldFilterTestAccounts,
                 propertyFilters,
-                effectiveGenerationsColumns,
+                generationsColumns,
                 generationsSort,
                 groupsTaxonomicTypes,
                 featureFlags
@@ -216,7 +183,7 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
                     kind: NodeKind.EventsQuery,
                     limit: 100,
                     select:
-                        effectiveGenerationsColumns ||
+                        generationsColumns ||
                         getDefaultGenerationsColumns(
                             !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
                             !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]

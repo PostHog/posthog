@@ -1,7 +1,8 @@
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
+import { normalizeMessages } from './messageNormalization'
 import { CompatMessage } from './types'
-import { extractTextContent, hasStringContentField, normalizeMessages, readAiInput } from './utils'
+import { extractTextContent, hasStringContentField, readAiInput } from './utils'
 
 const GENERIC_TRACE_NAMES = new Set(['langgraph', 'runnablesequence', 'chatprompttemplate'])
 
