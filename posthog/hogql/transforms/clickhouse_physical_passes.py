@@ -328,9 +328,12 @@ def _substitute_value_read(node: ast.JSONFieldAccess, context: HogQLContext) -> 
 
 # --- comparison rewrites: keep the bare column eligible for skip indexes -----------------------------------------------
 #
-# When a comparison has a backed property on one side, rewrite it to compare against the bare materialized column or
-# property-group map access, so ClickHouse can answer it from a skip index. The rewritten form uses only ordinary HogQL
-# functions and parameterized constants. The bar is the same results and the same index eligibility, not the same SQL.
+# By default a property comparison reads the materialized column wrapped in null-scrubbing functions
+# (replaceRegexpAll(nullIf(nullIf(...)))). ClickHouse can't use the column's skip index through that wrapping, so it
+# scans every row. When one side of a comparison is a property with a materialized column (or a property-group map
+# entry), these rewrites rebuild the comparison against the bare column instead, restoring the empty/null handling
+# inline so the rows are unchanged. The bare column is index-eligible, so ClickHouse can skip granules. Success means the
+# same rows and a usable skip index — not SQL that matches the old printer.
 
 
 def _call(name: str, args: list[ast.Expr]) -> ast.Call:
