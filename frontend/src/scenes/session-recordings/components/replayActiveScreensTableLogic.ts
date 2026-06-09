@@ -1,4 +1,4 @@
-import { defaults, kea, key, path, props } from 'kea'
+import { actions, defaults, isBreakpoint, kea, key, path, props, reducers } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -15,10 +15,21 @@ export const replayActiveScreensTableLogic = kea<replayActiveScreensTableLogicTy
     path(['scenes', 'session-recordings', 'components', 'replayActiveScreensTableLogic']),
     props({} as ReplayActiveScreensTableLogicProps),
     key((props) => props.scene || 'default'),
+    actions({
+        setCountedScreensError: (hasError: boolean) => ({ hasError }),
+    }),
     defaults({
         countedScreens: [] as { screen: string; count: number }[],
     }),
-    lazyLoaders(() => ({
+    reducers({
+        countedScreensError: [
+            false,
+            {
+                setCountedScreensError: (_, { hasError }) => hasError,
+            },
+        ],
+    }),
+    lazyLoaders(({ actions }) => ({
         countedScreens: {
             loadCountedScreens: async (_, breakpoint): Promise<{ screen: string; count: number }[]> => {
                 const q = hogql`
@@ -40,16 +51,28 @@ export const replayActiveScreensTableLogic = kea<replayActiveScreensTableLogicTy
             LIMIT 10
                 `
 
-                const qResponse = await api.queryHogQL(q, { scene: 'Replay', productKey: 'session_replay' })
+                try {
+                    const qResponse = await api.queryHogQL(q, { scene: 'Replay', productKey: 'session_replay' })
 
-                breakpoint()
+                    breakpoint()
 
-                return (qResponse.results || []).map((row) => {
-                    return {
-                        screen: row[0] as string,
-                        count: row[1] as number,
+                    actions.setCountedScreensError(false)
+                    return (qResponse.results || []).map((row) => {
+                        return {
+                            screen: row[0] as string,
+                            count: row[1] as number,
+                        }
+                    }) as { screen: string; count: number }[]
+                } catch (e: any) {
+                    // a breakpoint cancellation means a newer load superseded this one, let it propagate
+                    if (isBreakpoint(e)) {
+                        throw e
                     }
-                }) as { screen: string; count: number }[]
+                    // the count query can time out or be rejected when ClickHouse is busy,
+                    // degrade to an empty/error state rather than an uncaught exception
+                    actions.setCountedScreensError(true)
+                    return []
+                }
             },
         },
     })),

@@ -234,6 +234,16 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
         }, 'tick')
         cache.disposables.add(() => {
             const id = window.setInterval(() => {
+                // The kea-disposables plugin pauses timers when the tab is hidden and
+                // re-creates them on resume. That re-created interval can fire during a
+                // window where the connected wizardSessionStreamLogic has been torn down
+                // (e.g. the FAB unmounting after a feature-flag re-evaluation). Reading a
+                // value off an unmounted logic throws
+                // `[KEA] Can not find path "...wizardSessionStreamLogic..." in the store.`,
+                // so bail out unless the stream logic is currently mounted.
+                if (!wizardSessionStreamLogic.findMounted({ workflowId: WORKFLOW_ID })) {
+                    return
+                }
                 // Heartbeat: if the log has gone quiet for HEARTBEAT_QUIET_THRESHOLD_MS
                 // while the wizard is still running, append a "still working" line so
                 // the panel never looks frozen.

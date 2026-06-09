@@ -1,7 +1,7 @@
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
+from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
@@ -24,6 +24,20 @@ class ScrollDepthCheck(HealthCheck):
     policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
     schedule = "0 1 * * *"
     active_since_days = 30
+    remediation = Remediation(
+        human="""
+            Open the Web analytics health page. Scroll depth is collected automatically by posthog-js as
+            part of $pageleave when autocapture is enabled, so the usual fix is to update to a recent
+            posthog-js version and make sure autocapture (and DOM / scroll tracking) hasn't been disabled.
+        """,
+        agent="""
+            Use `execute-sql` to inspect a recent $pageleave event's properties and confirm the scroll
+            fields are missing. Then fix it in the user's codebase: bump posthog-js to a recent version and
+            check the `posthog.init` config doesn't disable autocapture or DOM/scroll tracking. Use
+            `docs-search` for scroll-depth / autocapture configuration. Once posthog-js starts sending
+            scroll metadata, the issue clears on the next check run.
+        """,
+    )
 
     @classmethod
     def render_alert(cls, issue: HealthIssue) -> AlertContent:
