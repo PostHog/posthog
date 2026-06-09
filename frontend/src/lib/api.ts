@@ -6618,6 +6618,33 @@ const api = {
             return new ApiRequest().conversation(conversationId).withAction('sandbox').create({ data })
         },
 
+        /**
+         * First message of a NEW sandbox conversation. The `/sandbox/` routing endpoint requires an
+         * existing conversation row, but a new conversation isn't created until its first message —
+         * so the first turn goes through the conversation-create endpoint with `is_sandbox: true`,
+         * which creates the conversation and routes to `handle_sandbox_message`, returning the same
+         * run IDs (not an SSE stream). Read them directly so the frontend can bootstrap the sandbox
+         * stream. Follow-ups use `sandbox()`. See 02_CORE.md §§ 3, 4.
+         */
+        async sandboxCreate(data: {
+            content: string
+            conversation: string
+            trace_id: string
+            attached_context?: AttachedContext[]
+        }): Promise<{
+            task_id: string
+            run_id: string
+            trace_id: string
+            run_status: 'queued' | 'in_progress'
+            just_created_run: boolean
+        }> {
+            const response = await api.createResponse(new ApiRequest().conversations().assembleFullUrl(), {
+                ...data,
+                is_sandbox: true,
+            })
+            return response.json()
+        },
+
         cancel(conversationId: string): Promise<void> {
             return new ApiRequest().conversation(conversationId).withAction('cancel').update()
         },

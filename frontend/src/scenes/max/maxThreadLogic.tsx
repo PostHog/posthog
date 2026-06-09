@@ -162,6 +162,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['featureFlags'],
             sceneLogic,
             ['sceneId'],
+            // Mounts the sandbox attachment store so its `attachments` are readable at send time
+            // even when no context-chip UI is rendered (a fresh conversation never mounts it itself).
+            posthogAiContextLogic,
+            ['attachments as sandboxAttachments'],
         ],
         actions: [
             maxLogic({ panelId }),
@@ -178,6 +182,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ],
             maxGlobalLogic,
             ['loadConversation'],
+            // Pulling the action in (rather than calling sandboxStreamLogic.actions.* directly) mounts
+            // the logic as a dependency, so its listeners actually run. SandboxThread only mounts it
+            // while a sandbox conversation is rendered — too late for the first message of a new one.
+            sandboxStreamLogic,
+            ['openSseForRun as openSandboxSse'],
         ],
     })),
 
@@ -629,19 +638,33 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.addMessage(message)
             }
 
-            // Sandbox runtime: POST the non-streaming /sandbox/ routing endpoint, then hand the SSE
-            // connection off to sandboxStreamLogic. The LangGraph EventSource loop below is never
-            // entered for sandbox conversations. See 02_CORE.md § 7.1.
-            if (values.conversation?.agent_runtime === 'sandbox') {
+            // Sandbox runtime: route the message to a non-streaming products/tasks Run, then hand the
+            // SSE connection off to sandboxStreamLogic. The LangGraph EventSource loop below is never
+            // entered for sandbox conversations. See 02_CORE.md §§ 4, 7.1.
+            //
+            // An *existing* sandbox conversation (`agent_runtime === 'sandbox'`) uses the dedicated
+            // `/sandbox/` routing endpoint. A *brand-new* conversation has no row yet — it's created
+            // lazily on the first message — so `agent_runtime` isn't known here; we detect the
+            // `is_sandbox` flag and let the conversation-create endpoint create it + return the run
+            // IDs as JSON (both endpoints return the identical { task_id, run_id, just_created_run }).
+            const isExistingSandboxConversation = values.conversation?.agent_runtime === 'sandbox'
+            if (isExistingSandboxConversation || isSandbox) {
                 try {
                     const conversationId = values.conversation?.id || values.conversationId
                     if (conversationId && streamData.content) {
-                        const { task_id, run_id, just_created_run } = await api.conversations.sandbox(conversationId, {
-                            content: streamData.content,
-                            trace_id: traceId,
-                            attached_context: posthogAiContextLogic.values.attachments,
-                        })
-                        sandboxStreamLogic.actions.openSseForRun({
+                        const { task_id, run_id, just_created_run } = isExistingSandboxConversation
+                            ? await api.conversations.sandbox(conversationId, {
+                                  content: streamData.content,
+                                  trace_id: traceId,
+                                  attached_context: values.sandboxAttachments,
+                              })
+                            : await api.conversations.sandboxCreate({
+                                  conversation: conversationId,
+                                  content: streamData.content,
+                                  trace_id: traceId,
+                                  attached_context: values.sandboxAttachments,
+                              })
+                        actions.openSandboxSse({
                             taskId: task_id,
                             runId: run_id,
                             // Fresh runs need everything from the top; follow-ups resume from latest.
