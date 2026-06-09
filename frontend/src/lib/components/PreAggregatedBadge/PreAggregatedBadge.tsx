@@ -42,7 +42,7 @@ function PrecomputedTooltip(): JSX.Element {
                 Loaded from a pre-computed roll-up dataset — freshly recomputed by our new query engine instead of
                 running a live query.
             </span>
-            <span>It should be very close to live data, typically within ~1%, but isn't guaranteed to be exact.</span>
+            <span>It should be very close to live data, but isn't guaranteed to be exact.</span>
             <span>
                 <Link to={QUERY_ENGINE_DOCS_URL}>Learn more</Link>
                 {' · '}
