@@ -90,6 +90,10 @@ describe('toolbar toolbarAuth', () => {
             await withTokenRefresh(original, () => Promise.resolve({ status: 200 } as Response))
 
             expect(capturedContexts()).toContain('token_refresh_retry')
+            // The catch block surfaces the re-auth toast and clears the token for every error,
+            // expected or not — assert it here too so neither gets accidentally scoped later.
+            expect(lemonToast.error).toHaveBeenCalled()
+            expect(toolbarConfigLogic.values.accessToken).toBeNull()
         })
     })
 })
