@@ -116,11 +116,11 @@ export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
 }
 
 const INTERVAL_UNIT_TO_DAYJS_FORMAT_SHORT: Record<IntervalType, string> = {
-    second: 'D MMM HH:mm:ss',
-    minute: 'D MMM HH:mm',
-    hour: 'D MMM HH:00',
-    day: 'D MMM',
-    week: 'D MMM',
+    second: 'D MMM HH:mm:ss',
+    minute: 'D MMM HH:mm',
+    hour: 'D MMM HH:00',
+    day: 'D MMM',
+    week: 'D MMM',
     month: 'MMM',
 }
 
@@ -128,20 +128,20 @@ const INTERVAL_UNIT_TO_DAYJS_FORMAT_SHORT: Record<IntervalType, string> = {
  * Format a date range
  */
 function formatDateRange(startDate: dayjs.Dayjs, endDate: dayjs.Dayjs, short = false): string {
-    const yearSuffix = short ? '' : ' YYYY'
+    const yearSuffix = short ? '' : ' YYYY'
 
     // Same year and month
     if (startDate.month() === endDate.month() && startDate.year() === endDate.year()) {
-        return `${startDate.format('D')}-${endDate.format(`D MMM${yearSuffix}`)}`
+        return `${startDate.format('D')}-${endDate.format(`D MMM${yearSuffix}`)}`
     }
 
     // Same year but different months
     if (startDate.year() === endDate.year()) {
-        return `${startDate.format('D MMM')} - ${endDate.format(`D MMM${yearSuffix}`)}`
+        return `${startDate.format('D MMM')} - ${endDate.format(`D MMM${yearSuffix}`)}`
     }
 
     // Different years
-    return `${startDate.format(`D MMM${yearSuffix}`)} - ${endDate.format(`D MMM${yearSuffix}`)}`
+    return `${startDate.format(`D MMM${yearSuffix}`)} - ${endDate.format(`D MMM${yearSuffix}`)}`
 }
 
 export function getFormattedDate(input?: string | number, options?: FormattedDateOptions): string {
