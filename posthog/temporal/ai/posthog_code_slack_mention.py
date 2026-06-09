@@ -163,9 +163,10 @@ class PostHogCodeSlackMentionWorkflowInputs:
     slack_team_id: str
     # Event that dispatched the workflow
     slack_event_id: str | None = None
-    # PostHog user resolved at routing time. ``None`` only on workflow histories
-    # started before this field existed — those replay through the legacy
-    # in-workflow resolve activity. New starts always populate it.
+    # Resolved at routing time. ``None`` only on in-flight workflow histories
+    # started before this field existed; those fall back to the in-workflow
+    # resolve activity below. Remove the fallback (and this field's optionality)
+    # once the workflow history retention window has elapsed.
     user_id: int | None = None
 
 
@@ -283,18 +284,20 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if followup_handled:
                 return
 
-            # Histories started before ``user_id`` was added to inputs replay
-            # through the legacy activity so the recorded ScheduleActivityTask
-            # still matches the workflow's command stream. New starts carry the
-            # id and skip the activity.
-            if inputs.user_id is None:
+            # New starts carry ``user_id`` from routing-time resolution and skip
+            # the activity. Legacy histories started before the field existed
+            # deserialize with ``user_id=None`` and replay through the activity so
+            # the recorded command stream still matches. Drop this fallback (and
+            # make ``user_id`` required on inputs) once the workflow history
+            # retention window has elapsed.
+            if inputs.user_id is not None:
+                user_id = inputs.user_id
+            else:
                 user_id = await _execute_posthog_code_activity(
                     resolve_posthog_code_slack_user_activity, inputs, channel, thread_ts, slack_user_id
                 )
                 if not user_id:
                     return
-            else:
-                user_id = inputs.user_id
 
             thread_messages = await _execute_posthog_code_activity(
                 collect_posthog_code_thread_messages_activity,

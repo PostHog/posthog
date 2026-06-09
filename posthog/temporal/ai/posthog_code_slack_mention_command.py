@@ -21,9 +21,10 @@ class PostHogCodeSlackMentionCommandWorkflowInputs:
     event: dict[str, Any]
     integration_ids: list[int]
     slack_team_id: str
-    # PostHog user resolved at routing time. ``None`` only on workflow histories
-    # started before this field existed — those replay through the legacy
-    # in-workflow resolve activity. New starts always populate it.
+    # Resolved at routing time. ``None`` only on in-flight workflow histories
+    # started before this field existed; those fall back to the in-workflow
+    # resolve activity below. Remove the fallback (and this field's optionality)
+    # once the workflow history retention window has elapsed.
     user_id: int | None = None
 
 
@@ -80,11 +81,15 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
             post_posthog_code_repo_picker_activity,
         )
 
-        # Histories started before ``user_id`` was added to inputs replay
-        # through the legacy activity so the recorded ScheduleActivityTask
-        # still matches the workflow's command stream. New starts carry the
-        # id and skip the activity.
-        if inputs.user_id is None:
+        # New starts carry ``user_id`` from routing-time resolution and skip the
+        # activity. Legacy histories started before the field existed deserialize
+        # with ``user_id=None`` and replay through the activity so the recorded
+        # command stream still matches. Drop this fallback (and make ``user_id``
+        # required on inputs) once the workflow history retention window has
+        # elapsed.
+        if inputs.user_id is not None:
+            user_id = inputs.user_id
+        else:
             user_id = await workflow.execute_activity(
                 resolve_posthog_code_slack_command_user_activity,
                 args=[inputs],
@@ -93,8 +98,6 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
             )
             if user_id is None:
                 return
-        else:
-            user_id = inputs.user_id
 
         result = await workflow.execute_activity(
             handle_posthog_code_slack_mention_command_activity,
