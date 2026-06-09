@@ -35,6 +35,7 @@ from posthog.models.integration import (
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     Integration,
+    MetaAdsIntegration,
     OauthIntegration,
     PostgreSQLIntegration,
     SlackIntegration,
@@ -452,11 +453,27 @@ class TestOauthIntegrationModel(BaseTest):
         assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
         assert integration.sensitive_config["refresh_token"] == expected_refresh_token
 
+    @parameterized.expand(
+        [
+            # A non-200 status with a JSON error body.
+            ("error_status", 401, {"error": "BROKEN"}, None),
+            # A non-JSON body (empty response, HTML error page, gateway error) — res.json() raises.
+            ("non_json_body", 502, None, ValueError("Expecting value: line 1 column 1 (char 0)")),
+        ]
+    )
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
-    def test_refresh_access_token_handles_errors(self, mock_post, mock_reload):
-        mock_post.return_value.status_code = 401
-        mock_post.return_value.json.return_value = {"error": "BROKEN"}
+    def test_refresh_access_token_handles_failures(
+        self, _name, status_code, json_value, json_error, mock_post, mock_reload
+    ):
+        # Both a non-200 status and a non-JSON body must route into the graceful
+        # TOKEN_REFRESH_FAILED path rather than crashing the request.
+        mock_post.return_value.status_code = status_code
+        if json_error is not None:
+            mock_post.return_value.json.side_effect = json_error
+        else:
+            mock_post.return_value.json.return_value = json_value
+        mock_post.return_value.text = "<html><body>error</body></html>"
 
         integration = self.create_integration(kind="hubspot", config={"expires_in": 1000, "refreshed_at": 1700000000})
 
@@ -470,26 +487,27 @@ class TestOauthIntegrationModel(BaseTest):
 
         mock_reload.assert_not_called()
 
-    @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
-    def test_refresh_access_token_handles_non_json_response(self, mock_post, mock_reload):
-        # Token endpoint returns a non-JSON body (empty response, HTML error page). The decode
-        # must not crash the request — it should route into the graceful failure path instead.
+    def test_meta_ads_refresh_access_token_handles_non_json_response(self, mock_post):
+        # The Meta token-exchange endpoint can also return a non-JSON body — the decode must
+        # not crash the request, it should land in the graceful TOKEN_REFRESH_FAILED path.
         mock_post.return_value.status_code = 502
         mock_post.return_value.json.side_effect = ValueError("Expecting value: line 1 column 1 (char 0)")
         mock_post.return_value.text = "<html><body>502 Bad Gateway</body></html>"
 
-        integration = self.create_integration(kind="hubspot", config={"expires_in": 1000, "refreshed_at": 1700000000})
+        integration = self.create_integration(
+            kind="meta-ads",
+            config={"expires_in": 1000, "refreshed_at": 1700000000},
+            sensitive_config={"access_token": "STALE_ACCESS_TOKEN"},
+        )
 
         with freeze_time("2024-01-01T14:00:00Z"):
-            with self.settings(**self.mock_settings):
-                OauthIntegration(integration).refresh_access_token()
+            with self.settings(
+                META_ADS_APP_CLIENT_ID="meta-client-id", META_ADS_APP_CLIENT_SECRET="meta-client-secret"
+            ):
+                MetaAdsIntegration(integration).refresh_access_token()
 
-        assert integration.config["expires_in"] == 1000
-        assert integration.config["refreshed_at"] == 1700000000
         assert integration.errors == "TOKEN_REFRESH_FAILED"
-
-        mock_reload.assert_not_called()
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
