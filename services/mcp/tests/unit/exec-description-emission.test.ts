@@ -10,9 +10,10 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js'
-import { track } from '@posthog/mcp-analytics'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
+
+import { instrument } from '@posthog/mcp-analytics'
 
 import { createExecInnerToolCallResolver, createExecTool } from '@/tools/exec'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
@@ -77,11 +78,7 @@ async function buildExecHarness(allTools: Tool<ZodObjectAny>[]): Promise<ExecHar
 
     const resolveExecInnerToolCall = createExecInnerToolCallResolver(allTools)
 
-    track(server, {
-        apiKey: 'phc_test',
-        posthogClient: makeStubPostHogClient(events),
-        posthogOptions: { flushAt: 1, flushInterval: 0, host: 'https://test.posthog.com' },
-        enableTracing: true,
+    instrument(server, makeStubPostHogClient(events) as never, {
         eventProperties: (request) => {
             const innerCall = resolveExecInnerToolCall(request)
             return innerCall
@@ -143,7 +140,7 @@ describe('$mcp_exec_tool_call_* end-to-end', () => {
                 CallToolResultSchema
             )
 
-            const toolCallEvent = await waitForEvent(events, (e) => e.event === 'mcp_tool_call')
+            const toolCallEvent = await waitForEvent(events, (e) => e.event === '$mcp_tool_call')
 
             expect(toolCallEvent, 'mcp_tool_call event should be captured').not.toBeUndefined()
             expect(toolCallEvent?.properties.$mcp_tool_name).toBe('exec')
@@ -175,7 +172,7 @@ describe('$mcp_exec_tool_call_* end-to-end', () => {
                 CallToolResultSchema
             )
 
-            const toolCallEvent = await waitForEvent(events, (e) => e.event === 'mcp_tool_call')
+            const toolCallEvent = await waitForEvent(events, (e) => e.event === '$mcp_tool_call')
 
             expect(toolCallEvent).not.toBeUndefined()
             expect(toolCallEvent?.properties).not.toHaveProperty('$mcp_exec_tool_call_name')

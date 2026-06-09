@@ -29,7 +29,7 @@ vi.mock('@/resources/ui-apps', async (importOriginal) => {
 vi.mock('@/resources/ui-apps.generated', async (importOriginal) => importOriginal())
 
 vi.mock('@posthog/mcp-analytics', () => ({
-    track: vi.fn(),
+    instrument: vi.fn(),
 }))
 
 // Mock template imports that may not exist

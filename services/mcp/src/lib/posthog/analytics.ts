@@ -208,10 +208,6 @@ export async function buildEventProperties(identity: IdentityProvider): Promise<
     }
 }
 
-export function redactSensitiveInformation(text: string): string {
-    return text.replace(/Bearer\s?[\w\-.]+/g, '<redacted>')
-}
-
 export async function initMcpAnalytics(
     server: McpServer,
     identity: IdentityProvider,
@@ -228,20 +224,30 @@ export async function initMcpAnalytics(
     }
 
     try {
-        const { track } = await import('@posthog/mcp-analytics') // Import only if needed
+        const { instrument } = await import('@posthog/mcp-analytics') // Import only if needed
         const distinctId = await identity.getDistinctId()
 
-        track(server, {
-            posthogClient: getPostHogClient(),
+        // `@posthog/mcp` 0.1.x: `instrument(server, posthogClient, options)` returns an
+        // analytics handle (we don't need it — custom events go through `trackEvent`).
+        // Dropped vs the old `track()` API: `enableTracing` (always on now),
+        // `enableAITracing`/`$ai_span` (removed upstream), and `eventTags`
+        // (folded into `eventProperties` below). `redactSensitiveInformation` is
+        // gone too — the SDK captures tool args/results, not transport auth headers,
+        // so there's nowhere for the Bearer token to leak; re-add via `beforeSend`
+        // if a tool ever surfaces credentials in its payload.
+        instrument(server, getPostHogClient(), {
             context: options.contextEnabled,
-            enableAITracing: true,
             enableConversationId: false,
-            enableTracing: true,
-            identify: { userId: distinctId },
+            identify: { distinctId },
             reportMissing: options.reportMissingEnabled,
-            eventTags: () => buildEventTags(identity),
             eventProperties: async (request) => {
-                const base = await buildEventProperties(identity)
+                // Merge the session tags ($session_id / $ai_session_id) the old
+                // `eventTags` hook used to provide — the new SDK has a single
+                // per-request property hook.
+                const [base, sessionTags] = await Promise.all([
+                    buildEventProperties(identity),
+                    buildEventTags(identity),
+                ])
                 const innerToolCall = options.resolveExecInnerToolCall?.(request)
                 const isListToolsRequest =
                     (request as { method?: unknown })?.method === 'tools/list' &&
@@ -250,6 +256,7 @@ export async function initMcpAnalytics(
 
                 return {
                     ...base,
+                    ...sessionTags,
                     ...(innerToolCall
                         ? {
                               $mcp_exec_tool_call_name: innerToolCall.name,
@@ -261,7 +268,6 @@ export async function initMcpAnalytics(
                         : {}),
                 }
             },
-            redactSensitiveInformation: (text) => Promise.resolve(redactSensitiveInformation(text)),
         })
 
         return { action: 'initialized' }

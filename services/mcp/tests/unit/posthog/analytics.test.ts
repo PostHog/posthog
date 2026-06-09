@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { env } from 'cloudflare:workers'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { track } from '@posthog/mcp-analytics'
+import { instrument } from '@posthog/mcp-analytics'
 
 import { buildMCPAnalyticsGroups, buildMCPContextProperties, type MCPAnalyticsContext } from '@/lib/posthog/analytics'
 import { initMcpAnalytics, type IdentityProvider } from '@/lib/posthog/analytics'
@@ -64,7 +64,7 @@ describe('buildMCPContextProperties', () => {
 
 describe('initMcpAnalytics', () => {
     beforeEach(() => {
-        vi.mocked(track).mockClear()
+        vi.mocked(instrument).mockClear()
         env.POSTHOG_ANALYTICS_API_KEY = TEST_API_KEY
         env.POSTHOG_ANALYTICS_HOST = TEST_HOST
     })
@@ -96,34 +96,29 @@ describe('initMcpAnalytics', () => {
         }
     }
 
-    function getTrackOptions(): {
-        identify: { userId: string }
-        eventTags: () => Promise<Record<string, string>>
+    function getInstrumentOptions(): {
+        identify: { distinctId: string }
         eventProperties: (request?: unknown) => Promise<Record<string, unknown>>
     } {
-        const call = vi.mocked(track).mock.calls[0]!
-        return call[1] as {
-            identify: { userId: string }
-            eventTags: () => Promise<Record<string, string>>
+        const call = vi.mocked(instrument).mock.calls[0]!
+        return call[2] as {
+            identify: { distinctId: string }
             eventProperties: (request?: unknown) => Promise<Record<string, unknown>>
         }
     }
 
-    it('calls PostHog MCP analytics track with safe defaults', async () => {
+    it('calls PostHog MCP analytics instrument with safe defaults', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
         const result = await initMcpAnalytics(server, identity)
 
-        expect(track).toHaveBeenCalledWith(
+        expect(instrument).toHaveBeenCalledWith(
             server,
+            expect.any(Object) /* posthog client */,
             expect.objectContaining({
-                posthogClient: expect.any(Object),
                 context: false,
-                enableAITracing: true,
-                enableTracing: true,
-                identify: expect.objectContaining({ userId: expect.any(String) }),
-                eventTags: expect.any(Function),
+                identify: expect.objectContaining({ distinctId: expect.any(String) }),
                 eventProperties: expect.any(Function),
                 reportMissing: false,
             })
@@ -140,11 +135,11 @@ describe('initMcpAnalytics', () => {
             reportMissingEnabled: false,
         })
 
-        expect(track).toHaveBeenCalledWith(
+        expect(instrument).toHaveBeenCalledWith(
             server,
+            expect.any(Object) /* posthog client */,
             expect.objectContaining({
                 context: true,
-                enableAITracing: true,
                 reportMissing: false,
             })
         )
@@ -160,8 +155,9 @@ describe('initMcpAnalytics', () => {
             reportMissingEnabled: true,
         })
 
-        expect(track).toHaveBeenCalledWith(
+        expect(instrument).toHaveBeenCalledWith(
             server,
+            expect.any(Object) /* posthog client */,
             expect.objectContaining({
                 reportMissing: true,
             })
@@ -178,7 +174,7 @@ describe('initMcpAnalytics', () => {
 
             const result = await initMcpAnalytics(server, identity)
 
-            expect(track).not.toHaveBeenCalled()
+            expect(instrument).not.toHaveBeenCalled()
             expect(result).toMatchObject({ action: 'skipped', reason: 'missing_config' })
         }
     )
@@ -189,22 +185,21 @@ describe('initMcpAnalytics', () => {
 
         await initMcpAnalytics(server, identity)
 
-        expect(getTrackOptions().identify).toEqual({ userId: 'user-123' })
+        expect(getInstrumentOptions().identify).toEqual({ distinctId: 'user-123' })
     })
 
-    it('eventTags callback returns $session_id and $ai_session_id when available', async () => {
+    it('eventProperties includes $session_id and $ai_session_id when session uuid is available', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
         await initMcpAnalytics(server, identity)
 
-        expect(await getTrackOptions().eventTags()).toEqual({
-            $session_id: 'session-uuid-456',
-            $ai_session_id: 'session-uuid-456',
-        })
+        const props = await getInstrumentOptions().eventProperties()
+        expect(props.$session_id).toBe('session-uuid-456')
+        expect(props.$ai_session_id).toBe('session-uuid-456')
     })
 
-    it('eventTags callback returns empty when session uuid is undefined', async () => {
+    it('eventProperties omits $session_id and $ai_session_id when session uuid is undefined', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity({
             getSessionUuid: vi.fn().mockResolvedValue(undefined),
@@ -212,7 +207,9 @@ describe('initMcpAnalytics', () => {
 
         await initMcpAnalytics(server, identity)
 
-        expect(await getTrackOptions().eventTags()).toEqual({})
+        const props = await getInstrumentOptions().eventProperties()
+        expect(props.$session_id).toBeUndefined()
+        expect(props.$ai_session_id).toBeUndefined()
     })
 
     it('eventProperties callback returns PostHog MCP context properties', async () => {
@@ -221,7 +218,9 @@ describe('initMcpAnalytics', () => {
 
         await initMcpAnalytics(server, identity)
 
-        expect(await getTrackOptions().eventProperties()).toEqual({
+        expect(await getInstrumentOptions().eventProperties()).toEqual({
+            $session_id: 'session-uuid-456',
+            $ai_session_id: 'session-uuid-456',
             $ai_product: 'mcp',
             $mcp_version: 2,
             $mcp_client_user_agent: 'test-agent/1.0',
@@ -281,7 +280,7 @@ describe('initMcpAnalytics', () => {
         })
 
         const fakeRequest = { params: { name: 'exec', arguments: { command: 'call execute-sql {}' } } }
-        const properties = await getTrackOptions().eventProperties(fakeRequest)
+        const properties = await getInstrumentOptions().eventProperties(fakeRequest)
 
         expect(resolveExecInnerToolCall).toHaveBeenCalledWith(fakeRequest)
         for (const [key, value] of Object.entries(expectedProperties)) {
@@ -300,7 +299,7 @@ describe('initMcpAnalytics', () => {
 
         await initMcpAnalytics(server, identity)
 
-        const properties = await getTrackOptions().eventProperties({
+        const properties = await getInstrumentOptions().eventProperties({
             params: { name: 'exec', arguments: { command: 'call execute-sql {}' } },
         })
 
@@ -320,7 +319,7 @@ describe('initMcpAnalytics', () => {
         })
 
         const listRequest = { method: 'tools/list', params: {} }
-        const properties = await getTrackOptions().eventProperties(listRequest)
+        const properties = await getInstrumentOptions().eventProperties(listRequest)
 
         expect(properties.$mcp_exec_inner_tool_names).toEqual(execInnerToolNames)
         // Other inner-call properties should be absent since this isn't a `call` request.
@@ -341,7 +340,7 @@ describe('initMcpAnalytics', () => {
             method: 'tools/call',
             params: { name: 'exec', arguments: { command: 'call execute-sql {}' } },
         }
-        const properties = await getTrackOptions().eventProperties(callRequest)
+        const properties = await getInstrumentOptions().eventProperties(callRequest)
 
         expect(properties).not.toHaveProperty('$mcp_exec_inner_tool_names')
     })
@@ -356,7 +355,7 @@ describe('initMcpAnalytics', () => {
             execInnerToolNames: [],
         })
 
-        const properties = await getTrackOptions().eventProperties({ method: 'tools/list', params: {} })
+        const properties = await getInstrumentOptions().eventProperties({ method: 'tools/list', params: {} })
 
         expect(properties).not.toHaveProperty('$mcp_exec_inner_tool_names')
     })
@@ -369,17 +368,17 @@ describe('initMcpAnalytics', () => {
 
         await initMcpAnalytics(server, identity)
 
-        const properties = await getTrackOptions().eventProperties()
+        const properties = await getInstrumentOptions().eventProperties()
         expect(properties.$groups).toBeUndefined()
         expect(properties.$mcp_organization_id).toBeUndefined()
         expect(properties.$mcp_project_uuid).toBeUndefined()
     })
 
-    it('swallows errors if PostHog MCP analytics track throws', async () => {
+    it('swallows errors if PostHog MCP analytics instrument throws', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        vi.mocked(track).mockImplementationOnce(() => {
+        vi.mocked(instrument).mockImplementationOnce(() => {
             throw new Error('PostHog MCP analytics init failed')
         })
 
@@ -393,6 +392,6 @@ describe('initMcpAnalytics', () => {
         })
 
         await expect(initMcpAnalytics(server, identity)).resolves.toMatchObject({ action: 'failed' })
-        expect(track).not.toHaveBeenCalled()
+        expect(instrument).not.toHaveBeenCalled()
     })
 })
