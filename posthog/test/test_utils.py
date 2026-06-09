@@ -1,5 +1,7 @@
+import os
 import json
 import base64
+import tempfile
 from datetime import datetime, timedelta
 from typing import Any, cast
 from zoneinfo import ZoneInfo
@@ -12,7 +14,7 @@ from unittest.mock import call, patch
 from django.core.cache import cache
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.test.client import RequestFactory
 
 from parameterized import parameterized
@@ -22,6 +24,7 @@ from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallba
 from posthog.models import EventDefinition, GroupTypeMapping
 from posthog.settings.utils import get_from_env
 from posthog.utils import (
+    GenericEmails,
     PotentialSecurityProblemException,
     absolute_uri,
     base64_decode,
@@ -1059,3 +1062,44 @@ class TestTemplateContextHistogram(TestCase):
             get_context_for_template("index.html", request)
 
         assert self._count_for_labels("index.html", expected_label) == before + 1
+
+
+class TestGenericEmailsEncoding(SimpleTestCase):
+    # Regression guard for the Python 3.13 / nginx-unit incident that broke project creation.
+    # Every POST /api/projects/ reaches GenericEmails via get_or_create_internal_test_users_cohort,
+    # which read posthog/helpers/generic_emails.txt with open() and no explicit encoding. Under
+    # nginx unit's embedded libpython the default text encoding is ASCII (PEP 538/540 locale
+    # coercion only runs for the python CLI, not an embedded interpreter), so a non-ASCII byte in
+    # the file raised UnicodeDecodeError and the request 500'd. CI and the e2e harness never caught
+    # it because they launch Python via the CLI, where the C locale is coerced to UTF-8. We model
+    # that ASCII-default runtime in-process here so the read is exercised the way production hit it.
+
+    def _ascii_default_open(self, real_open):
+        def opener(file, mode="r", *args, encoding=None, **kwargs):
+            if encoding is None and "b" not in mode:
+                encoding = "ascii"
+            return real_open(file, mode, *args, encoding=encoding, **kwargs)
+
+        return opener
+
+    def test_reads_non_ascii_domains_when_default_encoding_is_ascii(self) -> None:
+        with tempfile.NamedTemporaryFile("wb", suffix=".txt", delete=False) as f:
+            # "münchen-test.de" — ü is 0xc3 0xbc in UTF-8, undecodable as ASCII, just like the
+            # non-breaking space that shipped in generic_emails.txt during the incident.
+            f.write("gmail.com\nmünchen-test.de\n".encode())
+            emails_path = f.name
+        self.addCleanup(os.unlink, emails_path)
+
+        with (
+            patch("posthog.utils.get_absolute_path", return_value=emails_path),
+            patch("builtins.open", side_effect=self._ascii_default_open(open)),
+        ):
+            generic_emails = GenericEmails()
+
+        self.assertTrue(generic_emails.is_generic("someone@münchen-test.de"))
+
+    def test_shipped_generic_emails_file_loads_under_ascii_default(self) -> None:
+        with patch("builtins.open", side_effect=self._ascii_default_open(open)):
+            generic_emails = GenericEmails()
+
+        self.assertTrue(generic_emails.is_generic("someone@gmail.com"))
