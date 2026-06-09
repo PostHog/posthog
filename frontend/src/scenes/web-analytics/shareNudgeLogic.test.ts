@@ -32,6 +32,9 @@ describe('shareNudgeLogic', () => {
         if (logic?.isMounted()) {
             logic.unmount()
         }
+        // Restore unconditionally so a failing assertion can't leave a spied-on
+        // `document.addEventListener` patched for later test files.
+        jest.restoreAllMocks()
     })
 
     it('selects the prompt variant only when the org has colleagues', async () => {
@@ -46,7 +49,7 @@ describe('shareNudgeLogic', () => {
     // the store path is gone and `cache.disposables` is null. The handlers must stay safe.
     it('does not throw when the captured global handlers fire after unmount', () => {
         const captured: Record<string, (event: any) => void> = {}
-        const addSpy = jest.spyOn(document, 'addEventListener').mockImplementation((type, handler) => {
+        jest.spyOn(document, 'addEventListener').mockImplementation((type, handler) => {
             captured[type] = handler as (event: any) => void
         })
 
@@ -63,7 +66,5 @@ describe('shareNudgeLogic', () => {
         const fakeMouseEvent = { target: null, clientX: 10, clientY: 20 }
         expect(() => captured.mousemove(fakeMouseEvent)).not.toThrow()
         expect(() => captured.mouseup(fakeMouseEvent)).not.toThrow()
-
-        addSpy.mockRestore()
     })
 })
