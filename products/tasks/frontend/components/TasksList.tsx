@@ -28,7 +28,7 @@ import { TaskStatusBadge } from './TaskStatusBadge'
 import { UserFilter } from './UserFilter'
 
 export function TasksList(): JSX.Element {
-    const { searchQuery, repository, status, showInternal, isStaff, isCreateModalOpen } =
+    const { searchQuery, repository, status, showInternal, isStaff, isCreateModalOpen, hasDraftTask } =
         useValues(taskTrackerSceneLogic)
     const { tasks, tasksLoading, repositories } = useValues(tasksLogic)
     const { setSearchQuery, setRepository, setStatus, setShowInternal, openCreateModal, closeCreateModal } =
@@ -150,7 +150,18 @@ export function TasksList(): JSX.Element {
                         />
                     )}
                 </div>
-                <LemonButton type="primary" icon={<IconPlus />} onClick={openCreateModal}>
+                <LemonButton
+                    type="primary"
+                    icon={<IconPlus />}
+                    onClick={openCreateModal}
+                    sideIcon={
+                        hasDraftTask ? (
+                            <LemonTag type="completion" size="small">
+                                Draft
+                            </LemonTag>
+                        ) : undefined
+                    }
+                >
                     New task
                 </LemonButton>
             </div>

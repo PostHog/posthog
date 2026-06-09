@@ -123,6 +123,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
 
     selectors({
         isStaff: [(s) => [s.user], (user): boolean => user?.is_staff ?? false],
+        // True when the create-task form holds unsubmitted text, so the "New task" button can
+        // surface a draft signal once the modal is closed without submitting.
+        hasDraftTask: [(s) => [s.newTaskData], (newTaskData): boolean => newTaskData.description.trim().length > 0],
         // All filters are pushed down to the backend via `loadTasks(listParams)` so results are
         // not limited by list pagination. The scene renders `tasks` (the loader output) directly.
         listParams: [

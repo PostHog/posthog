@@ -14,7 +14,9 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
     const { submitNewTask, resetNewTaskData, setNewTaskData } = useActions(taskTrackerSceneLogic)
     const { newTaskData, isSubmittingTask } = useValues(taskTrackerSceneLogic)
 
-    const handleCancel = (): void => {
+    // Soft-closing the modal (X, click outside, escape) keeps the typed text so it surfaces as a
+    // draft on the "New task" button. "Cancel" is the explicit discard path that clears it.
+    const handleDiscard = (): void => {
         resetNewTaskData()
         onClose()
     }
@@ -22,12 +24,12 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
     return (
         <LemonModal
             isOpen={isOpen}
-            onClose={handleCancel}
+            onClose={onClose}
             title="Create new task"
             width={800}
             footer={
                 <div className="flex gap-2">
-                    <LemonButton type="secondary" onClick={handleCancel}>
+                    <LemonButton type="secondary" onClick={handleDiscard}>
                         Cancel
                     </LemonButton>
                     <LemonButton type="primary" onClick={submitNewTask} loading={isSubmittingTask}>
