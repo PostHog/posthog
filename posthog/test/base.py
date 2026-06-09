@@ -269,6 +269,10 @@ def clean_varying_query_parts(query, replace_all_numbers):
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
     query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
 
+    # cohort-save advisory lock embeds the per-project id (second arg, varies every run) alongside a
+    # stable namespace constant; normalize only the project id so the lock stays in the snapshot.
+    query = re.sub(r"pg_advisory_xact_lock\(\s*(-?\d+)\s*,\s*\d+\s*\)", r"pg_advisory_xact_lock(\1, 99999)", query)
+
     # session_recording_linked_flag embeds feature flag IDs in JSON, normalize them
     query = re.sub(
         r"""session_recording_linked_flag" @> '{"id": \d+}'::jsonb""",

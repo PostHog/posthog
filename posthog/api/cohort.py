@@ -643,6 +643,15 @@ class CohortSerializer(serializers.ModelSerializer):
                 "Invalid source for static cohort. Requires criteria, a csv, feature flag, existing cohort or query."
             )
 
+    def _project_id(self) -> int:
+        """Project id for advisory-lock keying and the project-wide loop check. Prefers the cached
+        `get_team` from the standard viewset, but falls back to `team_id` since some callers (e.g. the
+        feature-flag endpoints) build the serializer context with only `team_id`."""
+        get_team = self.context.get("get_team")
+        if get_team is not None:
+            return get_team().project_id
+        return Team.objects.only("project_id").get(pk=self.context["team_id"]).project_id
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -671,7 +680,7 @@ class CohortSerializer(serializers.ModelSerializer):
         # Loop-check serialized with the advisory lock; a detected loop rolls the insert back. No
         # irreversible side effect may run inside the block — ATOMIC_REQUESTS is off.
         with transaction.atomic():
-            project_id = self.context["get_team"]().project_id
+            project_id = self._project_id()
             _acquire_cohort_save_lock(project_id)
             cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
             cohorts_by_id = {c.pk: c for c in Cohort.objects.filter(team__project_id=project_id)}
