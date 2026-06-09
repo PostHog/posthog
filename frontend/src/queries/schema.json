@@ -22,16 +22,28 @@
             "additionalProperties": false,
             "properties": {
                 "accountExecutive": {
-                    "$ref": "#/definitions/AccountsRoleAssignmentFilter"
+                    "description": "Match accounts whose account executive is any of these user ids (OR semantics).",
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
                 },
                 "accountOwner": {
-                    "$ref": "#/definitions/AccountsRoleAssignmentFilter"
+                    "description": "Match accounts whose account owner is any of these user ids (OR semantics).",
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
                 },
                 "allRolesUnassigned": {
                     "type": "boolean"
                 },
                 "csm": {
-                    "$ref": "#/definitions/AccountsRoleAssignmentFilter"
+                    "description": "Match accounts whose CSM is any of these user ids (OR semantics).",
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
                 },
                 "filterExpression": {
                     "$ref": "#/definitions/HogQLExpression",
@@ -174,17 +186,6 @@
             },
             "required": ["columns", "hogql", "kind", "limit", "offset", "results", "types"],
             "type": "object"
-        },
-        "AccountsRoleAssignmentFilter": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/integer"
-                },
-                {
-                    "const": "unassigned",
-                    "type": "string"
-                }
-            ]
         },
         "ActionConversionGoal": {
             "additionalProperties": false,

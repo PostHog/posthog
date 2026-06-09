@@ -7019,10 +7019,13 @@ export interface AccountsQueryResponseApi {
 }
 
 export interface AccountsQueryApi {
-    accountExecutive?: string | number | null
-    accountOwner?: string | number | null
+    /** Match accounts whose account executive is any of these user ids (OR semantics). */
+    accountExecutive?: number[] | null
+    /** Match accounts whose account owner is any of these user ids (OR semantics). */
+    accountOwner?: number[] | null
     allRolesUnassigned?: boolean | null
-    csm?: string | number | null
+    /** Match accounts whose CSM is any of these user ids (OR semantics). */
+    csm?: number[] | null
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: string | null
     kind?: 'AccountsQuery'
