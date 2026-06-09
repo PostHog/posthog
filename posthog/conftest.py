@@ -357,23 +357,28 @@ def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any)
 
 
 def _is_lock_timeout(exc: BaseException | None) -> bool:
+    # Walk both __cause__ and __context__: Django/management wrapping usually chains via
+    # __cause__, but a LockNotAvailable can sit on __context__ when both are set.
+    stack = [exc] if exc is not None else []
     seen: set[int] = set()
-    while exc is not None and id(exc) not in seen:
-        seen.add(id(exc))
-        if isinstance(exc, psycopg_errors.LockNotAvailable):
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, psycopg_errors.LockNotAvailable):
             return True
-        exc = exc.__cause__ or exc.__context__
+        stack.extend(linked for linked in (current.__cause__, current.__context__) if linked is not None)
     return False
 
 
-def _terminate_idle_in_transaction_sessions(database: str) -> tuple[list[str], int]:
-    """Snapshot other sessions on this connection's database and terminate the leaked ones:
-    idle in transaction since before our lock wait began, so provably the blocker.
-
-    A session merely *between* statements of an in-flight transaction (idle-in-transaction
-    for milliseconds, e.g. a concurrent background thread mid-INSERT) is spared. The full
-    snapshot is returned for diagnostics — an *active* blocker should still be named even
-    though we don't kill it.
+def _snapshot_sessions(database: str) -> tuple[list[str], list[int]]:
+    """Describe other sessions on this connection's database (any state, for diagnostics —
+    an *active* blocker should still be named even though we never kill it) and identify
+    the leaked ones: idle in transaction since before our lock wait began, so provably
+    the blocker. A session merely *between* statements of an in-flight transaction
+    (idle-in-transaction for milliseconds, e.g. a concurrent background thread mid-INSERT)
+    is not considered leaked.
     """
     with connections[database].cursor() as cursor:
         cursor.execute(
@@ -391,15 +396,21 @@ def _terminate_idle_in_transaction_sessions(database: str) -> tuple[list[str], i
             [FLUSH_LOCK_TIMEOUT_SECONDS],
         )
         sessions = cursor.fetchall()
-        descriptions = [
-            f"pid={pid} user={user} app={app!r} state={state!r} wait_event={wait_type}/{wait_event} "
-            f"xact_age={xact_age} state_age={state_age} last_query={query!r}"
-            for pid, user, app, state, wait_type, wait_event, xact_age, state_age, _stale, query in sessions
-        ]
-        blockers = [row[0] for row in sessions if row[3] and row[3].startswith("idle in transaction") and row[8]]
-        for pid in blockers:
+    descriptions = [
+        f"pid={pid} user={user} app={app!r} state={state!r} wait_event={wait_type}/{wait_event} "
+        f"xact_age={xact_age} state_age={state_age} last_query={query!r}"
+        for pid, user, app, state, wait_type, wait_event, xact_age, state_age, _stale, query in sessions
+    ]
+    leaked_pids = [row[0] for row in sessions if row[3] and row[3].startswith("idle in transaction") and row[8]]
+    return descriptions, leaked_pids
+
+
+def _terminate_idle_in_transaction_sessions(database: str) -> tuple[list[str], int]:
+    descriptions, leaked_pids = _snapshot_sessions(database)
+    with connections[database].cursor() as cursor:
+        for pid in leaked_pids:
             cursor.execute("SELECT pg_terminate_backend(%s)", [pid])
-    return descriptions, len(blockers)
+    return descriptions, len(leaked_pids)
 
 
 def _flush_with_lock_guard(database: str, flush: Callable[[], None]) -> None:
@@ -435,9 +446,14 @@ def _flush_with_lock_guard(database: str, flush: Callable[[], None]) -> None:
             try:
                 flush()
             except Exception as retry_err:
+                try:
+                    current_sessions, _ = _snapshot_sessions(database)
+                except Exception:
+                    current_sessions = ["<snapshot unavailable>"]
                 raise RuntimeError(
                     f"Teardown flush of {database!r} failed again after terminating {terminated} "
-                    f"idle-in-transaction session(s); sessions at first failure: {'; '.join(sessions)}"
+                    f"idle-in-transaction session(s); sessions now: {'; '.join(current_sessions)} | "
+                    f"at first failure: {'; '.join(sessions)}"
                 ) from retry_err
     finally:
         try:
