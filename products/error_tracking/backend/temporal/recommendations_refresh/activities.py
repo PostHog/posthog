@@ -36,8 +36,7 @@ def get_teams_with_recent_exceptions_activity(inputs: RecommendationsRefreshInpu
     # ClickHouse retains events for teams that have since been deleted in Postgres.
     # Drop those here so the per-team refresh never tries to scope to a missing team
     # (which raises and pollutes error tracking).
-    existing_team_ids = set(Team.objects.filter(id__in=candidate_team_ids).values_list("id", flat=True))
-    team_ids = [team_id for team_id in candidate_team_ids if team_id in existing_team_ids]
+    team_ids = list(Team.objects.filter(id__in=candidate_team_ids).values_list("id", flat=True))
 
     logger.info(
         "error_tracking.recommendations_refresh.teams_enumerated",
