@@ -2,9 +2,10 @@ import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { ChartLegend, TimeSeriesBarChart, legendItemsFromSeries } from '@posthog/quill-charts'
-import type { PointClickData, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
+import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
+import { getBarColorFromStatus } from 'lib/colors'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -16,6 +17,7 @@ import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import type { LifecycleToggle } from '~/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
@@ -26,7 +28,7 @@ import {
 } from '../shared/handleTrendsChartClick'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
-import { buildTrendsLifecycleConfig, buildTrendsLifecycleSeries } from './trendsLifecycleChartTransforms'
+import { buildLifecycleChartModel } from './trendsLifecycleChartTransforms'
 
 interface TrendsLifecycleChartProps {
     context?: QueryContext<InsightVizNode>
@@ -72,26 +74,20 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         !!indexedResults[0].data &&
         indexedResults.some((r: IndexedTrendResult) => r.count !== 0)
 
-    const { series, labels } = useMemo(() => {
-        const lifecycleSeries = buildTrendsLifecycleSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
-            buildMeta: buildTrendsSeriesMeta,
-        })
-        return { series: lifecycleSeries, labels: currentPeriodResult?.labels ?? EMPTY_LABELS }
-    }, [indexedResults, currentPeriodResult?.labels])
-
-    const legendItems = useMemo(() => legendItemsFromSeries(series, theme), [series, theme])
-
     const valueLabelFormatter = useCallback(
         (value: number) => formatAggregationAxisValue(trendsFilter, value, baseCurrency),
         [trendsFilter, baseCurrency]
     )
 
-    const timeSeriesConfig: TimeSeriesBarChartConfig = useMemo(
+    const { series, labels, config } = useMemo(
         () =>
-            buildTrendsLifecycleConfig({
+            buildLifecycleChartModel<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
+                getColor: (status) => getBarColorFromStatus((status ?? 'new') as LifecycleToggle),
+                buildMeta: buildTrendsSeriesMeta,
+                labels: currentPeriodResult?.labels ?? EMPTY_LABELS,
+                isStacked,
                 trendsFilter,
                 baseCurrency,
-                isStacked,
                 yAxisScaleType,
                 interval,
                 timezone,
@@ -100,17 +96,21 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                 tooltip: LIFECYCLE_TOOLTIP_CONFIG,
             }),
         [
+            indexedResults,
+            currentPeriodResult?.labels,
+            currentPeriodResult?.days,
+            isStacked,
             trendsFilter,
             baseCurrency,
-            isStacked,
             yAxisScaleType,
             interval,
             timezone,
-            currentPeriodResult?.days,
             showValuesOnSeries,
             valueLabelFormatter,
         ]
     )
+
+    const legendItems = useMemo(() => legendItemsFromSeries(series, theme), [series, theme])
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
 
@@ -199,7 +199,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             <TimeSeriesBarChart<TrendsSeriesMeta>
                 series={series}
                 labels={labels}
-                config={timeSeriesConfig}
+                config={config}
                 theme={theme}
                 tooltip={renderTooltip}
                 onPointClick={canHandleClick ? onPointClick : undefined}
