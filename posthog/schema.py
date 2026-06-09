@@ -4603,9 +4603,15 @@ class SignalRemediation(BaseModel):
             " findings, but follows this instead of starting cold."
         ),
     )
+    human: str = Field(
+        ...,
+        description=(
+            "Human-facing fix steps (PostHog UI / alert destinations). Surfaced in the report for the reader."
+        ),
+    )
     priority: Priority | None = Field(
         default=None,
-        description=("Suggested report priority (advisory — the research agent may override)."),
+        description=("Suggested report priority; advisory, the research agent may override."),
     )
 
 

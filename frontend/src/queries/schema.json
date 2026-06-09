@@ -39275,13 +39275,17 @@
                     "description": "Agent-facing guidance: how to investigate (which MCP tools to call) and, where the fix lives in the user's codebase, how to apply it. The research agent treats this as authoritative — it still investigates and produces findings, but follows this instead of starting cold.",
                     "type": "string"
                 },
+                "human": {
+                    "description": "Human-facing fix steps (PostHog UI / alert destinations). Surfaced in the report for the reader.",
+                    "type": "string"
+                },
                 "priority": {
-                    "description": "Suggested report priority (advisory — the research agent may override).",
+                    "description": "Suggested report priority; advisory, the research agent may override.",
                     "enum": ["P0", "P1", "P2", "P3", "P4"],
                     "type": "string"
                 }
             },
-            "required": ["agent"],
+            "required": ["human", "agent"],
             "type": "object"
         },
         "SignalReviewerUserInfo": {

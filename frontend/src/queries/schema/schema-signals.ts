@@ -33,16 +33,20 @@ export enum SignalSourceType {
 
 // ── Shared optional remediation ──────────────────────────────────────────────────
 // A known fix attached to a signal. Optional and separate from `extra`: `extra` is product-specific
-// evidence; `remediation` is guidance for the research agent. When present, the signal is treated as
-// actionable and the agent follows the guidance rather than investigating from scratch — it still
-// runs, produces findings, and writes the human-facing report. Every variant may carry it.
+// evidence; `remediation` is the fix guidance. Mirrors the health-checks `Remediation(human, agent)`
+// constant so a check's remediation maps straight onto a signal. When present, the signal is treated
+// as actionable: the research agent follows the `agent` guidance rather than investigating from
+// scratch — it still runs, produces findings, and writes the human-facing report. Every variant may
+// carry it.
 
 export interface SignalRemediation {
+    /** Human-facing fix steps (PostHog UI / alert destinations). Surfaced in the report for the reader. */
+    human: string
     /** Agent-facing guidance: how to investigate (which MCP tools to call) and, where the fix lives
      *  in the user's codebase, how to apply it. The research agent treats this as authoritative — it
      *  still investigates and produces findings, but follows this instead of starting cold. */
     agent: string
-    /** Suggested report priority (advisory — the research agent may override). */
+    /** Suggested report priority; advisory, the research agent may override. */
     priority?: 'P0' | 'P1' | 'P2' | 'P3' | 'P4'
 }
 
