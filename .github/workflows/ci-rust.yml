@@ -260,7 +260,7 @@ jobs:
               with:
                   shared-key: 'v2-rust-ci'
                   workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Run cargo build
               env:
@@ -457,7 +457,7 @@ jobs:
               with:
                   shared-key: 'v2-rust-ci'
                   workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Check format
               run: cargo fmt -- --check
