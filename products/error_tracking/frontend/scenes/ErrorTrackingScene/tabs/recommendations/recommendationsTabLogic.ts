@@ -75,8 +75,6 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
             },
         ],
         recommendationsLoading: [
-            // Starts true because the logic always loads on mount; keeps the tab's count
-            // badge a constant-width spinner from first paint instead of expanding in late.
             true,
             {
                 setRecommendationsLoading: (_, { loading }) => loading,

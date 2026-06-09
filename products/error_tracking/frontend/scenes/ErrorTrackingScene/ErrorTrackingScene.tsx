@@ -131,8 +131,6 @@ export function ErrorTrackingScene(): JSX.Element {
     )
 }
 
-// Mounting this label keeps recommendationsTabLogic active on every error tracking tab,
-// so the pending count is fetched even when the Recommendations tab isn't open.
 const RecommendationsTabLabel = (): JSX.Element => {
     const { activeRecommendations, recommendationsLoading } = useValues(recommendationsTabLogic)
 
