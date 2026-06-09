@@ -30,9 +30,10 @@ class TestPostSlackUpdate(TestCase):
         )
         self._access_patcher.start()
         self.addCleanup(self._access_patcher.stop)
-        # The activity reads the reply target from the live mapping; default it
-        # to None so tests that don't care about tagging behavior aren't forced
-        # to set up the model. Tests that do care override the mock locally.
+        # The PR-opened notification path resolves the reply target from a live
+        # SlackThreadTaskMapping. Default that lookup to "no mapping" so tests
+        # that don't exercise multiplayer tagging aren't forced to seed the
+        # model; tests that care override the mock locally.
         self._mapping_patcher = patch("products.slack_app.backend.models.SlackThreadTaskMapping")
         mock_mapping_class = self._mapping_patcher.start()
         mock_mapping_class.objects.filter.return_value.first.return_value = None
