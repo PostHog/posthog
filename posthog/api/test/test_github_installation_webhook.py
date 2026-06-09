@@ -8,6 +8,8 @@ from django.test import TestCase, override_settings
 
 from rest_framework.test import APIClient
 
+from parameterized import parameterized
+
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import Organization
@@ -70,24 +72,19 @@ class TestGitHubInstallationReferenceHelpers(TestCase):
             0,
         )
 
+    @parameterized.expand(
+        [
+            ("removed_204", 204, True),
+            ("already_gone_404", 404, True),
+            ("unexpected_500", 500, False),
+        ]
+    )
     @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_PRIVATE_KEY="key")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
-    def test_uninstall_app_installation_returns_true_on_204(self, mock_client_request):
-        mock_client_request.return_value = MagicMock(status_code=204)
-        self.assertTrue(GitHubIntegration.uninstall_app_installation("12345"))
+    def test_uninstall_app_installation_status_handling(self, _name, status_code, expected, mock_client_request):
+        mock_client_request.return_value = MagicMock(status_code=status_code)
+        self.assertEqual(GitHubIntegration.uninstall_app_installation("12345"), expected)
         mock_client_request.assert_called_once_with("installations/12345", method="DELETE", timeout=10)
-
-    @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_PRIVATE_KEY="key")
-    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
-    def test_uninstall_app_installation_treats_404_as_success(self, mock_client_request):
-        mock_client_request.return_value = MagicMock(status_code=404)
-        self.assertTrue(GitHubIntegration.uninstall_app_installation("12345"))
-
-    @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_PRIVATE_KEY="key")
-    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
-    def test_uninstall_app_installation_false_on_unexpected_status(self, mock_client_request):
-        mock_client_request.return_value = MagicMock(status_code=500)
-        self.assertFalse(GitHubIntegration.uninstall_app_installation("12345"))
 
     @override_settings(GITHUB_APP_CLIENT_ID="cid", GITHUB_APP_PRIVATE_KEY="key")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
@@ -165,22 +162,13 @@ class TestGitHubInstallationWebhook(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
+    @parameterized.expand([("suspend",), ("unsuspend",)])
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
-    def test_suspend_does_not_delete_rows(self, mock_get_secret):
+    def test_reversible_action_does_not_delete_rows(self, action, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         self._team_integration("12345")
 
-        response = self._post({"action": "suspend", "installation": {"id": 12345}})
-
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(Integration.objects.filter(kind="github", integration_id="12345").exists())
-
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
-    def test_unsuspend_does_not_delete_rows(self, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
-        self._team_integration("12345")
-
-        response = self._post({"action": "unsuspend", "installation": {"id": 12345}})
+        response = self._post({"action": action, "installation": {"id": 12345}})
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(Integration.objects.filter(kind="github", integration_id="12345").exists())

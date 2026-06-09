@@ -637,17 +637,21 @@ class IntegrationViewSet(
             # last team integration for an installation is removed, tear it down everywhere:
             # uninstall the App on GitHub and delete the now-orphaned personal integrations.
             # Other teams still sharing the same GitHub account keep it installed.
-            try:
-                last_team_reference = (
-                    not Integration.objects.filter(kind="github", integration_id=instance.integration_id)
-                    .exclude(id=instance.id)
-                    .exists()
-                )
-                if last_team_reference:
+            is_last_team_reference = (
+                not Integration.objects.filter(kind="github", integration_id=instance.integration_id)
+                .exclude(id=instance.id)
+                .exists()
+            )
+            if is_last_team_reference:
+                try:
                     GitHubIntegration.uninstall_app_installation(instance.integration_id)
+                except Exception as e:
+                    capture_exception(e)
+                # Separate try so a DB error deleting personal rows isn't masked by the GitHub call.
+                try:
                     UserIntegration.objects.filter(kind="github", integration_id=instance.integration_id).delete()
-            except Exception as e:
-                capture_exception(e)
+                except Exception as e:
+                    capture_exception(e)
 
         super().perform_destroy(instance)
 

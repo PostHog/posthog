@@ -96,8 +96,13 @@ class GitHubIntegrationBase:
     # --- App-level JWT authentication ---
 
     @classmethod
-    def client_request(cls, endpoint: str, method: str = "GET", timeout: float | None = None) -> requests.Response:
-        """Make a request to the GitHub App API using a JWT."""
+    def client_request(cls, endpoint: str, method: str = "GET", timeout: float | None = 10) -> requests.Response:
+        """Make a request to the GitHub App API using a JWT.
+
+        ``timeout`` defaults to 10s so callers in web request and token-refresh paths
+        can't hang indefinitely on an unresponsive GitHub endpoint. Pass an explicit
+        value (or ``None`` to disable) when a different bound is needed.
+        """
         from rest_framework.exceptions import ValidationError
 
         github_app_client_id = settings.GITHUB_APP_CLIENT_ID
