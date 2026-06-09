@@ -6,6 +6,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
+from django.conf import settings
 from django.utils import timezone
 
 from pydantic import BaseModel
@@ -218,9 +219,13 @@ def create_organization_with_team(
 
     # Skip the post-login /account/credential-review interstitial that fires for users with unreviewed PersonalAPIKey
     user.credentials_reviewed_at = timezone.now()
-    # Staff access gates instance-admin areas (e.g. the help menu's admin/system-status link)
+    # Staff access gates instance-admin areas (e.g. the help menu's admin/system-status link), and
+    # is_staff is needed because that link checks the Django staff flag, not PostHog org-level admin.
+    # is_staff is a powerful privilege, so only honor the request in genuine test/CI environments —
+    # NOT DEBUG alone, which is the local-dev default and may be set in non-test deployments — even
+    # though the setup_test endpoint itself is already gated to test modes.
     update_fields = ["credentials_reviewed_at"]
-    if data.staff:
+    if data.staff and (getattr(settings, "E2E_TESTING", False) or getattr(settings, "CI", False)):
         user.is_staff = True
         update_fields.append("is_staff")
     user.save(update_fields=update_fields)
