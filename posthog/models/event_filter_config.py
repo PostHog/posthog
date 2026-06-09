@@ -81,28 +81,47 @@ class EventFilterConfig(UUIDTModel):
         super().save(*args, **kwargs)
 
 
-def prune_filter_tree(node: dict) -> dict | None:
-    """Remove empty groups and collapse single-child groups."""
+def prune_filter_tree(node: dict, is_root: bool = True) -> dict | None:
+    """
+    Remove empty groups and collapse single-child groups.
+
+    The root is kept as an and/or group: the tree editor can only add conditions
+    or groups inside a group node, so collapsing the root down to a bare condition
+    (or NOT) leaves the user with no "Add condition" button. Nested single-child
+    groups still collapse as before.
+    """
     node_type = node.get("type")
 
     if node_type == "condition":
-        return node
+        return _ensure_group_root(node, is_root)
 
     if node_type == "not":
-        child = prune_filter_tree(node.get("child", {}))
+        child = prune_filter_tree(node.get("child", {}), is_root=False)
         if child is None:
             return None
-        return {**node, "child": child}
+        return _ensure_group_root({**node, "child": child}, is_root)
 
     if node_type in ("and", "or"):
-        children = [prune_filter_tree(c) for c in node.get("children", [])]
+        children = [prune_filter_tree(c, is_root=False) for c in node.get("children", [])]
         children = [c for c in children if c is not None]
         if len(children) == 0:
             return None
         if len(children) == 1:
-            return children[0]
+            only = children[0]
+            # Collapsing to the lone child is fine unless it would leave a
+            # non-group at the root — in that case keep this group as the wrapper.
+            if is_root and only.get("type") not in ("and", "or"):
+                return {**node, "children": children}
+            return only
         return {**node, "children": children}
 
+    return node
+
+
+def _ensure_group_root(node: dict, is_root: bool) -> dict:
+    """Wrap a non-group node in an OR group when it would otherwise be the root."""
+    if is_root and node.get("type") not in ("and", "or"):
+        return {"type": "or", "children": [node]}
     return node
 
 
