@@ -57,9 +57,6 @@ from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.cohort import CohortType
-from posthog.models.cohort.util import get_all_cohort_dependencies
 from posthog.models.person.point_in_time_properties import (
     build_person_properties_at_time,
     get_person_and_distinct_ids_for_identifier,
@@ -76,6 +73,8 @@ from posthog.storage.hypercache import HyperCacheDependencyUnavailable
 from posthog.utils import is_valid_regex
 from posthog.views import format_bytes
 
+from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.encrypted_flag_payloads import (

@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react'
+import { act, render } from '@testing-library/react'
 
 import type { ChartTheme } from '../../core/types'
 import { renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
@@ -96,6 +96,37 @@ describe('MetricCard', () => {
             expect(container.textContent).toContain('+200.0%')
         })
 
+        it('ignores a quick pass-through and only follows the cursor once it settles past the dwell', () => {
+            jest.useFakeTimers()
+            try {
+                const { container, chart } = renderHogChart(
+                    <MetricCard
+                        title="Total"
+                        data={[100, 200, 300, 400]}
+                        labels={LABELS}
+                        theme={THEME}
+                        animationMs={0}
+                        formatValue={(v) => `$${Math.round(v)}`}
+                    />
+                )
+
+                // Cursor crosses a point but hasn't dwelled — headline stays at rest.
+                act(() => chart.hoverAtIndex(1))
+                expect(container.textContent).toContain('$400')
+                expect(container.textContent).toContain('Apr')
+                expect(container.textContent).not.toContain('$200')
+
+                // Pointer settles past the dwell — now the headline follows it.
+                act(() => {
+                    jest.advanceTimersByTime(140)
+                })
+                expect(container.textContent).toContain('$200')
+                expect(container.textContent).toContain('Feb')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('updates the headline value and label when hovering a different point', () => {
             const { container, chart } = renderHogChart(
                 <MetricCard
@@ -104,6 +135,7 @@ describe('MetricCard', () => {
                     labels={LABELS}
                     theme={THEME}
                     animationMs={0}
+                    hoverIntentMs={0}
                     formatValue={(v) => `$${Math.round(v)}`}
                 />
             )
@@ -120,6 +152,7 @@ describe('MetricCard', () => {
                     labels={LABELS}
                     theme={THEME}
                     animationMs={0}
+                    hoverIntentMs={0}
                     value={9999}
                     formatValue={(v) => `$${Math.round(v)}`}
                 />
@@ -138,6 +171,7 @@ describe('MetricCard', () => {
                     labels={LABELS}
                     theme={THEME}
                     animationMs={0}
+                    hoverIntentMs={0}
                     change={{ value: 12.5, label: '+12.5% vs. last week' }}
                     formatValue={(v) => `$${Math.round(v)}`}
                 />

@@ -4,11 +4,16 @@ Each finding is forwarded to `emit_signal` with a deterministic `source_id`:
 `f"run:{run.id}:finding:{finding_id}"`. This is for traceability only — it is NOT
 an idempotency barrier. The downstream pipeline assigns every signal a fresh random
 `document_id` and dedupes on that, never on `source_id` (which it only stores in
-metadata), so a re-call with the same `finding_id` emits a *second* signal. The
-previous in-postgres idempotency layer (writing to `SignalScoutRun.findings` jsonb
-pre-emit, marking `emitted=True` post-success) was dropped in PR 2 review along with
-the `findings` field itself; this module no longer persists any scout-side state and
-provides no dedupe, so callers must not retry an emit that may have already succeeded.
+metadata), so a re-call with the same `finding_id` emits a *second* signal.
+
+Post-success we bump a scout-side tally on the run row (`emitted_count` +
+`emitted_finding_ids` via `_record_emit`) so "did this run surface anything?" is a
+column lookup rather than a prose-`summary` parse or a ClickHouse scan. The tally write
+is best-effort: a failure to record it never propagates out of the emit, because the
+signal has already fired and the caller must not be told the emit failed. It is
+observability only, NOT a dedupe layer — there is no scout-side idempotency, so callers
+must not retry an emit that may have already succeeded; a retry double-counts here
+exactly as it double-emits downstream.
 
 Attribution (`scout_run_id`, `task_run_id`, `finding_id`, `skill_name`, `skill_version`)
 is read off the run row so the agent never has to plumb it through. `task_run_id` is the
@@ -24,6 +29,8 @@ import uuid
 import logging
 from dataclasses import asdict, dataclass
 from typing import Any
+
+from django.db import transaction
 
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -147,6 +154,7 @@ async def emit_finding(
         weight=weight,
         extra=extra,
     )
+    await database_sync_to_async(_record_emit, thread_sensitive=False)(run_id=run.id, finding_id=finding_id)
     logger.info(
         "signals_scout.emit: emitted",
         extra={**attempt_extra, "source_id": source_id},
@@ -227,6 +235,7 @@ def emit_finding_sync(
         weight=weight,
         extra=extra,
     )
+    _record_emit(run_id=run.id, finding_id=finding_id)
     logger.info(
         "signals_scout.emit: emitted",
         extra={**attempt_extra, "source_id": source_id},
@@ -309,6 +318,34 @@ def _build_extra(
 
 def _new_finding_id() -> str:
     return str(uuid.uuid4())
+
+
+def _record_emit(*, run_id: Any, finding_id: str) -> None:
+    """Bump the run's post-success emit tally: append `finding_id` and recount.
+
+    Best-effort and observability only — not a dedupe barrier (see the module docstring).
+    The emit has already fired by the time this runs, so **any** failure here (row gone,
+    lock timeout, transient DB error) is swallowed: surfacing it would make a succeeded
+    emit look failed and invite a double-emitting retry. Runs under `select_for_update` so
+    the read-modify-write on `emitted_finding_ids` is safe even though emits within a single
+    run are sequential today, and keeps `emitted_count` exactly `len(emitted_finding_ids)`
+    so the two never drift. Uses the unscoped `all_teams` manager because the caller already
+    validated `team`/`run` ownership and emit can run with no team scope set (Temporal
+    activity)."""
+    try:
+        with transaction.atomic():
+            run = SignalScoutRun.all_teams.select_for_update().filter(pk=run_id).first()
+            if run is None:
+                logger.warning("signals_scout.emit: run %s gone, skipping emit tally", run_id)
+                return
+            finding_ids = [*(run.emitted_finding_ids or []), finding_id]
+            run.emitted_finding_ids = finding_ids
+            run.emitted_count = len(finding_ids)
+            run.save(update_fields=["emitted_finding_ids", "emitted_count"])
+    except Exception:
+        # Tally is best-effort; the signal already emitted. Log and move on so the emit
+        # call returns success rather than a false failure the caller might retry.
+        logger.exception("signals_scout.emit: failed to record emit tally for run %s", run_id)
 
 
 def _log_extra(
