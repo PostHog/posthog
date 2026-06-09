@@ -79,10 +79,9 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         : DEFAULT_RECORDING_FILTERS_ORDER_BY
     const order_direction: RecordingsQuery['order_direction'] = universalFilters.order_direction || 'DESC'
 
-    const durationFilter = universalFilters.duration[0]
-
-    if (durationFilter) {
-        having_predicates.push(durationFilter)
+    // Push every duration filter — a scanner query can carry more than one, and the inverse extracts them all.
+    if (universalFilters.duration.length > 0) {
+        having_predicates.push(...universalFilters.duration)
     }
 
     filters.forEach((f) => {

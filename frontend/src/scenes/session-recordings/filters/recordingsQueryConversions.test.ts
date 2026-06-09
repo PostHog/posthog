@@ -197,6 +197,13 @@ describe('convertUniversalFiltersToRecordingsQuery ∘ recordingsQueryToUniversa
         expect(roundTrip(query).having_predicates).toContainEqual(durationFilter('active_seconds'))
     })
 
+    it('preserves every duration having-predicate, not just the first', () => {
+        const query = rq({ having_predicates: [durationFilter('active_seconds'), durationFilter('duration')] })
+        const back = roundTrip(query).having_predicates
+        expect(back).toContainEqual(durationFilter('active_seconds'))
+        expect(back).toContainEqual(durationFilter('duration'))
+    })
+
     it('preserves filter_test_accounts', () => {
         expect(roundTrip(rq({ filter_test_accounts: true })).filter_test_accounts).toBe(true)
     })
