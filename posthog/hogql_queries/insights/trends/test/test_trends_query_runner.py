@@ -7506,11 +7506,11 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             trends_filters=TrendsFilter(hideWeekends=True),
         )
 
-        # Weekly buckets are preserved, only event counts change
-        assert len(response_hidden.results[0]["days"]) == len(response_normal.results[0]["days"])
-        # 10 total events, 5 on weekends (Jan 11 Sat, Jan 12 Sun x3, Jan 19 Sun)
-        assert response_normal.results[0]["count"] == 10.0
-        assert response_hidden.results[0]["count"] == 5.0
+        # Week buckets span weekends, so hiding weekends is a no-op here — buckets and counts
+        # are identical to the normal response (we never drop weekend events from aggregation).
+        assert response_hidden.results[0]["days"] == response_normal.results[0]["days"]
+        assert response_hidden.results[0]["data"] == response_normal.results[0]["data"]
+        assert response_hidden.results[0]["count"] == response_normal.results[0]["count"] == 10.0
 
     def test_hide_weekends_with_compare(self):
         self._create_test_events()
@@ -7561,6 +7561,68 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert formula_result["action"] is None
         assert len(formula_result["data"]) == len(formula_result["days"])
         assert formula_result["count"] == sum(formula_result["data"])
+
+    def test_hide_weekends_does_not_corrupt_wau(self):
+        # Hiding weekends must only drop weekend buckets, never weekend events from the WAU
+        # sliding window — each weekday's value must match the non-hidden query exactly.
+        self._create_test_events()
+
+        normal = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+        )
+        hidden = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+            trends_filters=TrendsFilter(hideWeekends=True),
+        )
+
+        normal_by_day = dict(zip(normal.results[0]["days"], normal.results[0]["data"]))
+
+        # 12-day range has 4 weekend days, leaving 8 weekdays
+        assert len(hidden.results[0]["days"]) == 8
+        for day_str, value in zip(hidden.results[0]["days"], hidden.results[0]["data"]):
+            assert datetime.strptime(day_str[:10], "%Y-%m-%d").weekday() < 5
+            assert value == normal_by_day[day_str], f"WAU for {day_str} changed: {value} != {normal_by_day[day_str]}"
+
+    def test_hide_weekends_does_not_corrupt_cumulative(self):
+        # The cumulative running total must keep weekend events folded in, so Monday's value
+        # still reflects the prior weekend — only the weekend buckets are hidden from the chart.
+        self._create_test_events()
+
+        normal = self._run_trends_query(
+            self.default_date_from,
+            self.default_date_to,
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            trends_filters=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE),
+        )
+        hidden = self._run_trends_query(
+            self.default_date_from,
+            self.default_date_to,
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            trends_filters=TrendsFilter(
+                display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE,
+                hideWeekends=True,
+            ),
+        )
+
+        normal_by_day = dict(zip(normal.results[0]["days"], normal.results[0]["data"]))
+
+        for day_str, value in zip(hidden.results[0]["days"], hidden.results[0]["data"]):
+            assert datetime.strptime(day_str[:10], "%Y-%m-%d").weekday() < 5
+            assert value == normal_by_day[day_str]
+
+        # Monday 2020-01-13's running total still includes the prior weekend's events (would be
+        # lower if weekend events were filtered out of the aggregation).
+        monday_idx = hidden.results[0]["days"].index("2020-01-13")
+        assert hidden.results[0]["data"][monday_idx] == 6
+        assert hidden.results[0]["count"] == hidden.results[0]["data"][-1]
 
     @parameterized.expand(
         [
