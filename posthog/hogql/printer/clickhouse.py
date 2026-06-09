@@ -266,6 +266,7 @@ class ClickHousePrinter(BasePrinter):
             date = args[3] if len(args) > 3 and args[3] else "today()"
             db = django_settings.CLICKHOUSE_DATABASE
             scale = EXCHANGE_RATE_DECIMAL_PRECISION
+            # Build rate lookup expressions
             from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, {scale}))"
             to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, {scale}))"
             # Use if() around divisor to avoid division by zero — with enable_analyzer=0, the old analyzer evaluates all branches regardless of condition.
