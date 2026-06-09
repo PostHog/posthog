@@ -138,7 +138,10 @@ def _coerce_to_datetime(value: Any) -> datetime:
     if isinstance(value, date):
         return datetime(value.year, value.month, value.day)
     if isinstance(value, str):
-        return parse_datetime(value)
+        try:
+            return parse_datetime(value)
+        except (ValueError, TypeError, OverflowError):
+            return EARLIEST_EVENT_TIMESTAMP
     return EARLIEST_EVENT_TIMESTAMP
 
 

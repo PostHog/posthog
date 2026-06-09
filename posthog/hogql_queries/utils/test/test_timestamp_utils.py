@@ -355,6 +355,10 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
             ("date_string", "2023-05-01", datetime.datetime(2023, 5, 1, 0, 0, 0)),
             ("none", None, EARLIEST_EVENT_TIMESTAMP),
             ("unsupported", 12345, EARLIEST_EVENT_TIMESTAMP),
+            ("unparseable_na", "N/A", EARLIEST_EVENT_TIMESTAMP),
+            ("unparseable_null", "null", EARLIEST_EVENT_TIMESTAMP),
+            ("unparseable_empty", "", EARLIEST_EVENT_TIMESTAMP),
+            ("unparseable_freeform", "not a date at all", EARLIEST_EVENT_TIMESTAMP),
         ]
     )
     def test_coerce_to_datetime(self, _name, value, expected):
