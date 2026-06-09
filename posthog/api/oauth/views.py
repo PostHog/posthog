@@ -648,8 +648,14 @@ class OAuthValidator(OAuth2Validator):
         source_refresh_token=None,
         scope_source_refresh_token=None,
     ):
-        if source_refresh_token is not None:
-            self._reject_refresh_racing_revoke(request, source_refresh_token)
+        # A refresh reaches here with the presented token in either ``source_refresh_token``
+        # (rotating) or ``scope_source_refresh_token`` (non-rotating, where the OneToOne FK is
+        # left null so sibling rows stay addressable) — both must be checked against an app-wide
+        # revoke, or a non-rotating refresh could race the revoke and mint a surviving token.
+        # Only a true authorization-code exchange reaches here with neither.
+        refresh_token = source_refresh_token or scope_source_refresh_token
+        if refresh_token is not None:
+            self._reject_refresh_racing_revoke(request, refresh_token)
         else:
             self._reject_code_exchange_racing_revoke(request)
         id_token = token.get("id_token", None)

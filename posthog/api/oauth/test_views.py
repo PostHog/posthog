@@ -3383,6 +3383,60 @@ class TestOAuthAPI(APIBaseTest):
             "swept when their refresh token is revoked",
         )
 
+    @freeze_time("2026-01-01 00:00:00")
+    def test_dcr_non_rotating_refresh_racing_app_revoke_is_rejected(self):
+        # The non-rotating (DCR) refresh path passes the presented token via
+        # scope_source_refresh_token with source_refresh_token=None, so the mint-time revoke
+        # guard must check that param too. Otherwise a non-rotating refresh that races
+        # revoke_application_sessions slips past _reject_refresh_racing_revoke and mints a token
+        # the bulk sweep already missed.
+        self.public_application.is_dcr_client = True
+        self.public_application.save()
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "response_type": "code",
+                "code_challenge": self.code_challenge,
+                "code_challenge_method": "S256",
+                "allow": True,
+                "access_level": OAuthApplicationAccessLevel.ALL.value,
+                "scoped_organizations": [],
+                "scoped_teams": [],
+                "scope": "openid",
+            },
+        )
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+        refresh_token = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        ).json()["refresh_token"]
+
+        with freeze_time("2026-01-01 00:00:05"):
+            revoke_application_sessions(self.public_application)
+            refresh_response = self.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                    "client_id": self.public_application.client_id,
+                },
+            )
+
+        self.assertEqual(refresh_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(refresh_response.json()["error"], "invalid_grant")
+        self.assertFalse(
+            OAuthRefreshToken.objects.filter(application=self.public_application, revoked__isnull=True).exists()
+        )
+
     @freeze_time("2025-01-01 00:00:00")
     def test_non_dcr_client_refresh_token_is_rotated(self):
         self.public_application.is_dcr_client = False
