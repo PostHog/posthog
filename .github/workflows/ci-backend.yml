@@ -416,6 +416,8 @@ jobs:
                   SCHEMA_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.schema }}
                   TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || '' }}
                   TURBO_SCM_HEAD: ${{ github.sha }}
+                  # DIAGNOSTIC (do not merge): N parallel copies of the hang-prone bucket.
+                  HANG_HUNT_COPIES: '15'
               run: |
                   # turbo-discover.js uses Turbo's Git affectedness to detect
                   # changed products. Non-isolated product changes trigger the
@@ -439,7 +441,9 @@ jobs:
             needs.turbo-discover.outputs.matrix != '[]' &&
             needs.turbo-discover.outputs.matrix != ''
         runs-on: depot-ubuntu-latest
-        timeout-minutes: 40
+        # DIAGNOSTIC (do not merge as-is): headroom over the 1800s autopsy bound so a
+        # slow setup (schema-cache miss) can't push a caught hang into job cancellation.
+        timeout-minutes: 50
         name: Product tests (${{ matrix.group }})
         strategy:
             fail-fast: false
@@ -591,10 +595,10 @@ jobs:
                       --reuse-db
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations --durations-path ../../.test_durations' || '' }}
-                  # Bound below timeout-minutes (40): on a hang, dump native stacks of the
-                  # wedged pytest process and fail the step — preserving the log that a
+                  # Bound below the job's timeout-minutes: on a hang, dump native stacks of
+                  # the wedged pytest process and fail the step — preserving the log that a
                   # job-level cancellation would discard. See run-with-hang-autopsy.sh.
-                  AUTOPSY_BOUND_SECONDS: '1500'
+                  AUTOPSY_BOUND_SECONDS: '1800'
               run: .github/scripts/run-with-hang-autopsy.sh pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
 
             - name: Upload timing data

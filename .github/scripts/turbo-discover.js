@@ -420,5 +420,22 @@ const result = {
     run_legacy: runLegacy,
     django_shards: djangoShards,
 }
+
+// DIAGNOSTIC (do not merge): HANG_HUNT_COPIES replaces the whole matrix with N
+// identical copies of the bucket that intermittently hangs (~1 in 7 runs), so a
+// single CI run takes N parallel shots at reproducing it with the hang-autopsy
+// armed. Skips legacy Django too — this run exists only to catch the hang.
+const hangHuntCopies = Number(process.env.HANG_HUNT_COPIES || 0)
+if (hangHuntCopies > 0) {
+    const HUNTED_FILTERS =
+        '--filter=@posthog/products-batch-exports --filter=@posthog/products-signals --filter=@posthog/products-notebooks'
+    result.matrix = Array.from({ length: hangHuntCopies }, (_, i) => ({
+        group: `hang-hunt-${i + 1}`,
+        filters: HUNTED_FILTERS,
+        pytest_args: '',
+    }))
+    result.run_legacy = false
+    console.error(`HANG_HUNT_COPIES=${hangHuntCopies} — matrix replaced with ${hangHuntCopies} copies of the hunted bucket`)
+}
 // eslint-disable-next-line no-console
 process.stdout.write(JSON.stringify(result) + '\n')
