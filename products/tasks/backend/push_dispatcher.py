@@ -21,7 +21,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 
@@ -32,6 +31,7 @@ from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
 
 from products.tasks.backend.models import TaskPresence
+from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -134,7 +134,7 @@ def _enqueue_inner(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
         return
 
     cooldown_key = f"push_notification:{task_run.id}:{kind}"
-    if not cache.add(cooldown_key, True, timeout=_COOLDOWN_SECONDS[kind]):
+    if not get_tasks_cache().add(cooldown_key, True, timeout=_COOLDOWN_SECONDS[kind]):
         logger.debug("push_dispatcher.cooldown_hit", run_id=str(task_run.id), kind=kind)
         return
 
