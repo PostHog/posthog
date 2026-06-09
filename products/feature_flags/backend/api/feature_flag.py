@@ -3222,11 +3222,7 @@ class FeatureFlagViewSet(
             # Check for linked running experiments. Draft/stopped/completed experiments
             # may keep the flag so their historical results are preserved; only a
             # currently running experiment blocks deletion.
-            running_experiments = [
-                exp
-                for exp in flag.experiment_set.all()
-                if not exp.deleted and exp.start_date is not None and exp.end_date is None
-            ]
+            running_experiments = [exp for exp in flag.experiment_set.all() if not exp.deleted and exp.is_running]
             if running_experiments:
                 experiment_ids = [exp.id for exp in running_experiments]
                 errors.append(
