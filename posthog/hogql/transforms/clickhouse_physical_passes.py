@@ -324,11 +324,6 @@ def _substitute_value_read(node: ast.JSONFieldAccess, context: HogQLContext) -> 
 # scans every row. When one side of a comparison is a property with a materialized column (or a property-group map
 # entry), these rewrites rebuild the comparison against the bare column instead, restoring the empty/null handling
 # inline so the rows are unchanged. The bare column is index-eligible, so ClickHouse can skip granules.
-#
-# This is not new behavior: it reproduces the optimizations the old ClickHouse printer did in
-# `_get_optimized_materialized_column_equals_operation` / `_range_operation` / `_get_optimized_property_group_call`. The
-# only move is where they run — here as HogQL nodes, not as SQL strings in the printer — so the rows and index
-# eligibility match master.
 
 
 def _call(name: str, args: list[ast.Expr]) -> ast.Call:
