@@ -35,7 +35,8 @@ find_py_spy() {
 autopsy() {
     echo "::error::Command still running after ${BOUND_SECONDS}s — capturing stack dumps before killing it"
     echo "===== process tree ====="
-    ps -ef --forest || true
+    # --ppid 2 -p 2 --deselect: everything except kernel threads
+    ps -f --forest --ppid 2 -p 2 --deselect || ps -ef --forest || true
 
     local py_spy
     py_spy="$(find_py_spy || true)"
