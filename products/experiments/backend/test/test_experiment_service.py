@@ -1121,6 +1121,19 @@ class TestExperimentService(APIBaseTest):
         assert updated.name == "Same Key OK"
         assert updated.get_feature_flag_key() == experiment.feature_flag.key
 
+    def test_get_feature_flag_key_strips_tombstone_for_deleted_flag(self):
+        experiment = self._create_draft_experiment(flag_key="tombstone-key-flag")
+        flag = experiment.feature_flag
+
+        flag.deleted = True
+        flag.key = flag.tombstoned_key()
+        flag.save()
+        experiment.refresh_from_db()
+
+        # The serializer (feature_flag_key) and analytics read through this method, so it
+        # must surface the original key rather than leaking the ":deleted:<id>" tombstone.
+        assert experiment.get_feature_flag_key() == "tombstone-key-flag"
+
     def test_update_experiment_rejects_different_feature_flag_key(self):
         experiment = self._create_draft_experiment()
         service = self._service()
