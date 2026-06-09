@@ -14,6 +14,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.temporal.common.errors import ExpectedActivityError
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 
 
@@ -77,6 +78,33 @@ class OptionallyFailingWorkflowWithPropertiesToLog:
 async def failing_activity_with_properties_to_log(inputs: OptionallyFailingInputsWithPropertiesToLog) -> None:
     if inputs.fail:
         raise ValueError("Activity failed!")
+
+
+class _ExpectedControlFlowError(ExpectedActivityError):
+    pass
+
+
+@workflow.defn
+class ExpectedErrorWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            expected_error_activity,
+            OptionallyFailingInputs(fail=inputs.fail),
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(
+                initial_interval=dt.timedelta(seconds=1),
+                maximum_interval=dt.timedelta(seconds=1),
+                maximum_attempts=1,
+            ),
+        )
+
+
+@activity.defn
+async def expected_error_activity(inputs: OptionallyFailingInputs) -> None:
+    if inputs.fail:
+        raise _ExpectedControlFlowError("Expected control-flow, should not be captured")
 
 
 @workflow.defn
@@ -158,6 +186,33 @@ async def test_exception_capture(fail: bool, capture_additional_properties: bool
 
         else:
             mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_expected_activity_error_is_not_captured(temporal_client: Client):
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[ExpectedErrorWorkflow],
+            activities=[expected_error_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "ExpectedErrorWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        # The error still propagates (workflow fails) but is never reported to error tracking.
+        mock_ph_capture.assert_not_called()
 
 
 @pytest.mark.asyncio

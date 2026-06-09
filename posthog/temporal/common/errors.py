@@ -2,6 +2,16 @@ import traceback
 
 from temporalio.exceptions import ApplicationError, FailureError
 
+
+class ExpectedActivityError(Exception):
+    """Base for activity exceptions that are expected, handled business control-flow rather than real failures.
+
+    The PostHog Temporal interceptor (`posthog_client.py`) skips error-tracking capture for these while still
+    re-raising them, so workflow-level status handling is unaffected. Use only for deterministic, already-handled
+    conditions that carry no engineering-actionable signal — not for wrappers around genuine errors.
+    """
+
+
 # Bound error strings so a multi-MB str(e) (ClickHouse 5xx body, Playwright HTML dump)
 # can't blow out Temporal's 2 MiB payload limit.
 MAX_ERROR_MESSAGE_CHARS = 8_000

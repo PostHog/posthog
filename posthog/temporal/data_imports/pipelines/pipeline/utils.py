@@ -23,6 +23,7 @@ from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from structlog.types import FilteringBoundLogger
 
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.errors import ExpectedActivityError
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
@@ -53,11 +54,11 @@ type SupportedDltDataType = Literal["text", "bigint", "bool", "timestamp", "json
 type DecimalInput = decimal.Decimal | float | str | tuple[int, Sequence[int], int]
 
 
-class BillingLimitsWillBeReachedException(Exception):
+class BillingLimitsWillBeReachedException(ExpectedActivityError):
     pass
 
 
-class DuplicatePrimaryKeysException(Exception):
+class DuplicatePrimaryKeysException(ExpectedActivityError):
     pass
 
 

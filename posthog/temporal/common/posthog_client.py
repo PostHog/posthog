@@ -13,6 +13,7 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
+from posthog.temporal.common.errors import ExpectedActivityError
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
@@ -42,6 +43,10 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
     async def execute_activity(self, input: ExecuteActivityInput) -> Any:
         try:
             return await super().execute_activity(input)
+        except ExpectedActivityError:
+            # Expected, already-handled business control-flow (e.g. billing limits reached) — not a real
+            # failure, so skip error-tracking capture. Still re-raise so workflow status handling is unaffected.
+            raise
         except Exception as e:
             activity_info = activity.info()
             capture_kwargs = {
