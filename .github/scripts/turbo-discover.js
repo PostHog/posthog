@@ -424,6 +424,16 @@ if (legacyChanged) {
 // running, and blocking on, a product whose tests are temporarily too flaky.
 const skipProducts = new Set((process.env.SKIP_PRODUCT_TESTS || '').split(',').map((p) => p.trim()).filter(Boolean))
 if (skipProducts.size > 0) {
+    // Warn loudly on a name that matches no real product (checked against the
+    // full product list, not just the affected ones) — catches the dash/
+    // underscore mixup where the dir is batch_exports but the product is
+    // batch-exports, which would otherwise silently skip nothing.
+    const allProductSet = new Set(allProducts)
+    for (const name of skipProducts) {
+        if (!allProductSet.has(name)) {
+            console.error(`::warning::SKIP_PRODUCT_TESTS: unknown product '${name}' — use the dashed name (e.g. 'batch-exports'), not the directory form`)
+        }
+    }
     const before = products.length
     products = products.filter((p) => !skipProducts.has(p))
     console.error(`SKIP_PRODUCT_TESTS=${[...skipProducts].join(',')} — dropped ${before - products.length} product(s)`)
