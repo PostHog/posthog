@@ -15,6 +15,8 @@ import json
 
 import pytest
 
+from braintrust import Score
+
 from ee.hogai.eval.sandboxed.experiments.scorers import (
     FirstUpdateMetricShape,
     validate_ratio_revenue_metric,
@@ -143,7 +145,7 @@ def _output(*tool_calls: list[str]) -> dict:
     return {"raw_log": "\n".join(lines), "prompt": "add a metric"}
 
 
-def _score(output: dict | None, validator=validate_ratio_revenue_metric) -> object:
+def _score(output: dict | None, validator=validate_ratio_revenue_metric) -> Score:
     return FirstUpdateMetricShape()._run_eval_sync(output, expected={"first_update_metric_shape": validator})
 
 
