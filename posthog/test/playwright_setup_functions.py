@@ -75,6 +75,9 @@ class PlaywrightWorkspaceSetupData(BaseModel):
     use_current_time: bool | None = None
     skip_onboarding: bool | None = None
     no_demo_data: bool | None = None
+    # Extra available product feature keys to grant the org (e.g. "organizations_projects"
+    # to allow creating more than one project). Merged with the always-on access_control feature.
+    available_features: list[str] | None = None
     insight_variables: list[PlaywrightSetupVariable] | None = None
     insights: list[PlaywrightSetupInsight] | None = None
     dashboards: list[PlaywrightSetupDashboard] | None = None
@@ -187,13 +190,9 @@ def create_organization_with_team(
 
     # Bypass billing quota limits so insights always compute on CI
     organization.never_drop_data = True
-    # Add access control feature for password-protected sharing
-    organization.available_product_features = [
-        {
-            "key": AvailableFeature.ACCESS_CONTROL,
-            "name": AvailableFeature.ACCESS_CONTROL,
-        }
-    ]
+    # Add access control feature for password-protected sharing, plus any extra features the test requested
+    feature_keys = [AvailableFeature.ACCESS_CONTROL, *(data.available_features or [])]
+    organization.available_product_features = [{"key": key, "name": key} for key in feature_keys]
     organization.save()
 
     # Create personal API key for the user

@@ -66,6 +66,11 @@ export interface PlaywrightWorkspaceSetupData {
     use_current_time?: boolean
     skip_onboarding?: boolean
     no_demo_data?: boolean
+    /**
+     * Extra available product feature keys to grant the org (e.g. 'organizations_projects' to
+     * allow creating more than one project). Merged with the always-on access_control feature.
+     */
+    available_features?: string[]
     insight_variables?: PlaywrightSetupVariable[]
     insights?: PlaywrightSetupInsight[]
     dashboards?: PlaywrightSetupDashboard[]
