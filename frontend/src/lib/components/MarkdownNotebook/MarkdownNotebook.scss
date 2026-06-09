@@ -118,6 +118,7 @@
 }
 
 .MarkdownNotebook__text-row {
+    position: relative;
     display: grid;
     grid-template-columns: var(--markdown-notebook-inline-control-width) minmax(0, 1fr);
     gap: var(--markdown-notebook-inline-control-gap);
@@ -227,6 +228,20 @@
     background: color-mix(in sRGB, var(--color-bg-fill-tertiary) 58%, transparent);
 }
 
+.MarkdownNotebook__text-group .MarkdownNotebook__text-row {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.MarkdownNotebook__text-group .MarkdownNotebook__line-insert-menu-hit-area {
+    position: absolute;
+    left: calc(-1 * var(--markdown-notebook-content-offset));
+    width: var(--markdown-notebook-content-offset);
+}
+
+.MarkdownNotebook__text-group .MarkdownNotebook__text-block {
+    grid-column: 1;
+}
+
 .MarkdownNotebook__text-group .MarkdownNotebook__row:first-child .MarkdownNotebook__text-block--heading {
     margin-top: 0;
 }
@@ -237,6 +252,11 @@
 
 .MarkdownNotebook__text-group .MarkdownNotebook__insert-boundary {
     margin: 0.125rem 0;
+}
+
+.MarkdownNotebook__text-group .MarkdownNotebook__insert-boundary-hover-zone,
+.MarkdownNotebook__text-group .MarkdownNotebook__insert-boundary-button {
+    left: calc(-1 * var(--markdown-notebook-content-offset));
 }
 
 .MarkdownNotebook__text-block {
@@ -848,7 +868,7 @@ h3.MarkdownNotebook__text-block--heading {
     border: 0;
     border-left: 3px solid
         color-mix(in oklab, var(--color-text-success) 45%, var(--markdown-notebook-component-background));
-    border-radius: 0.5rem;
+    border-radius: 0.25rem;
     outline: none;
 }
 
