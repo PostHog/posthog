@@ -9,6 +9,7 @@ from products.dashboards.backend.constants import (
 )
 from products.dashboards.backend.widgets.error_tracking_list import ERROR_TRACKING_ORDER_BY
 from products.dashboards.backend.widgets.session_replay_list import SESSION_REPLAY_ORDER_BY
+from products.dashboards.backend.widgets.widget_filters import WIDGET_FILTERS_CATALOG_HINT
 
 
 class WidgetCatalogEntry(TypedDict):
@@ -50,9 +51,15 @@ WIDGET_CATALOG: dict[str, WidgetCatalogEntry] = {
             },
             "status": {
                 "type": "string",
-                "choices": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+                "choices": ["active", "resolved", "suppressed", "all"],
                 "default": "active",
             },
+            "assignee": {
+                "type": "object",
+                "optional": True,
+                "description": "Filter by assignee ({type: user|role, id}). Omit for any assignee.",
+            },
+            "widgetFilters": WIDGET_FILTERS_CATALOG_HINT,
             "dateRange": {
                 "date_from": {
                     "type": "string",
@@ -100,6 +107,7 @@ WIDGET_CATALOG: dict[str, WidgetCatalogEntry] = {
                     "optional": True,
                 },
             },
+            "widgetFilters": WIDGET_FILTERS_CATALOG_HINT,
             "filterTestAccounts": {
                 "type": "boolean",
                 "optional": True,

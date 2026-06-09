@@ -87,7 +87,7 @@ share this shape:
 
 7. **Decide.** Emit / remember / skip, calibrated against the emit contract (see
    [`emit-contract.md`](emit-contract.md)). State the surface-specific "strong finding"
-   thresholds (e.g. "weight ≥ 0.7, confidence ≥ 0.85, with concrete entity ids and counts
+   thresholds (e.g. "confidence ≥ 0.85, with concrete entity ids and counts
    in the evidence"). Tell it to cross-check `inbox-reports-list` before emitting.
 
 8. **Disqualifiers.** The known noise for this surface that should be skipped (single-user
@@ -189,7 +189,7 @@ category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`.
 
 ### Decide
 
-- **Emit** via `signals-scout-emit-signal` above the bar (weight ≥ 0.7, confidence ≥ 0.85,
+- **Emit** via `signals-scout-emit-signal` above the bar (confidence ≥ 0.85,
   concrete entity ids + counts in evidence). Cross-check `inbox-reports-list` first.
 - **Remember** if below the bar but worth carrying forward.
 - **Skip** if a `noise:` / `addressed:` / `dedupe:` entry already covers it.

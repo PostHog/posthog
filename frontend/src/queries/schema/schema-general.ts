@@ -3707,11 +3707,16 @@ export interface ExperimentParameters {
     excluded_variants?: string[]
 }
 
-/** Slim exposure config for experiment API payloads. */
+/** Slim exposure config for experiment API payloads. Discriminated by `kind`:
+ *  'ExperimentEventExposureConfig' tracks exposure via a custom event,
+ *  'ActionsNode' tracks exposure via an action. */
 export interface ExperimentApiExposureConfig {
-    kind: NodeKind.ExperimentEventExposureConfig
-    /** Custom exposure event name. */
-    event: string
+    /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
+    kind?: 'ExperimentEventExposureConfig' | 'ActionsNode'
+    /** Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'. */
+    event?: string
+    /** Action ID. Required when kind is 'ActionsNode'. */
+    id?: integer
     /** Event property filters. Pass an empty array if no filters needed. */
     properties: EventPropertyFilter[]
 }
@@ -6351,6 +6356,11 @@ export enum DashboardAutoRefreshInterval {
 /** Subscriptions a free-tier team may create. */
 export enum SubscriptionFreeTierLimit {
     COUNT = 5,
+}
+
+/** Maximum length, in characters, of an AI subscription prompt. */
+export enum SubscriptionAIPromptMaxLength {
+    CHARACTERS = 4000,
 }
 
 export type UsageMetricFormat = 'numeric' | 'currency'

@@ -17,6 +17,8 @@ import type {
     PersonDeletePropertyRequestApi,
     PersonPropertiesAtTimeResponseApi,
     PersonRecordApi,
+    PersonSplitRequestApi,
+    PersonSplitResponseApi,
     PersonUpdatePropertyRequestApi,
     PersonsActivityRetrieveParams,
     PersonsAllActivityRetrieveParams,
@@ -298,7 +300,7 @@ export const personsPropertiesTimelineRetrieve = async (
     })
 }
 
-export const getPersonsSplitCreateUrl = (projectId: string, id: number, params?: PersonsSplitCreateParams) => {
+export const getPersonsSplitCreateUrl = (projectId: string, id: string, params?: PersonsSplitCreateParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -315,20 +317,25 @@ export const getPersonsSplitCreateUrl = (projectId: string, id: number, params?:
 }
 
 /**
- * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
+ * Split distinct_ids off a merged person. Two mutually exclusive modes:
+
+- **`distinct_ids_to_split`** (recommended for surgical edits): moves only the listed distinct_ids off this person onto new single-id persons. The original person keeps every other distinct_id and its properties.
+- **`main_distinct_id`** (legacy semantics): keeps only the specified distinct_id on this person; moves every *other* distinct_id off onto its own new person. If omitted, the person's properties are wiped and the first distinct_id is treated as the one to keep.
+
+The split runs asynchronously: a 201 response means the task was enqueued. Newly-created split-off persons get a deterministic UUID derived from `(team_id, distinct_id)`, so they can be located client-side without polling. If you need to delete a split-off person after this call, prefer looking it up by that deterministic UUID rather than by distinct_id, since the latter still resolves to the original merged person until the async task completes.
  */
 export const personsSplitCreate = async (
     projectId: string,
-    id: number,
-    personRecordApi?: NonReadonly<PersonRecordApi>,
+    id: string,
+    personSplitRequestApi?: PersonSplitRequestApi,
     params?: PersonsSplitCreateParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsSplitCreateUrl(projectId, id, params), {
+): Promise<PersonSplitResponseApi> => {
+    return apiMutator<PersonSplitResponseApi>(getPersonsSplitCreateUrl(projectId, id, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(personRecordApi),
+        body: JSON.stringify(personSplitRequestApi),
     })
 }
 
