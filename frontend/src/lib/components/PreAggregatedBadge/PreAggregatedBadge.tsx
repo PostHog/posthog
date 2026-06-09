@@ -38,10 +38,7 @@ function PrecomputedTooltip(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-1 max-w-xs">
-            <span>
-                Loaded from a pre-computed roll-up dataset — freshly recomputed by our new query engine instead of
-                running a live query.
-            </span>
+            <span>Loaded from a pre-computed state instead of running a live query against all events.</span>
             <span>It should be very close to live data, but isn't guaranteed to be exact.</span>
             <span>
                 <Link to={QUERY_ENGINE_DOCS_URL}>Learn more</Link>
