@@ -80,16 +80,9 @@ function openExperimentPersonsModalForSeries({
         return
     }
 
-    // Skip drop-off queries for the first metric step (stepIndex 1)
-    // Drop-offs at step 1 would mean "exposed but never entered the funnel",
-    // which can't be queried via the actors funnel (it starts at the first metric event)
-    if (!converted && backendStepNo === 1) {
-        return
-    }
-
-    // For drop-offs, the mapping is straightforward
-    // Frontend step 2 drop-off = "completed step 1 ($pageview) but not step 2 (click)" = backend -2 = -stepIndex
-    // Frontend step 3 drop-off = "completed step 2 (click) but not step 3 (next event)" = backend -3 = -stepIndex
+    // For drop-offs, the mapping is straightforward (funnelStep = -stepIndex):
+    // Step 1 drop-off = "exposed but did not reach the first metric event" = backend -1
+    // Step 2 drop-off = "completed step 1 but not step 2 (click)" = backend -2
     const funnelStep = converted ? backendStepNo : -backendStepNo
 
     // Create ExperimentActorsQuery with exposure configuration
@@ -212,8 +205,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
                         const rect = ref.current.getBoundingClientRect()
                         // Only show "Click to inspect actors" hint when clicking will actually work:
                         // - Step 0 (exposure) with new feature enabled: conversion click returns all exposed actors
-                        // - Step 1 (first metric) drop-offs with new feature: can't query (no exposure in backend funnel), conversions work
-                        // - Step 2+ with new feature: both conversions and drop-offs work
+                        // - Step 1+ with new feature: both conversions and drop-offs work
                         // - Legacy mode: show hint if sessionData exists
                         const hasClickableData = hasActorsQueryFeature ? stepIndex >= 0 : !!sessionData
                         showTooltip([rect.x, rect.y, rect.width], stepIndex, step, hasClickableData)
@@ -226,7 +218,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
                     onClick={handleDropoffClick}
                     style={{
                         cursor: hasActorsQueryFeature
-                            ? stepIndex > 1
+                            ? stepIndex > 0
                                 ? 'pointer'
                                 : 'default'
                             : sessionData
