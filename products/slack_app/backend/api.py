@@ -55,9 +55,11 @@ from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.models import SlackChannel, SlackUserProfileCache
 from products.slack_app.backend.services.integration_resolver import (
+    UserResolutionFailure,
     format_project_candidate_list,
     load_integrations,
     resolve_user_and_integrations,
+    user_resolution_failure_reply,
 )
 from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl
 
@@ -1398,6 +1400,31 @@ def _notify_missing_slack_scopes(
     _post_slack_user_feedback(slack, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 
 
+def _get_slack_email_for_user(probe_integration: Integration, slack_user_id: str) -> str | None:
+    """Best-effort lookup of the Slack user's email via ``users.info``,
+    cache-first then a fresh hit on miss. Returns ``None`` when Slack doesn't
+    expose an email for the user (profile email hidden) or the lookup fails.
+    """
+    slack_client = SlackIntegration(probe_integration)
+    try:
+        user_info = _get_slack_user_info(slack_client, probe_integration, slack_user_id)
+        slack_email = user_info.get("user", {}).get("profile", {}).get("email")
+        if not slack_email:
+            fresh = _normalize_slack_response(slack_client.client.users_info(user=slack_user_id))
+            if fresh:
+                _persist_slack_user_info(probe_integration, slack_user_id, fresh)
+                slack_email = fresh.get("user", {}).get("profile", {}).get("email")
+        return slack_email or None
+    except Exception:
+        logger.warning(
+            "posthog_code_resolve_user_email_failed",
+            integration_id=probe_integration.id,
+            slack_user_id=slack_user_id,
+            exc_info=True,
+        )
+        return None
+
+
 def _resolve_posthog_user_from_event(
     *,
     slack_user_id: str,
@@ -1411,34 +1438,18 @@ def _resolve_posthog_user_from_event(
     the organization-membership check. A user with no membership in any
     connected org returns ``None`` so the caller can refuse the event.
     """
-    slack_client = SlackIntegration(probe_integration)
-    try:
-        user_info = _get_slack_user_info(slack_client, probe_integration, slack_user_id)
-        slack_email = user_info.get("user", {}).get("profile", {}).get("email")
-        if not slack_email:
-            fresh = _normalize_slack_response(slack_client.client.users_info(user=slack_user_id))
-            if fresh:
-                _persist_slack_user_info(probe_integration, slack_user_id, fresh)
-                slack_email = fresh.get("user", {}).get("profile", {}).get("email")
-        if not slack_email:
-            return None
-        org_ids = {c.team.organization_id for c in candidate_integrations}
-        if not org_ids:
-            return None
-        membership = (
-            OrganizationMembership.objects.filter(organization_id__in=org_ids, user__email__iexact=slack_email)
-            .select_related("user")
-            .first()
-        )
-        return membership.user if membership else None
-    except Exception:
-        logger.warning(
-            "posthog_code_resolve_user_failed",
-            integration_id=probe_integration.id,
-            slack_user_id=slack_user_id,
-            exc_info=True,
-        )
-    return None
+    slack_email = _get_slack_email_for_user(probe_integration, slack_user_id)
+    if not slack_email:
+        return None
+    org_ids = {c.team.organization_id for c in candidate_integrations}
+    if not org_ids:
+        return None
+    membership = (
+        OrganizationMembership.objects.filter(organization_id__in=org_ids, user__email__iexact=slack_email)
+        .select_related("user")
+        .first()
+    )
+    return membership.user if membership else None
 
 
 def _post_pick_a_project_hint(
@@ -1460,6 +1471,33 @@ def _post_pick_a_project_hint(
         "Use `@PostHog project <id>` to pick one — that also saves it as your default."
     )
     _post_slack_user_feedback(probe, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
+
+
+def _post_user_resolution_failure_reply(
+    *,
+    probe: Integration,
+    channel: str | None,
+    slack_user_id: str | None,
+    thread_ts: str | None,
+    failure_reason: UserResolutionFailure | None,
+    slack_email: str | None,
+) -> None:
+    """Tell a Slack user when we can't route their mention to a PostHog project.
+
+    Posts in-thread (with the established ephemeral fallback in
+    ``_post_slack_user_feedback``) so the message lands in the place the
+    mention happened. ``failure_reason`` is mapped to the user-facing text by
+    ``user_resolution_failure_reply``; ``slack_email`` is woven in when known
+    so the user sees which address PostHog tried to match.
+    """
+    if not channel or not thread_ts or not slack_user_id:
+        return
+    text = user_resolution_failure_reply(failure_reason, slack_email=slack_email)
+    if text is None:
+        return
+    _post_slack_user_feedback(
+        SlackIntegration(probe), channel, slack_user_id, thread_ts, text, prefer_thread_message=True
+    )
 
 
 def _start_posthog_code_workflow(
@@ -1556,6 +1594,14 @@ def route_posthog_code_event_to_relevant_region(
             return _proxy_event_and_return_route(request, other_domain)
 
         if resolution.user is None:
+            _post_user_resolution_failure_reply(
+                probe=resolution.workspace_result.candidates[0],
+                channel=channel_str,
+                slack_user_id=slack_user_id_str,
+                thread_ts=thread_ts_str,
+                failure_reason=resolution.failure_reason,
+                slack_email=resolution.slack_email,
+            )
             return ROUTE_HANDLED_LOCALLY
 
         posthog_user = resolution.user
