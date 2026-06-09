@@ -190,18 +190,32 @@ describe('ToolCatalog', () => {
 })
 
 describe('stripDefaultedFromRequired', () => {
-    it('removes defaulted properties from required while keeping mandatory ones', () => {
-        const schema = {
-            type: 'object',
-            properties: {
-                issueId: { type: 'string' },
-                status: { type: 'string', default: 'active' },
-                limit: { type: 'number', default: 25 },
+    it.each([
+        {
+            label: 'removes defaulted properties from required while keeping mandatory ones',
+            schema: {
+                type: 'object',
+                properties: {
+                    issueId: { type: 'string' },
+                    status: { type: 'string', default: 'active' },
+                    limit: { type: 'number', default: 25 },
+                },
+                required: ['issueId', 'status', 'limit'],
             },
-            required: ['issueId', 'status', 'limit'],
-        }
+            expectedRequired: ['issueId'],
+        },
+        {
+            label: 'leaves schemas without defaults untouched',
+            schema: {
+                type: 'object',
+                properties: { a: { type: 'string' }, b: { type: 'number' } },
+                required: ['a', 'b'],
+            },
+            expectedRequired: ['a', 'b'],
+        },
+    ])('$label', ({ schema, expectedRequired }) => {
         stripDefaultedFromRequired(schema)
-        expect(schema.required).toEqual(['issueId'])
+        expect(schema.required).toEqual(expectedRequired)
     })
 
     it('drops the required array entirely when only defaulted properties remain', () => {
@@ -244,15 +258,5 @@ describe('stripDefaultedFromRequired', () => {
         expect(schema.properties.nested.required).toEqual(['b'])
         expect(schema.properties.items.items).not.toHaveProperty('required')
         expect(schema.anyOf[0]?.required).toEqual(['e'])
-    })
-
-    it('leaves schemas without defaults untouched', () => {
-        const schema = {
-            type: 'object',
-            properties: { a: { type: 'string' }, b: { type: 'number' } },
-            required: ['a', 'b'],
-        }
-        stripDefaultedFromRequired(schema)
-        expect(schema.required).toEqual(['a', 'b'])
     })
 })
