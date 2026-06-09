@@ -90,7 +90,10 @@ async def test_degraded_report_still_synthesizes(
 ) -> None:
     # One step failed (failed_count=1) but the report still ships — graceful degradation.
     mock_bep.return_value = _spec(steps=1)
-    mock_run.return_value = (["### s0\n\n_Query failed to run (ExposedHogQLError) — metric not computed, not empty data._"], 1)
+    mock_run.return_value = (
+        ["### s0\n\n_Query failed to run (ExposedHogQLError) — metric not computed, not empty data._"],
+        1,
+    )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Weekly report")
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window_days=7)
