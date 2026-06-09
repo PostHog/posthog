@@ -746,6 +746,16 @@ export function MarkdownNotebook({
                 replacementNodes = [{ ...node, children: before }, nextHeading]
                 restoreSelectionRef.current = { nodeId: nextHeading.id, start: 0, end: 0 }
             }
+        } else if (node.type === 'blockquote') {
+            if (selectionStart === 0) {
+                const previousParagraph = makeEmptyParagraph(`before-${node.id}`)
+                replacementNodes = [previousParagraph, { ...node, children: after }]
+                restoreSelectionRef.current = { nodeId: previousParagraph.id, start: 0, end: 0 }
+            } else {
+                const nextBlockquote = { ...node, id: makeEmptyParagraph(`after-${node.id}`).id, children: after }
+                replacementNodes = [{ ...node, children: before }, nextBlockquote]
+                restoreSelectionRef.current = { nodeId: nextBlockquote.id, start: 0, end: 0 }
+            }
         } else {
             const nextParagraph = makeEmptyParagraph(`after-${node.id}`)
             nextParagraph.children = after
@@ -820,6 +830,22 @@ export function MarkdownNotebook({
             }
 
             const previousNode = nodes[nodeIndex - 1]
+            if (
+                (node.type === 'heading' || node.type === 'blockquote') &&
+                (!isTextBlockNode(previousNode) || !textBlocksShareContinuationStyle(previousNode, node))
+            ) {
+                restoreSelectionRef.current = { nodeId: node.id, start: 0, end: 0 }
+                commitDocument({
+                    ...currentDocument,
+                    nodes: nodes.map((currentNode) =>
+                        currentNode.id === node.id && isTextBlockNode(currentNode)
+                            ? { ...currentNode, type: 'paragraph', level: undefined }
+                            : currentNode
+                    ),
+                })
+                return true
+            }
+
             if (isTextBlockNode(previousNode)) {
                 const previousTextLength = getInlineText(previousNode.children).length
                 const mergedNode: NotebookTextBlockNode = {
@@ -1030,7 +1056,7 @@ export function MarkdownNotebook({
     )
 
     const deleteNodeBefore = useCallback(
-        (nodeId: string): boolean => {
+        (nodeId: string, options: { requireSameTextStyle?: boolean } = {}): boolean => {
             const currentDocument = documentRef.current
             const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
             const nodeIndex = nodes.findIndex((node) => node.id === nodeId)
@@ -1041,6 +1067,10 @@ export function MarkdownNotebook({
             const previousNode = nodes[nodeIndex - 1]
             const currentNode = nodes[nodeIndex]
             if (isTextBlockNode(previousNode) && isTextBlockNode(currentNode)) {
+                if (options.requireSameTextStyle && !textBlocksShareContinuationStyle(previousNode, currentNode)) {
+                    return false
+                }
+
                 const previousTextLength = getInlineText(previousNode.children).length
                 const mergedNode: NotebookTextBlockNode = {
                     ...previousNode,
@@ -1065,6 +1095,10 @@ export function MarkdownNotebook({
                     }),
                 })
                 return true
+            }
+
+            if (options.requireSameTextStyle) {
+                return false
             }
 
             restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
@@ -2915,7 +2949,7 @@ function renderNode({
     deleteNodeAndFocusAdjacent: () => void
     deleteSelectedNotebookBlocks: () => boolean
     insertParagraphAfterNode: () => void
-    deleteNodeBefore: (nodeId: string) => boolean
+    deleteNodeBefore: (nodeId: string, options?: { requireSameTextStyle?: boolean }) => boolean
     moveFocusToAdjacentNode: (nodeId: string, direction: InsertMenuSelectionDirection, offset: number) => boolean
     moveFocusToAdjacentListItem: (
         nodeId: string,
@@ -3061,7 +3095,7 @@ function EditableListBlock({
     setListItemRef: (itemIndex: number, element: HTMLElement | null) => void
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
     replaceNodeWithNodes: (nodeId: string, replacementNodes: NotebookBlockNode[]) => void
-    deleteNodeBefore: (nodeId: string) => boolean
+    deleteNodeBefore: (nodeId: string, options?: { requireSameTextStyle?: boolean }) => boolean
     moveFocusToAdjacentListItem: (
         nodeId: string,
         itemIndex: number,
@@ -3243,7 +3277,7 @@ function EditableListItemContent({
     splitListItem: (itemIndex: number, offset: number) => void
     removeListItem: (itemIndex: number) => void
     shiftListItemDepth: (itemIndex: number, direction: 'in' | 'out', offset?: number) => boolean
-    deleteNodeBefore: (nodeId: string) => boolean
+    deleteNodeBefore: (nodeId: string, options?: { requireSameTextStyle?: boolean }) => boolean
     moveFocusToAdjacentListItem: (
         nodeId: string,
         itemIndex: number,
@@ -4194,7 +4228,7 @@ function EditableTextBlock({
     replaceNodeWithNodes: (nodeId: string, replacementNodes: NotebookBlockNode[]) => void
     deleteNodeAndFocusAdjacent: () => void
     deleteSelectedNotebookBlocks: () => boolean
-    deleteNodeBefore: (nodeId: string) => boolean
+    deleteNodeBefore: (nodeId: string, options?: { requireSameTextStyle?: boolean }) => boolean
     moveFocusToAdjacentNode: (nodeId: string, direction: InsertMenuSelectionDirection, offset: number) => boolean
     openInsertMenu: (query?: string) => void
     updateAIPromptQuery: (query: string) => void
@@ -4637,6 +4671,27 @@ function EditableTextBlock({
                 return
             }
 
+            if (node.type === 'blockquote') {
+                if (selectionStart === 0) {
+                    const previousParagraph = makeEmptyParagraph(`before-${node.id}`)
+                    replaceNodeWithNodes(node.id, [previousParagraph, { ...node, children: after }])
+                    restoreSelectionRef.current = { nodeId: previousParagraph.id, start: 0, end: 0 }
+                    return
+                }
+
+                const nextBlockquoteId = makeEmptyParagraph(`after-${node.id}`).id
+                replaceNodeWithNodes(node.id, [
+                    { ...node, children: before },
+                    {
+                        ...node,
+                        id: nextBlockquoteId,
+                        children: after,
+                    },
+                ])
+                restoreSelectionRef.current = { nodeId: nextBlockquoteId, start: 0, end: 0 }
+                return
+            }
+
             const nextParagraph = makeEmptyParagraph(`after-${node.id}`)
             nextParagraph.children = after
 
@@ -4691,11 +4746,14 @@ function EditableTextBlock({
             if (
                 !isTitleBlock &&
                 event.key === 'Backspace' &&
-                node.type === 'heading' &&
+                (node.type === 'heading' || node.type === 'blockquote') &&
                 selection?.start === 0 &&
                 selection.end === 0
             ) {
                 event.preventDefault()
+                if (deleteNodeBefore(node.id, { requireSameTextStyle: true })) {
+                    return
+                }
                 replaceWithParagraph(0)
                 return
             }
@@ -4782,6 +4840,7 @@ function EditableTextBlock({
                 <button
                     type="button"
                     ref={isAIThinking ? setAIThinkingTagRef : undefined}
+                    contentEditable={false}
                     className={clsx(
                         'MarkdownNotebook__ai-prompt-tag',
                         isAIThinking && 'MarkdownNotebook__ai-prompt-tag--thinking'
@@ -4941,6 +5000,7 @@ function FormattingToolbar({
     return (
         <div
             className={clsx('MarkdownNotebook__format-toolbar', `MarkdownNotebook__format-toolbar--${placement}`)}
+            contentEditable={false}
             style={toolbarStyle}
             onFocusCapture={lockPosition}
             onPointerDownCapture={lockPosition}
@@ -5364,6 +5424,7 @@ function InsertMenu({
                 position && 'MarkdownNotebook__insert-menu--positioned',
                 position && `MarkdownNotebook__insert-menu--${position.placement}`
             )}
+            contentEditable={false}
             style={menuStyle}
         >
             {Object.entries(commandsByCategory).map(([category, categoryCommands]) => (
@@ -5704,6 +5765,14 @@ function buildInsertCommands(
 
 function isTextBlockNode(node: NotebookBlockNode): node is NotebookTextBlockNode {
     return node.type === 'paragraph' || node.type === 'heading' || node.type === 'blockquote'
+}
+
+function textBlocksShareContinuationStyle(left: NotebookTextBlockNode, right: NotebookTextBlockNode): boolean {
+    if (left.type !== right.type) {
+        return false
+    }
+
+    return left.type !== 'heading' || (left.level ?? 1) === (right.level ?? 1)
 }
 
 function isInlineInsertMenuRow(node: NotebookBlockNode | undefined, insertMenuNodeId?: string): boolean {

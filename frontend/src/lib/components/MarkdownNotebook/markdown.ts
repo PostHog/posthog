@@ -251,11 +251,7 @@ export function serializeInlineNodes(nodes: NotebookInlineNode[]): string {
 }
 
 export function htmlElementToInlineNodes(element: HTMLElement): NotebookInlineNode[] {
-    const nodes: NotebookInlineNode[] = []
-    element.childNodes.forEach((child) => {
-        nodes.push(...htmlNodeToInlineNodes(child, []))
-    })
-    return normalizeInlineNodes(nodes)
+    return normalizeInlineNodes(htmlChildNodesToInlineNodes(element, []))
 }
 
 export function inlineNodesToHtml(nodes: NotebookInlineNode[]): string {
@@ -874,6 +870,20 @@ function findNextInlineToken(markdown: string, startIndex: number): number {
     return indexes.length ? Math.min(...indexes) : markdown.length
 }
 
+function htmlChildNodesToInlineNodes(parent: HTMLElement, marks: NotebookInlineMark[]): NotebookInlineNode[] {
+    const children: NotebookInlineNode[] = []
+
+    parent.childNodes.forEach((child) => {
+        if (isBlockBreakElement(child) && children.length && children[children.length - 1]?.type !== 'hardBreak') {
+            children.push({ type: 'hardBreak' })
+        }
+
+        children.push(...htmlNodeToInlineNodes(child, marks))
+    })
+
+    return children
+}
+
 function htmlNodeToInlineNodes(node: ChildNode, marks: NotebookInlineMark[]): NotebookInlineNode[] {
     if (node.nodeType === Node.TEXT_NODE) {
         return node.textContent
@@ -910,16 +920,22 @@ function htmlNodeToInlineNodes(node: ChildNode, marks: NotebookInlineMark[]): No
         }
     }
 
-    const children: NotebookInlineNode[] = []
-    node.childNodes.forEach((child) => {
-        children.push(...htmlNodeToInlineNodes(child, nextMarks))
-    })
+    const children = htmlChildNodesToInlineNodes(node, nextMarks)
 
-    if (tagName === 'div' || tagName === 'p') {
+    if (isBlockBreakElement(node)) {
         children.push({ type: 'hardBreak' })
     }
 
     return children
+}
+
+function isBlockBreakElement(node: ChildNode): node is HTMLElement {
+    if (!(node instanceof HTMLElement)) {
+        return false
+    }
+
+    const tagName = node.tagName.toLowerCase()
+    return tagName === 'div' || tagName === 'p'
 }
 
 function inlineNodeToHtml(node: NotebookInlineNode): string {
