@@ -126,16 +126,18 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             invalidate_messages_cache(team_id, item_id)
 
             # Customer-facing analytics (to customer's project)
-            author = User.objects.filter(id=created_by_id).first() if created_by_id else None
             if is_team_message:
+                author = User.objects.filter(id=created_by_id).first() if created_by_id else None
                 capture_message_sent(ticket, comment_id, content or "", author=author)
             else:
+                author = None
                 capture_message_received(ticket, comment_id, content or "")
 
             # Internal analytics (PostHog tracking its own usage)
             props = {"channel_source": ticket.channel_source}
-            if is_team_message and author:
-                report_user_action(author, "support message sent", props, team=ticket.team)
+            if is_team_message:
+                if author:
+                    report_user_action(author, "support message sent", props, team=ticket.team)
             else:
                 report_team_action(ticket.team, "support message received", props)
             # Send email notification on first customer message (i.e. new ticket)

@@ -169,7 +169,7 @@ def capture_ticket_priority_changed(
     old_priority: str | None,
     new_priority: str | None,
     actor: User | None = None,
-    actor_type: ActorType = "user",
+    actor_type: ActorType = "system",
 ) -> None:
     properties = _get_ticket_base_properties(ticket)
     properties["old_priority"] = old_priority
@@ -191,7 +191,7 @@ def capture_ticket_assigned(
     assignee_type: str | None,
     assignee_id: str | None,
     actor: User | None = None,
-    actor_type: ActorType = "user",
+    actor_type: ActorType = "system",
 ) -> None:
     properties = _get_ticket_base_properties(ticket)
     properties["assignee_type"] = assignee_type
