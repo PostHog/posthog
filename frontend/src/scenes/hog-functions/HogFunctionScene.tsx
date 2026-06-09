@@ -448,7 +448,7 @@ export function HogFunctionScene(): JSX.Element {
                   label: (
                       <div className="flex flex-row">
                           <div>Backfills</div>
-                          <LemonTag className="ml-2 float-right uppercase" type="primary">
+                          <LemonTag className="ml-2 uppercase" type="primary">
                               New
                           </LemonTag>
                       </div>
