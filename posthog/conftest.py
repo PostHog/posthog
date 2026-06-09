@@ -340,9 +340,20 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
 
 
 # How long a teardown flush may wait on a Postgres lock before we terminate idle-in-transaction
-# blockers and retry (Postgres duration syntax). Generous: nothing legitimate holds a table lock
-# for anywhere near this long in tests.
-FLUSH_LOCK_TIMEOUT = "30s"
+# blockers and retry. Generous: nothing legitimate holds a table lock for anywhere near this
+# long in tests.
+FLUSH_LOCK_TIMEOUT_SECONDS = 30
+
+# Self-heal events surfaced at the end of the run: pytest.ini ships `-p no:warnings`, so
+# warnings.warn alone would be invisible in CI for passing tests.
+_flush_guard_reports: list[str] = []
+
+
+def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any) -> None:
+    # Drain rather than iterate: products/conftest.py star-imports this hook, so it can
+    # be invoked once per registering conftest.
+    while _flush_guard_reports:
+        terminalreporter.write_line(f"[flush-lock-guard] {_flush_guard_reports.pop(0)}", yellow=True)
 
 
 def _is_lock_timeout(exc: BaseException | None) -> bool:
@@ -355,29 +366,40 @@ def _is_lock_timeout(exc: BaseException | None) -> bool:
     return False
 
 
-def _terminate_idle_in_transaction_sessions(database: str) -> list[str]:
-    """Snapshot and terminate other idle-in-transaction sessions on this connection's database."""
+def _terminate_idle_in_transaction_sessions(database: str) -> tuple[list[str], int]:
+    """Snapshot other sessions on this connection's database and terminate the leaked ones:
+    idle in transaction since before our lock wait began, so provably the blocker.
+
+    A session merely *between* statements of an in-flight transaction (idle-in-transaction
+    for milliseconds, e.g. a concurrent background thread mid-INSERT) is spared. The full
+    snapshot is returned for diagnostics — an *active* blocker should still be named even
+    though we don't kill it.
+    """
     with connections[database].cursor() as cursor:
         cursor.execute(
             """
-            SELECT pid, usename, application_name,
+            SELECT pid, usename, application_name, state, wait_event_type, wait_event,
                    now() - xact_start AS xact_age,
-                   now() - state_change AS idle_for,
+                   now() - state_change AS state_age,
+                   COALESCE(state_change < now() - make_interval(secs => %s), FALSE) AS stale,
                    query
             FROM pg_stat_activity
             WHERE datname = current_database()
               AND pid != pg_backend_pid()
-              AND state LIKE 'idle in transaction%'
-            """
+              AND backend_type = 'client backend'
+            """,
+            [FLUSH_LOCK_TIMEOUT_SECONDS],
         )
-        blockers = cursor.fetchall()
+        sessions = cursor.fetchall()
         descriptions = [
-            f"pid={pid} user={user} app={app!r} xact_age={xact_age} idle_for={idle_for} last_query={query!r}"
-            for pid, user, app, xact_age, idle_for, query in blockers
+            f"pid={pid} user={user} app={app!r} state={state!r} wait_event={wait_type}/{wait_event} "
+            f"xact_age={xact_age} state_age={state_age} last_query={query!r}"
+            for pid, user, app, state, wait_type, wait_event, xact_age, state_age, _stale, query in sessions
         ]
-        for pid, *_ in blockers:
+        blockers = [row[0] for row in sessions if row[3] and row[3].startswith("idle in transaction") and row[8]]
+        for pid in blockers:
             cursor.execute("SELECT pg_terminate_backend(%s)", [pid])
-    return descriptions
+    return descriptions, len(blockers)
 
 
 def _flush_with_lock_guard(database: str, flush: Callable[[], None]) -> None:
@@ -394,29 +416,37 @@ def _flush_with_lock_guard(database: str, flush: Callable[[], None]) -> None:
         with conn.cursor() as cursor:
             cursor.execute("SELECT set_config('lock_timeout', %s, false)", [value])
 
-    set_lock_timeout(FLUSH_LOCK_TIMEOUT)
+    set_lock_timeout(f"{FLUSH_LOCK_TIMEOUT_SECONDS}s")
     try:
         try:
             flush()
         except Exception as err:
             if not _is_lock_timeout(err):
                 raise
-            blockers = _terminate_idle_in_transaction_sessions(database)
+            sessions, terminated = _terminate_idle_in_transaction_sessions(database)
             message = (
-                f"Teardown flush of {database!r} timed out after {FLUSH_LOCK_TIMEOUT} waiting for a table lock; "
-                f"terminated {len(blockers)} idle-in-transaction session(s) and retrying: {'; '.join(blockers)}"
+                f"Teardown flush of {database!r} timed out after {FLUSH_LOCK_TIMEOUT_SECONDS}s waiting for a "
+                f"table lock; terminated {terminated} idle-in-transaction session(s) of {len(sessions)} on the "
+                f"database, retrying once: {'; '.join(sessions)}"
             )
             logger.exception(message)
             warnings.warn(message, stacklevel=2)
+            _flush_guard_reports.append(message)
             try:
                 flush()
             except Exception as retry_err:
                 raise RuntimeError(
-                    f"Teardown flush of {database!r} is still lock-blocked after terminating "
-                    f"idle-in-transaction sessions: {'; '.join(blockers)}"
+                    f"Teardown flush of {database!r} failed again after terminating {terminated} "
+                    f"idle-in-transaction session(s); sessions at first failure: {'; '.join(sessions)}"
                 ) from retry_err
     finally:
-        set_lock_timeout("0")
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("RESET lock_timeout")
+        except Exception:
+            # The flush may have failed because the connection itself died; raising here
+            # would mask that original error, and a reconnect gets fresh session state anyway.
+            logger.warning("Could not reset lock_timeout after flushing %r", database, exc_info=True)
 
 
 def _truncate_persons_db_tables(database: str) -> None:
