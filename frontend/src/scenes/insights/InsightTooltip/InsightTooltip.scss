@@ -90,7 +90,7 @@
         // max-width lives on the inner content (not the cell) because cells in
         // an auto-layout table grow to fit content and ignore their own max-width.
         .datum-title {
-            max-width: 12rem;
+            max-width: 9rem;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -98,19 +98,28 @@
 
         .datum-column .insights-label {
             max-width: 12rem;
-            overflow: hidden;
         }
 
         .datum-counts-column .insights-label {
-            max-width: 8rem;
-            overflow: hidden;
+            max-width: 6rem;
         }
 
-        // Let the nested flex wrappers shrink so the labels' built-in
-        // text-ellipsis truncation can engage.
         .insights-label,
         .insights-label * {
             min-width: 0;
+        }
+
+        // InsightLabel nests its text in fit-content flex wrappers that ignore
+        // the label's max-width, so long names overflow and hard-clip at the
+        // tooltip edge. Cap the wrappers at the label width so the label's
+        // built-in text-ellipsis truncation can engage.
+        .datum-column .insights-label,
+        .datum-counts-column .insights-label {
+            overflow: hidden;
+
+            div {
+                max-width: 100%;
+            }
         }
 
         .LemonTable__content > table > thead {
