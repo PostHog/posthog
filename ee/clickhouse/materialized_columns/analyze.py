@@ -1,6 +1,6 @@
 from collections import defaultdict
 from datetime import timedelta
-from typing import Optional
+from typing import Optional, cast
 
 import structlog
 
@@ -93,7 +93,9 @@ LIMIT 100 -- Make sure we don't add 100s of columns in one run
         ),
     )
 
-    suggestions = [("events", table_column, property_name) for (table_column, property_name) in raw_queries]
+    suggestions: list[Suggestion] = [
+        ("events", table_column, property_name) for (table_column, property_name) in raw_queries
+    ]
 
     # With property groups enabled, the printer reads unmaterialized properties through map columns
     # (e.g. properties_group_custom['foo']) instead of JSONExtract, so those reads never match the regex
@@ -165,7 +167,7 @@ LIMIT 100 -- Make sure we don't add 100s of columns in one run
 
         seen = set(suggestions)
         for group_column, property_name in raw_group_queries:
-            suggestion = ("events", group_columns_to_source[group_column], property_name)
+            suggestion: Suggestion = ("events", cast(TableColumn, group_columns_to_source[group_column]), property_name)
             if suggestion not in seen:
                 seen.add(suggestion)
                 suggestions.append(suggestion)
