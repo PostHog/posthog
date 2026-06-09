@@ -1,4 +1,4 @@
-import { BindLogic, connect, kea, path, props, selectors, useActions, useValues } from 'kea'
+import { BindLogic, connect, kea, path, selectors, useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { IconCopy, IconQuestion } from '@posthog/icons'
@@ -53,13 +53,8 @@ export const getEffectiveAccessMethod = (
     return persistedAccessMethod
 }
 
-export interface NewSourceSceneLogicProps {
-    tabId: string
-}
-
 export const newSourceSceneLogic = kea<newSourceSceneLogicType>([
     path(['products', 'dataWarehouse', 'newSourceSceneLogic']),
-    props({} as NewSourceSceneLogicProps),
     connect(() => ({
         values: [availableSourcesLogic, ['availableSources', 'availableSourcesLoading']],
     })),
@@ -89,31 +84,21 @@ export const scene: SceneExport = {
     logic: newSourceSceneLogic,
 }
 
-export function NewSourceScene({ tabId }: { tabId?: string }): JSX.Element {
-    if (!tabId) {
-        throw new Error('NewSourceScene rendered with no tabId')
-    }
-
-    const sceneRootLogic = newSourceSceneLogic({ tabId })
+export function NewSourceScene(): JSX.Element {
+    const sceneRootLogic = newSourceSceneLogic()
     const { availableSources, availableSourcesLoading } = useValues(sceneRootLogic)
 
     if (availableSourcesLoading || availableSources === null) {
         return <LemonSkeleton />
     }
 
-    return <MountedNewSourceScene availableSources={availableSources} tabId={tabId} />
+    return <MountedNewSourceScene availableSources={availableSources} />
 }
 
-function MountedNewSourceScene({
-    availableSources,
-    tabId,
-}: {
-    availableSources: Record<string, SourceConfig>
-    tabId: string
-}): JSX.Element {
-    const sourceWizardLogicProps = useMemo(() => ({ availableSources, tabId }), [availableSources, tabId])
+function MountedNewSourceScene({ availableSources }: { availableSources: Record<string, SourceConfig> }): JSX.Element {
+    const sourceWizardLogicProps = useMemo(() => ({ availableSources }), [availableSources])
     const wizardLogic = sourceWizardLogic(sourceWizardLogicProps)
-    const sceneRootLogic = newSourceSceneLogic({ tabId })
+    const sceneRootLogic = newSourceSceneLogic()
 
     useAttachedLogic(wizardLogic, sceneRootLogic)
 

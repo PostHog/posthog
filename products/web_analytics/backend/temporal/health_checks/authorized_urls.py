@@ -4,7 +4,7 @@ from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.models.team import Team
 from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
+from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
 
 
@@ -15,6 +15,28 @@ class AuthorizedUrlsCheck(HealthCheck):
     policy = DEFAULT_EXECUTION_POLICY
     schedule = "15 8 * * *"
     active_since_days = 30
+    remediation = Remediation(
+        human="""
+            Go to Project settings → Authorized URLs (also reachable from the Web analytics health page)
+            and add each domain you run on, including staging and any subdomains (for example
+            https://example.com and https://app.example.com). Wildcards are supported for dynamic
+            subdomains.
+        """,
+        agent="""
+            This is a PostHog project setting (the team's `app_urls`), not a codebase change. `app_urls` is
+            a security boundary — it's the allowlist the toolbar uses to decide which domains it may redirect
+            to — so never populate it from event data unattended. Use `execute-sql` on recent $pageview
+            events' `properties.$host` / `properties.$current_url` for DISCOVERY ONLY (`SELECT
+            properties.$host, count() FROM events WHERE event = '$pageview' AND timestamp > now() - INTERVAL
+            7 DAY GROUP BY 1 ORDER BY 2 DESC`). Treat every host you find as untrusted: anyone who knows the
+            project's public token can send spoofed $pageview events with an arbitrary `$host`, so a domain
+            showing up here is NOT proof the user owns it. Present the discovered domains and have the user
+            confirm which ones they actually own; then call `project-get` to read the current settings and
+            `project-settings-update` to append only the user-confirmed domains (don't clobber existing
+            entries). Never add an event-derived domain without that explicit confirmation. The issue
+            resolves once at least one authorized URL is set.
+        """,
+    )
 
     @classmethod
     def render_alert(cls, issue: HealthIssue) -> AlertContent:

@@ -95,28 +95,28 @@ async fn async_main(config: Config) -> Result<()> {
         Some(
             PrometheusBuilder::new()
                 .set_buckets_for_metric(
-                    Matcher::Full("ingestionLagHistogram".into()),
+                    Matcher::Full("ingestion_lag_ms_histogram".into()),
                     &[
                         1_000.0, 2_000.0, 5_000.0, 10_000.0, 30_000.0, 60_000.0, 120_000.0,
                         300_000.0, 600_000.0, 900_000.0,
                     ],
                 )
-                .expect("ingestionLagHistogram buckets")
+                .expect("ingestion_lag_ms_histogram buckets")
                 .set_buckets_for_metric(
-                    Matcher::Full("consumerBatchSize".into()),
+                    Matcher::Full("consumer_batch_size".into()),
                     &[
                         0.0, 50.0, 100.0, 250.0, 500.0, 750.0, 1_000.0, 1_500.0, 2_000.0, 3_000.0,
                     ],
                 )
-                .expect("consumerBatchSize buckets")
+                .expect("consumer_batch_size buckets")
                 .set_buckets_for_metric(
-                    Matcher::Full("consumerBatchSizeKb".into()),
+                    Matcher::Full("consumer_batch_size_kb".into()),
                     &[
                         0.0, 128.0, 512.0, 1_024.0, 5_120.0, 10_240.0, 20_480.0, 51_200.0,
                         102_400.0, 204_800.0,
                     ],
                 )
-                .expect("consumerBatchSizeKb buckets")
+                .expect("consumer_batch_size_kb buckets")
                 .install_recorder()
                 .expect("failed to install Prometheus recorder"),
         )
