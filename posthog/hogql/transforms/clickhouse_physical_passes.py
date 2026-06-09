@@ -794,9 +794,7 @@ class ClickHousePhysicalPasses(CloningVisitor):
                     # Match the ngram_lower index expression: like(lower(coalesce(col, '')), lower(pattern)).
                     indexed = _lower(_coalesce_empty(prop.bare_column()))
                     return _call("and", [_call("like", [indexed, _lower(_const(pattern.value))]), prop.is_not_null()])
-                return _call(
-                    "and", [_call("ilike", [prop.bare_column(), _const(pattern.value)]), prop.is_not_null()]
-                )
+                return _call("and", [_call("ilike", [prop.bare_column(), _const(pattern.value)]), prop.is_not_null()])
             return _call("ifNull", [_call("notILike", [prop.bare_column(), _const(pattern.value)]), _const(True)])
 
         # Non-nullable: bail if the pattern could match a stored sentinel.
@@ -819,9 +817,7 @@ class ClickHousePhysicalPasses(CloningVisitor):
         is_like = node.op == ast.CompareOperationOp.Like
         if prop.source.is_nullable:
             if is_like:
-                return _call(
-                    "and", [_call("like", [prop.bare_column(), _const(pattern.value)]), prop.is_not_null()]
-                )
+                return _call("and", [_call("like", [prop.bare_column(), _const(pattern.value)]), prop.is_not_null()])
             return _call("ifNull", [_call("notLike", [prop.bare_column(), _const(pattern.value)]), _const(True)])
 
         if any(like_matches(cast(str, pattern.value), s) for s in MAT_COL_NULL_SENTINELS):
