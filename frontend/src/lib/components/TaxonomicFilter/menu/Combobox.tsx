@@ -77,6 +77,15 @@ const HIDDEN_FROM_CHIPS: ReadonlySet<TaxonomicFilterGroupType> = new Set([
     TaxonomicFilterGroupType.HogQLExpression,
 ])
 
+/** Groups that feed the "all" surface but are collapsed to a single
+ *  "URL contains <query>" suggestion rather than listing every matching value,
+ *  and are not offered as a standalone chip/category. People filtering by URL
+ *  overwhelmingly want a contains match, so one synthetic row (when any URL
+ *  matches) beats a wall of exact URLs. */
+const COLLAPSED_TO_CONTAINS_ROW: ReadonlySet<TaxonomicFilterGroupType> = new Set([
+    TaxonomicFilterGroupType.PageviewUrls,
+])
+
 /** How many recents and pinned each lead the default "All" surface, matching
  *  the pill variant's top-3 face. */
 const RECENT_PINNED_PREFIX_LIMIT = 3
@@ -256,6 +265,10 @@ export function MenuFilterCombobox({
             opts.push({ value: 'pinned', label: 'Pinned' })
         }
         for (const g of visibleChipGroups) {
+            // Collapsed groups feed the "all" rows but aren't navigable categories.
+            if (COLLAPSED_TO_CONTAINS_ROW.has(g.type)) {
+                continue
+            }
             opts.push({ value: g.type, label: g.name })
         }
         return opts
@@ -299,8 +312,29 @@ export function MenuFilterCombobox({
             return pinnedEntries ?? []
         }
         const merged: MenuFilterEntry[] = []
+        const trimmedQuery = searchQuery.trim()
         for (const group of targetGroups) {
             const items = itemsByType[group.type] ?? []
+            // Collapse to a single "URL contains <query>" row when the contains
+            // search found at least one matching URL. The synthetic item's value
+            // is the typed query (its `name`, since the group's getValue reads
+            // `name`), so `selectItem`'s existing PageviewUrls branch commits
+            // `$current_url IContains <query>`.
+            if (COLLAPSED_TO_CONTAINS_ROW.has(group.type)) {
+                if (trimmedQuery && items.length > 0) {
+                    const label = `URL contains "${trimmedQuery}"`
+                    merged.push({
+                        // `isContainsShortcut` tags this synthetic row so the commit
+                        // telemetry can measure adoption of the contains shortcut vs
+                        // the old per-URL value-picker.
+                        item: { name: trimmedQuery, isContainsShortcut: true } as TaxonomicDefinitionTypes,
+                        group,
+                        name: label,
+                        friendlyLabel: label,
+                    })
+                }
+                continue
+            }
             for (const item of items) {
                 merged.push({
                     item,
@@ -356,6 +390,7 @@ export function MenuFilterCombobox({
         showChips,
         activeChip,
         drillTo,
+        searchQuery,
         surveyQuestionLabels,
     ])
 

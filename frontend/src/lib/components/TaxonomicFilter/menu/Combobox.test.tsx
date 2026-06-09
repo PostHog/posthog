@@ -361,6 +361,76 @@ describe('MenuFilterCombobox', () => {
         expect(promotedIdx).toBeLessThan(otherIdx)
     })
 
+    describe('pageview URLs collapse to a single "contains" suggestion', () => {
+        const mockUrlValues = (urls: string[]): void => {
+            apiGet.mockImplementation((url: string) => {
+                if (url.includes('events/values') && url.includes('current_url')) {
+                    return Promise.resolve(urls.map((name) => ({ name })))
+                }
+                return Promise.resolve({ results: [], count: 0 })
+            })
+        }
+
+        it('collapses matching URLs into one "URL contains <query>" row, not the raw URL list', async () => {
+            mockUrlValues(['https://app.posthog.com/checkout', 'https://app.posthog.com/checkout/pay'])
+
+            renderAll({ groupTypes: [TaxonomicFilterGroupType.PageviewUrls], searchQuery: 'checkout' })
+
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('URL contains "checkout"'))).toBe(true))
+            const rows = rowTexts()
+            // Exactly one synthetic row, and none of the raw matched URLs are listed.
+            expect(rows.filter((t) => t.includes('URL contains "checkout"'))).toHaveLength(1)
+            expect(rows.some((t) => t.includes('https://app.posthog.com/checkout'))).toBe(false)
+        })
+
+        it('shows no URL suggestion when no pageview URL matches (0 slots)', async () => {
+            mockUrlValues([])
+
+            renderAll({ groupTypes: [TaxonomicFilterGroupType.PageviewUrls], searchQuery: 'zzznomatch' })
+
+            await waitFor(() => expect(screen.queryByTestId('menu-filter-loading')).not.toBeInTheDocument())
+            expect(screen.queryByText(/URL contains/)).not.toBeInTheDocument()
+        })
+
+        it('does not offer Pageview URLs as a navigable category', async () => {
+            const user = userEvent.setup()
+            mockUrlValues(['https://app.posthog.com/checkout'])
+
+            renderAll({
+                groupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PageviewUrls],
+            })
+
+            await user.click(screen.getByRole('combobox', { name: 'Filter category' }))
+            expect(screen.queryByRole('option', { name: 'Pageview URLs' })).not.toBeInTheDocument()
+        })
+
+        it('commits the typed query as the value so it becomes $current_url contains <query>', async () => {
+            const user = userEvent.setup()
+            const onCommit = jest.fn()
+            mockUrlValues(['https://app.posthog.com/checkout'])
+
+            renderAll({
+                groupTypes: [TaxonomicFilterGroupType.PageviewUrls],
+                searchQuery: 'checkout',
+                onCommit,
+            })
+
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('URL contains "checkout"'))).toBe(true))
+            const row = Array.from(document.querySelectorAll('[data-slot="taxonomic-filter-menu-row"]')).find((el) =>
+                el.textContent?.includes('URL contains "checkout"')
+            ) as HTMLElement
+            await user.click(row)
+
+            const [entry] = onCommit.mock.calls[0]
+            expect(entry.group.type).toBe(TaxonomicFilterGroupType.PageviewUrls)
+            // getValue reads the item name; the synthetic row carries the query, which
+            // `taxonomicPropertyFilterLogic.selectItem` turns into `$current_url IContains`.
+            expect(entry.group.getValue(entry.item)).toBe('checkout')
+            // Tagged so the commit telemetry can measure adoption of the shortcut.
+            expect((entry.item as { isContainsShortcut?: boolean }).isContainsShortcut).toBe(true)
+        })
+    })
+
     it('drops the recents/pinned prefix once the query no longer matches them', async () => {
         apiGet.mockResolvedValue({ results: [{ id: 1, name: 'autocapture' }], count: 1 })
 
