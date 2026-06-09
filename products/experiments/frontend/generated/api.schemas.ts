@@ -210,6 +210,13 @@ export const ExperimentTypeEnumApi = {
     Product: 'product',
 } as const
 
+export type Kind1Api = (typeof Kind1Api)[keyof typeof Kind1Api]
+
+export const Kind1Api = {
+    ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
+    ActionsNode: 'ActionsNode',
+} as const
+
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
 
 export const PropertyOperatorApi = {
@@ -259,9 +266,11 @@ export interface EventPropertyFilterApi {
 }
 
 export interface ExperimentApiExposureConfigApi {
-    /** Custom exposure event name. */
-    event: string
-    kind?: 'ExperimentEventExposureConfig'
+    /** Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'. */
+    event?: string | null
+    /** Action ID. Required when kind is 'ActionsNode'. */
+    id?: number | null
+    kind: Kind1Api
     /** Event property filters. Pass an empty array if no filters needed. */
     properties: EventPropertyFilterApi[]
 }

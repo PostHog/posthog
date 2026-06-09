@@ -161,7 +161,6 @@ export const experimentsCreateBodyNameMax = 400
 export const experimentsCreateBodyDescriptionMax = 3000
 
 export const experimentsCreateBodyArchivedDefault = false
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigOneKindDefault = `ExperimentEventExposureConfig`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault = `exact`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -326,10 +325,17 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                     exposure_config: zod
                         .union([
                             zod.object({
-                                event: zod.string().describe('Custom exposure event name.'),
-                                kind: zod
-                                    .literal('ExperimentEventExposureConfig')
-                                    .default(experimentsCreateBodyExposureCriteriaOneExposureConfigOneKindDefault),
+                                event: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
+                                    ),
+                                id: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe("Action ID. Required when kind is 'ActionsNode'."),
+                                kind: zod.enum(['ExperimentEventExposureConfig', 'ActionsNode']),
                                 properties: zod
                                     .array(
                                         zod.object({
@@ -2451,7 +2457,6 @@ export const experimentsPartialUpdateBodyNameMax = 400
 
 export const experimentsPartialUpdateBodyDescriptionMax = 3000
 
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOneKindDefault = `ExperimentEventExposureConfig`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -2611,12 +2616,17 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                     exposure_config: zod
                         .union([
                             zod.object({
-                                event: zod.string().describe('Custom exposure event name.'),
-                                kind: zod
-                                    .literal('ExperimentEventExposureConfig')
-                                    .default(
-                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOneKindDefault
+                                event: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
                                     ),
+                                id: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe("Action ID. Required when kind is 'ActionsNode'."),
+                                kind: zod.enum(['ExperimentEventExposureConfig', 'ActionsNode']),
                                 properties: zod
                                     .array(
                                         zod.object({
@@ -4767,7 +4777,6 @@ export const experimentsDuplicateCreateBodyNameMax = 400
 export const experimentsDuplicateCreateBodyDescriptionMax = 3000
 
 export const experimentsDuplicateCreateBodyArchivedDefault = false
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneKindDefault = `ExperimentEventExposureConfig`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
@@ -4932,12 +4941,17 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                     exposure_config: zod
                         .union([
                             zod.object({
-                                event: zod.string().describe('Custom exposure event name.'),
-                                kind: zod
-                                    .literal('ExperimentEventExposureConfig')
-                                    .default(
-                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneKindDefault
+                                event: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
                                     ),
+                                id: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe("Action ID. Required when kind is 'ActionsNode'."),
+                                kind: zod.enum(['ExperimentEventExposureConfig', 'ActionsNode']),
                                 properties: zod
                                     .array(
                                         zod.object({
