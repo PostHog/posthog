@@ -27,7 +27,7 @@ Looking to add a new source to data warehouse? [We have a detailed guide in the 
 
 ## Accessing object storage
 
-All your data warehouse data is stored in your local object storage (SeaweedFS, S3-compatible at `http://localhost:19000`). Unlike MinIO, SeaweedFS has no web console, so inspect it with any S3 client. For example, with the AWS CLI:
+All your data warehouse data is stored in your local object storage (SeaweedFS, S3-compatible, running at `http://localhost:19000`). Unlike MinIO, SeaweedFS has no web console, so inspect it with any S3 client. For example, with the AWS CLI:
 
 ```bash
 AWS_ACCESS_KEY_ID=object_storage_root_user AWS_SECRET_ACCESS_KEY=object_storage_root_password \

@@ -49,7 +49,7 @@ services:
             retries: 10
 
     objectstorage:
-        # SeaweedFS, S3-compatible, exposing the same objectstorage:19000 endpoint MinIO did.
+        # SeaweedFS, S3-compatible object storage on objectstorage:19000.
         # Open-access mode (no -s3.config) so any credential pair our code uses just works.
         # See docker-compose.base.yml `objectstorage` for full rationale.
         image: chrislusf/seaweedfs:4.03

@@ -231,10 +231,10 @@ services:
             DYNAMIC_CONFIG_ENABLED: 'true'
 
     objectstorage:
-        # SeaweedFS, S3-compatible, exposing the same objectstorage:19000 endpoint MinIO did.
-        # Run in default open-access mode (no -s3.config) so every legacy MinIO credential
-        # pair our test/CI/dev code uses just works — including object_storage_root_user
-        # and any/any. Identity-based auth (-s3.config) was tried first but triggers known
+        # SeaweedFS, S3-compatible object storage on objectstorage:19000.
+        # Run in default open-access mode (no -s3.config) so every credential pair our
+        # test/CI/dev code uses just works — including object_storage_root_user and
+        # any/any. Identity-based auth (-s3.config) was tried first but triggers known
         # SeaweedFS SigV4 signature failures and presigned-URL regressions; see
         # seaweedfs/seaweedfs #6635 and discussion #3976.
         image: chrislusf/seaweedfs:4.03
@@ -270,11 +270,10 @@ services:
         # default cap is exhausted and writes to the starved buckets fail with
         # "no writable volumes". 100 leaves ample headroom (empty volumes are sparse).
         command: ['server', '-master.port=19001', '-s3', '-s3.port=19000', '-dir=/data', '-volume.max=100']
-        # Without this, bin/wait-for-docker treats the container as ready the instant
-        # weed execs, which races the bucket bootstrap. The previous MinIO config
-        # `mkdir -p ... && minio server` created buckets BEFORE the server started, so
-        # there was no race; SeaweedFS creates them after startup via the background loop
-        # above, which `touch`es this sentinel once all buckets exist.
+        # SeaweedFS creates buckets after startup via the background loop above, so without
+        # this sentinel bin/wait-for-docker would treat the container as ready the instant
+        # weed execs and race the bucket bootstrap. The loop touches the sentinel once every
+        # required bucket exists.
         healthcheck:
             test: ['CMD', 'test', '-f', '/tmp/objectstorage-ready']
             interval: 5s
@@ -365,7 +364,7 @@ services:
             REDIS_URL: 'redis://redis7:6379/'
             CAPTURE_MODE: events
             RUST_LOG: 'info,rdkafka=warn'
-            # AI endpoint S3 blob storage (MinIO)
+            # AI endpoint S3 blob storage
             AI_S3_BUCKET: ai-blobs
             AI_S3_PREFIX: 'llma/'
             AI_S3_ENDPOINT: 'http://objectstorage:19000'
