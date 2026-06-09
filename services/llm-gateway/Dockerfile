@@ -1,6 +1,6 @@
-FROM ghcr.io/astral-sh/uv:0.11.11 AS uv
+FROM ghcr.io/astral-sh/uv:0.11.15 AS uv
 
-FROM python:3.12-slim-bookworm AS builder
+FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f AS builder
 
 WORKDIR /app
 
@@ -15,7 +15,7 @@ COPY pyproject.toml uv.lock README.md ./
 COPY src/ src/
 RUN uv sync --locked --no-dev
 
-FROM python:3.12-slim-bookworm
+FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f
 
 WORKDIR /app
 

@@ -8,7 +8,7 @@ import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isEmail, isURL } from 'lib/utils'
+import { isEmail } from 'lib/utils'
 import { getInsightId } from 'scenes/insights/utils'
 
 import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, SubscriptionType } from '~/types'
@@ -140,9 +140,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 title: !title ? 'You need to give your subscription a name' : undefined,
                 interval: !interval ? 'You need to set an interval' : undefined,
                 start_date: !start_date ? 'You need to set a delivery time' : undefined,
-                target_type: !['slack', 'email', 'webhook'].includes(target_type)
-                    ? 'Unsupported target type'
-                    : undefined,
+                target_type: !['slack', 'email'].includes(target_type) ? 'Unsupported target type' : undefined,
                 prompt: validatePrompt(resource_type, prompt),
                 target_value: !target_value
                     ? 'This field is required.'
@@ -156,11 +154,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         ? !target_value
                             ? 'A channel is required'
                             : undefined
-                        : target_type == 'webhook'
-                          ? !isURL(target_value)
-                              ? 'Must be a valid URL'
-                              : undefined
-                          : undefined,
+                        : undefined,
                 dashboard_export_insights:
                     resource_type !== SubscriptionResourceTypes.AiPrompt &&
                     props.dashboardId &&

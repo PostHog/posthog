@@ -510,6 +510,9 @@ class MisplacedFilesCheck(ProductCheck):
     # `hogql_queries` is the established home for HogQL query runners across
     # products (web_analytics, revenue_analytics, product_analytics), so it is
     # allowed in isolated products too rather than forcing query code into logic/.
+    # `temporal` is the established home for Temporal workflow + activity code
+    # across products (batch_exports, data_warehouse, tasks, experiments, and
+    # others), so it is allowed in isolated products on the same grounds.
     _KNOWN_DIRS = {
         "facade",
         "presentation",
@@ -521,6 +524,7 @@ class MisplacedFilesCheck(ProductCheck):
         "models",
         "logic",
         "hogql_queries",
+        "temporal",
         "templates",
         "admin",
         "__pycache__",

@@ -38,7 +38,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
-from posthog.security.url_validation import is_url_allowed
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
@@ -202,9 +201,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             },
             "dashboard": {"help_text": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."},
             "insight": {"help_text": "Insight ID to subscribe to (mutually exclusive with dashboard on create)."},
-            "target_type": {"help_text": "Delivery channel: email, slack, or webhook."},
+            "target_type": {"help_text": "Delivery channel: email or slack."},
             "target_value": {
-                "help_text": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook."
+                "help_text": "Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack."
             },
             "frequency": {"help_text": "How often to deliver: daily, weekly, monthly, or yearly."},
             "interval": {
@@ -392,13 +391,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
             if integration.kind != "slack":
                 raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
-
-        # SSRF protection for webhook subscriptions
-        target_value = attrs.get("target_value") or (self.instance.target_value if self.instance else None)
-        if target_type == Subscription.SubscriptionTarget.WEBHOOK and target_value:
-            allowed, error = is_url_allowed(target_value)
-            if not allowed:
-                raise ValidationError({"target_value": [f"Invalid webhook URL: {error}"]})
 
         # Only gate non-empty writes to `summary_prompt_guide`. Clearing (empty string)
         # and field-absent PATCHes always pass through so users aren't stuck with a value
@@ -752,7 +744,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 enum=[m.value for m in Subscription.SubscriptionTarget],
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by delivery channel (email, Slack, or webhook).",
+                description="Filter by delivery channel (email or Slack).",
             ),
             OpenApiParameter(
                 name="insight",
@@ -1028,7 +1020,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "idempotency_key": {"help_text": "Dedupes activity retries for the same logical run."},
             "trigger_type": {"help_text": "Why the run started (e.g. scheduled, manual, target_change)."},
             "scheduled_at": {"help_text": "Planned send time when applicable."},
-            "target_type": {"help_text": "Channel snapshot at send time (email, slack, webhook)."},
+            "target_type": {"help_text": "Channel snapshot at send time (email or slack)."},
             "target_value": {"help_text": "Destination snapshot at send time (emails, channel id, URL)."},
             "exported_asset_ids": {"help_text": "ExportedAsset ids generated for this send."},
             "content_snapshot": {

@@ -1,3 +1,6 @@
+from collections.abc import Callable
+from typing import Any, cast
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -18,14 +21,25 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.slo.types import SloOperation, SloOutcome
 
 from products.dashboards.backend.api import widget_openapi_serializers as widget_openapi_serializers_module
-from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT, MAX_WIDGETS_BATCH_SIZE
+from products.dashboards.backend.constants import (
+    DEFAULT_WIDGET_LIST_LIMIT,
+    MAX_WIDGET_RESULT_LIMIT,
+    MAX_WIDGETS_BATCH_SIZE,
+)
 from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, WIDGET_REGISTRY, validate_widget_config
-from products.dashboards.backend.widgets.error_tracking_list import validate_error_tracking_list_config
+from products.dashboards.backend.widgets.error_tracking_list import (
+    run_error_tracking_list_widget,
+    validate_error_tracking_list_config,
+)
 from products.dashboards.backend.widgets.session_replay_list import (
     SESSION_REPLAY_ORDER_BY,
     run_session_replay_list_widget,
     validate_session_replay_list_config,
+)
+from products.dashboards.backend.widgets.widget_config_types import (
+    ErrorTrackingListWidgetConfigInput,
+    SessionReplayListWidgetConfigInput,
 )
 from products.error_tracking.backend.api.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
 
@@ -47,7 +61,7 @@ class TestWidgetRegistry(APIBaseTest):
 
     def test_validate_widget_config_unknown_type(self) -> None:
         with self.assertRaises(Exception):
-            validate_widget_config("not_a_widget", {})
+            validate_widget_config("not_a_widget", {}, team_id=self.team.id)
 
     def test_validate_error_tracking_list_config_defaults(self) -> None:
         validated = validate_error_tracking_list_config({})
@@ -57,7 +71,7 @@ class TestWidgetRegistry(APIBaseTest):
 
     def test_validate_error_tracking_list_config_rejects_invalid_filter_test_accounts(self) -> None:
         with self.assertRaises(Exception):
-            validate_error_tracking_list_config({"filterTestAccounts": "yes"})
+            validate_error_tracking_list_config(cast(ErrorTrackingListWidgetConfigInput, {"filterTestAccounts": "yes"}))
 
     def test_validate_error_tracking_list_config_rejects_high_limit(self) -> None:
         with self.assertRaises(Exception):
@@ -78,6 +92,33 @@ class TestWidgetRegistry(APIBaseTest):
         )
         assert validated["dateRange"] == {"date_from": "-7d"}
 
+    @parameterized.expand(
+        [
+            ("error_tracking", validate_error_tracking_list_config, "$environment"),
+            ("session_replay", validate_session_replay_list_config, "$browser"),
+        ]
+    )
+    def test_validate_list_config_accepts_widget_filters(
+        self,
+        _label: str,
+        validate_config: Callable[[dict[str, object]], dict[str, Any]],
+        property_name: str,
+    ) -> None:
+        validated = validate_config(
+            {
+                "widgetFilters": {
+                    "qf-1": {
+                        "filterId": "qf-1",
+                        "propertyName": property_name,
+                        "optionId": "opt-1",
+                        "operator": "exact",
+                        "value": "production",
+                    }
+                }
+            }
+        )
+        assert validated["widgetFilters"]["qf-1"]["propertyName"] == property_name
+
     def test_validate_session_replay_list_config_defaults(self) -> None:
         validated = validate_session_replay_list_config({})
         assert validated["limit"] == DEFAULT_WIDGET_LIST_LIMIT
@@ -90,7 +131,7 @@ class TestWidgetRegistry(APIBaseTest):
 
     def test_validate_session_replay_list_config_rejects_invalid_filter_test_accounts(self) -> None:
         with self.assertRaises(Exception):
-            validate_session_replay_list_config({"filterTestAccounts": "yes"})
+            validate_session_replay_list_config(cast(SessionReplayListWidgetConfigInput, {"filterTestAccounts": "yes"}))
 
     def test_validate_session_replay_list_config_rejects_high_limit(self) -> None:
         with self.assertRaises(Exception):
@@ -253,6 +294,36 @@ class TestDashboardRunWidgets(APIBaseTest):
         mock_list_recordings.assert_called_once()
 
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_applies_widget_filter_properties(self, mock_list_recordings: MagicMock) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        filter_id = "filter-1"
+
+        run_session_replay_list_widget(
+            self.team,
+            {
+                "limit": 5,
+                "dateRange": {"date_from": "-7d"},
+                "widgetFilters": {
+                    filter_id: {
+                        "filterId": filter_id,
+                        "propertyName": "$browser",
+                        "optionId": "opt-1",
+                        "operator": "exact",
+                        "value": "Chrome",
+                    }
+                },
+            },
+            user=self.user,
+        )
+
+        query = mock_list_recordings.call_args.kwargs["query"]
+        assert query.properties is not None
+        assert len(query.properties) == 1
+        assert query.properties[0].key == "$browser"
+        assert query.properties[0].operator == "exact"
+        assert query.properties[0].value == ["Chrome"]
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_session_replay_widget_serializes_recordings_with_person(self, mock_list_recordings: MagicMock) -> None:
         person = Person.objects.create(team=self.team, properties={"email": "widget-test@example.com"})
         recording = SessionRecording(
@@ -274,6 +345,38 @@ class TestDashboardRunWidgets(APIBaseTest):
 
         self.assertIsNone(body["results"][0]["error"])
         self.assertEqual(body["results"][0]["result"]["results"][0]["person"]["name"], "widget-test@example.com")
+
+    @patch("products.dashboards.backend.widgets.session_replay_list._run_session_replay_list_query")
+    def test_session_replay_widget_returns_total_count_when_page_has_more(self, mock_run_query: MagicMock) -> None:
+        recording = {"id": "recording-1"}
+
+        def run_side_effect(_team: object, config: dict[str, object], _user: object) -> dict[str, object]:
+            limit = config["limit"]
+            if limit == 1:
+                return {"results": [recording, {**recording, "id": "recording-2"}], "has_next": True}
+            return {
+                "results": [
+                    recording,
+                    {**recording, "id": "recording-2"},
+                    {**recording, "id": "recording-3"},
+                    {**recording, "id": "recording-4"},
+                ],
+                "has_next": False,
+            }
+
+        mock_run_query.side_effect = run_side_effect
+
+        result = run_session_replay_list_widget(
+            self.team, {"limit": 1, "dateRange": {"date_from": "-7d"}}, user=self.user
+        )
+
+        self.assertTrue(result["hasMore"])
+        self.assertEqual(result["totalCount"], 4)
+        self.assertFalse(result["totalCountCapped"])
+        self.assertEqual(len(result["results"]), 1)
+        self.assertEqual(mock_run_query.call_count, 2)
+        count_call_config = mock_run_query.call_args_list[1].args[1]
+        self.assertEqual(count_call_config["limit"], MAX_WIDGET_RESULT_LIMIT)
 
     @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
     def test_run_widgets_requests_listing_volume_resolution(self, mock_runner_cls: MagicMock) -> None:
@@ -339,6 +442,103 @@ class TestDashboardRunWidgets(APIBaseTest):
         mock_runner_cls.assert_called_once()
         query = mock_runner_cls.call_args.kwargs["query"]
         self.assertFalse(query.filterTestAccounts)
+
+    @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
+    def test_run_error_tracking_list_widget_can_include_total_count(self, mock_runner_cls: MagicMock) -> None:
+        issue: dict[str, Any] = {
+            "id": "issue-1",
+            "name": "TypeError",
+            "description": "boom",
+            "status": "active",
+            "first_seen": "2026-01-01T00:00:00Z",
+            "last_seen": "2026-01-02T00:00:00Z",
+            "library": "web",
+            "source": "app.js",
+            "assignee": None,
+            "aggregations": {},
+        }
+
+        def calculate_side_effect() -> MagicMock:
+            query = mock_runner_cls.call_args.kwargs["query"]
+            if query.limit == 1:
+                return MagicMock(
+                    model_dump=lambda mode="json": {
+                        "results": [issue, {**issue, "id": "issue-2"}],
+                        "hasMore": True,
+                        "limit": 1,
+                        "offset": 0,
+                    }
+                )
+            return MagicMock(
+                model_dump=lambda mode="json": {
+                    "results": [issue, {**issue, "id": "issue-2"}, {**issue, "id": "issue-3"}],
+                    "hasMore": False,
+                    "limit": 25,
+                    "offset": 0,
+                }
+            )
+
+        mock_runner_cls.return_value.calculate.side_effect = calculate_side_effect
+
+        result = run_error_tracking_list_widget(self.team, {"limit": 1}, user=self.user, include_total_count=True)
+
+        self.assertTrue(result["hasMore"])
+        self.assertEqual(result["totalCount"], 3)
+        self.assertFalse(result["totalCountCapped"])
+        self.assertEqual(len(result["results"]), 1)
+        self.assertEqual(mock_runner_cls.call_count, 2)
+        count_query = mock_runner_cls.call_args_list[1].kwargs["query"]
+        self.assertEqual(count_query.limit, MAX_WIDGET_RESULT_LIMIT)
+
+    @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
+    def test_run_error_tracking_list_widget_total_count_capped_when_count_hits_limit(
+        self, mock_runner_cls: MagicMock
+    ) -> None:
+        issue: dict[str, Any] = {
+            "id": "issue-1",
+            "name": "TypeError",
+            "description": "boom",
+            "status": "active",
+            "first_seen": "2026-01-01T00:00:00Z",
+            "last_seen": "2026-01-02T00:00:00Z",
+            "library": "web",
+            "source": "app.js",
+            "assignee": None,
+            "aggregations": {},
+        }
+
+        def calculate_side_effect() -> MagicMock:
+            query = mock_runner_cls.call_args.kwargs["query"]
+            if query.limit == 1:
+                return MagicMock(
+                    model_dump=lambda mode="json": {
+                        "results": [issue, {**issue, "id": "issue-2"}],
+                        "hasMore": True,
+                        "limit": 1,
+                        "offset": 0,
+                    }
+                )
+            capped_results = [{**issue, "id": f"issue-{index}"} for index in range(MAX_WIDGET_RESULT_LIMIT)]
+            return MagicMock(
+                model_dump=lambda mode="json": {
+                    "results": capped_results,
+                    "hasMore": True,
+                    "limit": MAX_WIDGET_RESULT_LIMIT,
+                    "offset": 0,
+                }
+            )
+
+        mock_runner_cls.return_value.calculate.side_effect = calculate_side_effect
+
+        result = run_error_tracking_list_widget(self.team, {"limit": 1}, user=self.user, include_total_count=True)
+
+        self.assertTrue(result["hasMore"])
+        self.assertEqual(result["totalCount"], MAX_WIDGET_RESULT_LIMIT)
+        self.assertTrue(result["totalCountCapped"])
+        self.assertEqual(len(result["results"]), 1)
+        self.assertEqual(mock_runner_cls.call_count, 2)
+        count_query = mock_runner_cls.call_args_list[1].kwargs["query"]
+        self.assertEqual(count_query.limit, MAX_WIDGET_RESULT_LIMIT)
 
     def test_rejects_non_widget_tile(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
