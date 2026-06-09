@@ -34,6 +34,7 @@ from products.web_analytics.backend.api.heatmaps_api import (
     SCROLL_DEPTH_QUERY,
     HeatmapsRequestSerializer,
     HeatmapViewSet,
+    parse_fold_summary_row,
 )
 
 from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
@@ -589,17 +590,7 @@ def _fold_summary(team: Team, exprs: list[ast.Expr]) -> dict[str, Any]:
     stmt = parse_select(FOLD_SUMMARY_QUERY, {"predicates": ast.And(exprs=exprs)})
     result = _execute(team, stmt)
     row = result.results[0] if result.results else None
-    total = int(row[0]) if row else 0
-    below = int(row[1]) if row else 0
-    # quantile over an empty set returns NaN (which is != itself); coerce to None.
-    raw_median = row[2] if row else None
-    median = int(raw_median) if raw_median is not None and raw_median == raw_median else None
-    return {
-        "total_count": total,
-        "below_fold_count": below,
-        "pct_below_fold": round(100 * below / total, 1) if total else 0.0,
-        "median_viewport_height": median,
-    }
+    return parse_fold_summary_row(row)
 
 
 def _scroll_buckets(team: Team, exprs: list[ast.Expr]) -> list[dict[str, Any]]:
