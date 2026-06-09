@@ -3,9 +3,11 @@ from products.experiments.backend.temporal.recalculation_activities import (
     discover_experiment_metrics,
     update_recalculation_progress,
 )
+from products.experiments.backend.temporal.recalculation_workflow import ExperimentMetricsRecalculationWorkflow
 
-# The workflow is registered in a later PR; until then the package exposes no workflows.
-WORKFLOWS: list[type] = []
+WORKFLOWS = [
+    ExperimentMetricsRecalculationWorkflow,
+]
 ACTIVITIES = [
     discover_experiment_metrics,
     calculate_experiment_metric_for_recalculation,
@@ -15,6 +17,7 @@ ACTIVITIES = [
 __all__ = [
     "ACTIVITIES",
     "WORKFLOWS",
+    "ExperimentMetricsRecalculationWorkflow",
     "calculate_experiment_metric_for_recalculation",
     "discover_experiment_metrics",
     "update_recalculation_progress",
