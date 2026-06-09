@@ -1,5 +1,5 @@
 import logging
-from typing import Literal, cast
+from typing import cast
 
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -21,23 +21,10 @@ from ee.hogai.utils.types.base import ConversationTitleAction
 
 logger = logging.getLogger(__name__)
 
-# Keep in sync with Conversation.Topic
-TitleTopicLiteral = Literal[
-    "web_analytics",
-    "product_analytics",
-    "session_replay",
-    "surveys",
-    "feature_flags",
-    "experiments",
-    "error_tracking",
-    "data_warehouse",
-    "other",
-]
-
 
 class TitleAndTopic(BaseModel):
     title: str = Field(description="A crisp conversation title, ≤ 8 words, sentence case.")
-    topic: TitleTopicLiteral = Field(description="The PostHog product domain the user's first question is about.")
+    topic: Conversation.Topic = Field(description="The PostHog product domain the user's first question is about.")
 
 
 class TitleGeneratorNode(AssistantNode):

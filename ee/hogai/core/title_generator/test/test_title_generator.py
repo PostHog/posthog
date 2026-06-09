@@ -1,5 +1,3 @@
-from typing import get_args
-
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
@@ -10,7 +8,7 @@ from posthog.schema import HumanMessage
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
-from ee.hogai.core.title_generator.nodes import TitleAndTopic, TitleGeneratorNode, TitleTopicLiteral
+from ee.hogai.core.title_generator.nodes import TitleAndTopic, TitleGeneratorNode
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ConversationTitleAction
@@ -154,9 +152,6 @@ class TestTitleGenerator(BaseTest):
         self.assertIsNone(result)
         self.conversation.refresh_from_db()
         self.assertEqual(self.conversation.title, "Some title")
-
-    def test_title_topic_literal_matches_model_choices(self):
-        self.assertEqual(set(get_args(TitleTopicLiteral)), set(Conversation.Topic.values))
 
     def test_classifies_topic_when_flag_enabled(self):
         fake = RunnableLambda(lambda _: TitleAndTopic(title="Traffic last week", topic="web_analytics"))
