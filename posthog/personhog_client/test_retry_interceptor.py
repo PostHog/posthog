@@ -54,7 +54,7 @@ def _make_always_failing(status_code: grpc.StatusCode):
 
 class TestRetryInterceptorBehavior:
     def test_returns_on_first_success(self):
-        interceptor = RetryInterceptor("test-client", max_retries=2, initial_backoff_ms=1, max_backoff_ms=10)
+        interceptor = RetryInterceptor("test-client", max_retries=1, initial_backoff_ms=1, max_backoff_ms=10)
         details = _make_call_details()
 
         result = interceptor.intercept_unary_unary(lambda d, r: "ok", details, request=b"")
@@ -65,23 +65,20 @@ class TestRetryInterceptorBehavior:
         [
             ("unavailable", grpc.StatusCode.UNAVAILABLE),
             ("deadline_exceeded", grpc.StatusCode.DEADLINE_EXCEEDED),
-            ("resource_exhausted", grpc.StatusCode.RESOURCE_EXHAUSTED),
             ("aborted", grpc.StatusCode.ABORTED),
-            ("internal", grpc.StatusCode.INTERNAL),
-            ("unknown", grpc.StatusCode.UNKNOWN),
         ]
     )
     @patch("posthog.personhog_client.interceptor.time.sleep")
     def test_retries_transient_error_then_succeeds(self, _name: str, status_code: grpc.StatusCode, mock_sleep):
-        interceptor = RetryInterceptor("test-client", max_retries=2, initial_backoff_ms=1, max_backoff_ms=10)
+        interceptor = RetryInterceptor("test-client", max_retries=1, initial_backoff_ms=1, max_backoff_ms=10)
         details = _make_call_details()
-        continuation, calls = _make_transient_then_ok(2, status_code)
+        continuation, calls = _make_transient_then_ok(1, status_code)
 
         result = interceptor.intercept_unary_unary(continuation, details, request=b"")
 
         assert result == "ok"
-        assert len(calls) == 3
-        assert mock_sleep.call_count == 2
+        assert len(calls) == 2
+        assert mock_sleep.call_count == 1
 
     @parameterized.expand(
         [
@@ -90,10 +87,13 @@ class TestRetryInterceptorBehavior:
             ("permission_denied", grpc.StatusCode.PERMISSION_DENIED),
             ("unauthenticated", grpc.StatusCode.UNAUTHENTICATED),
             ("failed_precondition", grpc.StatusCode.FAILED_PRECONDITION),
+            ("internal", grpc.StatusCode.INTERNAL),
+            ("resource_exhausted", grpc.StatusCode.RESOURCE_EXHAUSTED),
+            ("unknown", grpc.StatusCode.UNKNOWN),
         ]
     )
     def test_does_not_retry_non_retryable_error(self, _name: str, status_code: grpc.StatusCode):
-        interceptor = RetryInterceptor("test-client", max_retries=2, initial_backoff_ms=1, max_backoff_ms=10)
+        interceptor = RetryInterceptor("test-client", max_retries=1, initial_backoff_ms=1, max_backoff_ms=10)
         details = _make_call_details()
         continuation, calls = _make_always_failing(status_code)
 
@@ -104,16 +104,16 @@ class TestRetryInterceptorBehavior:
 
     @patch("posthog.personhog_client.interceptor.time.sleep")
     def test_exhausts_retries_on_persistent_transient_error(self, mock_sleep):
-        interceptor = RetryInterceptor("test-client", max_retries=2, initial_backoff_ms=1, max_backoff_ms=10)
+        interceptor = RetryInterceptor("test-client", max_retries=1, initial_backoff_ms=1, max_backoff_ms=10)
         details = _make_call_details()
         continuation, calls = _make_always_failing(grpc.StatusCode.UNAVAILABLE)
 
         with pytest.raises(grpc.RpcError):
             interceptor.intercept_unary_unary(continuation, details, request=b"")
 
-        # 1 initial + 2 retries = 3 total attempts
-        assert len(calls) == 3
-        assert mock_sleep.call_count == 2
+        # 1 initial + 1 retry = 2 total attempts
+        assert len(calls) == 2
+        assert mock_sleep.call_count == 1
 
     def test_no_retries_when_max_retries_is_zero(self):
         interceptor = RetryInterceptor("test-client", max_retries=0, initial_backoff_ms=1, max_backoff_ms=10)
@@ -131,13 +131,13 @@ class TestRetryInterceptorMetrics:
     @patch("posthog.personhog_client.interceptor.PERSONHOG_TERMINAL_ERRORS_TOTAL")
     @patch("posthog.personhog_client.interceptor.time.sleep")
     def test_emits_retry_metrics_per_attempt(self, mock_sleep, mock_terminal, mock_retries):
-        interceptor = RetryInterceptor("test-client", max_retries=2, initial_backoff_ms=1, max_backoff_ms=10)
+        interceptor = RetryInterceptor("test-client", max_retries=1, initial_backoff_ms=1, max_backoff_ms=10)
         details = _make_call_details()
-        continuation, _ = _make_transient_then_ok(2, grpc.StatusCode.UNAVAILABLE)
+        continuation, _ = _make_transient_then_ok(1, grpc.StatusCode.UNAVAILABLE)
 
         interceptor.intercept_unary_unary(continuation, details, request=b"")
 
-        assert mock_retries.labels.return_value.inc.call_count == 2
+        assert mock_retries.labels.return_value.inc.call_count == 1
         mock_retries.labels.assert_called_with(method="GetPerson", client="test-client", error_type="Unavailable")
         mock_terminal.labels.return_value.inc.assert_not_called()
 
@@ -145,7 +145,7 @@ class TestRetryInterceptorMetrics:
     @patch("posthog.personhog_client.interceptor.PERSONHOG_TERMINAL_ERRORS_TOTAL")
     @patch("posthog.personhog_client.interceptor.time.sleep")
     def test_emits_terminal_metric_on_exhaustion(self, mock_sleep, mock_terminal, mock_retries):
-        interceptor = RetryInterceptor("test-client", max_retries=2, initial_backoff_ms=1, max_backoff_ms=10)
+        interceptor = RetryInterceptor("test-client", max_retries=1, initial_backoff_ms=1, max_backoff_ms=10)
         details = _make_call_details()
         continuation, _ = _make_always_failing(grpc.StatusCode.UNAVAILABLE)
 
@@ -154,12 +154,12 @@ class TestRetryInterceptorMetrics:
 
         mock_terminal.labels.assert_called_with(method="GetPerson", client="test-client", error_type="Unavailable")
         mock_terminal.labels.return_value.inc.assert_called_once()
-        assert mock_retries.labels.return_value.inc.call_count == 2
+        assert mock_retries.labels.return_value.inc.call_count == 1
 
     @patch("posthog.personhog_client.interceptor.PERSONHOG_RETRIES_TOTAL")
     @patch("posthog.personhog_client.interceptor.PERSONHOG_TERMINAL_ERRORS_TOTAL")
     def test_emits_terminal_metric_on_non_retryable_error(self, mock_terminal, mock_retries):
-        interceptor = RetryInterceptor("test-client", max_retries=2, initial_backoff_ms=1, max_backoff_ms=10)
+        interceptor = RetryInterceptor("test-client", max_retries=1, initial_backoff_ms=1, max_backoff_ms=10)
         details = _make_call_details()
         continuation, _ = _make_always_failing(grpc.StatusCode.NOT_FOUND)
 
@@ -173,7 +173,7 @@ class TestRetryInterceptorMetrics:
     @patch("posthog.personhog_client.interceptor.PERSONHOG_RETRIES_TOTAL")
     @patch("posthog.personhog_client.interceptor.PERSONHOG_TERMINAL_ERRORS_TOTAL")
     def test_no_retry_or_terminal_metrics_on_success(self, mock_terminal, mock_retries):
-        interceptor = RetryInterceptor("test-client", max_retries=2, initial_backoff_ms=1, max_backoff_ms=10)
+        interceptor = RetryInterceptor("test-client", max_retries=1, initial_backoff_ms=1, max_backoff_ms=10)
         details = _make_call_details()
 
         interceptor.intercept_unary_unary(lambda d, r: "ok", details, request=b"")

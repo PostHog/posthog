@@ -149,24 +149,24 @@ _RETRYABLE_CODES = frozenset(
     {
         grpc.StatusCode.UNAVAILABLE,
         grpc.StatusCode.DEADLINE_EXCEEDED,
-        grpc.StatusCode.RESOURCE_EXHAUSTED,
         grpc.StatusCode.ABORTED,
-        grpc.StatusCode.INTERNAL,
-        grpc.StatusCode.UNKNOWN,
     }
 )
 
 
 class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):
-    """Retries transient gRPC errors with exponential backoff and jitter.
+    """Retries transient gRPC errors with jittered backoff.
 
-    Sits outside MetricsInterceptor so each attempt gets its own metrics.
-    Emits personhog_retries_total per retry and personhog_terminal_errors_total
-    when giving up. Non-retryable errors are raised immediately.
+    Covers three failure modes:
+    - UNAVAILABLE: client-to-router connection failure
+    - ABORTED: HTTP/2 stream reset during router deploys
+    - DEADLINE_EXCEEDED: transient timeout (event loop saturation, brief backend slowness)
+
+    Sits outside MetricsInterceptor so each attempt gets its own per-call metrics.
     """
 
     def __init__(
-        self, client_name: str, max_retries: int = 2, initial_backoff_ms: int = 50, max_backoff_ms: int = 1000
+        self, client_name: str, max_retries: int = 1, initial_backoff_ms: int = 50, max_backoff_ms: int = 1000
     ) -> None:
         self._client_name = client_name
         self._max_retries = max_retries
