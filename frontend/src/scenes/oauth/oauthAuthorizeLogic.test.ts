@@ -80,6 +80,47 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.effectiveScopes).toEqual(['openid', 'feature_flag:write', 'insight:read'])
     })
 
+    const withRequiredScopes = (required_scopes: string[]): void => {
+        logic.actions.loadOAuthApplicationSuccess({
+            name: 'Test App',
+            client_id: 'test-client',
+            is_verified: true,
+            logo_uri: null,
+            required_scopes,
+        })
+    }
+
+    it('ignores denial of a required object and marks its row required', () => {
+        logic.actions.setScopes(['openid', 'feature_flag:write', 'insight:read'])
+        withRequiredScopes(['feature_flag:write'])
+        logic.actions.toggleDeniedScope('feature_flag')
+        expect(logic.values.effectiveScopes).toEqual(['openid', 'feature_flag:write', 'insight:read'])
+        const row = logic.values.scopeRows.find((r) => r.key === 'feature_flag')
+        expect(row).toMatchObject({ required: true, granted: true })
+    })
+
+    it('keeps a required write scope at write level in read-only mode', () => {
+        logic.actions.setScopes(['openid', 'feature_flag:write', 'dashboard:write'])
+        withRequiredScopes(['feature_flag:write'])
+        logic.actions.setReadOnlyMode(true)
+        expect(logic.values.effectiveScopes).toEqual(['openid', 'feature_flag:write', 'dashboard:read'])
+    })
+
+    it('downgrades to read in read-only mode when only the read level is required', () => {
+        logic.actions.setScopes(['openid', 'feature_flag:write'])
+        withRequiredScopes(['feature_flag:read'])
+        logic.actions.setReadOnlyMode(true)
+        expect(logic.values.effectiveScopes).toEqual(['openid', 'feature_flag:read'])
+        const row = logic.values.scopeRows.find((r) => r.key === 'feature_flag')
+        expect(row).toMatchObject({ required: true, granted: true })
+    })
+
+    it('grants required scopes the client did not request', () => {
+        logic.actions.setScopes(['openid', 'insight:read'])
+        withRequiredScopes(['feature_flag:read'])
+        expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:read', 'feature_flag:read'])
+    })
+
     it('resets read-only mode and denied scopes when scopes are reloaded', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write'])
         logic.actions.setReadOnlyMode(true)

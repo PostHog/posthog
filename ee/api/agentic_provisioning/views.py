@@ -534,7 +534,7 @@ def _handle_existing_user(
                 },
                 status=400,
             )
-        if not scopes_within_ceiling(scopes, partner.scopes):
+        if not scopes_within_ceiling(scopes, partner.ceiling_scopes):
             return Response(
                 {
                     "id": request_id,
@@ -1107,7 +1107,7 @@ def _exchange_authorization_code(request: Request) -> Response:
         # Direct-mint bypasses /authorize's OAuthValidator, so the per-app scope
         # ceiling has to be enforced here before the token is created by hand.
         requested_scopes = scopes if scopes else StripeIntegration.SCOPES.split()
-        app_scopes = locked_app.scopes if locked_app else []
+        app_scopes = locked_app.ceiling_scopes if locked_app else []
         if not scopes_within_ceiling(requested_scopes, app_scopes):
             _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="authorization_code")
             return Response(
@@ -1212,7 +1212,7 @@ def _exchange_refresh_token(request: Request) -> Response:
         # token rows — a since-tightened ceiling must drop the removed scopes, and a
         # token now fully outside the ceiling has to re-authorize rather than refresh.
         # Done up front so a rejected refresh never revokes the caller's only token.
-        app_scopes = oauth_app.scopes if oauth_app else []
+        app_scopes = oauth_app.ceiling_scopes if oauth_app else []
         narrowed_scopes = narrow_scopes_to_ceiling(old_scope.split(), app_scopes)
         if narrowed_scopes is None:
             _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="refresh_token")

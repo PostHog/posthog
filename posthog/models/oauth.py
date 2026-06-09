@@ -109,6 +109,29 @@ class OAuthApplication(AbstractApplication):
         help_text=("Scope ceiling — strings tokens issued for this app may carry. Empty list means no per-app cap."),
     )
 
+    optional_scopes: ArrayField = ArrayField(
+        models.CharField(max_length=100),
+        default=list,
+        db_default=[],
+        blank=True,
+        null=False,
+        help_text=(
+            "Scopes the user may decline at consent. Declaring any makes `scopes` the required set "
+            "(locked on the consent screen); empty keeps `scopes` a pure ceiling with every scope declinable."
+        ),
+    )
+
+    @property
+    def ceiling_scopes(self) -> list[str]:
+        """The full grantable set: `scopes` plus `optional_scopes`, deduplicated."""
+        return list(dict.fromkeys([*self.scopes, *self.optional_scopes]))
+
+    @property
+    def required_scopes(self) -> list[str]:
+        # The required/optional split is opt-in: without declared optional_scopes,
+        # `scopes` stays a pure ceiling and nothing is locked at consent.
+        return list(self.scopes) if self.optional_scopes else []
+
     # Generation marker for app-wide session revocation. A refresh presenting a token issued
     # before this timestamp is rejected at mint time, so a refresh racing revoke_application_sessions
     # can't slip new tokens past the one-shot bulk revoke.

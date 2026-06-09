@@ -396,8 +396,10 @@ class OAuthValidator(OAuth2Validator):
         return False
 
     def validate_scopes(self, client_id, scopes, client, request, *args, **kwargs):
-        """Enforce the per-application scope ceiling from `OAuthApplication.scopes`.
+        """Enforce the per-application scope ceiling from the app's grantable set.
 
+        The ceiling is `scopes` plus `optional_scopes` (`ceiling_scopes`), so an app
+        using the required/optional split can request its optional scopes too.
         Delegates the ceiling resolution to `scopes_within_ceiling` so `/authorize`
         and the hand-rolled provisioning mint paths share one implementation. The
         only `/authorize`-specific bit kept here is mutating `request.scopes` when
@@ -405,7 +407,7 @@ class OAuthValidator(OAuth2Validator):
         from `DEFAULT_SCOPES`. `*` is accepted under an empty ceiling here (legacy
         PostHog Code CLI) but not on the provisioning paths — see the flag.
         """
-        app_scopes = getattr(client, "scopes", None) or []
+        app_scopes = getattr(client, "ceiling_scopes", None) or []
         requested = set(scopes or [])
         if not requested:
             request.scopes = sorted(effective_ceiling(app_scopes) | ALWAYS_ALLOWED_SCOPES)
@@ -443,7 +445,7 @@ class OAuthValidator(OAuth2Validator):
             rt = OAuthRefreshToken.objects.filter(token=refresh_token).select_related("application").first()
             application = rt.application if rt else None
 
-        narrowed = narrow_scopes_to_ceiling(original_list, getattr(application, "scopes", None) or [])
+        narrowed = narrow_scopes_to_ceiling(original_list, getattr(application, "ceiling_scopes", None) or [])
         if narrowed is None:
             # Raised inside oauthlib's validate_token_request, which create_token_response
             # wraps and turns into an RFC 6749 `invalid_grant` 400 — not a 500.
@@ -868,6 +870,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     "client_id": application.client_id,
                     "is_verified": application.is_verified,
                     "logo_uri": application.logo_uri,
+                    "required_scopes": application.required_scopes,
                 }
             },
         )
@@ -906,6 +909,27 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             scopes = downgrade_scopes_to_read_only(scopes)
 
         if serializer.validated_data["allow"]:
+            # Required scopes can't be deselected at consent. Compare against the same
+            # read-only downgrade applied to the grant, so impersonation doesn't 400.
+            required = set(application.required_scopes)
+            if is_read_only_impersonation(request):
+                required = set(downgrade_scopes_to_read_only(" ".join(sorted(required))).split())
+            missing_required = required - set(scopes.split())
+            if missing_required:
+                logger.warning(
+                    "oauth_authorize_missing_required_scopes",
+                    client_id=serializer.validated_data["client_id"],
+                    missing=sorted(missing_required),
+                )
+                return Response(
+                    {
+                        "error": "invalid_scope",
+                        "error_description": "The grant is missing scopes the application requires: "
+                        + ", ".join(sorted(missing_required)),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             if block := _impersonation_ai_processing_block(
                 request,
                 access_level=serializer.validated_data.get("access_level"),
@@ -970,7 +994,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             requested_scope = self.request.query_params.get("scope") or ""
             rejected_scopes = scopes_outside_ceiling(
                 requested_scope.split(),
-                application.scopes or [],
+                application.ceiling_scopes,
                 allow_wildcard_under_empty_ceiling=True,
             )
             posthoganalytics.capture(
