@@ -113,7 +113,7 @@ class TestUpsertAccountNotebookTool(BaseTest):
 
         notebook = await sync_to_async(Notebook.objects.get)(short_id=short_id)
         assert notebook.title == "Q3 recap (updated)"
-        assert "Pricing" in notebook.text_content
+        assert notebook.text_content is not None and "Pricing" in notebook.text_content
         assert notebook.version == 1
 
     @pytest.mark.django_db

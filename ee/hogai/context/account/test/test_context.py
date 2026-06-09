@@ -167,4 +167,4 @@ class TestAccountContext(NonAtomicBaseTest):
             def customer_analytics_config(self):
                 raise ObjectDoesNotExist
 
-        assert AccountContext(team=_TeamWithoutConfig())._account_group_type_index() is None
+        assert AccountContext(team=_TeamWithoutConfig())._account_group_type_index() is None  # type: ignore[arg-type]

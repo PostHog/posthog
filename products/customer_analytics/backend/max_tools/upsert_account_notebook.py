@@ -147,7 +147,7 @@ class UpsertAccountNotebookTool(MaxTool):
             )
         except (ValidationError, ValueError):
             return None
-        if link is None:
+        if link is None or link.account is None:
             return None
         return link.notebook, link.account
 
