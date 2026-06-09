@@ -190,7 +190,7 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
 
     # Creating an RS256 app requires OIDC_RSA_PRIVATE_KEY. The env-level key can be cleared by
     # other OAuth tests overriding OAUTH2_PROVIDER (django-oauth-toolkit caches its settings), so
-    # assert it here too.
+    # pin it here too.
     @override_settings(
         OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
         OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
