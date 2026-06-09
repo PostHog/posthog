@@ -1,9 +1,19 @@
+import { hostname } from 'os'
 import { PostHog } from 'posthog-node'
 
 import { defaultConfig } from '../config/config'
 import { Team } from '../types'
 
 const fs = require('fs')
+
+// Stable identifier for backend-originated exceptions. Without a distinctId,
+// posthog-node assigns a random one per exception, inflating the unique-user
+// metric in error tracking. Scoping to service + host keeps the cardinality
+// bounded (one per process) while staying useful for triage.
+const EXCEPTION_DISTINCT_ID = [
+    defaultConfig.OTEL_SERVICE_NAME ?? 'plugin-server',
+    process.env.HOSTNAME || hostname(),
+].join(':')
 
 const posthog = defaultConfig.POSTHOG_API_KEY
     ? new PostHog(defaultConfig.POSTHOG_API_KEY, {
@@ -122,6 +132,6 @@ export function captureException(exception: any, hint?: Partial<ExceptionHint>):
             }
         }
 
-        posthog.captureException(exception, undefined, additionalProperties)
+        posthog.captureException(exception, EXCEPTION_DISTINCT_ID, additionalProperties)
     }
 }
