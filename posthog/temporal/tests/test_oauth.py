@@ -45,15 +45,26 @@ class TestResolveScopes(SimpleTestCase):
         assert "signal_scout_internal:write" not in resolve_scopes(["feature_flag:read"])
         assert "signal_scout_internal:write" in resolve_scopes("signals_scout")
 
-    def test_scout_user_write_allowlist_isolated_from_read_only_tokens(self) -> None:
+    @parameterized.expand([(scope,) for scope in SCOUT_USER_WRITE_SCOPES])
+    def test_scout_user_write_allowlist_isolated_from_read_only_tokens(self, scope: str) -> None:
         # The scout's user-facing write allowlist (e.g. `notebook:write`) must reach the
         # `signals_scout` preset but NOT leak onto read-only task tokens. It legitimately
         # appears in `full` (which carries every MCP write scope) — that is expected and is
         # not what this invariant guards.
-        for scope in SCOUT_USER_WRITE_SCOPES:
-            assert scope in resolve_scopes("signals_scout")
-            assert scope not in resolve_scopes("read_only")
-            assert scope not in resolve_scopes(["feature_flag:read"])
+        assert scope in resolve_scopes("signals_scout")
+        assert scope not in resolve_scopes("read_only")
+        assert scope not in resolve_scopes(["feature_flag:read"])
+
+    def test_signals_scout_user_write_allowlist_ignores_internal_scopes_flag(self) -> None:
+        # `SCOUT_USER_WRITE_SCOPES` are ordinary public scopes, not internal ones, so they
+        # are granted to the scout posture independently of `include_internal_scopes`.
+        # Dropping internal scopes still strips the scout's own internal write scope.
+        result = resolve_scopes("signals_scout", include_internal_scopes=False)
+        assert set(result) == set(MCP_READ_SCOPES + SCOUT_USER_WRITE_SCOPES)
+        assert "notebook:write" in result
+        assert "signal_scout_internal:write" not in result
+        for scope in INTERNAL_SCOPES:
+            assert scope not in result
 
     def test_custom_scopes(self) -> None:
         custom = ["feature_flag:read", "feature_flag:write"]

@@ -39,6 +39,12 @@ SCOUT_INTERNAL_SCOPES: list[str] = [
 # `INTERNAL_SCOPES`, so `read_only` task tokens stay strictly read-only. Keep this list
 # small: every entry is real write access an autonomous scout can exercise unattended, so
 # add a scope here only when a scout genuinely needs to create that kind of artifact.
+# NOTE: scopes here are object-level, not tool-level. `notebook:write` also exposes the
+# `notebooks-destroy` / `notebooks-partial-update` MCP tools, not just `notebooks-create`,
+# so in principle a scout (or a prompt-injected run) could modify or soft-delete existing
+# notebooks in its own project. Accepted as low-risk for now — the token is scoped to a
+# single team, destroy is a recoverable soft-delete, and emits are rare — and monitored in
+# practice; tool-level (create-only) restriction isn't cheap in the current sandbox wiring.
 SCOUT_USER_WRITE_SCOPES: list[str] = [
     "notebook:write",
 ]
@@ -98,9 +104,10 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
     if isinstance(scopes, str):
         # `signals_scout` reports True so the MCP server doesn't enable read-only mode for
         # the harness sandbox — the agent IS allowed to call its own internal-write tools
-        # (remember, forget, emit_finding) even though it has no user-facing write scopes.
-        # Read-only mode is a tool-annotation filter, not a scope filter, and would strip
-        # those tools categorically without this opt-out.
+        # (remember, forget, emit_finding) as well as the narrow user-facing writes in
+        # `SCOUT_USER_WRITE_SCOPES` (e.g. `notebook:write`). Read-only mode is a
+        # tool-annotation filter, not a scope filter, and would strip those tools
+        # categorically without this opt-out.
         return scopes in ("full", "signals_scout")
     return any(s in MCP_WRITE_SCOPES for s in scopes)
 
