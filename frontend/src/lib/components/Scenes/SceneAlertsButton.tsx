@@ -42,8 +42,8 @@ export function SceneAlertsButton({
     const { alerts } = useValues(logic)
 
     const labelVariant = useFeatureFlagVariantKey(FEATURE_FLAGS.SCENE_ALERTS_LABEL_EXPERIMENT)
-    const alertsLabel =
-        typeof labelVariant === 'string' ? (ALERTS_LABEL_BY_VARIANT[labelVariant] ?? 'Alerts') : 'Alerts'
+    const resolvedVariant = typeof labelVariant === 'string' ? labelVariant : 'control'
+    const alertsLabel = ALERTS_LABEL_BY_VARIANT[resolvedVariant] ?? 'Alerts'
 
     return (
         <ButtonPrimitive
@@ -51,7 +51,7 @@ export function SceneAlertsButton({
             onClick={() => {
                 posthog.capture('scene alerts menu item clicked', {
                     resource_type: dataAttrKey,
-                    label_variant: typeof labelVariant === 'string' ? labelVariant : 'control',
+                    label_variant: resolvedVariant,
                     label_text: alertsLabel,
                 })
                 push(urls.insightAlerts(insightShortId))
