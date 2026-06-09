@@ -3551,9 +3551,7 @@ function EditableCodeBlock({
             onKeyDown={handleKeyDown}
             spellCheck={false}
             suppressContentEditableWarning
-        >
-            {node.text}
-        </pre>
+        />
     )
 }
 

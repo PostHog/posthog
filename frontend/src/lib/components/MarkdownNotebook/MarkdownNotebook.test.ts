@@ -2128,6 +2128,33 @@ console.log(2)
 \`\`\``)
     })
 
+    it('keeps the cursor position stable while typing in code blocks', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('```\nabc\n```'), onChange })
+        )
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
+
+        codeBlock.textContent = 'aXbc'
+        act(() => {
+            const range = document.createRange()
+            range.setStart(codeBlock.firstChild as ChildNode, 2)
+            range.collapse(true)
+            const selection = window.getSelection()
+            selection?.removeAllRanges()
+            selection?.addRange(range)
+        })
+
+        fireEvent.input(codeBlock)
+
+        const selection = window.getSelection()
+        expect(selection?.anchorNode).toEqual(codeBlock.firstChild)
+        expect(selection?.anchorOffset).toEqual(2)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n\`\`\`
+aXbc
+\`\`\``)
+    })
+
     it('keeps newly inserted components active for keyboard row actions', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
