@@ -205,7 +205,6 @@ class LLMPromptViewSet(
                         "prompt_is_latest": prompt["is_latest"],
                         "prompt_first_version_created_at": prompt["first_version_created_at"],
                     },
-                    team=self.team,
                 )
             except Exception as err:
                 capture_exception(err)

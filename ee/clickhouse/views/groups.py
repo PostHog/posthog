@@ -288,7 +288,6 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 timestamp=timezone.now(),
                 properties=properties,
                 process_person_profile=False,
-                team=self.team,
             )
             result.raise_for_status()
         except CaptureRoutedError as error:
@@ -638,7 +637,6 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                     timestamp=timestamp,
                     properties=properties,
                     process_person_profile=False,
-                    team=self.team,
                 )
                 routed_result.raise_for_status()
 

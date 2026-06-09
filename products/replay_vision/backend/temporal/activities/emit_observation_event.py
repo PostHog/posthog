@@ -75,6 +75,5 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         process_person_profile=False,
         # Make the captured event UUID equal to observation.id so the admin UI can link back to it directly.
         event_uuid=str(observation.id),
-        team=team,
     )
     result.raise_for_status()

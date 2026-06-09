@@ -1020,7 +1020,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "$set": {"foo": "bar"},
             },
             process_person_profile=True,
-            team=self.team,
         )
 
     @mock.patch("posthog.api.person.capture_internal_routed")
@@ -1044,7 +1043,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "$unset": ["foo"],
             },
             process_person_profile=True,
-            team=self.team,
         )
 
     @mock.patch("posthog.api.person.capture_internal_routed")
@@ -1068,7 +1066,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "$set": {"foo": "bar"},
             },
             process_person_profile=True,
-            team=self.team,
         )
 
     @mock.patch("posthog.api.person.capture_internal_routed")
@@ -1092,7 +1089,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "$unset": ["foo"],
             },
             process_person_profile=True,
-            team=self.team,
         )
 
     @mock.patch("posthog.api.person.capture_internal_routed")
@@ -1121,7 +1117,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "$set": {"foo": None},
             },
             process_person_profile=True,
-            team=self.team,
         )
 
     def test_update_person_property_missing_value_returns_400(self) -> None:

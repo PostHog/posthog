@@ -18,15 +18,6 @@ from posthog.api.capture_dispatch import (
 )
 
 
-def _make_team(pk: int = 1, organization_id: str = "org-1", api_token: str = "phc_test") -> MagicMock:
-    team = MagicMock()
-    team.pk = pk
-    team.id = pk
-    team.organization_id = organization_id
-    team.api_token = api_token
-    return team
-
-
 def _make_ok_result(status_code: int = 200) -> MagicMock:
     result = MagicMock()
     result.status_code = status_code
@@ -68,16 +59,14 @@ class TestCaptureRoutedError(SimpleTestCase):
 
 class TestCaptureV1Enabled(SimpleTestCase):
     def test_unknown_event_source_returns_false(self) -> None:
-        team = _make_team()
-        assert _capture_v1_enabled("nonexistent_source", team=team) is False
+        assert _capture_v1_enabled("nonexistent_source", token="phc_test") is False
 
-    def test_no_team_and_no_token_returns_false(self) -> None:
+    def test_no_token_returns_false(self) -> None:
         assert _capture_v1_enabled("person_viewset") is False
 
     @patch("posthog.api.capture_dispatch.posthoganalytics.feature_enabled", return_value=True)
     def test_flag_enabled_returns_true(self, mock_flag: MagicMock) -> None:
-        team = _make_team()
-        assert _capture_v1_enabled("person_viewset", team=team) is True
+        assert _capture_v1_enabled("person_viewset", token="phc_test") is True
         mock_flag.assert_called_once()
         call_kwargs = mock_flag.call_args.kwargs
         assert call_kwargs["only_evaluate_locally"] is True
@@ -85,28 +74,15 @@ class TestCaptureV1Enabled(SimpleTestCase):
 
     @patch("posthog.api.capture_dispatch.posthoganalytics.feature_enabled", return_value=False)
     def test_flag_disabled_returns_false(self, mock_flag: MagicMock) -> None:
-        team = _make_team()
-        assert _capture_v1_enabled("person_viewset", team=team) is False
+        assert _capture_v1_enabled("person_viewset", token="phc_test") is False
 
     @patch("posthog.api.capture_dispatch.posthoganalytics.feature_enabled", side_effect=Exception("boom"))
     def test_exception_returns_false(self, mock_flag: MagicMock) -> None:
-        team = _make_team()
-        assert _capture_v1_enabled("person_viewset", team=team) is False
+        assert _capture_v1_enabled("person_viewset", token="phc_test") is False
 
     @patch("posthog.api.capture_dispatch.posthoganalytics.feature_enabled", return_value=None)
     def test_none_returns_false(self, mock_flag: MagicMock) -> None:
-        team = _make_team()
-        assert _capture_v1_enabled("person_viewset", team=team) is False
-
-    @patch("posthog.api.capture_dispatch.posthoganalytics.feature_enabled", return_value=True)
-    def test_token_resolves_team(self, mock_flag: MagicMock) -> None:
-        team = _make_team()
-        with patch(
-            "posthog.models.team.team.TeamManager.get_team_from_cache_or_token", return_value=team
-        ) as mock_resolve:
-            result = _capture_v1_enabled("person_viewset", token="phc_test")
-            assert result is True
-            mock_resolve.assert_called_once_with("phc_test")
+        assert _capture_v1_enabled("person_viewset", token="phc_test") is False
 
 
 class TestCaptureInternalRouted(SimpleTestCase):
@@ -114,9 +90,8 @@ class TestCaptureInternalRouted(SimpleTestCase):
     @patch("posthog.api.capture_dispatch.capture_internal")
     def test_flag_off_routes_to_legacy(self, mock_capture: MagicMock, mock_flag: MagicMock) -> None:
         mock_capture.return_value = _make_ok_result()
-        team = _make_team()
 
-        result = capture_internal_routed(**COMMON_KWARGS, team=team)
+        result = capture_internal_routed(**COMMON_KWARGS)
         assert result.impl == "legacy"
         assert result.status_code == 200
         result.raise_for_status()
@@ -126,9 +101,8 @@ class TestCaptureInternalRouted(SimpleTestCase):
     @patch("posthog.api.capture_dispatch.capture_v1_internal")
     def test_flag_on_routes_to_v1(self, mock_v1: MagicMock, mock_flag: MagicMock) -> None:
         mock_v1.return_value = _make_ok_result()
-        team = _make_team()
 
-        result = capture_internal_routed(**COMMON_KWARGS, team=team)
+        result = capture_internal_routed(**COMMON_KWARGS)
         assert result.impl == "v1"
         assert result.status_code == 200
         result.raise_for_status()
@@ -142,7 +116,7 @@ class TestCaptureInternalRouted(SimpleTestCase):
     ) -> None:
         mock_capture.return_value = _make_ok_result()
         kwargs = {**COMMON_KWARGS, "event_name": event_name}
-        result = capture_internal_routed(**kwargs, team=_make_team())
+        result = capture_internal_routed(**kwargs)
         assert result.impl == "legacy"
 
     @patch("posthog.api.capture_dispatch._capture_v1_enabled", return_value=False)
@@ -155,7 +129,7 @@ class TestCaptureInternalRouted(SimpleTestCase):
         resp_mock.raise_for_status.side_effect = HTTPError(response=resp_mock)
         mock_capture.return_value = resp_mock
 
-        result = capture_internal_routed(**COMMON_KWARGS, team=_make_team())
+        result = capture_internal_routed(**COMMON_KWARGS)
         assert result.impl == "legacy"
         assert result.status_code == 503
         with self.assertRaises(CaptureRoutedError) as ctx:
@@ -172,7 +146,7 @@ class TestCaptureInternalRouted(SimpleTestCase):
         v1_result.raise_for_status.side_effect = CaptureV1InternalError("partial failure")
         mock_v1.return_value = v1_result
 
-        result = capture_internal_routed(**COMMON_KWARGS, team=_make_team())
+        result = capture_internal_routed(**COMMON_KWARGS)
         assert result.impl == "v1"
         with self.assertRaises(CaptureRoutedError):
             result.raise_for_status()
@@ -180,7 +154,7 @@ class TestCaptureInternalRouted(SimpleTestCase):
     @patch("posthog.api.capture_dispatch._capture_v1_enabled", return_value=False)
     @patch("posthog.api.capture_dispatch.capture_internal", side_effect=ConnectionError("refused"))
     def test_legacy_transport_error_normalized(self, mock_capture: MagicMock, mock_flag: MagicMock) -> None:
-        result = capture_internal_routed(**COMMON_KWARGS, team=_make_team())
+        result = capture_internal_routed(**COMMON_KWARGS)
         assert result.impl == "legacy"
         assert result.status_code == 0
         with self.assertRaises(CaptureRoutedError):
@@ -192,7 +166,7 @@ class TestCaptureInternalRouted(SimpleTestCase):
             patch("posthog.api.capture_dispatch._capture_v1_enabled", return_value=False),
             patch("posthog.api.capture_dispatch.capture_internal", return_value=_make_ok_result()),
         ):
-            capture_internal_routed(**COMMON_KWARGS, team=_make_team())
+            capture_internal_routed(**COMMON_KWARGS)
         after_legacy = CAPTURE_INTERNAL_ROUTED.labels(event_source="person_viewset", impl="legacy")._value.get()
         assert after_legacy == before_legacy + 1
 
@@ -209,7 +183,7 @@ class TestCaptureInternalRouted(SimpleTestCase):
             patch("posthog.api.capture_dispatch._capture_v1_enabled", return_value=False),
             patch("posthog.api.capture_dispatch.capture_internal", return_value=resp_mock),
         ):
-            capture_internal_routed(**COMMON_KWARGS, team=_make_team())
+            capture_internal_routed(**COMMON_KWARGS)
         after = CAPTURE_ROUTED_ERROR.labels(
             event_source="person_viewset", impl="legacy", error_type="http"
         )._value.get()
@@ -222,7 +196,7 @@ class TestCaptureInternalRouted(SimpleTestCase):
 
         mock_capture.side_effect = CaptureInternalError("bad token")
         with self.assertRaises(CaptureInternalError):
-            capture_internal_routed(**COMMON_KWARGS, team=_make_team())
+            capture_internal_routed(**COMMON_KWARGS)
 
 
 class TestCaptureBatchInternalRouted(SimpleTestCase):

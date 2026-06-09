@@ -19,7 +19,7 @@ When all 9 sources are migrated, delete this module, ``CaptureRoutedError``,
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import Any, Literal, Optional
 
 import structlog
 import posthoganalytics
@@ -33,9 +33,6 @@ from posthog.api.capture import (
     capture_internal,
 )
 from posthog.api.capture_v1 import CaptureV1InternalError, capture_v1_batch_internal, capture_v1_internal
-
-if TYPE_CHECKING:
-    from posthog.models.team import Team
 
 logger = structlog.get_logger(__name__)
 
@@ -120,8 +117,8 @@ class RoutedCaptureResult:
 # --------------------------------------------------------------------------- #
 
 
-def _capture_v1_enabled(event_source: str, *, team: Optional[Team] = None, token: Optional[str] = None) -> bool:
-    """Check whether v1 capture is enabled for this event_source + team.
+def _capture_v1_enabled(event_source: str, *, token: Optional[str] = None) -> bool:
+    """Check whether v1 capture is enabled for this event_source.
 
     Uses ``only_evaluate_locally=True`` (backed by HyperCacheFlagProvider in
     Redis) to avoid a ``/decide`` network call per captured event.
@@ -131,27 +128,11 @@ def _capture_v1_enabled(event_source: str, *, team: Optional[Team] = None, token
     if not flag_key:
         return False
 
-    if team is None and token:
-        from posthog.models.team import Team as TeamModel  # noqa: PLC0415 — avoid circular import with models
-
-        team = TeamModel.objects.get_team_from_cache_or_token(token)
-
-    if team is None:
-        return False
-
     try:
         return bool(
             posthoganalytics.feature_enabled(
                 flag_key,
-                str(team.pk),
-                groups={
-                    "organization": str(team.organization_id),
-                    "project": str(team.id),
-                },
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
+                token or "",
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
@@ -161,7 +142,6 @@ def _capture_v1_enabled(event_source: str, *, team: Optional[Team] = None, token
             "capture_v1_flag_eval_failed",
             event_source=event_source,
             flag_key=flag_key,
-            team_id=team.pk,
         )
         return False
 
@@ -174,7 +154,6 @@ def _capture_v1_enabled(event_source: str, *, team: Optional[Team] = None, token
 def capture_internal_routed(
     *,
     event_source: str,
-    team: Optional[Team] = None,
     token: str,
     event_name: str,
     distinct_id: str,
@@ -186,16 +165,14 @@ def capture_internal_routed(
 ) -> RoutedCaptureResult:
     """Dispatch a single event to legacy or v1 capture based on feature flag.
 
-    Signature-compatible with ``capture_internal`` (plus ``team`` for flag eval).
+    Signature-compatible with ``capture_internal``.
 
     Note: ``sent_at`` is forwarded on the legacy path only.
     ``capture_v1_internal`` does not accept ``sent_at`` (skew correction is
     handled server-side).  No current call site passes it.
     """
     # Replay events are unsupported by v1 — always use legacy.
-    use_v1 = event_name not in SESSION_RECORDING_EVENT_NAMES and _capture_v1_enabled(
-        event_source, team=team, token=token
-    )
+    use_v1 = event_name not in SESSION_RECORDING_EVENT_NAMES and _capture_v1_enabled(event_source, token=token)
 
     impl: Literal["legacy", "v1"] = "v1" if use_v1 else "legacy"
     CAPTURE_INTERNAL_ROUTED.labels(event_source=event_source, impl=impl).inc()
@@ -322,7 +299,6 @@ def capture_batch_internal_routed(
     events: list[dict[str, Any]],
     event_source: str,
     token: str,
-    team: Optional[Team] = None,
     process_person_profile: bool = False,
 ) -> RoutedCaptureResult:
     """Dispatch a batch to legacy or v1 capture based on feature flag.
@@ -331,7 +307,7 @@ def capture_batch_internal_routed(
     any per-event failure — matching the existing ``report.py`` semantics where
     the first ``HTTPError`` from any future propagates.
     """
-    use_v1 = _capture_v1_enabled(event_source, team=team, token=token)
+    use_v1 = _capture_v1_enabled(event_source, token=token)
     impl: Literal["legacy", "v1"] = "v1" if use_v1 else "legacy"
     CAPTURE_INTERNAL_ROUTED.labels(event_source=event_source, impl=impl).inc()
 

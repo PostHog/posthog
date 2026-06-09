@@ -395,7 +395,6 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                 "$group_set": group_properties,
             },
             process_person_profile=False,
-            team=self.team,
         )
 
         response = self.client.get(
@@ -583,7 +582,6 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                 "$group_set": {"industry": "technology"},
             },
             process_person_profile=False,
-            team=self.team,
         )
 
         response = self.client.get(
@@ -666,7 +664,6 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                 "$group_set": {"industry": "technology"},
             },
             process_person_profile=False,
-            team=self.team,
         )
 
         response = self.client.get(
@@ -788,7 +785,6 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
                 "$group_unset": ["industry"],
             },
             process_person_profile=False,
-            team=self.team,
         )
 
         response = self.client.get(

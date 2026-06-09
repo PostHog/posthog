@@ -109,7 +109,6 @@ def capture_ticket_created(ticket: Ticket) -> None:
         timestamp=None,
         properties=properties,
         process_person_profile=process_person,
-        team=team,
     )
 
 
@@ -125,7 +124,6 @@ def capture_ticket_status_changed(ticket: Ticket, old_status: str, new_status: s
         distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
         timestamp=None,
         properties=properties,
-        team=ticket.team,
     )
 
 
@@ -141,7 +139,6 @@ def capture_ticket_priority_changed(ticket: Ticket, old_priority: str | None, ne
         distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
         timestamp=None,
         properties=properties,
-        team=ticket.team,
     )
 
 
@@ -157,7 +154,6 @@ def capture_ticket_assigned(ticket: Ticket, assignee_type: str | None, assignee_
         distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
         timestamp=None,
         properties=properties,
-        team=ticket.team,
     )
 
 
@@ -176,7 +172,6 @@ def capture_message_sent(ticket: Ticket, message_id: str, message_content: str, 
         distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
         timestamp=None,
         properties=properties,
-        team=ticket.team,
     )
 
 
@@ -207,5 +202,4 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
         timestamp=None,
         properties=properties,
         process_person_profile=process_person,
-        team=team,
     )

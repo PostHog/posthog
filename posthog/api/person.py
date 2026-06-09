@@ -911,7 +911,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 timestamp=timestamp,
                 properties=properties,
                 process_person_profile=True,
-                team=self.team,
             )
             result.raise_for_status()
 
@@ -1083,7 +1082,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 timestamp=timestamp,
                 properties=properties,
                 process_person_profile=True,
-                team=self.team,
             )
             result.raise_for_status()
 

@@ -1070,7 +1070,6 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             timestamp=event_timestamp,
             properties=properties,
             process_person_profile=True,
-            team=team,
         )
         capture_result.raise_for_status()
 

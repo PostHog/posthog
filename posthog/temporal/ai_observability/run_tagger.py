@@ -577,7 +577,6 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
             timestamp=event_timestamp,
             properties=properties,
             process_person_profile=True,
-            team=team,
         )
         routed_result.raise_for_status()
 

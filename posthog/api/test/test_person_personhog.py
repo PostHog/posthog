@@ -205,7 +205,6 @@ class TestDeleteProperty(PersonhogTestMixin, APIBaseTest):
             timestamp=mock.ANY,
             properties={"$unset": ["foo"]},
             process_person_profile=True,
-            team=self.team,
         )
         self._assert_personhog_called("get_person_by_uuid")
         self._assert_personhog_called("get_distinct_ids_for_person")
