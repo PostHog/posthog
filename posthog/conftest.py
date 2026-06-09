@@ -1,6 +1,4 @@
 import os
-import logging
-import warnings
 import subprocess
 from collections.abc import Callable
 from functools import partial
@@ -12,14 +10,12 @@ from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_paral
 
 from django.conf import settings
 from django.core.management.commands.flush import Command as FlushCommand
-from django.db import DEFAULT_DB_ALIAS, connections
+from django.db import connections
 
 from infi.clickhouse_orm import Database
-from psycopg import errors as psycopg_errors
 
 from posthog.clickhouse.client import sync_execute
-
-logger = logging.getLogger(__name__)
+from posthog.test import flush_lock_guard
 
 
 def create_clickhouse_tables():
@@ -339,130 +335,11 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     yield from _django_db_setup(django_db_keepdb, django_db_blocker)
 
 
-# How long a teardown flush may wait on a Postgres lock before we terminate idle-in-transaction
-# blockers and retry. Generous: nothing legitimate holds a table lock for anywhere near this
-# long in tests.
-FLUSH_LOCK_TIMEOUT_SECONDS = 30
-
-# Self-heal events surfaced at the end of the run: pytest.ini ships `-p no:warnings`, so
-# warnings.warn alone would be invisible in CI for passing tests.
-_flush_guard_reports: list[str] = []
-
-
 def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any) -> None:
     # Drain rather than iterate: products/conftest.py star-imports this hook, so it can
     # be invoked once per registering conftest.
-    while _flush_guard_reports:
-        terminalreporter.write_line(f"[flush-lock-guard] {_flush_guard_reports.pop(0)}", yellow=True)
-
-
-def _is_lock_timeout(exc: BaseException | None) -> bool:
-    # Walk both __cause__ and __context__: Django/management wrapping usually chains via
-    # __cause__, but a LockNotAvailable can sit on __context__ when both are set.
-    stack = [exc] if exc is not None else []
-    seen: set[int] = set()
-    while stack:
-        current = stack.pop()
-        if id(current) in seen:
-            continue
-        seen.add(id(current))
-        if isinstance(current, psycopg_errors.LockNotAvailable):
-            return True
-        stack.extend(linked for linked in (current.__cause__, current.__context__) if linked is not None)
-    return False
-
-
-def _snapshot_sessions(database: str) -> tuple[list[str], list[int]]:
-    """Describe other sessions on this connection's database (any state, for diagnostics —
-    an *active* blocker should still be named even though we never kill it) and identify
-    the leaked ones: idle in transaction since before our lock wait began, so provably
-    the blocker. A session merely *between* statements of an in-flight transaction
-    (idle-in-transaction for milliseconds, e.g. a concurrent background thread mid-INSERT)
-    is not considered leaked.
-    """
-    with connections[database].cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT pid, usename, application_name, state, wait_event_type, wait_event,
-                   now() - xact_start AS xact_age,
-                   now() - state_change AS state_age,
-                   COALESCE(state_change < now() - make_interval(secs => %s), FALSE) AS stale,
-                   query
-            FROM pg_stat_activity
-            WHERE datname = current_database()
-              AND pid != pg_backend_pid()
-              AND backend_type = 'client backend'
-            """,
-            [FLUSH_LOCK_TIMEOUT_SECONDS],
-        )
-        sessions = cursor.fetchall()
-    descriptions = [
-        f"pid={pid} user={user} app={app!r} state={state!r} wait_event={wait_type}/{wait_event} "
-        f"xact_age={xact_age} state_age={state_age} last_query={query!r}"
-        for pid, user, app, state, wait_type, wait_event, xact_age, state_age, _stale, query in sessions
-    ]
-    leaked_pids = [row[0] for row in sessions if row[3] and row[3].startswith("idle in transaction") and row[8]]
-    return descriptions, leaked_pids
-
-
-def _terminate_idle_in_transaction_sessions(database: str) -> tuple[list[str], int]:
-    descriptions, leaked_pids = _snapshot_sessions(database)
-    with connections[database].cursor() as cursor:
-        for pid in leaked_pids:
-            cursor.execute("SELECT pg_terminate_backend(%s)", [pid])
-    return descriptions, len(leaked_pids)
-
-
-def _flush_with_lock_guard(database: str, flush: Callable[[], None]) -> None:
-    """Run a teardown flush with a session lock_timeout and a terminate-and-retry fallback.
-
-    TRUNCATE needs an ACCESS EXCLUSIVE lock on every flushed table, so a single leaked
-    idle-in-transaction session (e.g. a background worker thread that never closed its
-    transaction) blocks teardown forever and the CI job dies at its timeout with no
-    diagnostics. Instead: time out quickly, name and terminate the blockers, retry once.
-    """
-    conn = connections[database]
-
-    def set_lock_timeout(value: str) -> None:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT set_config('lock_timeout', %s, false)", [value])
-
-    set_lock_timeout(f"{FLUSH_LOCK_TIMEOUT_SECONDS}s")
-    try:
-        try:
-            flush()
-        except Exception as err:
-            if not _is_lock_timeout(err):
-                raise
-            sessions, terminated = _terminate_idle_in_transaction_sessions(database)
-            message = (
-                f"Teardown flush of {database!r} timed out after {FLUSH_LOCK_TIMEOUT_SECONDS}s waiting for a "
-                f"table lock; terminated {terminated} idle-in-transaction session(s) of {len(sessions)} on the "
-                f"database, retrying once: {'; '.join(sessions)}"
-            )
-            logger.exception(message)
-            warnings.warn(message, stacklevel=2)
-            _flush_guard_reports.append(message)
-            try:
-                flush()
-            except Exception as retry_err:
-                try:
-                    current_sessions, _ = _snapshot_sessions(database)
-                except Exception:
-                    current_sessions = ["<snapshot unavailable>"]
-                raise RuntimeError(
-                    f"Teardown flush of {database!r} failed again after terminating {terminated} "
-                    f"idle-in-transaction session(s); sessions now: {'; '.join(current_sessions)} | "
-                    f"at first failure: {'; '.join(sessions)}"
-                ) from retry_err
-    finally:
-        try:
-            with conn.cursor() as cursor:
-                cursor.execute("RESET lock_timeout")
-        except Exception:
-            # The flush may have failed because the connection itself died; raising here
-            # would mask that original error, and a reconnect gets fresh session state anyway.
-            logger.warning("Could not reset lock_timeout after flushing %r", database, exc_info=True)
+    while flush_lock_guard.reports:
+        terminalreporter.write_line(f"[flush-lock-guard] {flush_lock_guard.reports.pop(0)}", yellow=True)
 
 
 def _truncate_persons_db_tables(database: str) -> None:
@@ -493,14 +370,14 @@ def _patched_flush_handle(self, **options: Any) -> None:
 
     3. TRUNCATE waits on an ACCESS EXCLUSIVE lock, so one leaked idle-in-transaction
        session (e.g. from a background worker thread) hangs teardown until the CI job
-       timeout. _flush_with_lock_guard turns that silent hang into a loud, self-healing
+       timeout. flush_lock_guard turns that silent hang into a loud, self-healing
        terminate-and-retry.
 
     Applied at module level (not via monkeypatch) so it stays active during
     pytest-django's _post_teardown, which runs flush AFTER function-scoped
     fixture teardown.
     """
-    database = options.get("database") or DEFAULT_DB_ALIAS
+    database = options["database"]
 
     if database in ("persons_db_writer", "persons_db_reader"):
         flush: Callable[[], None] = partial(_truncate_persons_db_tables, database)
@@ -508,7 +385,7 @@ def _patched_flush_handle(self, **options: Any) -> None:
         options["allow_cascade"] = True
         flush = partial(_original_flush_handle, self, **options)
 
-    _flush_with_lock_guard(database, flush)
+    flush_lock_guard.flush_with_lock_guard(database, flush)
 
 
 _original_flush_handle = FlushCommand.handle
