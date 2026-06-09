@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
+import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -137,6 +138,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             >
                                 Cancel
                             </LemonButton>
+                        )}
+
+                        {insightMode !== ItemMode.Edit && hasDashboardItemId && insight.short_id && (
+                            <InsightSubscribeProminentButton insightShortId={insight.short_id} />
                         )}
 
                         {insightMode !== ItemMode.Edit ? (
