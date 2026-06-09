@@ -318,12 +318,16 @@ function EmbedEdit({ node, updateProps }: NotebookComponentRenderProps): JSX.Ele
     return (
         <div className="MarkdownNotebook__component-form">
             <LemonInput
+                value={title}
+                onChange={(value) => updateProps({ title: value })}
+                placeholder="Title"
+                autoFocus
+            />
+            <LemonInput
                 value={src}
                 onChange={(value) => updateProps({ src: value })}
                 placeholder="https://example.com/embed"
-                autoFocus
             />
-            <LemonInput value={title} onChange={(value) => updateProps({ title: value })} placeholder="Title" />
         </div>
     )
 }

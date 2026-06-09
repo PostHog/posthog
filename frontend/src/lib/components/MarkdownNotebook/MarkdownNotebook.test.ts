@@ -4906,6 +4906,50 @@ After component`,
         )
     })
 
+    it('does not show empty single-mode component toolbar titles', () => {
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Chat',
+                label: 'AI chat',
+                category: 'AI',
+                hideModeActions: true,
+                getTitle: (node) => (typeof node.props.title === 'string' ? node.props.title : null),
+                ViewComponent: () => createElement('div', { 'data-testid': 'chat-output' }, 'Thinking ...'),
+            },
+        ])
+        const { container, rerender } = render(
+            createElement(MarkdownNotebook, { value: '<Chat id="chat-id" />', registry })
+        )
+
+        expect(container.querySelector('[data-testid="chat-output"]')).toBeInstanceOf(HTMLElement)
+        expect(container.querySelector('.MarkdownNotebook__component-toolbar-title')).toBeNull()
+
+        rerender(
+            createElement(MarkdownNotebook, { value: '<Chat id="chat-id" title="Conversation title" />', registry })
+        )
+
+        expect(container.querySelector('.MarkdownNotebook__component-toolbar-title')?.textContent).toEqual(
+            'Conversation title'
+        )
+    })
+
+    it('shows embed title before url in the filters panel', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: '<Embed hideResults src="https://posthog.com/docs" title="PostHog docs" />',
+            })
+        )
+        const inputs = Array.from(
+            container.querySelectorAll('.MarkdownNotebook__component-form input')
+        ) as HTMLInputElement[]
+
+        expect(inputs).toHaveLength(2)
+        expect(inputs[0].placeholder).toEqual('Title')
+        expect(inputs[0].value).toEqual('PostHog docs')
+        expect(inputs[1].placeholder).toEqual('https://example.com/embed')
+        expect(inputs[1].value).toEqual('https://posthog.com/docs')
+    })
+
     it('renders unknown component tags with a props toggle', () => {
         const { container } = render(createElement(MarkdownNotebook, { value: `<Tag foo="bar" />` }))
         const fallback = container.querySelector('.MarkdownNotebook__unknown-component')

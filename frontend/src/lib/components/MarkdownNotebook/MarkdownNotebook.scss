@@ -465,8 +465,7 @@ h3.MarkdownNotebook__text-block--heading {
 }
 
 .MarkdownNotebook__list-block,
-.MarkdownNotebook__table-block,
-.MarkdownNotebook__code-block {
+.MarkdownNotebook__table-block {
     margin-left: var(--markdown-notebook-content-offset);
 }
 
@@ -694,7 +693,8 @@ h3.MarkdownNotebook__text-block--heading {
     width: calc(100% - var(--markdown-notebook-content-offset));
     min-width: 0;
     min-height: 3rem;
-    padding: 0.875rem 1rem 0.875rem calc(1rem + var(--markdown-notebook-content-offset));
+    padding: 0.875rem;
+    margin: 0.5rem 0 0.5rem var(--markdown-notebook-content-offset);
     font-family: var(--font-mono);
     font-size: 0.8125rem;
     line-height: 1.55;
@@ -765,14 +765,14 @@ h3.MarkdownNotebook__text-block--heading {
 
 .MarkdownNotebook__component-toolbar-left {
     display: flex;
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     gap: 0.5rem;
     align-items: center;
     min-width: 0;
 }
 
 .MarkdownNotebook__component-toolbar-title {
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-width: 0;
     overflow: hidden;
     font-size: 0.8125rem;
@@ -800,6 +800,7 @@ h3.MarkdownNotebook__text-block--heading {
 
 .MarkdownNotebook__component-title {
     display: inline-flex;
+    flex: 0 0 auto;
     gap: 0.375rem;
     align-items: center;
     max-width: 100%;

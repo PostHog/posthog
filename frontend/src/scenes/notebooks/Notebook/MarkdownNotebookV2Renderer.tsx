@@ -543,11 +543,7 @@ function getMarkdownNotebookNodeTitle(
 }
 
 function getNotebookAIChatTitle(node: NotebookComponentBlockNode): string | null {
-    return (
-        getNotebookStringProp(node.props.title) ??
-        summarizeTitle(getNotebookStringProp(node.props.answer)) ??
-        (getNotebookStringProp(node.props.id) ? 'Thinking ...' : 'AI chat')
-    )
+    return getNotebookStringProp(node.props.title) ?? summarizeTitle(getNotebookStringProp(node.props.answer))
 }
 
 function getInlineNotebookAITabId(chatId: string): string {
@@ -622,6 +618,7 @@ function summarizeTitle(value: string | null | undefined): string | null {
 function NotebookAIChat({ node, updateProps }: NotebookComponentRenderProps): JSX.Element {
     const cachedAnswer = getNotebookStringProp(node.props.answer)
     const chatId = getNotebookStringProp(node.props.id)
+    const cachedTitle = getNotebookStringProp(node.props.title)
 
     if (cachedAnswer) {
         return <NotebookAIChatAnswer id={chatId ?? 'notebook-ai-chat-cached-answer'} content={cachedAnswer} />
@@ -631,14 +628,16 @@ function NotebookAIChat({ node, updateProps }: NotebookComponentRenderProps): JS
         return <div className="MarkdownNotebook__component-preview">Missing AI chat id.</div>
     }
 
-    return <NotebookAIChatById chatId={chatId} updateProps={updateProps} />
+    return <NotebookAIChatById chatId={chatId} cachedTitle={cachedTitle} updateProps={updateProps} />
 }
 
 function NotebookAIChatById({
     chatId,
+    cachedTitle,
     updateProps,
 }: {
     chatId: string
+    cachedTitle: string | null
     updateProps: (props: Partial<NotebookComponentProps>) => void
 }): JSX.Element {
     const tabId = getInlineNotebookAITabId(chatId)
@@ -665,29 +664,41 @@ function NotebookAIChatById({
         return <NotebookAIChatThinking message="Thinking ..." />
     }
 
-    return <NotebookAIChatThread threadLogicProps={threadLogicProps} updateProps={updateProps} />
+    return (
+        <NotebookAIChatThread threadLogicProps={threadLogicProps} cachedTitle={cachedTitle} updateProps={updateProps} />
+    )
 }
 
 function NotebookAIChatThread({
     threadLogicProps,
+    cachedTitle,
     updateProps,
 }: {
     threadLogicProps: MaxThreadLogicProps
+    cachedTitle: string | null
     updateProps: (props: Partial<NotebookComponentProps>) => void
 }): JSX.Element {
     const threadLogicInstance = maxThreadLogic(threadLogicProps)
     useMountedLogic(threadLogicInstance)
 
-    const { threadGrouped, threadLoading } = useValues(threadLogicInstance)
+    const { conversation, threadGrouped, threadLoading } = useValues(threadLogicInstance)
     const display = getNotebookAIChatDisplay(threadGrouped, threadLoading)
+    const conversationTitle = getUnknownStringProp(conversation?.title)
 
     useEffect(() => {
-        if (display.type !== 'answer') {
-            return
+        const nextProps: Partial<NotebookComponentProps> = {}
+
+        if (display.type === 'answer') {
+            nextProps.answer = display.content
+        }
+        if (conversationTitle && conversationTitle !== cachedTitle) {
+            nextProps.title = conversationTitle
         }
 
-        updateProps({ answer: display.content })
-    }, [display, updateProps])
+        if (Object.keys(nextProps).length > 0) {
+            updateProps(nextProps)
+        }
+    }, [cachedTitle, conversationTitle, display, updateProps])
 
     if (display.type === 'answer') {
         return <NotebookAIChatAnswer id={display.id} content={display.content} />
@@ -927,12 +938,16 @@ function EmbedEdit({ node, updateProps }: NotebookComponentRenderProps): JSX.Ele
     return (
         <div className="MarkdownNotebook__component-form">
             <LemonInput
+                value={title}
+                onChange={(value) => updateProps({ title: value })}
+                placeholder="Title"
+                autoFocus
+            />
+            <LemonInput
                 value={src}
                 onChange={(value) => updateProps({ src: value })}
                 placeholder="Enter URL or iframe URL"
-                autoFocus
             />
-            <LemonInput value={title} onChange={(value) => updateProps({ title: value })} placeholder="Title" />
         </div>
     )
 }
