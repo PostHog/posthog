@@ -589,7 +589,7 @@ snapshots:
     components-hogcharts-linechart--error-boundary--light:
         hash: v1.k794b7964.71c1966fb319e455c7d712cd4a480e99ea73e66b04d72d4d1fe4222b058a5a3e.A2RMx3ED_wk_NM0l603i9XWa8hTv5r9JQgHOT5M7L9U
     components-hogcharts-linechart--hovering-interior--dark:
-        hash: v1.k794b7964.106a98b78fdf3d33e9945449c237d568674bb73e6cac2824b068d9dde18f8eb8.IiK8CXDqFcxbK38JcDZ2VvsvJC_hMF4CfeOCTALU61M
+        hash: v1.k794b7964.7b5e5a16e1fac1241b49b2d880793b3553b34934435876aaceeacda4fa09b91e.Cxt0M7OEz9iyP74zK0MDhDEXLQ1D_32BpfRJ6IgtZ-w
     components-hogcharts-linechart--hovering-interior--light:
         hash: v1.k794b7964.fbdce955d57f7fc414239a7dc502951925a647a510f59307b273a87a68acaa0a.tS4JZrw3ECahuMoFYTO3xoEJ89UQ84lFgvXFTKGwMNA
     components-hogcharts-linechart--hovering-multi-series--dark:
@@ -597,7 +597,7 @@ snapshots:
     components-hogcharts-linechart--hovering-multi-series--light:
         hash: v1.k794b7964.2fa5cdb17438c5d62f6b5c075c8160df3cc4c197754fe78c0bf722cd575b0dca.92ma-HCbFCtCf_jrLu2ntgzLy0g843soMAf-qaCna-E
     components-hogcharts-linechart--hovering-over-aux-series--dark:
-        hash: v1.k794b7964.1381975ad1f3cd6f0bd026ed40e2cdbb4d2f373af40565d3e04b681767987402.4ZDmXP-Pet9NoUXCH9u5N9IYRT4kiX_tBklnhDqz7TU
+        hash: v1.k794b7964.34f8c3bb1756c1d58721760da0abd6e0f3aae32d8f206283b23a4dbaa3d42bee.chKDgJYsrkvrNeueP4OsA5rUMHDLiYfAmCOM5-3mP1I
     components-hogcharts-linechart--hovering-over-aux-series--light:
         hash: v1.k794b7964.4c84ad5286c9fcbe5e781d8b33a8d0e7dc60b8f9743b64a5da4d4e01a54f0339.DXXeFCIu41B9QbBUxA8mdzHNLFZLLHQpZHReBIy9xwQ
     components-hogcharts-linechart--in-progress-tail--dark:
@@ -3848,6 +3848,8 @@ snapshots:
         hash: v1.k794b7964.466f26e9748bf36e37c3b01368ede6314529acc9de022545d2d7732fd27b9876.UBFF_lMm5lyhQHZ67NejD1gwBIUG40R24So4yyXge2I
     mcp-apps-trends--single-series--light:
         hash: v1.k794b7964.6a55c4fe9baa6788afe66f17d1a51caca5fa214e78d69e59f0992df68cd4895b.PHWgg1x5WWU8CDiukV2HjALQjNF5op7TM-mF7vIgEDM
+    mcp-apps-trends--time-series-bar--light:
+        hash: v1.k794b7964.8ad80af6fb74db7437730153bfd2280a8a97ca815e8c82fbaf406f63999ca827.n7CeEcpzcj5mEDP9AFE6f4GslpN6pF7RUzFq5rzTjgQ
     mcp-apps-workflows--active--light:
         hash: v1.k794b7964.ad71858e2dc5a45e3d81bb38d46ad3bbe2dea9c152b625fbbf93117a27e624ca.Z4AVu3aic8bdKuv98SD1V1ZqQXsxPwGX2mZl3cL31bs
     mcp-apps-workflows--archived--light:

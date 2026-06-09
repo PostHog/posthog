@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { mapErrorToAuthResponse, mapKnownErrorMessage, validateBearerToken } from '@/lib/auth-errors'
+import { mapErrorToAuthResponse, validateBearerToken } from '@/lib/auth-errors'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     type ClientInfo,
@@ -110,12 +110,4 @@ export function handleCatchError(error: unknown, props: RequestProperties): Resp
         }
     } catch {}
     return new Response('Internal server error', { status: 500 })
-}
-
-export async function passThrough(response: Response): Promise<Response> {
-    if (response.ok) {
-        return response
-    }
-    const body = await response.clone().text()
-    return mapKnownErrorMessage(body) ?? response
 }
