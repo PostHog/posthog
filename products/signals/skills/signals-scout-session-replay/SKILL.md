@@ -12,7 +12,7 @@ compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (mostly read-only, plus signal_scout_internal:write). Assumes the signals-scout MCP
   family, the replay MCP tools, and standard analytics tools (execute-sql,
-  read-data-schema, activity-log-list, inbox-reports-list); uses the feature-gated
+  read-data-schema, advanced-activity-logs-list, inbox-reports-list); uses the feature-gated
   heatmaps and replay vision tools when available, skipping gracefully if absent.
 metadata:
   owner_team: signals
@@ -63,9 +63,9 @@ skill is shaped around them:
 3. **Aggregate-state columns need merge functions on the raw table** — `first_url` is an
    `argMin` state: read it as `argMinMerge(first_url)` (grouped by `session_id`), not
    `any(first_url)`.
-4. **Client clocks lie** — real sessions arrive dated years into the future. Add an
-   upper bound (`min_first_timestamp <= now() + INTERVAL 1 DAY`) and never trust
-   `ORDER BY ... DESC LIMIT 1` to mean "latest" without it.
+4. **Client clocks lie** — real sessions and events arrive dated years into the future.
+   Upper-bound every recency window (`<= now() + INTERVAL 1 DAY`, on `events.timestamp`
+   too) and never trust `ORDER BY ... DESC LIMIT 1` to mean "latest" without it.
 
 ## Quick close-out: is replay even in use?
 
@@ -88,8 +88,6 @@ WHERE min_first_timestamp >= now() - INTERVAL 30 DAY
 
 ## How a run works
 
-Cycle between these moves; skip what's not useful.
-
 ### Get oriented
 
 Three cheap reads cold-start a run:
@@ -101,8 +99,7 @@ Three cheap reads cold-start a run:
   `top_events` (is `$rageclick` captured at all?), `recent_activity` for Team-scope
   config churn.
 
-Then orient on both sides of the discriminator with two queries. Capture side — daily
-recordings against daily traffic:
+Then orient with two queries. Capture side — daily recordings against daily traffic:
 
 ```sql
 SELECT t.day AS day, coalesce(r.recorded_sessions, 0) AS recorded_sessions,
@@ -112,6 +109,7 @@ FROM (
     SELECT toStartOfDay(timestamp) AS day, uniq(properties.$session_id) AS event_sessions
     FROM events
     WHERE timestamp >= now() - INTERVAL 14 DAY
+      AND timestamp <= now() + INTERVAL 1 DAY
       AND properties.$session_id IS NOT NULL
       AND event = '$pageview'
     GROUP BY day
@@ -126,10 +124,10 @@ LEFT JOIN (
 ORDER BY day
 ```
 
-Traffic drives the join: a day with traffic but zero recordings — the exact cliff this
-scout exists to catch — must show `capture_ratio` 0; an inner join would silently drop it.
-(`$pageview` keeps the traffic side cheap; if the project doesn't capture it, substitute
-its top web event from the profile — you need a stable denominator, not completeness.)
+Traffic drives the join: a zero-recording day — the exact cliff this scout exists to
+catch — must show `capture_ratio` 0, and an inner join would silently drop it.
+`$pageview` keeps the traffic side cheap; if the project doesn't capture it, substitute
+its top web event — you need a stable denominator, not completeness.
 
 Friction side — where rage clicks concentrate, last day vs the prior two weeks. Group by
 host plus an **ID-normalized path**, never the raw URL: full `$current_url` values carry
@@ -147,13 +145,13 @@ SELECT properties.$host AS host,
 FROM events
 WHERE event = '$rageclick'
   AND timestamp >= now() - INTERVAL 14 DAY
+  AND timestamp <= now() + INTERVAL 1 DAY
 GROUP BY host, path
 ORDER BY rageclicks_24h DESC
 LIMIT 50
 ```
 
-Expect the raw top of this list to be dominated by single-person storms — the persons
-columns are load-bearing, not decoration; read them before shortlisting anything.
+Expect single-person storms at the raw top — read the persons columns before shortlisting.
 
 Before any per-URL deep dive, normalize against the whole stream: if total `$rageclick`
 volume (or total recording volume) moved with overall traffic, that's the product
@@ -177,8 +175,6 @@ windows, never hand-written timestamp strings.
 
 ### Explore
 
-Patterns to watch — starting points, not a checklist.
-
 #### Capture cliff
 
 From the orientation join, a cliff candidate is a day (or the live partial day) where
@@ -186,9 +182,11 @@ From the orientation join, a cliff candidate is a day (or the live partial day) 
 ~25% of its own norm. Require an established baseline (≥ ~100 recordings/day across ≥ 7
 days) — low-volume projects wobble. Then explain it before emitting:
 
-- `activity-log-list {scope: "Team"}` — recording settings live on the team: look for
-  edits to sampling, minimum duration, URL triggers/blocklists, or opt-out near the
-  cliff date. A matching edit means deliberate; cite it as context and stop.
+- `advanced-activity-logs-list` (`scopes: ["Team"]`, `start_date`/`end_date` bracketing
+  the cliff — the plain `activity-log-list` has no date filter and can page past an
+  older edit) — recording settings live on the team: look for edits to sampling,
+  minimum duration, URL triggers/blocklists, or opt-out near the cliff date. A matching
+  edit means deliberate; cite it as context and stop.
 - SDK-side diagnosis from the event stream — recent events carry replay health
   properties: `$recording_status`, `$replay_sample_rate` (did the client-observed rate
   change on the cliff date?), `$sdk_debug_recording_script_not_loaded` (ad blockers /
@@ -204,8 +202,10 @@ recording counts before/after and the dated onset.
 #### Friction concentration
 
 From the orientation query, a cluster candidate is a path whose `rageclicks_24h` runs
-≥ ~3× its own 14-day daily mean, with `sessions_24h` ≥ ~10 and `persons_24h` ≥ ~5
-(gates below which this is variance). For each candidate, find the element:
+≥ ~3× its prior-13-day daily mean — `(rageclicks_14d - rageclicks_24h) / 13`, keeping
+the live day out of its own baseline so a real spike isn't diluted below the gate —
+with `sessions_24h` ≥ ~10 and `persons_24h` ≥ ~5 (below which this is variance). For
+each candidate, find the element:
 
 ```sql
 SELECT properties.$el_text AS el_text, count() AS clicks,
@@ -248,8 +248,8 @@ Friction where the page fights back — errors and failed requests tied to inter
 not just background noise:
 
 ```sql
-SELECT r.first_url AS url, uniq(f.session_id) AS sessions,
-       uniq(f.distinct_id) AS users,
+SELECT replaceRegexpAll(cutQueryStringAndFragment(r.first_url), '[0-9]+', ':id') AS url,
+       uniq(f.session_id) AS sessions, uniq(f.distinct_id) AS users,
        sum(f.errors_after_click) AS errors_after_click,
        sum(f.failed_requests) AS failed_requests
 FROM (
@@ -270,7 +270,7 @@ JOIN (
     GROUP BY session_id
 ) r ON r.session_id = f.session_id
 GROUP BY url
-HAVING sessions >= 10
+HAVING sessions >= 10 AND users >= 5
 ORDER BY sessions DESC
 LIMIT 20
 ```
@@ -465,8 +465,9 @@ Direct calls (read-only):
   health, and quota. Feature-gated and often absent even where replay vision is in
   use — lead with `$recording_observed` SQL; these are the optional
   mechanism-confirmation layer.
-- `activity-log-list` (`scope: "Team"`) — dating recording-config changes against
-  capture cliffs.
+- `advanced-activity-logs-list` (`scopes: ["Team"]` + `start_date`/`end_date`) — dating
+  recording-config changes against capture cliffs; prefer it over `activity-log-list`,
+  which cannot filter by date.
 - `read-data-schema` — confirm `$rageclick` / `$dead_click` / replay SDK properties
   exist before aggregating.
 - `inbox-reports-list` — pre-emit dedupe against the inbox (native replay signals and
