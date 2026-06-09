@@ -167,66 +167,6 @@ export function discoverComponentSchemaNames(filteredSchema, { nameSuffix = '', 
         .sort()
 }
 
-/**
- * Build an OpenAPI document with codegen-only GET operations — one per component schema.
- *
- * Orval's Zod client inlines nested $refs inside real operation response bodies, so a
- * polymorphic catalog response never yields standalone per-config schema exports.
- * Pointing each codegen op's 200 response at a top-level component $ref is the supported
- * way to get named Zod exports from Orval today.
- *
- * @param {object} options
- * @param {object} options.baseSchema - filtered OpenAPI slice (paths + components)
- * @param {string[]} options.schemaNames - component schema names to export
- * @param {string} [options.pathPrefix]
- * @param {string} [options.operationIdPrefix]
- * @param {string} [options.title]
- * @param {string} [options.responseDescription]
- * @returns {object}
- */
-export function buildCodegenSchemaResponseDoc({
-    baseSchema,
-    schemaNames,
-    pathPrefix = '/_codegen/schema',
-    operationIdPrefix = 'codegen_schema',
-    title,
-    responseDescription = 'Codegen-only schema (not a real endpoint).',
-}) {
-    const availableSchemaNames = schemaNames.filter((name) => baseSchema.components?.schemas?.[name])
-    if (availableSchemaNames.length === 0) {
-        throw new Error(`No component schemas found for codegen: ${schemaNames.join(', ')}`)
-    }
-
-    return {
-        openapi: baseSchema.openapi,
-        info: {
-            ...baseSchema.info,
-            title: title ?? `${baseSchema.info?.title ?? 'API'} - codegen schemas`,
-        },
-        paths: Object.fromEntries(
-            availableSchemaNames.map((schemaName) => [
-                `${pathPrefix}/${schemaName}/`,
-                {
-                    get: {
-                        operationId: `${operationIdPrefix}_${schemaName}_retrieve`,
-                        responses: {
-                            200: {
-                                description: responseDescription,
-                                content: {
-                                    'application/json': {
-                                        schema: { $ref: `#/components/schemas/${schemaName}` },
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-            ])
-        ),
-        components: baseSchema.components,
-    }
-}
-
 function _resolveComponentSchema(schemas, ref) {
     if (typeof ref !== 'string' || !ref.startsWith('#/components/schemas/')) {
         return undefined
@@ -261,28 +201,166 @@ function _resolveConfigSchemaName(schemas, configSchemaProperty) {
     return ref.replace('#/components/schemas/', '')
 }
 
+function _isNullOpenApiSchema(schema) {
+    return schema?.type === 'null' || (Array.isArray(schema?.type) && schema.type.length === 1 && schema.type[0] === 'null')
+}
+
+function _substantiveAnyOfArms(schema) {
+    const arms = schema?.anyOf ?? schema?.oneOf
+    if (!Array.isArray(arms)) {
+        return []
+    }
+    return arms.filter((arm) => !_isNullOpenApiSchema(arm))
+}
+
+function _derefOpenApiSchema(schemas, schema) {
+    if (!schema || typeof schema !== 'object') {
+        return undefined
+    }
+    if (schema.$ref) {
+        return _resolveComponentSchema(schemas, schema.$ref)
+    }
+    if (Array.isArray(schema.allOf) && schema.allOf.length > 0) {
+        return _derefOpenApiSchema(schemas, schema.allOf[0])
+    }
+
+    const substantiveArms = _substantiveAnyOfArms(schema)
+    if (substantiveArms.length === 1) {
+        return _derefOpenApiSchema(schemas, substantiveArms[0])
+    }
+    if (substantiveArms.length > 1) {
+        const objectArm = substantiveArms.find(
+            (arm) => arm?.$ref || arm?.properties || arm?.type === 'object' || arm?.additionalProperties
+        )
+        if (objectArm) {
+            return _derefOpenApiSchema(schemas, objectArm)
+        }
+        const enumArm = substantiveArms.find((arm) => Array.isArray(arm?.enum))
+        if (enumArm) {
+            return enumArm
+        }
+    }
+
+    return schema
+}
+
 /**
- * Map widget_type → sorted config property keys from per-type catalog entry OpenAPI schemas.
+ * Recursive OpenAPI property tree for parity checks (objects expand, enums/primitives leaf).
  *
- * @param {object} catalogSlice - output of filterSchemaByOperationIds for widget_catalog_retrieve
- * @returns {Record<string, string[]>}
+ * @param {object|string} schemaOrRef - schema object, $ref object, or component name
+ * @param {Record<string, object>} schemas - components.schemas
+ * @param {Set<string>} [visited]
+ * @returns {unknown}
  */
-export function discoverWidgetConfigPropertyKeys(catalogSlice) {
+export function collectOpenApiPropertyTree(schemaOrRef, schemas, visited = new Set()) {
+    let schema = schemaOrRef
+    if (typeof schemaOrRef === 'string') {
+        if (visited.has(schemaOrRef)) {
+            return { $ref: schemaOrRef }
+        }
+        visited.add(schemaOrRef)
+        schema = schemas[schemaOrRef]
+    } else if (schemaOrRef?.$ref) {
+        const componentName = schemaOrRef.$ref.replace('#/components/schemas/', '')
+        if (visited.has(componentName)) {
+            return { $ref: componentName }
+        }
+        visited.add(componentName)
+        schema = schemas[componentName]
+    } else {
+        schema = _derefOpenApiSchema(schemas, schemaOrRef)
+    }
+
+    if (!schema || typeof schema !== 'object') {
+        return { $type: 'unknown' }
+    }
+
+    if (Array.isArray(schema.enum)) {
+        return { $enum: [...schema.enum].sort() }
+    }
+
+    const substantiveArms = _substantiveAnyOfArms(schema)
+    const hasStringArm = substantiveArms.some((arm) => arm?.type === 'string')
+    const hasArrayArm = substantiveArms.some((arm) => arm?.type === 'array')
+    if (hasStringArm && hasArrayArm) {
+        return { $types: ['string'] }
+    }
+
+    const primitiveTypes = substantiveArms
+        .map((arm) => arm?.type)
+        .filter((type) => typeof type === 'string' && type !== 'null')
+    if (primitiveTypes.length > 1) {
+        return { $types: [...new Set(primitiveTypes)].sort() }
+    }
+    if (primitiveTypes.length === 1) {
+        return { $type: primitiveTypes[0] }
+    }
+
+    if (schema.properties && typeof schema.properties === 'object') {
+        const tree = {}
+        for (const [key, propertySchema] of Object.entries(schema.properties)) {
+            tree[key] = collectOpenApiPropertyTree(propertySchema, schemas, new Set(visited))
+        }
+        return tree
+    }
+
+    if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
+        return {
+            $record: collectOpenApiPropertyTree(schema.additionalProperties, schemas, new Set(visited)),
+        }
+    }
+
+    if (schema.type === 'array' && schema.items) {
+        return { $array: collectOpenApiPropertyTree(schema.items, schemas, new Set(visited)) }
+    }
+
+    if (schema.type) {
+        return { $type: schema.type }
+    }
+
+    return { $type: 'unknown' }
+}
+
+/**
+ * Map catalog entry schemas → config property metadata keyed by a type discriminator field.
+ *
+ * @param {object} catalogSlice - output of filterSchemaByOperationIds on a catalog op
+ * @param {{
+ *   entrySuffix?: string,
+ *   typeField?: string,
+ *   configField?: string,
+ *   includePropertyTrees?: boolean,
+ * }} [options]
+ * @returns {{ propertyKeys: Record<string, string[]>, propertyTrees?: Record<string, unknown> }}
+ */
+export function discoverCatalogEntryConfigPropertyKeys(
+    catalogSlice,
+    {
+        entrySuffix = 'CatalogEntryOpenApi',
+        typeField = 'widget_type',
+        configField = 'config_schema',
+        includePropertyTrees = false,
+    } = {}
+) {
     const schemas = catalogSlice.components?.schemas ?? {}
-    const propertyKeysByWidgetType = {}
+    const propertyKeys = {}
+    const propertyTrees = includePropertyTrees ? {} : undefined
 
     for (const [schemaName, schema] of Object.entries(schemas)) {
-        if (!schemaName.endsWith('CatalogEntryOpenApi') || !schema?.properties) {
+        if (!schemaName.endsWith(entrySuffix) || !schema?.properties) {
             continue
         }
-        const widgetType = _resolveSingletonWidgetType(schemas, schema.properties.widget_type)
-        const configSchemaName = _resolveConfigSchemaName(schemas, schema.properties.config_schema)
+        const widgetType = _resolveSingletonWidgetType(schemas, schema.properties[typeField])
+        const configSchemaName = _resolveConfigSchemaName(schemas, schema.properties[configField])
         if (!widgetType || !configSchemaName) {
             continue
         }
         const configSchema = schemas[configSchemaName]
-        propertyKeysByWidgetType[widgetType] = Object.keys(configSchema?.properties ?? {}).sort()
+        propertyKeys[widgetType] = Object.keys(configSchema?.properties ?? {}).sort()
+        if (propertyTrees) {
+            propertyTrees[widgetType] = collectOpenApiPropertyTree(configSchemaName, schemas)
+        }
     }
 
-    return propertyKeysByWidgetType
+    return propertyTrees ? { propertyKeys, propertyTrees } : { propertyKeys }
 }

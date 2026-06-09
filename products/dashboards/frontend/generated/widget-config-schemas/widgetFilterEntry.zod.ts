@@ -13,10 +13,7 @@ export const WidgetFilterEntry = /* @__PURE__ */ zod.object({
     propertyName: zod.string(),
     optionId: zod.string(),
     operator: PropertyOperator,
-    value: zod
-        .union([zod.string(), zod.array(zod.string()), zod.null()])
-        .nullish()
-        .default(null),
+    value: zod.union([zod.string(), zod.array(zod.string()), zod.null()]).optional(),
 })
 
 export type WidgetFilterEntry = zod.input<typeof WidgetFilterEntry>

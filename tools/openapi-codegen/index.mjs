@@ -1,8 +1,8 @@
 export {
-    buildCodegenSchemaResponseDoc,
+    collectOpenApiPropertyTree,
     collectSchemaRefs,
+    discoverCatalogEntryConfigPropertyKeys,
     discoverComponentSchemaNames,
-    discoverWidgetConfigPropertyKeys,
     filterSchemaByOperationIds,
     resolveNestedRefs,
 } from './src/schema.mjs'

@@ -88,8 +88,14 @@ def pydantic_config_field(model: type[BaseModel], **kwargs: Any) -> serializers.
     return _CONFIG_FIELD_CACHE[model](**kwargs)
 
 
-def inject_widget_spec_pydantic_components(result: dict[str, Any]) -> dict[str, Any]:
-    """Overwrite widget OpenAPI components with Pydantic ``model_json_schema()`` output."""
+def inject_widget_spec_pydantic_components(
+    result: dict[str, Any],
+    generator: Any,
+    request: Any,
+    public: bool,
+) -> dict[str, Any]:
+    """POSTPROCESSING_HOOKS entry — inject Pydantic ``model_json_schema()`` widget components."""
+    _ = (generator, request, public)
     from posthog.api.documentation import _fix_pydantic_schema_for_openapi
 
     schemas = result.setdefault("components", {}).setdefault("schemas", {})

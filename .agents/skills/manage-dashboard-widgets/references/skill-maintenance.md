@@ -32,11 +32,11 @@ Load `/manage-dashboard-widgets` and complete the maintenance checklist below wh
 | `products/dashboards/backend/widget_registry.py`                           | Re-exports only — edit `widget_specs/registry.py`                                              |
 | `products/dashboards/backend/widget_catalog.py`                            | Derived catalog — edit `registry.py` `WidgetSpec` for labels/availability                      |
 | `products/dashboards/backend/api/widget_openapi_serializers.py`            | Re-exports — OpenAPI serializers derive from `WIDGET_SPECS`                                    |
-| `products/dashboards/backend/api/test/dashboard_openapi_contract.py`       | Dashboard PATCH OpenAPI contract exclusions for `test_dashboard_openapi.py`                    |
+| `products/dashboards/backend/api/test/dashboard_openapi_test_helpers.py`   | Dashboard PATCH OpenAPI contract exclusions for `test_dashboard_openapi.py`                    |
 | `bin/build-dashboard-widget-types.py`                                      | `widget-date-from-options.json`, `widget-form-fields.json`, ENUM preflight from `WIDGET_SPECS` |
 | `tools/openapi-codegen/package.json` (`orval` version)                     | Widget catalog Zod requires Orval 8.14+ `generateReusableSchemas`                              |
 | `tools/openapi-codegen/src/zod-postprocess.mjs`                            | `fixNullDefaults`, `annotatePureZodExports` — shared Orval Zod postprocess                     |
-| `tools/openapi-codegen/src/schema.mjs`                                     | `discoverComponentSchemaNames`, `discoverWidgetConfigPropertyKeys`                             |
+| `tools/openapi-codegen/src/schema.mjs`                                     | `discoverComponentSchemaNames`, `discoverCatalogEntryConfigPropertyKeys`                       |
 | `products/dashboards/frontend/bin/generate-widget-config-zod.mjs`          | Orval `generateReusableSchemas` → `widget-config-schemas/*.zod.ts` + `widget-configs.zod.ts`   |
 | `products/dashboards/backend/api/test/test_widget_config_schema_parity.py` | Catalog `config_schema` ↔ Pydantic parity                                                      |
 | `products/dashboards/frontend/widgets/widgetConfigSchemaParity.test.ts`    | FE Zod keys ↔ `widget-config-property-keys.json`                                               |

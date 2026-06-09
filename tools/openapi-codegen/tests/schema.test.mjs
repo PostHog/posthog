@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-    buildCodegenSchemaResponseDoc,
+    collectOpenApiPropertyTree,
+    discoverCatalogEntryConfigPropertyKeys,
     discoverComponentSchemaNames,
-    discoverWidgetConfigPropertyKeys,
     filterSchemaByOperationIds,
 } from '../src/schema.mjs'
 
@@ -212,7 +212,7 @@ describe('discoverComponentSchemaNames', () => {
     })
 })
 
-describe('discoverWidgetConfigPropertyKeys', () => {
+describe('discoverCatalogEntryConfigPropertyKeys', () => {
     it('maps widget_type to config property keys via catalog entry schemas', () => {
         const spec = buildSpec()
         spec.components.schemas.ErrorTrackingListWidgetTypeEnum = {
@@ -258,32 +258,85 @@ describe('discoverWidgetConfigPropertyKeys', () => {
         }
 
         const filtered = filterSchemaByOperationIds(spec, new Set(['widget_catalog_retrieve']))
-        expect(discoverWidgetConfigPropertyKeys(filtered)).toEqual({
-            error_tracking_list: ['limit', 'orderBy'],
+        expect(
+            discoverCatalogEntryConfigPropertyKeys(filtered, {
+                entrySuffix: 'CatalogEntryOpenApi',
+                typeField: 'widget_type',
+                configField: 'config_schema',
+            })
+        ).toEqual({
+            propertyKeys: {
+                error_tracking_list: ['limit', 'orderBy'],
+            },
         })
     })
-})
 
-describe('buildCodegenSchemaResponseDoc', () => {
-    it('adds one codegen GET per component schema with a direct response $ref', () => {
-        const filtered = filterSchemaByOperationIds(buildSpec(), new Set(['widgets_create']))
-        const doc = buildCodegenSchemaResponseDoc({
-            baseSchema: filtered,
-            schemaNames: ['WidgetCreateRequest', 'WidgetResponse'],
-            pathPrefix: '/_codegen/test',
-            operationIdPrefix: 'test_schema',
+    it('collects nested property trees when requested', () => {
+        const spec = buildSpec()
+        spec.components.schemas.ErrorTrackingListWidgetTypeEnum = {
+            enum: ['error_tracking_list'],
+            type: 'string',
+        }
+        spec.components.schemas.WidgetAssigneeFilter = {
+            type: 'object',
+            properties: {
+                id: { type: 'string' },
+                type: { enum: ['user', 'role'], type: 'string' },
+            },
+        }
+        spec.components.schemas.ErrorTrackingListWidgetConfig = {
+            type: 'object',
+            properties: {
+                limit: { type: 'integer' },
+                assignee: { $ref: '#/components/schemas/WidgetAssigneeFilter' },
+            },
+        }
+        spec.components.schemas.ErrorTrackingListWidgetCatalogEntryOpenApi = {
+            type: 'object',
+            properties: {
+                widget_type: { $ref: '#/components/schemas/ErrorTrackingListWidgetTypeEnum' },
+                config_schema: { $ref: '#/components/schemas/ErrorTrackingListWidgetConfig' },
+            },
+        }
+        spec.paths['/api/widget_catalog/'] = {
+            get: {
+                operationId: 'widget_catalog_retrieve',
+                responses: {
+                    200: {
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/WidgetCatalogResponse' },
+                            },
+                        },
+                    },
+                },
+            },
+        }
+        spec.components.schemas.WidgetCatalogResponse = {
+            type: 'object',
+            properties: {
+                results: {
+                    type: 'array',
+                    items: { $ref: '#/components/schemas/ErrorTrackingListWidgetCatalogEntryOpenApi' },
+                },
+            },
+        }
+
+        const filtered = filterSchemaByOperationIds(spec, new Set(['widget_catalog_retrieve']))
+        const { propertyTrees } = discoverCatalogEntryConfigPropertyKeys(filtered, {
+            includePropertyTrees: true,
         })
 
-        expect(Object.keys(doc.paths)).toEqual([
-            '/_codegen/test/WidgetCreateRequest/',
-            '/_codegen/test/WidgetResponse/',
-        ])
-        expect(doc.paths['/_codegen/test/WidgetCreateRequest/'].get.operationId).toBe(
-            'test_schema_WidgetCreateRequest_retrieve'
-        )
-        expect(
-            doc.paths['/_codegen/test/WidgetCreateRequest/'].get.responses['200'].content['application/json'].schema
-        ).toEqual({ $ref: '#/components/schemas/WidgetCreateRequest' })
-        expect(doc.components.schemas).toHaveProperty('WidgetCreateRequest')
+        expect(propertyTrees.error_tracking_list).toEqual({
+            limit: { $type: 'integer' },
+            assignee: {
+                id: { $type: 'string' },
+                type: { $enum: ['role', 'user'] },
+            },
+        })
+        expect(collectOpenApiPropertyTree('WidgetAssigneeFilter', filtered.components.schemas)).toEqual({
+            id: { $type: 'string' },
+            type: { $enum: ['role', 'user'] },
+        })
     })
 })

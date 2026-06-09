@@ -154,7 +154,7 @@ Import `Component` / `EditModal` directly in `registry.tsx` (no `React.lazy`). E
 - BE: OpenAPI polymorphic config serializer count matches registry (`test_run_widgets.py`)
 - BE: catalog `config_schema` matches Pydantic JSON schema (`test_widget_config_schema_parity.py`)
 - BE: per-type `widget_type` enum overrides (`test_widget_openapi_enums.py`; `build:widget-types` preflight)
-- BE: dashboard PATCH OpenAPI ⊆ runtime writables (`test_dashboard_openapi.py` + `api/test/dashboard_openapi_contract.py`)
+- BE: dashboard PATCH OpenAPI ⊆ runtime writables (`test_dashboard_openapi.py` + `api/test/dashboard_openapi_test_helpers.py`)
 - FE: `DASHBOARD_WIDGET_REGISTRY satisfies Record<DashboardWidgetCatalogKey, …>`
 - FE: `DASHBOARD_WIDGET_PREVIEWS` keyed by catalog; `registry.test.tsx` covers every catalog key
 - FE: Zod config top-level keys match backend property map (`widgetConfigSchemaParity.test.ts` + `widget-config-property-keys.json`)

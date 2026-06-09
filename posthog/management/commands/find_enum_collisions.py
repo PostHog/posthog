@@ -31,7 +31,8 @@ from drf_spectacular.generators import SchemaGenerator
 from drf_spectacular.plumbing import load_enum_name_overrides
 from drf_spectacular.settings import spectacular_settings
 
-# Shared with CI (test_widget_openapi_enums.py) — keep collision logic out of the command.
+# Collision logic lives in posthog.openapi.enum_collisions so CI
+# (test_widget_openapi_enums.py) and this command share one implementation.
 from posthog.openapi.enum_collisions import collect_enum_hashes, find_unresolved_enum_collisions
 
 

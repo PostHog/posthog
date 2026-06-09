@@ -16,12 +16,9 @@ export const sessionReplayListWidgetConfigOrderByDefault = `start_time`
 export const sessionReplayListWidgetConfigOrderDirectionDefault = `DESC`
 
 export const SessionReplayListWidgetConfig = /* @__PURE__ */ zod.object({
-    dateRange: zod.union([WidgetDateRange, zod.null()]).nullish().default(null),
-    filterTestAccounts: zod.union([zod.boolean(), zod.null()]).nullish().default(null),
-    widgetFilters: zod
-        .union([zod.record(zod.string(), WidgetFilterEntry), zod.null()])
-        .nullish()
-        .default(null),
+    dateRange: zod.union([WidgetDateRange, zod.null()]).optional(),
+    filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+    widgetFilters: zod.union([zod.record(zod.string(), WidgetFilterEntry), zod.null()]).optional(),
     limit: zod
         .number()
         .min(1)

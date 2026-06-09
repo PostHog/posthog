@@ -57,7 +57,8 @@ def validate_widget_config(widget_type: str, config: dict[str, Any]) -> dict[str
 
 
 def _load_widget_specs() -> dict[str, WidgetSpec]:
-    # Local imports: widget runners import validate_widget_config from this module.
+    # Runners import validate_widget_config from this module — keep runner imports local to
+    # avoid import cycles (runners ↔ registry).
     from products.dashboards.backend.widgets.error_tracking_list import run_error_tracking_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget  # noqa: PLC0415
 

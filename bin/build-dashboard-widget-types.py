@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Preflight dashboard widget OpenAPI codegen from the backend registry.
 
+Same pattern as ``bin/build-mcp-oauth-scopes.py``: a ``bin/*`` codegen script
+invoked from ``hogli build:*``, reading backend SSOT and writing frontend JSON.
+
 Checks every ``WIDGET_SPECS`` type has an ``ENUM_NAME_OVERRIDES`` entry (Orval /
 ``build:openapi-schema`` fails otherwise) and emits frontend SSOT JSON for date
-presets and modal form field picks.
-
-Widget config Zod is generated in ``generate-widget-config-zod.mjs`` via Orval
-``generateReusableSchemas`` from the
-catalog OpenAPI slice.
+presets and modal form field picks. Step 2 of ``hogli build:widget-types`` runs
+``generate-widget-config-zod.mjs`` (Orval ``generateReusableSchemas`` on the
+catalog OpenAPI slice).
 
 Run via hogli: `hogli build:widget-types` (also runs as part of `build:openapi`).
 """
@@ -41,10 +42,10 @@ def _friendly_config_type_export(config_model_name: str) -> str:
 
 
 def main() -> int:
-    # Django must be configured before importing registry models (same as other bin/* codegen).
+    # Django imports stay local: django.setup() must run before registry/models load.
     sys.path.insert(0, str(REPO_ROOT))
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
-    import django  # noqa: PLC0415 — django.setup() must run before registry imports
+    import django  # noqa: PLC0415
 
     django.setup()
 
@@ -92,6 +93,14 @@ def main() -> int:
 
     form_fields_manifest: dict[str, dict[str, object]] = {}
     for widget_type, spec in sorted(WIDGET_SPECS.items()):
+        missing_form_fields = set(spec.form_fields) - set(spec.config_model.model_fields)
+        if missing_form_fields:
+            print(
+                f"{widget_type}: form_fields not on config model: {sorted(missing_form_fields)}",
+                file=sys.stderr,
+            )
+            return 1
+
         config_model_name = spec.config_model.__name__
         config_schema_export = _friendly_config_schema_export(config_model_name)
         form_fields_manifest[widget_type] = {

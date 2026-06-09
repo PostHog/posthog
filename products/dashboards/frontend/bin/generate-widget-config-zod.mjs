@@ -17,10 +17,11 @@ import { fileURLToPath } from 'node:url'
 
 import {
     annotatePureZodExports,
+    discoverCatalogEntryConfigPropertyKeys,
     discoverComponentSchemaNames,
-    discoverWidgetConfigPropertyKeys,
     filterSchemaByOperationIds,
     fixNullDefaults,
+    preprocessSchema,
     resolveNestedRefs,
     runOrvalParallel,
 } from '../../../../tools/openapi-codegen/index.mjs'
@@ -71,22 +72,34 @@ function getCatalogSlice(fullSchema) {
     })
 }
 
+const CATALOG_ENTRY_MARKERS = {
+    entrySuffix: 'CatalogEntryOpenApi',
+    typeField: 'widget_type',
+    configField: 'config_schema',
+}
+
 function writeConfigPropertyKeysJson(catalogSlice) {
-    const configPropertyKeys = discoverWidgetConfigPropertyKeys(catalogSlice)
-    if (Object.keys(configPropertyKeys).length === 0) {
+    const { propertyKeys, propertyTrees } = discoverCatalogEntryConfigPropertyKeys(catalogSlice, {
+        ...CATALOG_ENTRY_MARKERS,
+        includePropertyTrees: true,
+    })
+    if (Object.keys(propertyKeys).length === 0) {
         console.error(`No catalog entry config property maps found for ${WIDGET_CATALOG_OPERATION_ID}.`)
         process.exit(1)
     }
     const outputPath = path.join(dashboardsGeneratedDir, 'widget-config-property-keys.json')
-    fs.writeFileSync(outputPath, `${JSON.stringify({ configPropertyKeys }, null, 4)}\n`)
+    fs.writeFileSync(
+        outputPath,
+        `${JSON.stringify({ configPropertyKeys: propertyKeys, configPropertyTrees: propertyTrees }, null, 4)}\n`
+    )
     console.log(
-        `   ✓ widget-config-property-keys → ${path.relative(repoRoot, outputPath)} (${Object.keys(configPropertyKeys).length} types)`
+        `   ✓ widget-config-property-keys → ${path.relative(repoRoot, outputPath)} (${Object.keys(propertyKeys).length} types)`
     )
 }
 
 function readFormFieldsManifest() {
     if (!fs.existsSync(FORM_FIELDS_JSON)) {
-        console.error(`Missing ${FORM_FIELDS_JSON}. Run hogli build:dashboard:widget:types first.`)
+        console.error(`Missing ${FORM_FIELDS_JSON}. Run hogli build:widget-types first.`)
         process.exit(1)
     }
     return JSON.parse(fs.readFileSync(FORM_FIELDS_JSON, 'utf-8')).widgets ?? {}
@@ -242,7 +255,7 @@ async function main() {
     }
 
     const fullSchema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'))
-    const catalogSlice = getCatalogSlice(fullSchema)
+    const catalogSlice = preprocessSchema(getCatalogSlice(fullSchema))
     writeConfigPropertyKeysJson(catalogSlice)
 
     const configModelNames = discoverComponentSchemaNames(catalogSlice, { nameSuffix: 'WidgetConfig' })

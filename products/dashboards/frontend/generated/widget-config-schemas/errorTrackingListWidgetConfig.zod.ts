@@ -18,12 +18,9 @@ export const errorTrackingListWidgetConfigOrderDirectionDefault = `DESC`
 export const errorTrackingListWidgetConfigStatusDefault = `active`
 
 export const ErrorTrackingListWidgetConfig = /* @__PURE__ */ zod.object({
-    dateRange: zod.union([WidgetDateRange, zod.null()]).nullish().default(null),
-    filterTestAccounts: zod.union([zod.boolean(), zod.null()]).nullish().default(null),
-    widgetFilters: zod
-        .union([zod.record(zod.string(), WidgetFilterEntry), zod.null()])
-        .nullish()
-        .default(null),
+    dateRange: zod.union([WidgetDateRange, zod.null()]).optional(),
+    filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+    widgetFilters: zod.union([zod.record(zod.string(), WidgetFilterEntry), zod.null()]).optional(),
     limit: zod
         .number()
         .min(1)
@@ -44,8 +41,7 @@ export const ErrorTrackingListWidgetConfig = /* @__PURE__ */ zod.object({
         .describe('Issue status filter.'),
     assignee: zod
         .union([WidgetAssigneeFilter, zod.null()])
-        .nullish()
-        .default(null)
+        .optional()
         .describe('Filter by assignee ({type: user|role, id}). Omit for any assignee.'),
 })
 

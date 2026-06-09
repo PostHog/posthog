@@ -1,10 +1,12 @@
+"""Shared helpers for ``test_dashboard_openapi.py`` — not a test module itself."""
+
 from __future__ import annotations
 
 from rest_framework import serializers
 
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 
-# Test helpers: agent-facing dashboard PATCH fields for OpenAPI/MCP contract tests.
+# Agent-facing dashboard PATCH fields for OpenAPI/MCP contract tests.
 # Do not slim PatchedDashboardOpenApiSerializer below this set — extend_schema(request=...)
 # replaces the whole PATCH body schema.
 # DashboardSerializer accepts these on PATCH but they are not agent/MCP-facing OpenAPI fields.

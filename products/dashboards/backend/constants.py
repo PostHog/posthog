@@ -1,10 +1,10 @@
 # Keep in sync with frontend `BREAKPOINT_COLUMN_COUNTS.sm`.
 DASHBOARD_GRID_COLUMN_COUNT = 12
 
-# Cap per-query row count so run-widgets responses stay bounded.
+# Hard cap on rows returned per widget query (run_widgets throttles + UI "25+" footer).
 MAX_WIDGET_RESULT_LIMIT = 25
 
-# Default row count for list widgets when config omits limit (matches catalog + OpenAPI).
+# Default when config omits limit — catalog/OpenAPI default, below the hard cap.
 DEFAULT_WIDGET_LIST_LIMIT = 10
 
 # Cap widgets per batch create / run-widgets request.

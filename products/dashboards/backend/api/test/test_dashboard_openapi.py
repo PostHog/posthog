@@ -1,6 +1,8 @@
 from drf_spectacular.generators import SchemaGenerator
 
-from products.dashboards.backend.api.test.dashboard_openapi_contract import dashboard_patch_runtime_openapi_field_names
+from products.dashboards.backend.api.test.dashboard_openapi_test_helpers import (
+    dashboard_patch_runtime_openapi_field_names,
+)
 from products.dashboards.backend.widget_specs.openapi import PatchedDashboardOpenApiSerializer
 
 
@@ -24,7 +26,7 @@ class TestDashboardPatchOpenApiContract:
             "PatchedDashboardOpenApiSerializer must document every agent-facing DashboardSerializer PATCH input. "
             f"Missing: {sorted(missing)}. "
             "Add the field to PatchedDashboardOpenApiSerializer or DASHBOARD_PATCH_OPENAPI_EXCLUDED_RUNTIME_FIELDS "
-            "in dashboard_openapi_contract.py with a reason. "
+            "in dashboard_openapi_test_helpers.py with a reason. "
             "extend_schema(request=...) replaces the whole PATCH body — extend, do not shrink."
         )
 

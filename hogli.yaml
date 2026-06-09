@@ -479,7 +479,7 @@ build:
         description: Generate MCP tool-inputs.json schema from Zod definitions
     build:widget-types:
         steps:
-            - hogli: build:dashboard:widget:types
+            - cmd: python bin/build-dashboard-widget-types.py
             - cmd: pnpm --filter=@posthog/frontend exec node
                   ../products/dashboards/frontend/bin/generate-widget-config-zod.mjs
         description: Generate dashboard widget config codegen artifacts (enum preflight, Zod)
