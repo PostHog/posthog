@@ -93,10 +93,13 @@ lens**, not on every run:
 - **Signal.** A specific evaluation's pass-rate (or fails/day) changing recently vs its own
   baseline — catching a real upstream regression or the eval going flaky.
 - **How to read it.** `llma-evaluation-list` only gives **config** — the pass-rate lives in
-  `$ai_evaluation` events. `llma-evaluation-summary-create {evaluation_id, filter:"fail"}`
-  gives failure patterns + `statistics` (pass/fail/na counts); the skill's "Why is
-  evaluation X suddenly failing more?" workflow has the verification SQL (including the N/A
-  guard) — follow it rather than hand-rolling the query.
+  `$ai_evaluation` events. Read the **trend straight from those events** (fails/day with the
+  N/A guard) following the eval skill's "Why is evaluation X suddenly failing more?"
+  workflow — that raw query is the reliable spine. `llma-evaluation-summary-create
+{evaluation_id, filter:"fail"}` is an optional drill-down that groups failures into
+  patterns with example IDs, but it's billed, rate-limited, and currently prone to 500s —
+  treat it as a bonus, not a dependency, and fall back to sampling the raw failing rows via
+  `query-llm-trace` when it's unavailable.
 - **Discipline.** Pass-rate regressions **also auto-flow to the inbox** via the enabled
   `llm_analytics:evaluation` signal source — so only emit when you've localized something
   the auto-flow won't (a specific eval + a specific failure pattern + a cause); otherwise

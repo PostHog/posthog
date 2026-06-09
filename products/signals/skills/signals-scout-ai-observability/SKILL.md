@@ -105,9 +105,10 @@ When a lens flags something, don't emit the top-line number — localize and sam
   (model, `$ai_span_name`, tool, user, `ai_product`, a custom dim) to show _which_ slice
   drove the move — that's the difference between "cost is up" and an emittable finding.
 - **Sample.** Pull one or two representative traces via `query-llm-trace` (or a failing
-  generation via the eval skill's example IDs) and cite concrete trace / generation /
-  evaluation IDs in the evidence. For evals, `llma-evaluation-summary-create` already
-  groups failures into patterns with example IDs — use them.
+  generation sampled from the raw `$ai_evaluation` rows) and cite concrete trace /
+  generation / evaluation IDs in the evidence. `llma-evaluation-summary-create` groups
+  failures into patterns with example IDs when it's available, but it's billed and can
+  500 — don't depend on it.
 - **Group as a pattern** when a trend spans many traces: describe the shared shape (same
   model + same span, same tool error, same prompt version) rather than listing rows.
 
@@ -191,9 +192,10 @@ Telemetry & cost:
 Evals & enrichment config:
 
 - `llma-evaluation-list` — eval **config** only (name, type, enabled). Pass-rates are NOT
-  here — they live in `$ai_evaluation` events.
-- `llma-evaluation-summary-create` — AI pass/fail/N/A pattern summary + statistics; the
-  real way to read eval results. Pair with `llma-evaluation-get` / `-test-hog`.
+  here — read the trend from `$ai_evaluation` events via `execute-sql` (the reliable path).
+- `llma-evaluation-summary-create` — optional AI pass/fail/N/A pattern summary (billed,
+  rate-limited, currently prone to 500s — a drill-down, not the spine). Pair with
+  `llma-evaluation-get` / `-test-hog`.
 - `llma-tagger-list` / `llma-score-definition-list` — the enrichment config surface
   (auto-taggers and scorers — LLM/Hog jobs that can silently break).
 - `llma-clustering-job-list` / `-get` — semantic clusters over traces/generations.
