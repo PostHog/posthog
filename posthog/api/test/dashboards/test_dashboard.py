@@ -3447,8 +3447,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(tiles), 1)
         self.assertEqual(tiles[0]["text"]["body"], "## Section heading\n\nIntro markdown.")
 
-    def test_create_text_tile_without_layouts_uses_default(self):
+    def test_create_text_tile_without_layouts_places_at_bottom(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        insight = Insight.objects.create(team=self.team, name="Insight 1")
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+            layouts={"sm": {"x": 0, "y": 0, "w": 12, "h": 5}},
+        )
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/create_text_tile/",
@@ -3456,7 +3462,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["text"]["body"], "Just a divider")
+        body = response.json()
+        self.assertEqual(body["text"]["body"], "Just a divider")
+        self.assertEqual(body["layouts"]["sm"], {"x": 0, "y": 5, "w": 2, "h": 2})
+        self.assertEqual(body["layouts"]["xs"], body["layouts"]["sm"])
 
     @parameterized.expand(
         [

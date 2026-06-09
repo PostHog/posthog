@@ -1191,6 +1191,48 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         tile: DashboardTile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id)
         self.assertIsNotNone(tile)
 
+    def test_creating_insights_on_a_dashboard_persists_stacked_layouts(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({})
+
+        first_insight_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
+        second_insight_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
+        third_insight_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
+
+        first_tile = DashboardTile.objects.get(dashboard_id=dashboard_id, insight_id=first_insight_id)
+        second_tile = DashboardTile.objects.get(dashboard_id=dashboard_id, insight_id=second_insight_id)
+        third_tile = DashboardTile.objects.get(dashboard_id=dashboard_id, insight_id=third_insight_id)
+
+        assert first_tile.layouts["sm"] == {"x": 0, "y": 0, "w": 6, "h": 5}
+        assert second_tile.layouts["sm"] == {"x": 6, "y": 0, "w": 6, "h": 5}
+        assert third_tile.layouts["sm"] == {"x": 0, "y": 5, "w": 6, "h": 5}
+        assert first_tile.layouts["xs"] == first_tile.layouts["sm"]
+
+    def test_adding_insight_to_dashboard_via_update_persists_stacked_layout(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
+        insight_id, _ = self.dashboard_api.create_insight({})
+
+        self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
+
+        tile = DashboardTile.objects.get(dashboard_id=dashboard_id, insight_id=insight_id)
+        assert tile.layouts["sm"] == {"x": 6, "y": 0, "w": 6, "h": 5}
+        assert tile.layouts["xs"] == tile.layouts["sm"]
+
+    def test_restoring_soft_deleted_tile_keeps_existing_layout(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({})
+        insight_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
+
+        tile = DashboardTile.objects.get(dashboard_id=dashboard_id, insight_id=insight_id)
+        tile.layouts = {"sm": {"x": 3, "y": 7, "w": 4, "h": 4}}
+        tile.deleted = True
+        tile.save()
+
+        self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
+
+        tile.refresh_from_db()
+        assert tile.deleted is False
+        assert tile.layouts == {"sm": {"x": 3, "y": 7, "w": 4, "h": 4}}
+
     def test_insight_items_on_a_dashboard_ignore_deleted_dashboards(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
         deleted_dashboard_id, _ = self.dashboard_api.create_dashboard({})

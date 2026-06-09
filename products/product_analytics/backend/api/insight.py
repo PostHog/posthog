@@ -126,6 +126,10 @@ from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.tile_layouts import (
+    collect_dashboard_sm_layouts_for_dashboard,
+    stack_tile_layout_at_bottom,
+)
 from products.product_analytics.backend.api.insight_metadata import generate_insight_metadata
 from products.product_analytics.backend.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
@@ -627,8 +631,17 @@ class InsightSerializer(InsightBasicSerializer):
                 if dashboard.team != insight.team:
                     raise serializers.ValidationError("Dashboard not found")
 
+                # Persist a real layout so API/MCP-created tiles don't land with `layouts: {}`,
+                # which renders fine (frontend auto-places) but overlaps for other API consumers.
+                layouts = stack_tile_layout_at_bottom(
+                    existing_sm_layouts=collect_dashboard_sm_layouts_for_dashboard(dashboard)
+                )
                 DashboardTile.objects.create(
-                    insight=insight, dashboard=dashboard, team_id=dashboard.team_id, last_refresh=now()
+                    insight=insight,
+                    dashboard=dashboard,
+                    team_id=dashboard.team_id,
+                    last_refresh=now(),
+                    layouts=layouts,
                 )
                 report_user_action(
                     self.context["request"].user,
@@ -794,8 +807,18 @@ class InsightSerializer(InsightBasicSerializer):
 
             tile, _ = DashboardTile.objects_including_soft_deleted.get_or_create(insight=instance, dashboard=dashboard)
 
+            needs_save = False
             if tile.deleted:
                 tile.deleted = False
+                needs_save = True
+            if not tile.layouts:
+                # Persist a real layout so API/MCP-added tiles don't land with `layouts: {}` —
+                # the freshly created tile itself is skipped by the collector (empty layouts).
+                tile.layouts = stack_tile_layout_at_bottom(
+                    existing_sm_layouts=collect_dashboard_sm_layouts_for_dashboard(dashboard)
+                )
+                needs_save = True
+            if needs_save:
                 tile.save()
 
             report_user_action(

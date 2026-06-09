@@ -87,23 +87,3 @@ def stack_widget_layout_at_bottom(
         height=height,
     )
     return {"sm": sm, "xs": {**sm}}
-
-
-def collect_dashboard_sm_layouts(dashboard_tiles: list[Any]) -> list[dict[str, Any]]:
-    sm_layouts: list[dict[str, Any]] = []
-    for tile in dashboard_tiles:
-        layouts = tile.layouts if isinstance(tile.layouts, dict) else {}
-        sm_layout = layouts.get("sm")
-        if isinstance(sm_layout, dict):
-            sm_layouts.append(sm_layout)
-    return sm_layouts
-
-
-def collect_dashboard_sm_layouts_for_dashboard(dashboard: Any) -> list[dict[str, Any]]:
-    sm_layouts: list[dict[str, Any]] = []
-    for layouts in dashboard.tiles.filter(deleted=False).values_list("layouts", flat=True):
-        if isinstance(layouts, dict):
-            sm_layout = layouts.get("sm")
-            if isinstance(sm_layout, dict):
-                sm_layouts.append(sm_layout)
-    return sm_layouts

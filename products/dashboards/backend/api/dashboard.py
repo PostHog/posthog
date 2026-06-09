@@ -89,6 +89,12 @@ from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.dashboards.backend.tile_layouts import (
+    DEFAULT_TEXT_TILE_HEIGHT,
+    DEFAULT_TEXT_TILE_WIDTH,
+    collect_dashboard_sm_layouts_for_dashboard,
+    stack_tile_layout_at_bottom,
+)
 from products.dashboards.backend.widget_access import (
     check_widget_tile_product_access,
     get_widget_api_scope_error,
@@ -96,10 +102,7 @@ from products.dashboards.backend.widget_access import (
 )
 from products.dashboards.backend.widget_catalog import get_widget_catalog_entries
 from products.dashboards.backend.widget_create import prepare_widget_tile_create
-from products.dashboards.backend.widget_layouts import (
-    collect_dashboard_sm_layouts_for_dashboard,
-    stack_widget_layout_at_bottom,
-)
+from products.dashboards.backend.widget_layouts import stack_widget_layout_at_bottom
 from products.dashboards.backend.widget_query_throttle import get_dashboard_widget_query_throttle_error
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
@@ -2327,6 +2330,13 @@ class DashboardsViewSet(
             tile_data: dict[str, Any] = {}
             if "layouts" in validated:
                 tile_data["layouts"] = validated["layouts"]
+            else:
+                # The request serializer documents bottom placement when layouts are omitted.
+                tile_data["layouts"] = stack_tile_layout_at_bottom(
+                    existing_sm_layouts=collect_dashboard_sm_layouts_for_dashboard(dashboard),
+                    width=DEFAULT_TEXT_TILE_WIDTH,
+                    height=DEFAULT_TEXT_TILE_HEIGHT,
+                )
             if "color" in validated:
                 tile_data["color"] = validated["color"]
             tile, _ = DashboardSerializer._upsert_tile(dashboard, tile_data, text=text)
