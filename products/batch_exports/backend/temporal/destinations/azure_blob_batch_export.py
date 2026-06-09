@@ -5,6 +5,7 @@ import dataclasses
 from django.conf import settings
 
 from azure.core.exceptions import HttpResponseError
+from azure.storage.blob import StorageErrorCode
 from azure.storage.blob.aio import BlobServiceClient, ContainerClient, ExponentialRetry
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
@@ -94,6 +95,14 @@ class MissingRequiredPermissionsError(Exception):
 
     def __init__(self):
         super().__init__("Missing required permissions to run this batch export")
+
+
+def _is_authorization_failure_response_error(err: HttpResponseError) -> bool:
+    """Check if the provided response error is an authorization failure.
+
+    'error_code' is monkey-patched dynamically so we must use 'getattr' for type checkers.
+    """
+    return getattr(err, "error_code", None) == StorageErrorCode.AUTHORIZATION_FAILURE
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -227,7 +236,7 @@ class AzureBlobConsumer(Consumer):
                 max_concurrency=self.max_concurrency,
             )
         except HttpResponseError as exc:
-            if exc.error is not None and exc.error.code == "AuthorizationFailure":
+            if _is_authorization_failure_response_error(exc):
                 raise MissingRequiredPermissionsError()
             else:
                 raise
@@ -253,7 +262,7 @@ class AzureBlobConsumer(Consumer):
                 overwrite=True,
             )
         except HttpResponseError as exc:
-            if exc.error is not None and exc.error.code == "AuthorizationFailure":
+            if _is_authorization_failure_response_error(exc):
                 raise MissingRequiredPermissionsError()
             else:
                 raise
