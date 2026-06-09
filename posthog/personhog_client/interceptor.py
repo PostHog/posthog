@@ -8,6 +8,7 @@ from typing import Any
 import grpc
 from prometheus_client import Counter, Histogram
 
+from posthog.personhog_client.metrics import PERSONHOG_ERRORS_TOTAL
 from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG
 
 _ClientCallDetails = namedtuple(
@@ -33,17 +34,19 @@ PERSONHOG_DJANGO_REQUEST_COUNT = Counter(
     labelnames=["method", "status", "client_name"],
 )
 
-PERSONHOG_DJANGO_TIMEOUT_TOTAL = Counter(
-    "personhog_django_grpc_timeouts_total",
-    "gRPC requests that exceeded their deadline (DEADLINE_EXCEEDED)",
-    labelnames=["method", "client_name"],
-)
-
 
 def _method_name(client_call_details: grpc.ClientCallDetails) -> str:
     # client_call_details.method is like "/personhog.service.v1.PersonHogService/GetPerson"
     method: str = client_call_details.method or "unknown"
     return method.rsplit("/", 1)[-1]
+
+
+def _grpc_error_type(code: grpc.StatusCode) -> str:
+    """Convert a gRPC status code to PascalCase to match Node.js and Rust error_type labels."""
+    # grpc.StatusCode.DEADLINE_EXCEEDED.name → "DEADLINE_EXCEEDED"
+    # We need "DeadlineExceeded" to align with Code[error.code] in Node
+    # and format!("{:?}", s.code()) in Rust.
+    return code.name.replace("_", " ").title().replace(" ", "")
 
 
 def _with_metadata(
@@ -116,15 +119,17 @@ class MetricsInterceptor(grpc.UnaryUnaryClientInterceptor):
             code = response.code()
             status = code.name if code else "OK"
             PERSONHOG_DJANGO_REQUEST_COUNT.labels(method=method, status=status, client_name=self._client_name).inc()
-            if code == grpc.StatusCode.DEADLINE_EXCEEDED:
-                PERSONHOG_DJANGO_TIMEOUT_TOTAL.labels(method=method, client_name=self._client_name).inc()
+            if code is not None and code != grpc.StatusCode.OK:
+                PERSONHOG_ERRORS_TOTAL.labels(
+                    method=method, client=self._client_name, error_type=_grpc_error_type(code)
+                ).inc()
             return response
         except grpc.RpcError as exc:
             code = exc.code()
             status = code.name if code else "UNKNOWN"
+            error_type = _grpc_error_type(code) if code else "Unknown"
             PERSONHOG_DJANGO_REQUEST_COUNT.labels(method=method, status=status, client_name=self._client_name).inc()
-            if code == grpc.StatusCode.DEADLINE_EXCEEDED:
-                PERSONHOG_DJANGO_TIMEOUT_TOTAL.labels(method=method, client_name=self._client_name).inc()
+            PERSONHOG_ERRORS_TOTAL.labels(method=method, client=self._client_name, error_type=error_type).inc()
             raise
         finally:
             PERSONHOG_DJANGO_REQUEST_DURATION.labels(method=method, client_name=self._client_name).observe(
