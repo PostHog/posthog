@@ -22,6 +22,15 @@ import { SessionRecordingMetaLogicProps, sessionRecordingMetaLogic } from './ses
 const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.
 const FIVE_MINUTES_IN_MS = 5 * 60 * 1000 // +- before and after start and end of a recording to query for events related by person.
 
+// Statuses that indicate a transient backend hiccup (overload, gateway timeout) rather than a
+// real client problem. A network failure surfaces with no status at all.
+const TRANSIENT_QUERY_STATUSES = new Set([0, 502, 503, 504])
+
+function isTransientQueryError(error: unknown): boolean {
+    const status = (error as { status?: number } | null | undefined)?.status
+    return status === undefined || TRANSIENT_QUERY_STATUSES.has(status)
+}
+
 export const sessionEventsDataLogic = kea<sessionEventsDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'sessionEventsDataLogic', key]),
     props({} as SessionRecordingMetaLogicProps),
@@ -86,18 +95,47 @@ AND properties.$lib != 'web'`
                         hogql`\nORDER BY timestamp ASC\nLIMIT 1000000`) as HogQLQueryString
 
                     const tags = { scene: 'ReplaySingle', productKey: 'session_replay' }
-                    const [sessionEvents, relatedEvents]: any[] = await Promise.all([
-                        // make one query for all events that are part of the session
-                        api.queryHogQL(sessionEventsQuery, tags),
-                        // make a second for all events from that person,
-                        // not marked as part of the session
-                        // but in the same time range
-                        // these are probably e.g. backend events for the session
-                        // but with no session id
-                        // since posthog-js must always add session id we can also
-                        // take advantage of lib being materialized and further filter
-                        api.queryHogQL(relatedEventsQuery, tags),
-                    ])
+                    const runQueries = (): Promise<[any, any]> =>
+                        Promise.all([
+                            // make one query for all events that are part of the session
+                            api.queryHogQL(sessionEventsQuery, tags),
+                            // make a second for all events from that person,
+                            // not marked as part of the session
+                            // but in the same time range
+                            // these are probably e.g. backend events for the session
+                            // but with no session id
+                            // since posthog-js must always add session id we can also
+                            // take advantage of lib being materialized and further filter
+                            api.queryHogQL(relatedEventsQuery, tags),
+                        ])
+
+                    let sessionEvents: any
+                    let relatedEvents: any
+                    try {
+                        ;[sessionEvents, relatedEvents] = await runQueries()
+                    } catch (e) {
+                        // A non-transient error (e.g. a malformed query) is a real bug — let it surface.
+                        if (!isTransientQueryError(e)) {
+                            throw e
+                        }
+                        // The query endpoint can return transient 5xx/timeouts under load. Retry once
+                        // after a short delay, then degrade to an empty events panel rather than
+                        // throwing: an uncaught throw here both breaks the sidebar and (because the
+                        // error message embeds the live status code and environment id) floods error
+                        // tracking with a brand-new fingerprint per failure. The backend already tracks
+                        // these 5xx responses server-side.
+                        await new Promise((resolve) => setTimeout(resolve, 600))
+                        breakpoint()
+                        try {
+                            ;[sessionEvents, relatedEvents] = await runQueries()
+                        } catch (retryError) {
+                            if (!isTransientQueryError(retryError)) {
+                                throw retryError
+                            }
+                            console.warn('Session events query failed transiently, showing empty panel', retryError)
+                            return []
+                        }
+                    }
 
                     breakpoint()
 

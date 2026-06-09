@@ -7250,12 +7250,15 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
             }
         }
 
-        throw new ApiError(
-            `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`,
-            response.status,
-            response.headers,
-            data
-        )
+        // Collapse high-cardinality path segments (numeric ids, uuids) and drop the status code
+        // from the message so transient failures group into a single error-tracking issue instead
+        // of producing a brand-new fingerprint per request/environment. The status code remains
+        // available on the ApiError instance (`status`) for any downstream handling.
+        const groupablePathname = pathname
+            .replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\/|$)/gi, '/:uuid')
+            .replace(/\/\d+(?=\/|$)/g, '/:id')
+
+        throw new ApiError(`Non-OK response [${method} ${groupablePathname}]`, response.status, response.headers, data)
     }
 
     return response
