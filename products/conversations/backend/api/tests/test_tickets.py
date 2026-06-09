@@ -108,6 +108,15 @@ class TestTicketAPI(APIBaseTest):
             status.HTTP_200_OK,
         )
 
+        # A pathologically large tags_all list is capped, not run as thousands of JOINs.
+        self.assertEqual(
+            self.client.get(
+                f"/api/projects/{self.team.id}/conversations/tickets/",
+                data={"tags_all": json.dumps([f"t{i}" for i in range(200)])},
+            ).status_code,
+            status.HTTP_200_OK,
+        )
+
     def test_list_tickets_only_returns_team_tickets(self, mock_on_commit):
         other_ticket = Ticket.objects.create_with_number(
             team=self.team,

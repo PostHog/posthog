@@ -146,6 +146,9 @@ class TicketPagination(pagination.LimitOffsetPagination):
     max_limit = 1000
 
 
+MAX_TAG_FILTER_VALUES = 50
+
+
 class TicketPersonSerializer(serializers.Serializer):
     """Minimal person serializer for embedding in ticket responses."""
 
@@ -372,7 +375,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             try:
                 tags_list = json.loads(tags_param)
                 if isinstance(tags_list, list) and tags_list:
-                    queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
+                    queryset = queryset.filter(tagged_items__tag__name__in=tags_list[:MAX_TAG_FILTER_VALUES]).distinct()
             except json.JSONDecodeError:
                 pass
 
@@ -382,7 +385,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 tags_all_list = json.loads(tags_all_param)
                 if isinstance(tags_all_list, list) and tags_all_list:
                     # One filter per tag (not __in) so this is AND: the ticket must carry every tag.
-                    for tag_name in tags_all_list:
+                    for tag_name in tags_all_list[:MAX_TAG_FILTER_VALUES]:
                         queryset = queryset.filter(tagged_items__tag__name=tag_name)
                     queryset = queryset.distinct()
             except json.JSONDecodeError:
@@ -393,7 +396,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             try:
                 tags_exclude_list = json.loads(tags_exclude_param)
                 if isinstance(tags_exclude_list, list) and tags_exclude_list:
-                    queryset = queryset.exclude(tagged_items__tag__name__in=tags_exclude_list)
+                    queryset = queryset.exclude(tagged_items__tag__name__in=tags_exclude_list[:MAX_TAG_FILTER_VALUES])
             except json.JSONDecodeError:
                 pass
 
