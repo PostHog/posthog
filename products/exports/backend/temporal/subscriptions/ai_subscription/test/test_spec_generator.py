@@ -110,6 +110,11 @@ class TestPromptRelevantEventNames(APIBaseTest):
         assert "alert created" not in names
         assert "$pageview" not in names
 
+    def test_singularizes_four_letter_plural_token(self) -> None:
+        EventDefinition.objects.create(team=self.team, name="job created")
+        # "jobs" is exactly PROMPT_TOKEN_MIN_LENGTH (4 chars) — it must still singularize to "job"
+        assert "job created" in _prompt_relevant_event_names(self.team, "show jobs", limit=12)
+
     def test_returns_empty_when_prompt_is_only_generic_filler(self) -> None:
         EventDefinition.objects.create(team=self.team, name="export created")
         assert _prompt_relevant_event_names(self.team, "give me a weekly summary", limit=12) == []

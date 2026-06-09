@@ -148,7 +148,7 @@ def _prompt_tokens(prompt: str) -> list[str]:
 def _token_variants(token: str) -> list[str]:
     # crude singularization so a plural in the prompt ("exports") still matches the singular event
     # name ("export created"); substring match alone would miss it.
-    if token.endswith("s") and len(token) > PROMPT_TOKEN_MIN_LENGTH:
+    if token.endswith("s") and len(token) >= PROMPT_TOKEN_MIN_LENGTH:
         return [token, token[:-1]]
     return [token]
 
@@ -180,7 +180,10 @@ def _event_property_names(team: Team, events: list[str], per_event_limit: int) -
     rows = (
         EventProperty.objects.filter(team_id=team.pk, event__in=events)
         .order_by("event", "property")
-        .values_list("event", "property")
+        # DB-tier backstop: a property-heavy event can otherwise pull its entire row set into Python
+        # before the per-event cap below applies. Caps total rows read; fairness across events is
+        # best-effort (rows are ordered by event, so the budget favours the earlier ones).
+        .values_list("event", "property")[: len(events) * per_event_limit]
     )
     for event, prop in rows:
         props = by_event.setdefault(event, [])
