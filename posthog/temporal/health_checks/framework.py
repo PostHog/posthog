@@ -92,6 +92,33 @@ class SignalContent:
     extra: dict[str, Any]
 
 
+# Bounds on `issue.payload` before it lands in a signal's `extra`, which the Signals pipeline
+# renders verbatim into LLM context — an unbounded check payload must not blow up the prompt.
+_MAX_PAYLOAD_LIST_ITEMS = 20
+_MAX_PAYLOAD_STR_LEN = 500
+_MAX_PAYLOAD_DEPTH = 3
+
+
+def _bounded_payload_value(value: Any, depth: int = 0) -> Any:
+    """Recursively cap list length, string length, and nesting depth of a payload value."""
+    if isinstance(value, str):
+        if len(value) <= _MAX_PAYLOAD_STR_LEN:
+            return value
+        return f"{value[:_MAX_PAYLOAD_STR_LEN]}… (truncated)"
+    if isinstance(value, list):
+        if depth >= _MAX_PAYLOAD_DEPTH:
+            return f"[{len(value)} items]"
+        bounded = [_bounded_payload_value(item, depth + 1) for item in value[:_MAX_PAYLOAD_LIST_ITEMS]]
+        if len(value) > _MAX_PAYLOAD_LIST_ITEMS:
+            bounded.append(f"… (+{len(value) - _MAX_PAYLOAD_LIST_ITEMS} more)")
+        return bounded
+    if isinstance(value, dict):
+        if depth >= _MAX_PAYLOAD_DEPTH:
+            return f"{{{len(value)} keys}}"
+        return {key: _bounded_payload_value(item, depth + 1) for key, item in value.items()}
+    return value
+
+
 def build_signal_extra(issue: HealthIssue, *, title: str, summary: str, link: str) -> dict[str, Any]:
     """Assemble the `extra` envelope for a health-check signal.
 
@@ -107,7 +134,7 @@ def build_signal_extra(issue: HealthIssue, *, title: str, summary: str, link: st
         "summary": summary,
         "link": link,
         "url": f"{settings.SITE_URL}{link}",
-        "payload": issue.payload,
+        "payload": _bounded_payload_value(issue.payload),
     }
 
 
