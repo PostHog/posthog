@@ -41,7 +41,12 @@ def deliver_overview_to_slack(
         raise SlackDeliveryError(f"Missing Slack integration or channel for team {team_id}")
 
     # Scoped by team_id so a config can't deliver through another team's integration.
-    integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="slack")
+    try:
+        integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="slack")
+    except Integration.DoesNotExist as e:
+        raise SlackDeliveryError(
+            f"No Slack integration {integration_id} for team {team_id} (deleted or wrong kind)"
+        ) from e
     client = SlackIntegration(integration).client
 
     header_text = overview.headline[:_SLACK_HEADER_LIMIT]

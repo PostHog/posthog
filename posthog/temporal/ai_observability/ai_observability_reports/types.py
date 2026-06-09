@@ -5,7 +5,7 @@ from posthog.temporal.ai_observability.ai_observability_reports.constants import
 
 @dataclasses.dataclass
 class AIObservabilityReportCoordinatorInputs:
-    """Inputs for the daily coordinator. `config_ids` carries continuation state."""
+    """Inputs for the daily coordinator. It fetches all enabled configs fresh each tick."""
 
     max_concurrent_configs: int = DEFAULT_MAX_CONCURRENT_CONFIGS
 

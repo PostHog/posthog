@@ -45,8 +45,7 @@ def _resolve_digest_user_id(team: Team, created_by_id: int | None) -> int:
         if is_active:
             return created_by_id
     membership = (
-        OrganizationMembership.objects.select_related("user")
-        .filter(organization=team.organization, user__is_active=True)
+        OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
         .order_by("id")
         .first()
     )
@@ -69,7 +68,7 @@ def _build_initial_prompt(skill_body: str, additional_instructions: str) -> str:
 def _load_digest_context(config_id: str) -> _DigestContext | None:
     """Resolve everything the agent needs from a config row. Returns None to skip the run."""
     from products.ai_observability.backend.models import AIObservabilityReportConfig
-    from products.signals.backend.scout_harness.skill_loader import load_skill_for_run
+    from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError, load_skill_for_run
 
     config = (
         AIObservabilityReportConfig.all_teams.select_related("team", "team__organization").filter(id=config_id).first()
@@ -88,7 +87,18 @@ def _load_digest_context(config_id: str) -> _DigestContext | None:
         logger.warning("ai_observability_digest_skip_no_consent", config_id=config_id, team_id=team.id)
         return None
 
-    skill = load_skill_for_run(team, config.skill_name)
+    # A stale config pointing at a deleted/renamed skill should skip quietly, not fail the
+    # child workflow — one team's bad config shouldn't generate noisy daily failures.
+    try:
+        skill = load_skill_for_run(team, config.skill_name)
+    except SkillNotFoundError:
+        logger.warning(
+            "ai_observability_digest_skip_missing_skill",
+            config_id=config_id,
+            team_id=team.id,
+            skill_name=config.skill_name,
+        )
+        return None
     user_id = _resolve_digest_user_id(team, config.created_by_id)
     return _DigestContext(
         team=team,
@@ -117,7 +127,12 @@ async def fetch_enabled_ai_observability_report_configs_activity() -> FetchEnabl
         from products.ai_observability.backend.models import AIObservabilityReportConfig
 
         ids = (
-            AIObservabilityReportConfig.all_teams.filter(enabled=True, slack_integration__isnull=False)
+            AIObservabilityReportConfig.all_teams.filter(
+                enabled=True,
+                slack_integration__isnull=False,
+                slack_integration__kind="slack",
+            )
+            .exclude(slack_channel="")
             .order_by("created_at", "id")
             .values_list("id", flat=True)
         )
@@ -151,10 +166,10 @@ async def run_ai_observability_report_agent_activity(
             slack_channel=context.slack_channel,
             user_id=context.user_id,
         )
-        try:
-            await agent.start()
-        finally:
-            await database_sync_to_async(_stamp_last_run_at, thread_sensitive=False)(inputs.config_id)
+        await agent.start()
+        # Stamp only after a successful run so `last_run_at` stays a reliable signal of the
+        # last good digest (a failed run leaves it untouched).
+        await database_sync_to_async(_stamp_last_run_at, thread_sensitive=False)(inputs.config_id)
 
         log.info("ai_observability_digest_agent_completed", skill_name=context.skill_name)
         return RunAIObservabilityReportAgentOutput(delivered=True, skill_name=context.skill_name)
