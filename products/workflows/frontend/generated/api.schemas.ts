@@ -561,6 +561,49 @@ export interface HogFlowBatchJobApi {
     readonly updated_at: string
 }
 
+export interface HogInvocationResultApi {
+    invocation_id: string
+    status: string
+    error_kind: string
+    error_message: string
+    distinct_id: string
+    person_id: string
+    scheduled_at: string
+    /** @nullable */
+    started_at: string | null
+    /** @nullable */
+    finished_at: string | null
+    /** @nullable */
+    duration_ms: number | null
+    attempts: number
+    is_retry: boolean
+}
+
+/**
+ * The triggering payload (event/person/groups) the run executed against, as a JSON object.
+ */
+export type HogInvocationResultDetailApiInvocationGlobals = { [key: string]: unknown }
+
+export interface HogInvocationResultDetailApi {
+    /** The triggering payload (event/person/groups) the run executed against, as a JSON object. */
+    invocation_globals: HogInvocationResultDetailApiInvocationGlobals
+    invocation_id: string
+    status: string
+    error_kind: string
+    error_message: string
+    distinct_id: string
+    person_id: string
+    scheduled_at: string
+    /** @nullable */
+    started_at: string | null
+    /** @nullable */
+    finished_at: string | null
+    /** @nullable */
+    duration_ms: number | null
+    attempts: number
+    is_retry: boolean
+}
+
 /**
  * Test trigger payload, typically {event, person, groups}.
  */
@@ -619,6 +662,15 @@ export interface PatchedHogFlowScheduleApi {
     readonly next_run_at?: string | null
     readonly created_at?: string
     readonly updated_at?: string
+}
+
+export interface WorkflowStatsRowApi {
+    /** The workflow these counts are for. */
+    workflow_id: string
+    /** Successful invocations in the window. */
+    succeeded: number
+    /** Failed invocations in the window. */
+    failed: number
 }
 
 /**
@@ -714,6 +766,35 @@ export const HogFlowsListStatus = {
     Archived: 'archived',
     Draft: 'draft',
 } as const
+
+export type HogFlowsInvocationResultsRetrieveParams = {
+    /**
+     * Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    /**
+     * Only return invocations triggered for this distinct_id (the person the run executed for).
+     * @minLength 1
+     */
+    distinct_id?: string
+    /**
+     * Maximum number of invocations to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'.
+     * @minLength 1
+     */
+    status?: string
+}
 
 export type HogFlowsLogsRetrieveParams = {
     /**
@@ -870,3 +951,16 @@ export const HogFlowsMetricsTotalsRetrieveInterval = {
     Day: 'day',
     Week: 'week',
 } as const
+
+export type HogFlowsMetricsGlobalRetrieveParams = {
+    /**
+     * Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the window. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+}
