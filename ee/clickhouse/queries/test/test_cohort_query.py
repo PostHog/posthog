@@ -20,10 +20,10 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.hogql_cohort_query import TestWrapperCohortQuery as CohortQuery
 from posthog.models import Team
-from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 

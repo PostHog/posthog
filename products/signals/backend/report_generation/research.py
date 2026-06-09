@@ -260,6 +260,12 @@ def _render_signal_for_research(signal: SignalData, index: int, total: int) -> s
     lines.append(f"- **Weight:** {signal.weight}")
     lines.append(f"- **Timestamp:** {signal.timestamp}")
     lines.append(f"- **Description:** {signal.content}")
+    if signal.remediation:
+        lines.append("- **Remediation (authoritative guidance — follow it, then verify):**")
+        if agent := signal.remediation.get("agent"):
+            lines.append(f"    - **Guidance:** {agent}")
+        if priority := signal.remediation.get("priority"):
+            lines.append(f"    - **Suggested priority:** {priority}")
     if signal.extra:
         lines.append("#### Extras")
         lines.extend(_render_extra_to_text(signal.extra))
@@ -281,7 +287,9 @@ You have two investigation tools:
 1. **The codebase** — the full PostHog repository is available on disk. Use file search, grep, and code reading.
 2. **PostHog MCP** — you can query PostHog analytics data via MCP tools like `execute-sql`, `query-run`, `read-data-schema`, `insights-get-all`, `experiment-get`, `list-errors`, `feature-flag-get-all`, etc.
 
-When a signal includes **Attached images**, the URLs are publicly reachable — fetch them directly to inspect screenshots, UI issues, or other visual evidence."""
+When a signal includes **Attached images**, the URLs are publicly reachable — fetch them directly to inspect screenshots, UI issues, or other visual evidence.
+
+When a signal includes a **`remediation`** field, treat its guidance as authoritative — it tells you exactly how to fix the issue (which MCP tools to call and, where the fix lives in the user's codebase, how to apply it). Do not re-derive the fix from scratch: follow the guidance, then still do the work a good report needs — locate the relevant code, identify the causative commits, confirm the problem via the PostHog MCP, and verify the fix (e.g. query whether the expected events now arrive)."""
 
 _RESEARCH_PROTOCOL = """## Research protocol
 

@@ -632,8 +632,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         if _current_pipeline_mode == "v3":
             stack.enter_context(
                 mock.patch(
-                    "posthog.temporal.data_imports.workflow_activities.import_data_sync._is_pipeline_v3_enabled",
-                    new_callable=AsyncMock,
+                    "posthog.temporal.data_imports.workflow_activities.acquire_v3_lock.is_pipeline_v3_enabled",
                     return_value=True,
                 )
             )
@@ -647,8 +646,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         else:
             stack.enter_context(
                 mock.patch(
-                    "posthog.temporal.data_imports.workflow_activities.import_data_sync._is_pipeline_v3_enabled",
-                    new_callable=AsyncMock,
+                    "posthog.temporal.data_imports.workflow_activities.acquire_v3_lock.is_pipeline_v3_enabled",
                     return_value=False,
                 )
             )

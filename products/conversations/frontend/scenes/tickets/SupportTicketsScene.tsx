@@ -263,14 +263,14 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
 
     useEffect(() => {
         setSelectedTicketIds(bulk.selectedKeys)
-    }, [bulk.selectedKeys])
+    }, [bulk.selectedKeys, setSelectedTicketIds])
 
     // Clear hook selection when kea resets (e.g. after bulk update or page reload)
     useEffect(() => {
         if (selectedTicketIds.length === 0 && bulk.selectedKeys.length > 0) {
             bulk.clearSelection()
         }
-    }, [selectedTicketIds, bulk.clearSelection])
+    }, [selectedTicketIds, bulk.clearSelection, bulk, bulk.selectedKeys.length])
 
     const columns = useMemo<LemonTableColumns<Ticket>>(() => {
         const checkboxCol: LemonTableColumns<Ticket>[number] = {

@@ -1327,7 +1327,7 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert len(response.results) == 1
 
     def test_filter_test_accounts_with_cohort_filter(self):
-        from posthog.models import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         cohort = Cohort.objects.create(
             team=self.team,

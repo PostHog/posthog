@@ -35,7 +35,7 @@ from posthog.models.oauth import (
 )
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
-from posthog.scopes import UNPRIVILEGED_SCOPES
+from posthog.scopes import filter_to_unprivileged_scopes
 from posthog.security.url_validation import is_url_allowed
 
 from .dcr import validate_client_name
@@ -343,16 +343,9 @@ def _resolve_verification_token(metadata: CIMDMetadataDocument) -> CIMDVerificat
 
 
 def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
-    """Read com.posthog.scopes if present, keeping only legitimately user-grantable scopes.
-
-    Uses an allow-list (UNPRIVILEGED_SCOPES) rather than a deny-list so that
-    privileged, hidden, internal, and unknown/garbage scope strings are all
-    dropped in one check. Mirrors the DCR scope filter on #61225 — consolidate
-    with filter_dcr_scopes once that PR merges to master.
-
-    Returns None when the field is absent — callers treat that as a no-op
-    (leave existing scopes untouched). Returns a (possibly empty) list when
-    the field is present, even after non-grantable entries are filtered out.
+    """Resolve the allow-listed `com.posthog.scopes` for an app, or None when the field
+    is absent so callers leave existing scopes untouched. A present field returns a
+    (possibly empty) list, capped to grantable scopes by `filter_to_unprivileged_scopes`.
     """
     com_posthog = metadata.get("com.posthog")
     if not isinstance(com_posthog, dict):
@@ -361,7 +354,7 @@ def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
     raw_scopes: object = com_posthog.get("scopes")
     if not isinstance(raw_scopes, list):
         return None
-    return [s for s in raw_scopes if isinstance(s, str) and s in UNPRIVILEGED_SCOPES]
+    return filter_to_unprivileged_scopes(raw_scopes)
 
 
 def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthApplication:
