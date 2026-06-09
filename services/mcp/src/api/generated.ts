@@ -16812,10 +16812,21 @@ export namespace Schemas {
       Product: 'product',
     } as const;
 
+    export type Kind1 = typeof Kind1[keyof typeof Kind1];
+
+
+    export const Kind1 = {
+      ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
+      ActionsNode: 'ActionsNode',
+    } as const;
+
     export interface ExperimentApiExposureConfig {
-      /** Custom exposure event name. */
-      event: string;
-      kind?: 'ExperimentEventExposureConfig';
+      /** Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'. */
+      event?: string | null;
+      /** Action ID. Required when kind is 'ActionsNode'. */
+      id?: number | null;
+      /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
+      kind?: Kind1 | null;
       /** Event property filters. Pass an empty array if no filters needed. */
       properties: EventPropertyFilter[];
     }
