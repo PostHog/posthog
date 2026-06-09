@@ -235,7 +235,7 @@ class PostHogCallback(InstrumentedCallback):
 
         if isinstance(metadata, dict):
             for key, value in metadata.items():
-                if key not in properties and key != "user_id":
+                if key not in properties and key != "user_id" and key not in _LITELLM_INTERNAL_METADATA_KEYS:
                     properties[key] = value
 
         posthog_flags = get_posthog_flags() or {}
@@ -327,6 +327,11 @@ class PostHogCallback(InstrumentedCallback):
         if isinstance(posthog_properties, dict):
             for key, value in posthog_properties.items():
                 properties[key] = value
+
+        if isinstance(metadata, dict):
+            for key, value in metadata.items():
+                if key not in properties and key != "user_id" and key not in _LITELLM_INTERNAL_METADATA_KEYS:
+                    properties[key] = value
 
         posthog_flags = get_posthog_flags() or {}
         if isinstance(posthog_flags, dict):
