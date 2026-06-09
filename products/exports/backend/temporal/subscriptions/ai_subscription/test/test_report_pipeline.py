@@ -1,9 +1,11 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
+from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import AI_SUBSCRIPTION_SYNTHESIS_PROMPT
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+    QUERY_FAILED_PREFIX,
     AiReportStageError,
     QueryStepDiagnostic,
     _arequest_hogql_fix,
@@ -189,10 +191,30 @@ async def test_run_steps_non_retryable_error_degrades_to_placeholder(mock_execut
     rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
     assert failed == 1
     assert "Query failed to run" in rendered[0]
-    # The diagnostic captures the generated HogQL and the failure type for later debugging.
     assert diagnostics[0].ok is False
     assert diagnostics[0].error_type == "RuntimeError"
     assert diagnostics[0].hogql == "SELECT 1"
+
+
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_forwards_resolution_error_message_to_fix(
+    mock_executor_cls: MagicMock, mock_fix: AsyncMock
+) -> None:
+    # ResolutionError names the field the planner referenced — its message, not just the type name,
+    # must reach the fix LLM so it can actually repair the query.
+    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(
+        side_effect=[ResolutionError("Unable to resolve field 'operaton'"), ("formatted table", None)]
+    )
+    mock_fix.return_value = "SELECT fixed"
+    await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
+    assert mock_fix.await_args.kwargs["error_message"] == "Unable to resolve field 'operaton'"
+
+
+def test_failure_marker_phrase_is_referenced_by_synthesis_prompt() -> None:
+    # The failure placeholder and the synthesis prompt must agree on this phrase, or synthesis silently
+    # regresses to calling a failed query "no data". Guards the QUERY_FAILED_PREFIX coupling across files.
+    assert QUERY_FAILED_PREFIX in AI_SUBSCRIPTION_SYNTHESIS_PROMPT
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)

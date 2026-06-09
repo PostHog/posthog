@@ -53,6 +53,11 @@ _HOGQL_STEP_TIMEOUT_SECONDS = 60.0
 # The executor already truncates; this is defense-in-depth against a giant value.
 _QUERY_RESULT_MAX_CHARS = 50_000
 
+# The marker a failed step renders, and the exact phrase the synthesis prompt keys off to report
+# "could not be computed" instead of "no data". Shared so the two can't drift apart silently — a test
+# asserts the synthesis prompt contains this string.
+QUERY_FAILED_PREFIX = "Query failed to run"
+
 # Per-step query-fix budget: the planner occasionally emits HogQL that fails to parse, so we feed the
 # error back and ask for a rewrite rather than dropping the step. Worst case per step is one original
 # run plus _MAX_QUERY_FIX_RETRIES × (fix LLM + rerun); steps run concurrently via asyncio.gather.
@@ -260,7 +265,7 @@ async def _run_steps(
                 safe_formatted = strip_llm_framing_markers(formatted, _QUERY_RESULT_MAX_CHARS)
                 return (
                     f"### {safe_description}\n\n{safe_formatted}",
-                    QueryStepDiagnostic(description=step.description, hogql=current_hogql, ok=True, error_type=None),
+                    QueryStepDiagnostic(description=safe_description, hogql=current_hogql, ok=True, error_type=None),
                 )
             except Exception as exc:
                 last_exc = exc
@@ -306,8 +311,8 @@ async def _run_steps(
         # Explicit failure marker, distinct from a genuinely-empty result, so synthesis reports the
         # metric as "could not be computed" instead of paraphrasing the failure into "no data".
         return (
-            f"### {safe_description}\n\n_Query failed to run ({type_name}) — metric not computed, not empty data._",
-            QueryStepDiagnostic(description=step.description, hogql=current_hogql, ok=False, error_type=type_name),
+            f"### {safe_description}\n\n_{QUERY_FAILED_PREFIX} ({type_name}) — metric not computed, not empty data._",
+            QueryStepDiagnostic(description=safe_description, hogql=current_hogql, ok=False, error_type=type_name),
         )
 
     step_results = await asyncio.gather(*(run_step(step) for step in spec.plan.steps))

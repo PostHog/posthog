@@ -63,7 +63,6 @@ async def test_persist_ai_report_writes_markdown_and_query_diagnostics(team, use
 
     snapshot = await _snapshot(delivery.id)
     assert snapshot[AI_REPORT_SNAPSHOT_KEY] == "# Weekly report"
-    # The generated HogQL + failure type are persisted per step so a degraded report is debuggable.
     assert snapshot[AI_REPORT_DIAGNOSTICS_KEY] == [
         {"description": "adoption", "hogql": "SELECT count()", "ok": True, "error_type": None},
         {"description": "reliability", "hogql": "SELECT bad", "ok": False, "error_type": "ResolutionError"},
