@@ -1,41 +1,24 @@
-"""ClickHouse physical optimization passes — where the "how do I actually read this property?" decision now lives.
+"""ClickHouse pass: read each property from a faster precomputed column when one exists.
 
-This is the second of the two passes that replaced the printer's old property handling, and it is the one that picks the
-physical source. Logical lowering has already turned every JSON-blob property read into a `JSONFieldAccess` (a plain
-"extract these keys from this blob"); this pass looks each one up and, if a materialized column / dmat column /
-property-group map backs it, rewrites the node to read that faster column — a
-faster source of the identical value. Whatever it leaves untouched, the printer renders as the raw JSON extract. The job
-the printer used to do inline while building SQL strings now happens here, as an AST rewrite.
+Lowering has already turned every `properties.x` read into a `JSONFieldAccess` node — "pull these keys out of this JSON
+blob". This pass looks each one up. If the property is backed by a precomputed column (a materialized column, a dmat
+column, or a property-group map), it rewrites the node to read that column instead: the same value, far cheaper than
+parsing JSON. Reads with no backing column are left alone, and the printer prints them as the raw JSON extract.
 
-Input: a resolved ClickHouse AST in which JSON-blob property *value* reads are the dialect-neutral `JSONFieldAccess`
-logical leaf (produced by `logical_property_lowering.lower_property_access`, run *after* `PropertySwapper`, so a
-registered property is e.g. `accurateCastOrNull(JSONFieldAccess(...))` — the cast wraps the node). Output: the same AST with each
-`JSONFieldAccess` over an events/persons `properties`/`person_properties` blob rewritten to its physical ClickHouse form
-when one exists — the scrubbed materialized column, a dmat column, or a property-group map access — and comparisons over
-such a node rewritten to the bare-column, skip-index-friendly shapes. A `JSONFieldAccess` with no physical backing (or a
-restricted property) is left untouched: the base ClickHouse printer renders it as the raw-blob `JSONExtractRaw` read,
-which for a restricted property is `JSONDropKeys`-wrapped (value collapses to `''`) exactly as on master.
+It also rewrites comparisons over a backed property (`=`, `IN`, ranges, `LIKE`, is-null) to compare against the bare
+column. ClickHouse can use a skip index on a plain column, but not on a value buried inside a JSON extract or an
+`ifNull(...)`, so this is what keeps those queries fast.
 
-This is **ClickHouse-only**: it runs after logical lowering in the ClickHouse print pipeline (see
-`prepare_ast_for_printing`). It emits ClickHouse-specific AST (`nullIf` scrubbing, `Map` access, skip-index forms) — it
-must never run for the warehouse dialects.
+The old printer did all of this inline while building the SQL string; moving it here lets the printer stay mechanical —
+it just prints the node it is given. The goal is identical results and identical index usage, not identical SQL text, so
+verify by running the query and checking the skip-index `EXPLAIN`, never by diffing SQL.
 
-Two parts, mirroring the printer's two property surfaces on master:
+ClickHouse only: it runs after lowering (`prepare_ast_for_printing`) and emits ClickHouse-specific nodes, so it must
+never run for the warehouse (Postgres / DuckDB) dialects.
 
-1. **Materialized-column value substitution** (`visit_jsonfield_access`) — reproduces `BasePrinter.visit_property_type`'s
-   column selection + scrubbing. NOT the scalar cast: that already wraps the node (the swapper applied it before lowering).
-2. **Skip-index comparison rewrites** (`visit_compare_operation` / `visit_call`) — reproduces
-   `ClickHousePrinter`'s 8 `_get_optimized_*` forms + the property-group eq/in/JSONHas/isNull forms under
-   `PropertyGroupsMode.OPTIMIZED`. `$session_id` is left to the printer for now (it optimizes a real column, not a
-   property).
-
-Equivalence bar is **result-equivalence, not byte-identical**: the printer string-builds `? :` ternaries and
-inline literal constants no AST reproduces; the lowered AST prints differently but executes identically and keeps the
-same skip-index eligibility. Verification is by execution + skip-index `EXPLAIN`, never SQL text.
-
-Known quirk (preserved): is-set (`IS NULL` / `= NULL`) over a *materialized* property substitutes the value
-read even under `isNull(...)`, so it over-matches empty-string and the literal `"null"` string exactly as master does.
-This is deliberate (`# KNOWN:` below); the truthful blob key-existence fix is deferred to a separate signed-off change.
+One quirk is kept on purpose: an is-set check (`x IS NULL` / `x = NULL`) over a materialized property reads the column
+value, so it treats both an empty string and the literal text `"null"` as "not set" — exactly as the old code did. The
+more correct "does this key exist in the blob" behavior is a separate change.
 """
 
 from dataclasses import dataclass
@@ -46,7 +29,8 @@ from posthog.schema import MaterializationMode, PropertyGroupsMode
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField, StringJSONDatabaseField
+from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
@@ -60,9 +44,9 @@ from posthog.models.property import PropertyName, TableColumn
 # In non-nullable materialized columns these stored strings are treated as NULL.
 MAT_COL_NULL_SENTINELS = ["", "null"]
 
-# The comparison rewrites must not intercept the $ai_* bloom-filter columns: the printer's visit_compare_operation forces
-# `not_nullable=True` for them (`COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING`, imported above so the two stay in sync). The
-# value-read side skips the same columns' nullIf scrubbing via `AI_BLOOM_FILTER_PROPERTIES` (the property-name form).
+# Leave the $ai_* bloom-filter columns to the printer: its comparison code already keeps them index-eligible
+# (`COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING`, imported above so the two lists stay in sync). The value-read side skips
+# their nullIf scrubbing for the same reason, via `AI_BLOOM_FILTER_PROPERTIES` (the same columns, named as properties).
 
 _RANGE_OP_TO_CH_NAME: dict[ast.CompareOperationOp, str] = {
     ast.CompareOperationOp.Lt: "less",
@@ -74,10 +58,10 @@ _RANGE_OP_TO_CH_NAME: dict[ast.CompareOperationOp, str] = {
 
 @dataclass(frozen=True)
 class MaterializedPropertySource:
-    """The single physical column the ClickHouse printer reads for an events/persons `properties.$x` access.
+    """The one physical column that backs an events/persons `properties.$x` read — which column, and how to read it.
 
-    Structured form of the printer's per-property decision (today encoded as the printable objects yielded by
-    `BasePrinter._get_all_materialized_property_sources`).
+    Either a materialized column, a dmat column, or a property-group map. Carries the index metadata the comparison
+    rewrites need to keep that column usable by a skip index.
     """
 
     kind: Literal["materialized_column", "dmat", "property_group"]
@@ -93,12 +77,11 @@ class MaterializedPropertySource:
 def resolve_materialized_property_source(
     field_type: ast.FieldType, property_name: str, context: HogQLContext
 ) -> MaterializedPropertySource | None:
-    """The physical column the ClickHouse printer reads for `<events/persons>.<field>.<property_name>`, or None.
+    """The physical column that backs `<events/persons>.<field>.<property_name>`, or None if nothing does.
 
-    Mirrors `BasePrinter._get_all_materialized_property_sources`' priority order — static materialized column, then dmat
-    slot, then the first property-group Map column — using the same registries, so the decision is computable without
-    instantiating a printer. Returns None when the property has no physical backing (JSON-blob fallback) or when
-    materialization is disabled.
+    Tries the backing columns in priority order — a static materialized column first, then a dmat column, then the first
+    property-group map column — using the same registries the old printer used. Returns None when the property has no
+    backing column (so it stays a JSON read) or when materialization is turned off.
     """
     if context.modifiers.materializationMode == "disabled":
         return None
@@ -109,15 +92,16 @@ def resolve_materialized_property_source(
     if not isinstance(table_type, ast.TableType):
         return None
 
+    # The materialized-column registry is keyed by the ClickHouse table name, which isn't always the HogQL name
+    # (RawPersonsTable is "raw_persons" in HogQL but "person" in ClickHouse). Use the ClickHouse name, or person
+    # properties would miss their materialized column and fall back to a slower JSON read.
+    table_name = table_type.table.to_printed_clickhouse(context)
+
     field = field_type.resolve_database_field(context)
     if not isinstance(field, DatabaseField):
-        return None
-
-    # The materialized-column registry is keyed by the ClickHouse table name, which differs from the HogQL name for
-    # some tables (RawPersonsTable prints "raw_persons" in HogQL but "person" in ClickHouse). Use the same name the
-    # ClickHouse printer's `_get_table_name` override uses, or person-joined materialized properties silently fall back to
-    # a JSON read (and lose the empty-string→NULL scrubbing the materialized column provides).
-    table_name = table_type.table.to_printed_clickhouse(context)
+        # A field on a resolved table that doesn't resolve to a real column is a malformed AST. Fail loud, as the old
+        # printer did here, rather than silently degrading to a raw JSON read.
+        raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
     field_name = field.name
 
     # 1) static materialized column (mat_* / pmat_*)
@@ -150,12 +134,12 @@ def resolve_materialized_property_source(
 def resolve_property_group_source(
     field_type: ast.FieldType, property_name: str, context: HogQLContext
 ) -> MaterializedPropertySource | None:
-    """The first property-group Map column for `<events/persons>.<field>.<property_name>`, ignoring materialized columns.
+    """The first property-group map column for `<events/persons>.<field>.<property_name>`, ignoring materialized columns.
 
-    Mirrors the deleted `ClickHousePrinter._get_property_group_source_for_field`: key existence (`JSONHas`) is answered
-    from the property group's keys bloom-filter index even when an individually materialized column also exists, since
-    that column can't answer key-existence (it stores '' for both "absent" and "empty"). The mat-column-first
-    `resolve_materialized_property_source` would shadow the group, so JSONHas must resolve the group directly.
+    Used for key-existence (`JSONHas`), which is answered from the property group's keys bloom-filter index even when an
+    individually materialized column also exists — that column can't answer key-existence, since it stores '' for both
+    "absent" and "empty". `resolve_materialized_property_source` would pick the materialized column first, so JSONHas
+    resolves the group directly instead.
     """
     if context.modifiers.propertyGroupsMode not in (PropertyGroupsMode.ENABLED, PropertyGroupsMode.OPTIMIZED):
         return None
@@ -178,10 +162,9 @@ def resolve_property_group_source(
 
 # --- helpers to read a JSONFieldAccess's source column + key path -----------------------------------------------------
 #
-# A `JSONFieldAccess` carries its *value* type (a nullable String), NOT the original `PropertyType`. Everything the
-# physical pass needs is in the node's own structure: `node.expr` is the blob `Field` (its `.type` is the source
-# `FieldType` → table_type → property registry) and `node.keys` is the key path (keys[0] is the top-level property name,
-# deeper keys index into the extracted value). We read from there, never from `node.type`.
+# A `JSONFieldAccess`'s own type is just its value type (a nullable String), so everything this pass needs comes from the
+# node's structure instead: `node.expr` is the blob `Field` (its `.type` points at the table and column), and
+# `node.keys` is the key path (keys[0] is the property name; deeper keys index into the extracted value).
 
 
 def _blob_field_type_of(node: ast.JSONFieldAccess) -> ast.FieldType | None:
@@ -190,27 +173,14 @@ def _blob_field_type_of(node: ast.JSONFieldAccess) -> ast.FieldType | None:
     return expr_type if isinstance(expr_type, ast.FieldType) else None
 
 
-def _is_json_blob_access(node: ast.JSONFieldAccess, context: HogQLContext) -> bool:
-    """Whether this `JSONFieldAccess` reads a JSON blob column (`properties` / `person_properties`).
-
-    Lowering only produces `JSONFieldAccess` over a `StringJSONDatabaseField`, but guard defensively so the physical pass
-    never mistakes some other lowered access for a materializable property.
-    """
-    field_type = _blob_field_type_of(node)
-    if field_type is None:
-        return False
-    return isinstance(field_type.resolve_database_field(context), StringJSONDatabaseField)
-
-
 # --- value substitution: rebuild the printer's materialized-column read as AST ----------------------------------------
 
 
 def _sentinel(value: str) -> ast.Constant:
-    """A fixed materialization sentinel constant ('' / 'null' / the trim regex), rendered inline like the printer.
+    """A fixed scrubbing constant ('' / 'null' / the quote-trim regex), printed inline rather than as a parameter.
 
-    These are fixed, known-safe literals; `inline=True` makes the ClickHouse printer emit them inline (escaped) exactly
-    as `BasePrinter.visit_property_type` hand-builds them, so the lowered SQL is byte-identical, not merely result-
-    equivalent. They do not affect skip-index eligibility (which depends on the *column* being bare).
+    These are fixed, known-safe literals; `inline=True` makes the printer emit them inline (escaped), so the SQL matches
+    what the old printer hand-built. They don't affect skip-index eligibility (that depends on the column being bare).
     """
     return ast.Constant(value=value, inline=True)
 
@@ -225,10 +195,10 @@ def _blob_field(field_type: ast.FieldType) -> ast.Field:
 
 
 def _json_extract_trim_quotes_expr(field_expr: ast.Expr, keys: list[str | int]) -> ast.Expr:
-    """AST form of clickhouse.kafka_engine.json_extract_trim_quotes(field, *keys).
+    """The raw JSON read for a key path: `JSONExtractRaw(blob, *keys)`, with `''`/`'null'` nulled out and quotes trimmed.
 
-    Integer keys (array indices) are emitted as integer constants so JSONExtractRaw indexes the array; string keys are
-    object lookups. Mirrors the printer passing the raw chain values through untyped.
+    Integer keys are emitted as integers so they index into a JSON array; string keys are object lookups. This is the
+    fallback shape used when no backing column exists.
     """
     extract = ast.Call(name="JSONExtractRaw", args=[field_expr, *[ast.Constant(value=key) for key in keys]])
     scrubbed = ast.Call(
@@ -266,11 +236,11 @@ def _augment_table_type(
 
 
 def _synthetic_column_field(field_type: ast.FieldType, column_name: str, *, is_nullable: bool) -> ast.Field | None:
-    """A typed Field for a physical ClickHouse column that isn't a HogQL schema field.
+    """A typed `Field` for a physical ClickHouse column that the HogQL schema doesn't know about.
 
-    Mat/dmat/property-group columns live on the table physically but aren't in the HogQL schema, so a plain Field won't
-    resolve. Synthesize a DatabaseField on a copy of the table and point a fresh FieldType at it, preserving any alias
-    wrapper so the printed table prefix (`events.` / `e.`) is unchanged.
+    Materialized / dmat / property-group columns exist on the table but aren't in the HogQL schema, so a plain `Field`
+    can't resolve to them. Build a fake `DatabaseField` on a copy of the table and point a fresh `FieldType` at it,
+    keeping any table alias so the printed prefix (`events.` / `e.`) is unchanged.
     """
     table_type = _augment_table_type(field_type.table_type, column_name, is_nullable=is_nullable)
     if table_type is None:
@@ -289,9 +259,9 @@ def _materialized_head_expr(
     is_single: bool,
     materialization_mode: MaterializationMode | None,
 ) -> ast.Expr | None:
-    """The chain[0] value read for a materialized source — mirrors the branches in BasePrinter.visit_property_type."""
+    """The read for the top-level key (chain[0]) from a backing column: a property-group map lookup, or a scrubbed column."""
     if source.kind == "property_group":
-        # `has(g, k) ? g[k] : null` — guard the map read so a missing key returns NULL, not the '' map default.
+        # has(map, key) ? map[key] : null — guard the map read so a missing key returns NULL, not the map's '' default.
         has_field = _synthetic_column_field(field_type, source.column, is_nullable=True)
         get_field = _synthetic_column_field(field_type, source.column, is_nullable=True)
         if has_field is None or get_field is None:
@@ -321,22 +291,21 @@ def _materialized_head_expr(
 
 
 def _substitute_value_read(node: ast.JSONFieldAccess, context: HogQLContext) -> ast.Expr | None:
-    """The materialized-column value read for a `JSONFieldAccess`, or None to leave it as the JSON-blob extract.
+    """The backing-column read for a `JSONFieldAccess`, or None to leave it as the JSON extract.
 
-    Mirrors `BasePrinter.visit_property_type` column selection (NOT the scalar cast — that already wraps this node, since
-    the swapper ran before lowering). Returns None when there is no physical backing or the property is restricted.
+    Picks the column and builds the read (the numeric/boolean cast is not handled here — it already wraps this node).
+    Returns None when the property has no backing column or is access-restricted.
     """
     field_type = _blob_field_type_of(node)
-    if field_type is None or not node.keys:
-        return None
-    if not _is_json_blob_access(node, context):
-        return None
+    # Lowering builds every JSONFieldAccess with the blob FieldType on `expr` and a non-empty key path. Assert the
+    # invariant rather than silently bailing, so a real violation fails loud instead of degrading to a JSON read.
+    assert field_type is not None and node.keys
 
     first_key = str(node.keys[0])
     deeper_keys: list[str | int] = list(node.keys[1:])
 
-    # Security boundary: a restricted property must not be read from its materialized column. Decline so the
-    # JSON-blob extract is rendered; the printer's visit_field_type JSONDropKeys-wraps it and the value collapses to ''.
+    # Access control: a restricted property must not be read from its materialized column. Decline, so it stays a JSON
+    # read — which the printer strips the restricted key from, collapsing the value to ''.
     if first_key in restricted_property_keys_for_table_type(field_type.table_type, context):
         return None
 
@@ -357,13 +326,11 @@ def _substitute_value_read(node: ast.JSONFieldAccess, context: HogQLContext) -> 
     return head if not deeper_keys else _json_extract_trim_quotes_expr(head, deeper_keys)
 
 
-# --- optimized comparison forms: reproduce the printer's skip-index-friendly rewrites as AST --------------------------
+# --- comparison rewrites: keep the bare column eligible for skip indexes -----------------------------------------------
 #
-# These mirror ClickHousePrinter._get_optimized_* (posthog/hogql/printer/clickhouse.py). The printer detects a property
-# operand and rewrites the comparison so the bare materialized column / property-group map access stays eligible for
-# ClickHouse skip indexes. This pass consumes the operand and emits the optimized form as result-equivalent AST (only
-# registered HogQL functions, parameterized constants). Functionality (results + index eligibility), not byte-exact SQL,
-# is the bar.
+# When a comparison has a backed property on one side, rewrite it to compare against the bare materialized column or
+# property-group map access, so ClickHouse can answer it from a skip index. The rewritten form uses only ordinary HogQL
+# functions and parameterized constants. The bar is the same results and the same index eligibility, not the same SQL.
 
 
 def _call(name: str, args: list[ast.Expr]) -> ast.Call:
@@ -389,7 +356,7 @@ def _is_null_constant(expr: ast.Expr) -> bool:
 
 
 def _resolve_field_type(expr: ast.Expr) -> ast.Type | None:
-    """An operand's resolved type, unwrapping field-alias wrappers. Mirrors printer.resolve_field_type."""
+    """An operand's resolved type, unwrapping any field-alias wrappers (the same unwrapping the printer does)."""
     expr_type = expr.type
     while isinstance(expr_type, ast.FieldAliasType):
         expr_type = expr_type.type
@@ -409,11 +376,10 @@ def _string_pattern_constant(expr: ast.Expr) -> ast.Constant | None:
 
 @dataclass(frozen=True)
 class _OptimizableProperty:
-    """A single-key materializable property operand of a comparison, paired with its resolved physical source.
+    """A single-key property used in a comparison, paired with the physical column that backs it.
 
-    `field_type` is the source blob column's type (from the operand's `JSONFieldAccess.expr`, or the blob `Field` directly
-    on the `JSONHas(blob, key)` path); `key` is the top-level property name; `source` is its resolved physical column. The
-    group/column builders read only these three — the node no longer carries a `PropertyType` to recover.
+    `field_type` is the blob column's type, `key` is the property name, and `source` is the backing column. The column
+    builders below read only these three.
     """
 
     field_type: ast.FieldType
@@ -422,11 +388,10 @@ class _OptimizableProperty:
 
 
 def _group_map_field(prop: _OptimizableProperty) -> ast.Field:
-    """The property-group `Map(String, String)` column, read non-nullable so map access / has() print bare.
+    """The property-group map column, typed non-nullable so the map read and `has()` print bare.
 
-    The map column is non-nullable; a missing key yields the type default (''), not SQL NULL. Marking the synthetic field
-    non-nullable keeps the printer from ifNull-wrapping `equals(g[k], v)` (which would defeat the values bloom-filter
-    index).
+    The map column never holds SQL NULL — a missing key gives the '' default. Typing the field non-nullable stops the
+    printer from `ifNull`-wrapping `equals(map[key], v)`, which would hide it from the values bloom-filter index.
     """
     field = _synthetic_column_field(prop.field_type, prop.source.column, is_nullable=False)
     assert field is not None  # the source was resolved from this same field_type
@@ -434,15 +399,15 @@ def _group_map_field(prop: _OptimizableProperty) -> ast.Field:
 
 
 def _group_has_expr(prop: _OptimizableProperty) -> ast.Call:
-    """`has(group_map_column, key)` — mirrors PrintableMaterializedPropertyGroupItem.has_expr."""
+    """`has(map_column, key)` — true when the property group contains the key (uses the keys bloom-filter index)."""
     return _call("has", [_group_map_field(prop), _const(prop.key)])
 
 
 def _group_value_expr(prop: _OptimizableProperty) -> ast.ArrayAccess:
-    """`group_map_column[key]`, typed non-nullable String — mirrors PrintableMaterializedPropertyGroupItem.value_expr.
+    """`map_column[key]`, typed non-nullable String — the property's value from the group map.
 
-    Map access over `Map(String, String)` returns the non-nullable value type, a missing key yielding the '' default. The
-    explicit type stops the printer from ifNull-wrapping `equals(g[k], v)`, which would defeat the values bloom filter.
+    A missing key gives the '' default, never SQL NULL. The explicit non-nullable type stops the printer from
+    `ifNull`-wrapping `equals(map[key], v)`, which would hide it from the values bloom-filter index.
     """
     return ast.ArrayAccess(array=_group_map_field(prop), property=_const(prop.key), type=ast.StringType(nullable=False))
 
@@ -450,10 +415,9 @@ def _group_value_expr(prop: _OptimizableProperty) -> ast.ArrayAccess:
 def _bare_mat_column(prop: _OptimizableProperty) -> ast.Field:
     """The materialized column read bare (no nullIf scrubbing), typed non-nullable.
 
-    Typed non-nullable so the printer's `visit_compare_operation` sees `not_nullable` and does NOT wrap the comparison in
-    `ifNull(..., 0)` — the very wrapping that hides the column from skip indexes. The real ClickHouse column may be
-    Nullable; nullability is handled explicitly by the optimizer (an `isNotNull(col)` guard or an `ifNull(...)` around the
-    whole result), exactly as the printer's string-built optimized forms do.
+    Typed non-nullable so the printer does NOT wrap the comparison in `ifNull(...)` — the wrapping that would hide the
+    column from skip indexes. The real column may be Nullable; the optimizer handles that itself, with an `isNotNull(col)`
+    guard or an `ifNull(...)` around the whole result.
     """
     field = _synthetic_column_field(prop.field_type, prop.source.column, is_nullable=False)
     assert field is not None
@@ -461,27 +425,25 @@ def _bare_mat_column(prop: _OptimizableProperty) -> ast.Field:
 
 
 def _is_not_null(prop: _OptimizableProperty) -> ast.Call:
-    """`isNotNull(col)` over a nullable view of the column — result-equivalent to the printer's `col IS NOT NULL`."""
+    """`isNotNull(col)` — the nullable read of the column, used to guard a bare comparison against NULL rows."""
     field = _synthetic_column_field(prop.field_type, prop.source.column, is_nullable=True)
     assert field is not None
     return _call("isNotNull", [field])
 
 
 class ClickHousePhysicalPasses(CloningVisitor):
-    """Rewrites lowered `JSONFieldAccess` reads (and comparisons over them) to physical ClickHouse forms.
+    """Rewrites lowered `JSONFieldAccess` reads (and comparisons over them) to read backing columns where they exist.
 
-    Runs on a resolved, swapped, logically-lowered ClickHouse AST. After this pass the materializable accesses are
-    ordinary typed column expressions; an un-backed (or restricted) access remains a `JSONFieldAccess` that prints as the
-    JSON-blob extract.
+    After this pass, a backed property is an ordinary column expression; an unbacked (or restricted) one stays a
+    `JSONFieldAccess` and prints as the raw JSON extract.
     """
 
     def __init__(self, context: HogQLContext) -> None:
         # The AST is printed directly after this pass, so keep resolved types rather than clearing them.
         super().__init__(clear_types=False)
         self.context = context
-        # Per-select-scope map of column alias → its lowered property read, so a comparison referencing the alias
-        # (`SELECT properties.x AS a ... WHERE a = 'v'`) can still resolve to the property and be optimized — the printer
-        # did this implicitly via `resolve_field_type`, which unwrapped the alias back to the `PropertyType`.
+        # Per-SELECT map of column alias → its lowered property read, so a comparison that references the alias
+        # (`SELECT properties.x AS a ... WHERE a = 'v'`) can find the property behind `a` and still be optimized.
         self._alias_scopes: list[dict[str, ast.JSONFieldAccess]] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
@@ -510,11 +472,10 @@ class ClickHousePhysicalPasses(CloningVisitor):
         return None
 
     def _lowered_property_operand(self, expr: ast.Expr) -> ast.JSONFieldAccess | None:
-        """A lowered `properties.$x` comparison operand, unwrapping an `Alias` or resolving a select-alias ref, or None.
+        """The lowered `properties.$x` behind a comparison operand, or None.
 
-        After logical lowering, a `properties.$x` operand is a `JSONFieldAccess` (often `Alias`-wrapped), detected
-        directly by class. A bare `Field` that *references* a select-column alias over such a read (`... WHERE a = 'v'`)
-        is resolved back to it via the scope map, mirroring the printer's old `resolve_field_type` alias unwrapping.
+        After lowering, such an operand is a `JSONFieldAccess` (often wrapped in an `Alias`). A bare `Field` that instead
+        *references* a select-column alias over one (`... WHERE a = 'v'`) is looked up in the scope map.
         """
         if isinstance(expr, ast.Alias):
             expr = expr.expr
@@ -523,11 +484,10 @@ class ClickHousePhysicalPasses(CloningVisitor):
         return self._resolve_alias_to_property(expr)
 
     def _single_key_property(self, expr: ast.Expr) -> tuple[ast.FieldType, str] | None:
-        """The (blob `FieldType`, top-level key) of a single-key lowered property operand, or None.
+        """The (blob `FieldType`, property name) of a single-key property operand, or None.
 
-        Mirrors the printer's `len(chain) == 1` guard: only a single-key access (no deeper `.a.b`) is an individually-
-        materializable / property-group property. Multi-key accesses read the materialized value then JSON-extract
-        deeper, so they are not eligible for the bare-column comparison optimizers.
+        Only a single-key access (`properties.x`, no deeper `.a.b`) maps to one backing column. A multi-key access reads
+        the column and then JSON-extracts deeper, so it can't use the bare-column comparison rewrites.
         """
         node = self._lowered_property_operand(expr)
         if node is not None and len(node.keys) == 1:
@@ -535,11 +495,9 @@ class ClickHousePhysicalPasses(CloningVisitor):
             if field_type is not None:
                 return field_type, str(node.keys[0])
 
-        # Fallback: an operand whose resolved type is still a single-key `PropertyType`. Lowering leaves the
-        # `PropertyType` on an alias whose expr is NOT a bare `JSONFieldAccess` — e.g. a boolean/numeric property the
-        # swapper wrapped in `toBool(transform(toString(...)))` and then aliased. The JSON read is buried inside the
-        # cast, so detect the property from the resolved type instead, mirroring the printer's old
-        # `resolve_field_type`-based detection (the optimizer then discards the cast wrapper, as the printer did).
+        # Fallback for a property buried inside a cast: a boolean/numeric property gets wrapped by the swapper (e.g.
+        # `toBool(transform(toString(...)))`) and aliased, so the `JSONFieldAccess` isn't the bare operand. Detect the
+        # property from the operand's resolved `PropertyType` instead; the optimizer then drops the cast wrapper.
         prop_type = _resolve_field_type(expr)
         if isinstance(prop_type, ast.PropertyType) and len(prop_type.chain) == 1:
             return prop_type.field_type, str(prop_type.chain[0])
@@ -556,17 +514,16 @@ class ClickHousePhysicalPasses(CloningVisitor):
     # --- comparison / call rewrites ---
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
-        # `isNull`/`isNotNull`/`JSONHas` on a property-group property can read the keys-only `has(g, k)` instead of the
-        # values subcolumn — staying eligible for the keys bloom-filter index. Mirrors
-        # ClickHousePrinter._get_optimized_property_group_call.
+        # `isNull` / `isNotNull` / `JSONHas` on a property-group property can be answered by `has(map, key)` alone,
+        # without reading the values subcolumn — so it stays eligible for the keys bloom-filter index.
         optimized = self._optimize_property_group_call(node)
         if optimized is not None:
             return optimized
 
-        # Comparison functions in call form (`equals(properties.x, v)`, `ilike(toString(properties.x), p)`,
-        # `in(properties.x, (...))`) are comparisons in disguise — the printer routes them through
-        # visit_compare_operation. Do the same so the same skip-index optimizers fire (otherwise we'd recurse into the
-        # args and substitute the value, defeating the optimization). Only the plain 2-arg form, no params.
+        # A comparison written in call form (`equals(properties.x, v)`, `ilike(toString(properties.x), p)`,
+        # `in(properties.x, (...))`) is still a comparison: route it through visit_compare_operation so the same rewrites
+        # fire. Otherwise we'd descend into the args and substitute the value, losing the optimization. Only the plain
+        # 2-arg form, no extra params.
         if (
             node.name in HOGQL_COMPARISON_MAPPING
             and len(node.args) == 2
@@ -583,9 +540,9 @@ class ClickHousePhysicalPasses(CloningVisitor):
         return super().visit_call(node)
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
-        # Reproduce the printer's skip-index comparison optimizers as AST, in the printer's dispatch order
-        # (clickhouse.visit_compare_operation). Each consumes the property operand and returns the optimized form, so we
-        # must NOT also substitute the value. Session-id is intentionally left to the printer.
+        # Try each skip-index comparison rewrite in order. Each one consumes the property operand and returns the
+        # rewritten comparison, so once one matches we must NOT also substitute the value. (session_id is left to the
+        # printer — it optimizes a real column, not a property.)
         optimized = (
             self._optimize_property_group_compare(node)
             or self._optimize_materialized_equals(node)
@@ -598,28 +555,24 @@ class ClickHousePhysicalPasses(CloningVisitor):
         if optimized is not None:
             return optimized
 
-        # KNOWN: is-set over a materialized column over-matches. No comparison
-        # optimizer fires for `property = NULL` / `!= NULL`, so we recurse via super(); the surviving JSONFieldAccess
-        # operand goes through value substitution and reads the scrubbed materialized column. On master, is-set over a
-        # materialized column reads `isNull(nullIf(nullIf(mat_X, ''), 'null'))`, collapsing empty-string and the literal
-        # "null" string to "not set". Substituting the value here reproduces that exact over-match (preserve master,
-        # decision A); the truthful blob key-existence fix is deferred to a separate signed-off change.
+        # Known quirk, kept on purpose: nothing above rewrites `property = NULL` / `!= NULL`, so it falls through to
+        # super() and the surviving JSONFieldAccess reads the scrubbed materialized column. That means an is-set check
+        # treats both an empty string and the literal text "null" as "not set" — the same over-match the old code had.
+        # The more correct "does this key exist in the blob" behavior is a separate change.
         return super().visit_compare_operation(node)
 
-    # --- property operand detection (mirrors ClickHousePrinter._get_materialized_string_property_source) ---
+    # --- property operand detection ---
 
     def _materialized_string_property(self, expr: ast.Expr) -> _OptimizableProperty | None:
         """A single-key string property backed by an individually materialized column, or None.
 
-        Mirrors ClickHousePrinter._get_materialized_string_property_source: unwraps a `toString(properties.x)` safety
-        wrapper, requires a single-key chain, skips properties with a non-string resolved type, and requires the property
-        to back a `materialized_column` (not a property group). After lowering the property operand is a `JSONFieldAccess`
-        (`Alias`-wrapped), detected directly by `_single_key_property`; the `toString(...)` form unwraps to the same node.
+        Unwraps a `toString(properties.x)` wrapper, requires a single key, skips properties whose resolved type isn't a
+        string, and requires a materialized column (not a property group). The plain and `toString(...)` forms both
+        resolve to the same lowered property.
         """
         single = self._single_key_property(expr)
         if single is None and isinstance(expr, ast.Call) and expr.name == "toString" and len(expr.args) == 1:
-            # Only match a direct lowered property read, not toString(toFloat(...)) — same intent as the printer's
-            # `isinstance(inner, ast.Field)` guard, adapted to the post-lowering JSONFieldAccess leaf.
+            # Only a direct lowered property read, not toString(toFloat(...)): the inner arg must itself be the property.
             single = self._single_key_property(expr.args[0])
         if single is None:
             return None
@@ -675,7 +628,7 @@ class ClickHousePhysicalPasses(CloningVisitor):
     def _is_ai_column(source: MaterializedPropertySource) -> bool:
         return source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 
-    # --- property-group optimizers (mirror _get_optimized_property_group_compare_operation / _call) ---
+    # --- property-group optimizers ---
 
     def _optimize_property_group_call(self, node: ast.Call) -> ast.Expr | None:
         if self.context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
@@ -689,16 +642,15 @@ class ClickHousePhysicalPasses(CloningVisitor):
             return _call("not", [has_expr]) if node.name == "isNull" else has_expr
 
         if node.name == "JSONHas" and len(node.args) == 2 and isinstance(node.args[1], ast.Constant):
-            # JSONHas's key is the literal; resolve the group source for that key off the blob field. The blob field is
-            # `node.args[0]` — after lowering it is a `JSONFieldAccess`'s source Field (the raw blob), so resolve its
-            # FieldType directly.
+            # JSONHas(blob, key): the key is the literal second arg, and the first arg is the blob Field. Resolve the
+            # property group for that key off the blob's FieldType.
             field_expr = node.args[0]
             field_type = _resolve_field_type(field_expr)
             if not isinstance(field_type, ast.FieldType):
                 return None
             key = str(node.args[1].value)
-            # JSONHas answers key-existence from the property group even when a mat column exists, so resolve the group
-            # directly (the mat-column-first resolver would shadow it).
+            # Key-existence is answered from the property group even when a materialized column also exists, so resolve
+            # the group directly — the mat-column-first resolver would otherwise shadow it.
             source = resolve_property_group_source(field_type, key, self.context)
             if source is None or source.kind != "property_group":
                 return None
@@ -737,25 +689,25 @@ class ClickHousePhysicalPasses(CloningVisitor):
         value = constant_expr.value
         if node.op == ast.CompareOperationOp.Eq:
             if value is None:
-                # `= NULL` ⇒ key absent: `not(has(g, k))`. Avoids reading the values subcolumn.
+                # `= NULL` means the key is absent: not(has(map, key)). Avoids reading the values subcolumn.
                 return _call("not", [_group_has_expr(prop)])
             if value is True:
-                # Booleans are stored as the fixed strings 'true'/'false' in the group map; inline them (like the
-                # printer's hand-built literal) so the comparison stays byte-identical and values-index-eligible.
+                # Booleans are stored as the strings 'true'/'false' in the group map; compare against those so the
+                # comparison stays index-eligible.
                 return _call("equals", [_group_value_expr(prop), _sentinel("true")])
             if value is False:
                 return _call("equals", [_group_value_expr(prop), _sentinel("false")])
             if isinstance(constant_expr.type, ast.StringType):
                 eq = _call("equals", [_group_value_expr(prop), _const(value)])
                 if value == "":
-                    # Disambiguate from the Map default ('') by also checking the key is present.
+                    # '' is also the map's default for an absent key, so also check the key is present.
                     return _call("and", [_group_has_expr(prop), eq])
                 return eq
             return None
 
         # NotEq
         if value is None:
-            # `!= NULL` ⇒ key present: `has(g, k)`. Uses the keys index, skips the values subcolumn.
+            # `!= NULL` means the key is present: has(map, key). Uses the keys index, skips the values subcolumn.
             return _group_has_expr(prop)
         return None
 
@@ -768,7 +720,7 @@ class ClickHousePhysicalPasses(CloningVisitor):
         if isinstance(node.right, ast.Constant):
             value = node.right.value
             if value is None:
-                return None  # unoptimized IN(NULL) is true if key absent OR value null; can't shortcut
+                return None  # IN (NULL) is true if the key is absent OR the value is null — can't shortcut
             if value == "":
                 return _call("and", [_group_has_expr(prop), _call("equals", [_group_value_expr(prop), _const("")])])
             if isinstance(node.right.type, ast.StringType):
@@ -779,7 +731,7 @@ class ClickHousePhysicalPasses(CloningVisitor):
         return None
 
     def _optimize_group_in_with_values(self, values: list[ast.Expr], prop: _OptimizableProperty) -> ast.Expr | None:
-        # Mirror ClickHousePrinter._optimize_in_with_string_values: bail on any non-string / empty / NULL value.
+        # Bail on any non-string / empty / NULL value — those can't use the bare-column form.
         string_values: list[str] = []
         for v in values:
             if not isinstance(v, ast.Constant) or v.value == "" or v.value is None or not isinstance(v.value, str):
@@ -789,11 +741,11 @@ class ClickHousePhysicalPasses(CloningVisitor):
             return _const(False)  # IN () is always false
         if len(string_values) == 1:
             return _call("equals", [_group_value_expr(prop), _const(string_values[0])])
-        # transform_null_in=1 makes `in(g[k], ...)` skip the keys index; the `has` guard restores it.
+        # ClickHouse's transform_null_in setting makes `in(map[key], ...)` skip the keys index; the has() guard restores it.
         in_expr = _call("in", [_group_value_expr(prop), ast.Tuple(exprs=[_const(v) for v in string_values])])
         return _call("and", [_group_has_expr(prop), in_expr])
 
-    # --- individually-materialized-column optimizers (mirror _get_optimized_materialized_column_*) ---
+    # --- individually-materialized-column optimizers ---
 
     def _optimize_materialized_equals(self, node: ast.CompareOperation) -> ast.Expr | None:
         if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
@@ -809,9 +761,9 @@ class ClickHousePhysicalPasses(CloningVisitor):
             return None
 
         if constant_expr.value in MAT_COL_NULL_SENTINELS:
-            return None  # let the normal nullIf path handle sentinel comparisons
+            return None  # comparing against '' / 'null' itself: let the normal scrubbed read handle it
         if self._is_ai_column(prop.source):
-            return None  # printer optimizes these
+            return None  # the printer handles the $ai columns
 
         column = _bare_mat_column(prop)
         value = _const(constant_expr.value)
@@ -830,7 +782,7 @@ class ClickHousePhysicalPasses(CloningVisitor):
         op_name = _RANGE_OP_TO_CH_NAME.get(node.op)
         if op_name is None:
             return None
-        # property_to_expr always emits the column on the left, so only that side is handled.
+        # the column is always the left operand here, so only that side is handled.
         prop = self._materialized_string_property(node.left)
         if prop is None or not isinstance(node.right, ast.Constant) or node.right.value is None:
             return None
@@ -909,7 +861,7 @@ class ClickHousePhysicalPasses(CloningVisitor):
 
         if prop.source.is_nullable:
             if node.op == ast.CompareOperationOp.In:
-                # transform_null_in=1 makes in() hard to index; flip to has([...], col) (safe: NULL already excluded).
+                # ClickHouse's transform_null_in makes in() hard to index; flip to has([...], col) (safe: NULL already excluded).
                 array = ast.Array(exprs=[_const(v) for v in values])
                 return _call("and", [_call("has", [array, _bare_mat_column(prop)]), _is_not_null(prop)])
             tup = ast.Tuple(exprs=[_const(v) for v in values])
@@ -990,9 +942,9 @@ class ClickHousePhysicalPasses(CloningVisitor):
 
 
 def clickhouse_physical_passes(node: _T_AST, context: HogQLContext) -> _T_AST:
-    """Rewrite every materializable lowered `JSONFieldAccess` (and comparison over it) to its physical ClickHouse form.
+    """Rewrite every backed lowered `JSONFieldAccess` (and comparison over it) to read its backing column.
 
-    ClickHouse-only. Expects a resolved, swapped, logically-lowered AST. Runs in the ClickHouse print pipeline
-    immediately after `lower_property_access` (see `prepare_ast_for_printing`).
+    ClickHouse only. Expects a resolved, swapped, lowered AST, and runs right after `lower_property_access` in the
+    ClickHouse print pipeline (see `prepare_ast_for_printing`).
     """
     return cast(_T_AST, ClickHousePhysicalPasses(context).visit(node))

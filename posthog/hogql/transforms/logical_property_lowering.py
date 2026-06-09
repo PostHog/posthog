@@ -1,22 +1,20 @@
-"""Logical property lowering: `properties.X` (a `Field` typed as `PropertyType`) → the `JSONFieldAccess` node.
+"""First pass: turn every `properties.x` read into a plain `JSONFieldAccess` node.
 
-This is the first of the two passes that replaced the printer's old property handling. It does one thing: turn every
-JSON-blob property read into a plain "read this key path from this blob" node (`JSONFieldAccess`). It makes **no decision
-about how** to read the property — it does not look at materialized columns. That keeps it schema-driven and
-dialect-agnostic: after it runs, each printer renders the node mechanically in its own JSON syntax, and the property is no
-longer something the printer has to resolve. On ClickHouse, the *second* pass (the materialized-column / property-group /
-skip-index physical passes) runs next and rewrites the node to a concrete column read when a backing column exists; for
-the warehouse dialects there is no second pass, so this lowering is the whole story.
+A property read starts life as a `Field` tagged with a `PropertyType` ("this is a property"). This pass rewrites each one
+into a `JSONFieldAccess` — "read this key path out of this JSON blob". It makes no decision about *how* to read the
+property and never looks at materialized columns; that keeps it simple and the same for every database backend. After it
+runs, each printer just renders the node in its own JSON syntax — the property is no longer something the printer has to
+figure out. On ClickHouse a second pass (`clickhouse_physical_passes`) runs next and swaps the node for a faster column
+when one exists; the warehouse backends have no second pass, so for them this lowering is the whole story.
 
-What it deliberately does NOT touch (left to the printer or a later pass, to keep this pass minimal and behavior-
-preserving):
+It deliberately leaves four things alone, to stay minimal and change nothing about the output:
 
-- Struct / array (data-warehouse) columns — different access syntax; only `StringJSONDatabaseField` sources lower here.
-- `joined_subquery` refs — a repointed person/group property prints as `alias.field`, not a property read.
-- The scalar cast — for ClickHouse it is applied by `PropertySwapper` *around* the property before this pass runs, so
-  the cast `Call` simply ends up wrapping the `JSONFieldAccess` and is preserved automatically.
-- Access control (restricted-key drop) — the `JSONFieldAccess.expr` is the blob `Field`, which the ClickHouse printer
-  still `JSONDropKeys`-wraps in `visit_field_type`, so the restricted value collapses to `''` exactly as on master.
+- Struct / array (data-warehouse) columns — they use different access syntax, so only JSON-blob columns lower here.
+- Person/group properties read through a joined subquery — those print as `alias.field`, not as a property read.
+- The numeric/boolean cast — on ClickHouse the swapper wraps the property in a cast before this pass runs, so the cast
+  simply ends up wrapping the `JSONFieldAccess` and is carried through untouched.
+- Access control — the node still points at the raw blob `Field`, which the ClickHouse printer drops restricted keys
+  from later, so a restricted value still collapses to `''`.
 """
 
 from typing import cast
@@ -41,13 +39,12 @@ class LogicalPropertyLowering(CloningVisitor):
         return lowered if lowered is not None else super().visit_field(node)
 
     def visit_alias(self, node: ast.Alias) -> ast.Alias:
-        # An `Alias` over a property read (e.g. the hidden `properties.x AS x` the resolver/swapper inserts) carries a
-        # `FieldAliasType` whose `.type` is the original `PropertyType`. When we lower the inner Field to a
-        # `JSONFieldAccess`, that wrapper's type must stop pointing at the `PropertyType` too — otherwise the printer's
-        # `resolve_field_type` unwraps the `FieldAliasType` back to the `PropertyType` and routes the operand into its
-        # property-decision code (defeating the deletion gate). Repoint it at the lowered value type. This
-        # only rewrites the alias-type wrapper; printing reads `expr` + `alias`, not the wrapper's inner type, so output
-        # is unchanged.
+        # A property read is often wrapped in a hidden alias (`properties.x AS x`). That alias node holds the
+        # `PropertyType` in two places: on the inner field, and again inside its own `FieldAliasType` wrapper. Lowering
+        # the inner field fixes the first; if we leave the wrapper pointing at the old `PropertyType`, later code that
+        # unwraps the alias still sees "this is a property" and sends the operand back into the property-handling path we
+        # just bypassed. So repoint the wrapper at the lowered value type. This is type bookkeeping only — printing uses
+        # `expr` and `alias`, never the wrapper's inner type, so the output is unchanged.
         lowered = super().visit_alias(node)
         if (
             isinstance(lowered.expr, ast.JSONFieldAccess)
@@ -66,9 +63,6 @@ class LogicalPropertyLowering(CloningVisitor):
         if property_type.joined_subquery is not None:
             return None
         chain = property_type.chain
-        if not chain:
-            return None
-
         base_field_type = property_type.field_type
         # Only lower reads off a JSON blob column (`properties` / `person_properties`). Struct/array warehouse columns
         # resolve to a non-JSON database field and keep their existing printer handling.
@@ -76,18 +70,17 @@ class LogicalPropertyLowering(CloningVisitor):
             return None
 
         # chain[0] is always the top-level property name (a string). Deeper elements keep their Python type: an integer
-        # is an array index that must reach the JSON extract as an integer, not the string "1" (object key "1"). This
-        # mirrors how the legacy `visit_property_type` blob fallback passes the chain through untyped.
+        # is an array index that must reach the JSON extract as an integer, not the string "1" (which would be the object
+        # key "1"). The old printer passed the chain through the same way.
         keys: list[str | int] = [str(chain[0])]
         keys.extend(link if isinstance(link, int) else str(link) for link in chain[1:])
 
-        # The node carries its *value* type (the raw JSON-extract result, a nullable String), NOT the original
-        # `PropertyType`. Carrying the `PropertyType` would make the node mean "this is still a property access" (the
-        # ambient-meaning smell) — and would route a lowered comparison operand back into the printer's property-decision
-        # code via `resolve_field_type`, defeating the deletion gate. Everything a downstream pass needs (table, field,
-        # property name) is in `expr` (the blob `Field`, whose `.type` is the source `FieldType`) plus `keys`. The
-        # nullable String keeps the printer's comparison `ifNull(...)` wrapping identical to the `PropertyType` it
-        # replaced (`_is_type_nullable` returns True for both).
+        # The node's type is its *value* type — the JSON-extract result, a nullable String — not the original
+        # `PropertyType`. Keeping the `PropertyType` would still mean "this is a property", which would send a lowered
+        # comparison operand back into the property-handling path we just bypassed. Everything a later pass needs (table,
+        # field, property name) is already on `expr` (the blob `Field`, whose `.type` is the source `FieldType`) and
+        # `keys`. The nullable String also keeps the printer's `ifNull(...)` wrapping the same as before, since both it
+        # and the old `PropertyType` count as nullable.
         return ast.JSONFieldAccess(
             expr=ast.Field(chain=[base_field_type.name], type=base_field_type),
             keys=keys,
