@@ -29,29 +29,31 @@ _KEY_PREFIX = "posthog:dbcb:v1"
 _REDIS_OP_TIMEOUT_SECONDS = 0.1
 
 # Decide whether the breaker should let a connection attempt through. Returns
-# {allowed, is_probe}. While open and within cooldown the request is denied
-# without touching the database. Once cooldown expires the breaker is half-open:
-# a single worker wins the probe lease and is allowed through to test recovery;
-# everyone else keeps failing fast until the probe resolves.
+# {allowed, is_probe, open_until}. While open and within cooldown the request is
+# denied without touching the database, and the real Redis deadline is returned
+# so each worker can cache it accurately. Once cooldown expires the breaker is
+# half-open: a single worker wins the probe lease and is allowed through to test
+# recovery; everyone else keeps failing fast (open_until=0, so they don't cache
+# and keep re-checking Redis to pick up recovery promptly).
 _ALLOW_SCRIPT = """
 local open_until = redis.call('GET', KEYS[1])
 if not open_until then
-    return {1, 0}
+    return {1, 0, 0}
 end
 if tonumber(ARGV[1]) < tonumber(open_until) then
-    return {0, 0}
+    return {0, 0, tonumber(open_until)}
 end
 local got = redis.call('SET', KEYS[2], '1', 'NX', 'EX', ARGV[2])
 if got then
-    return {1, 1}
+    return {1, 1, 0}
 end
-return {0, 0}
+return {0, 0, 0}
 """
 
 # Record a failed connection. A failing probe re-opens the breaker immediately
 # and releases the lease. Otherwise the failure counter is incremented within a
-# rolling window (TTL); crossing the threshold opens the breaker. Returns 1 when
-# the breaker is open after this failure, else 0.
+# fixed window (TTL set only when the counter is created); crossing the threshold
+# opens the breaker. Returns 1 when the breaker is open after this failure, else 0.
 _FAILURE_SCRIPT = """
 local now = tonumber(ARGV[1])
 local threshold = tonumber(ARGV[2])
@@ -68,7 +70,9 @@ if is_probe == '1' then
 end
 
 local n = redis.call('INCR', KEYS[1])
-redis.call('EXPIRE', KEYS[1], window)
+if n == 1 then
+    redis.call('EXPIRE', KEYS[1], window)
+end
 if n >= threshold then
     redis.call('SET', KEYS[2], tostring(now + cooldown), 'EX', open_for)
     return 1
@@ -188,8 +192,15 @@ class ProductDBCircuitBreaker:
             self._local_open_until.pop(alias, None)
             return BreakerDecision(allowed=True, is_probe=is_probe)
 
-        # Denied: remember the cooldown locally to spare Redis on the next request.
-        self._local_open_until[alias] = now + config.cooldown_seconds
+        # Denied: cache the real Redis deadline so we skip Redis while genuinely
+        # open. open_until=0 means the cooldown has elapsed and another worker
+        # holds the probe lease — don't cache that, so we keep re-checking Redis
+        # and pick up recovery as soon as the probe resolves.
+        open_until = float(result[2])
+        if open_until > now:
+            self._local_open_until[alias] = open_until
+        else:
+            self._local_open_until.pop(alias, None)
         return _DENIED
 
     def record_failure(self, alias: str, *, was_probe: bool) -> None:
@@ -203,10 +214,12 @@ class ProductDBCircuitBreaker:
         fails_key, open_until_key, probe_key = self._keys(alias)
         if self._failure_script is None:
             self._failure_script = client.register_script(_FAILURE_SCRIPT)
+        # Capture once so the local deadline matches the open_until Redis computes.
+        now = _now()
         try:
             opened = self._failure_script(
                 keys=[fails_key, open_until_key, probe_key],
-                args=[_now(), config.failure_threshold, config.cooldown_seconds, config.window_seconds, int(was_probe)],
+                args=[now, config.failure_threshold, config.cooldown_seconds, config.window_seconds, int(was_probe)],
                 client=client,
             )
         except Exception:
@@ -214,7 +227,7 @@ class ProductDBCircuitBreaker:
             return
 
         if opened:
-            self._local_open_until[alias] = _now() + config.cooldown_seconds
+            self._local_open_until[alias] = now + config.cooldown_seconds
             statsd.incr("product_db_circuit_breaker_opened", tags={"alias": alias})
             logger.warning(
                 "product_db_circuit_breaker_opened",

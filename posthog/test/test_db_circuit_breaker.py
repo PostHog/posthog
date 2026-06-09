@@ -51,6 +51,16 @@ class TestProductDBCircuitBreaker(SimpleTestCase):
         # A fresh breaker (other worker) sees the open state via shared Redis.
         self.assertFalse(ProductDBCircuitBreaker().before_connect(ALIAS).allowed)
 
+    def test_denied_worker_caches_real_redis_deadline(self) -> None:
+        # Breaker opens at now=1000, so Redis holds open_until=1030.
+        self._open_breaker(ProductDBCircuitBreaker())
+        self.clock["now"] += 25  # 1025, still within cooldown
+
+        other_worker = ProductDBCircuitBreaker()
+        self.assertFalse(other_worker.before_connect(ALIAS).allowed)
+        # Caches the real Redis deadline (1030), not a fresh now+cooldown (1055).
+        self.assertEqual(other_worker._local_open_until[ALIAS], 1030.0)
+
     def test_other_apps_unaffected_by_open_breaker(self) -> None:
         self._open_breaker(ProductDBCircuitBreaker())
 
