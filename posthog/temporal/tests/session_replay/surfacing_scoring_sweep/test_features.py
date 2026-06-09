@@ -24,6 +24,7 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep.features import (
     MissingFeatureRangeError,
     assert_ranges_cover,
     feature_matrix,
+    out_of_contract_row_mask,
     validate_features,
 )
 
@@ -86,7 +87,7 @@ class TestValidateFeaturesColumnSet:
             validate_features(feature_frame.loc[:, cols], feature_names=feature_names_for_tests)
 
 
-class TestValidateFeaturesRanges:
+class TestOutOfContractRowMask:
     @pytest.mark.parametrize(
         ("column", "bad_value"),
         [
@@ -95,41 +96,49 @@ class TestValidateFeaturesRanges:
             ("page_revisit_share", 1.5),
             ("mouse_stddev_x", -1.0),
             ("selection_copy_count", -1),
+            ("event_rate", float("inf")),
+            ("event_rate", float("-inf")),
         ],
     )
-    def test_out_of_range_value_raises(
+    def test_out_of_contract_value_flags_only_its_row(
         self,
         column: str,
         bad_value: Any,
         feature_frame: pd.DataFrame,
         feature_names_for_tests: tuple[str, ...],
     ) -> None:
-        feature_frame.loc[0, column] = bad_value
-        with pytest.raises(FeatureValidationError, match=column):
-            validate_features(feature_frame, feature_names=feature_names_for_tests)
+        good_row = feature_frame.iloc[0].copy()
+        df = pd.DataFrame([feature_frame.iloc[0], good_row]).reset_index(drop=True)
+        df.loc[0, column] = bad_value
 
-    @pytest.mark.parametrize("bad_value", [float("inf"), float("-inf")])
-    def test_inf_rejected(
-        self, bad_value: float, feature_frame: pd.DataFrame, feature_names_for_tests: tuple[str, ...]
-    ) -> None:
-        feature_frame.loc[0, "event_rate"] = bad_value
-        with pytest.raises(FeatureValidationError, match="non-finite"):
-            validate_features(feature_frame, feature_names=feature_names_for_tests)
+        mask = out_of_contract_row_mask(df, feature_names=feature_names_for_tests)
 
-    def test_unbounded_column_accepts_large_value(
-        self, feature_frame: pd.DataFrame, feature_names_for_tests: tuple[str, ...]
-    ) -> None:
-        # Rates have no upper bound — high counts on short sessions can produce
-        # arbitrarily large rates. Don't false-positive on legitimate data.
-        feature_frame.loc[0, "event_rate"] = 1e6
-        validate_features(feature_frame, feature_names=feature_names_for_tests)
+        assert mask.tolist() == [True, False]
 
-    def test_any_float_column_accepts_negative(
-        self, feature_frame: pd.DataFrame, feature_names_for_tests: tuple[str, ...]
+    @pytest.mark.parametrize(
+        ("column", "value"),
+        [
+            # Rates have no upper bound — high counts on short sessions can produce
+            # arbitrarily large rates. Don't false-positive on legitimate data.
+            ("event_rate", 1e6),
+            # mouse_mean_x has no lower bound — mouse can be off-screen.
+            ("mouse_mean_x", -1234.5),
+            # NaN passes — XGBoost handles it natively, SQL produces NULL on zero denominators.
+            ("network_failure_ratio", float("nan")),
+        ],
+    )
+    def test_in_contract_value_is_not_flagged(
+        self,
+        column: str,
+        value: float,
+        feature_frame: pd.DataFrame,
+        feature_names_for_tests: tuple[str, ...],
     ) -> None:
-        # mouse_mean_x has no lower bound — mouse can be off-screen.
-        feature_frame.loc[0, "mouse_mean_x"] = -1234.5
-        validate_features(feature_frame, feature_names=feature_names_for_tests)
+        feature_frame.loc[0, column] = value
+
+        mask = out_of_contract_row_mask(feature_frame, feature_names=feature_names_for_tests)
+
+        assert not mask.any()
 
 
 class TestValidateFeaturesDtypes:

@@ -32,7 +32,11 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandParser
 
 from posthog.temporal.session_replay.surfacing_scoring_sweep.activities import _fetch_features_dataframe
-from posthog.temporal.session_replay.surfacing_scoring_sweep.features import FeatureValidationError, validate_features
+from posthog.temporal.session_replay.surfacing_scoring_sweep.features import (
+    FeatureValidationError,
+    out_of_contract_row_mask,
+    validate_features,
+)
 from posthog.temporal.session_replay.surfacing_scoring_sweep.scorer import get_feature_names, predict
 from posthog.temporal.session_replay.surfacing_scoring_sweep.types import ChunkSpec
 
@@ -96,6 +100,16 @@ class Command(BaseCommand):
                 )
             )
             return
+
+        bad_rows = out_of_contract_row_mask(df, feature_names=feature_names)
+        if bad_rows.any():
+            self.stdout.write(
+                self.style.WARNING(f"Dropping {int(bad_rows.sum())} row(s) with out-of-contract feature values.")
+            )
+            df = df.loc[~bad_rows]
+            if df.empty:
+                self.stdout.write(self.style.WARNING("All rows dropped — nothing to score."))
+                return
 
         scores = predict(df)
         self.stdout.write(self.style.SUCCESS(f"Scored {len(scores)} session(s):"))

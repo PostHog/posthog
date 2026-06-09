@@ -16,9 +16,16 @@ What still lives in this module:
       warmup — every feature_name in the booster must have a FEATURE_RANGES
       entry, otherwise `MissingFeatureRangeError` is raised at boot.
     * `validate_features(df, feature_names=...)`: hard runtime gate just
-      before predict. Pure pandas, no xgboost dependency. Callers pass the
-      booster's `feature_names` so the validator stays decoupled from the
-      booster lifecycle and is trivial to unit-test.
+      before predict — column set/order + dtype checks. These can only be
+      wiring bugs (the SQL drifted from the booster), never bad data, so a
+      violation fails the whole chunk. Pure pandas, no xgboost dependency.
+      Callers pass the booster's `feature_names` so the validator stays
+      decoupled from the booster lifecycle and is trivial to unit-test.
+    * `out_of_contract_row_mask(df, feature_names=...)`: per-row flag for
+      non-finite or out-of-range values. Replay payloads are
+      client-controlled, so a single crafted session must not be able to
+      fail validation for its whole hash bucket on every tick — callers
+      drop the flagged rows and score the rest.
 
 Updating features:
 
@@ -224,53 +231,19 @@ def _check_dtype(name: str, series: pd.Series, allowed_kinds: str) -> None:
         )
 
 
-def _check_finite(name: str, series: pd.Series) -> None:
-    """+/-inf is never a value the model has seen and almost always means a
-    feature-engineering bug (division returning inf, etc.). Fail loud.
-
-    NaN is fine — XGBoost handles it natively, and our SQL deliberately
-    produces NULL (→ NaN) when denominators are zero.
-    """
-    if series.dtype.kind != "f":
-        return
-    arr = series.to_numpy()
-    finite_mask = np.isfinite(arr) | np.isnan(arr)
-    if not np.all(finite_mask):
-        bad = series.loc[~pd.Series(finite_mask, index=series.index)]
-        raise FeatureValidationError(
-            f"Feature {name!r} contains non-finite values (excluding NaN): first 5 = {bad.head(5).tolist()}."
-        )
-
-
-def _check_range(name: str, series: pd.Series, spec: FeatureSpec) -> None:
-    """Reject any value outside the trained range. NaN passes (XGBoost handles it)."""
-    finite = series.dropna()
-    if finite.empty:
-        return
-    if spec.min_value is not None:
-        below = finite.loc[finite.lt(spec.min_value)]
-        if not below.empty:
-            raise FeatureValidationError(
-                f"Feature {name!r} has {len(below)} value(s) below min={spec.min_value}: e.g. {below.head(5).tolist()}."
-            )
-    if spec.max_value is not None:
-        above = finite.loc[finite.gt(spec.max_value)]
-        if not above.empty:
-            raise FeatureValidationError(
-                f"Feature {name!r} has {len(above)} value(s) above max={spec.max_value}: e.g. {above.head(5).tolist()}."
-            )
-
-
 def validate_features(df: pd.DataFrame, *, feature_names: tuple[str, ...]) -> None:
     """Hard-fail if `df` doesn't match the trained model's expected schema.
+
+    Column set/order and dtype mismatches can only come from the SQL drifting
+    away from the booster — never from row data — so they abort the chunk.
+    Value-level violations are data-driven; flag those per-row with
+    `out_of_contract_row_mask` instead.
 
     `feature_names` must be the booster's `feature_names` (production callers
     get this via `scorer.get_feature_names()`). Pure function; no global state.
 
-    O(rows × features). On a 10k-row chunk × 61 features this is single-digit ms.
-
     Raises:
-        FeatureValidationError: any column / dtype / range / finiteness mismatch.
+        FeatureValidationError: any column or dtype mismatch.
     """
     if df.empty:
         return
@@ -280,8 +253,36 @@ def validate_features(df: pd.DataFrame, *, feature_names: tuple[str, ...]) -> No
         series: pd.Series = df.loc[:, name]
         spec = FEATURE_RANGES[name]
         _check_dtype(name, series, spec.dtype_kind)
-        _check_finite(name, series)
-        _check_range(name, series, spec)
+
+
+def out_of_contract_row_mask(df: pd.DataFrame, *, feature_names: tuple[str, ...]) -> pd.Series:
+    """Boolean mask of rows whose feature values break the trained contract.
+
+    Flags +/-inf (a feature-engineering bug — division returning inf) and
+    values outside `FEATURE_RANGES` bounds. NaN passes — XGBoost handles it
+    natively, and our SQL deliberately produces NULL (→ NaN) when
+    denominators are zero.
+
+    Replay events are client-controlled, so a single crafted session can
+    produce an out-of-range derived feature. Flagging per-row lets callers
+    drop just the offending sessions instead of failing the whole chunk
+    (which would deterministically re-fail the same hash bucket every tick
+    until the bad session ages past the lookback window).
+
+    O(rows × features). On a 10k-row chunk × 61 features this is single-digit ms.
+    """
+    mask = pd.Series(False, index=df.index)
+    for name in feature_names:
+        series: pd.Series = df.loc[:, name]
+        spec = FEATURE_RANGES[name]
+        if series.dtype.kind == "f":
+            arr = series.to_numpy()
+            mask |= ~(np.isfinite(arr) | np.isnan(arr))
+        if spec.min_value is not None:
+            mask |= series.lt(spec.min_value).fillna(False)
+        if spec.max_value is not None:
+            mask |= series.gt(spec.max_value).fillna(False)
+    return mask
 
 
 def feature_matrix(df: pd.DataFrame, *, feature_names: tuple[str, ...]) -> pd.DataFrame:

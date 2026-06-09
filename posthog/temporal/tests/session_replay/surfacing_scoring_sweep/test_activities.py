@@ -124,6 +124,58 @@ class TestScoreChunkActivity:
         assert result.scored == 1
         publish_mock.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_out_of_contract_row_is_dropped_not_chunk_blocking(self, surfacing_booster_path: object) -> None:
+        spec = ChunkSpec(chunk_id=0, of_chunks=1, chunk_size=10, lookback_days=7)
+        feature_names = ("event_rate",)
+        df = pd.DataFrame(
+            {
+                "team_id": [1, 1],
+                "session_id": ["sess-bad", "sess-good"],
+                "distinct_id": ["user-1", "user-2"],
+                "min_first_timestamp": pd.to_datetime(["2026-05-07 10:00:00+00:00", "2026-05-07 11:00:00+00:00"]),
+                "event_rate": [-1.0, 0.2],
+            }
+        )
+
+        with (
+            mock.patch(f"{ACTIVITIES_MODULE}._fetch_features_dataframe", return_value=df),
+            mock.patch(f"{ACTIVITIES_MODULE}.get_feature_names", return_value=feature_names),
+            mock.patch(f"{ACTIVITIES_MODULE}.predict", return_value=np.array([0.42], dtype=np.float32)),
+            mock.patch(f"{ACTIVITIES_MODULE}._publish_scores", return_value=1) as publish_mock,
+        ):
+            result = await ActivityEnvironment().run(score_chunk_activity, spec)
+
+        assert result.scored == 1
+        published_df = publish_mock.call_args.args[0]
+        assert published_df["session_id"].tolist() == ["sess-good"]
+
+    @pytest.mark.asyncio
+    async def test_all_rows_out_of_contract_returns_zero_scored(self, surfacing_booster_path: object) -> None:
+        spec = ChunkSpec(chunk_id=0, of_chunks=1, chunk_size=10, lookback_days=7)
+        feature_names = ("event_rate",)
+        df = pd.DataFrame(
+            {
+                "team_id": [1],
+                "session_id": ["sess-bad"],
+                "distinct_id": ["user-1"],
+                "min_first_timestamp": pd.to_datetime(["2026-05-07 10:00:00+00:00"]),
+                "event_rate": [float("inf")],
+            }
+        )
+
+        with (
+            mock.patch(f"{ACTIVITIES_MODULE}._fetch_features_dataframe", return_value=df),
+            mock.patch(f"{ACTIVITIES_MODULE}.get_feature_names", return_value=feature_names),
+            mock.patch(f"{ACTIVITIES_MODULE}.predict") as predict_mock,
+            mock.patch(f"{ACTIVITIES_MODULE}._publish_scores") as publish_mock,
+        ):
+            result = await ActivityEnvironment().run(score_chunk_activity, spec)
+
+        assert result.scored == 0
+        predict_mock.assert_not_called()
+        publish_mock.assert_not_called()
+
 
 class TestPipelineTimeouts:
     def test_heartbeat_timeout_exceeds_clickhouse_query_timeout(self) -> None:

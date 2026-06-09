@@ -55,6 +55,7 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep.constants import (
 from posthog.temporal.session_replay.surfacing_scoring_sweep.features import (
     MODEL_FEATURE_SCHEMA_VERSION,
     FeatureValidationError,
+    out_of_contract_row_mask,
     validate_features,
 )
 from posthog.temporal.session_replay.surfacing_scoring_sweep.scorer import get_feature_names, predict
@@ -285,6 +286,21 @@ async def score_chunk_activity(spec: ChunkSpec) -> ChunkResult:
             type="FeatureValidationError",
             non_retryable=True,
         ) from e
+
+    # Value-level violations are data-driven (replay payloads are
+    # client-controlled), so drop just the offending sessions — failing the
+    # chunk would deterministically re-fail this hash bucket every tick.
+    bad_rows = out_of_contract_row_mask(df, feature_names=feature_names)
+    if bad_rows.any():
+        activity.logger.warning(
+            "surfacing_scoring_sweep.rows_out_of_contract",
+            chunk_id=spec.chunk_id,
+            dropped=int(bad_rows.sum()),
+            rows=len(df),
+        )
+        df = df.loc[~bad_rows]
+        if df.empty:
+            return ChunkResult(chunk_id=spec.chunk_id, scored=0)
 
     activity.heartbeat({"phase": "predict", "chunk_id": spec.chunk_id, "rows": len(df)})
     scores = await sync_to_async(predict, thread_sensitive=False)(df)
