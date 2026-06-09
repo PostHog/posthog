@@ -4575,6 +4575,13 @@ class SharingConfigurationSettings(BaseModel):
     whitelabel: bool | None = None
 
 
+class SignalExtraBase(BaseModel):
+    pass
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
 class Priority(StrEnum):
     P0 = "P0"
     P1 = "P1"
@@ -9031,6 +9038,19 @@ class SignalInput(
         | SignalsScoutSignalInput
         | LogsAlertStateChangeSignalInput
     )
+
+
+class SignalInputBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: SignalExtraBase
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: str
+    source_type: str
+    weight: float
 
 
 class SourceFieldFileUploadConfig(BaseModel):

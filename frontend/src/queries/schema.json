@@ -11793,7 +11793,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "ConversionGoalFilter": {
@@ -15942,7 +15942,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "EndpointLastExecutionTimesRequest": {
@@ -17503,7 +17503,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "ErrorTrackingSimilarIssuesQuery": {
@@ -21867,7 +21867,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "GoalLine": {
@@ -24522,7 +24522,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "LinkedinAdsDefaultSources": {
@@ -24625,7 +24625,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "LlmEvaluationSignalInput": {
@@ -24655,7 +24655,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "LoadingBlock": {
@@ -25151,7 +25151,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "LogsOrderBy": {
@@ -29179,7 +29179,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "PinterestAdsDefaultSources": {
@@ -38593,7 +38593,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "SessionPropertyFilter": {
@@ -39196,6 +39196,10 @@
             },
             "type": "object"
         },
+        "SignalExtraBase": {
+            "additionalProperties": false,
+            "type": "object"
+        },
         "SignalInput": {
             "anyOf": [
                 {
@@ -39235,6 +39239,34 @@
                     "$ref": "#/definitions/LogsAlertStateChangeSignalInput"
                 }
             ]
+        },
+        "SignalInputBase": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/SignalExtraBase"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "type": "string"
+                },
+                "source_type": {
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
         },
         "SignalRemediation": {
             "additionalProperties": false,
@@ -39426,7 +39458,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "SimilarIssue": {
@@ -44717,7 +44749,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "getEffectiveExcludedColumns": {

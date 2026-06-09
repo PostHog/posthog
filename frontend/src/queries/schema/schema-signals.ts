@@ -46,6 +46,24 @@ export interface SignalRemediation {
     priority?: 'P0' | 'P1' | 'P2' | 'P3' | 'P4'
 }
 
+// ── Shared signal extra & input base ───────────────────────────────────────────────
+// Marker base every per-source `extra` payload extends. Empty today: it gives the input base a
+// single `extra` type to reference and is where any future cross-source extra field would live.
+export interface SignalExtraBase {}
+
+// Top-level fields every variant carries. Concrete variants narrow `source_type`, `source_product`,
+// and `extra` to their specific literal/payload types (those narrowings discriminate the union).
+// `remediation` is source-agnostic: any signal may carry it, even though only some sources emit it today.
+export interface SignalInputBase {
+    source_type: string
+    source_product: string
+    source_id: string
+    description: string
+    weight: number
+    extra: SignalExtraBase
+    remediation?: SignalRemediation
+}
+
 // ── Per-product signal extras & inputs ──────────────────────────────────────────
 
 // Session replay problem (emitted per-session for problem-indicating segments)
@@ -58,7 +76,7 @@ export interface SessionProblemEventEntry {
     interaction_text?: string
 }
 
-export interface SessionProblemSignalExtra {
+export interface SessionProblemSignalExtra extends SignalExtraBase {
     session_id: string
     segment_title: string
     start_time: string
@@ -73,14 +91,10 @@ export interface SessionProblemSignalExtra {
     event_history?: SessionProblemEventEntry[]
 }
 
-export interface SessionProblemSignalInput {
+export interface SessionProblemSignalInput extends SignalInputBase {
     source_type: 'session_problem'
     source_product: 'session_replay'
-    source_id: string
-    description: string
-    weight: number
     extra: SessionProblemSignalExtra
-    remediation?: SignalRemediation
 }
 
 /** @deprecated No longer emitted. */
@@ -100,7 +114,7 @@ export interface SessionSegmentClusterMetrics {
 }
 
 /** @deprecated No longer emitted. */
-export interface SessionSegmentClusterSignalExtra {
+export interface SessionSegmentClusterSignalExtra extends SignalExtraBase {
     label_title: string
     actionable: boolean
     segments: SessionReplaySegment[]
@@ -119,7 +133,7 @@ export interface SessionSegmentClusterSignalInput {
 
 // LLM evaluation
 
-export interface LlmEvalSignalExtra {
+export interface LlmEvalSignalExtra extends SignalExtraBase {
     evaluation_id: string
     target_event_id?: string
     target_event_type?: string
@@ -128,19 +142,15 @@ export interface LlmEvalSignalExtra {
     provider?: string
 }
 
-export interface LlmEvaluationSignalInput {
+export interface LlmEvaluationSignalInput extends SignalInputBase {
     source_type: 'evaluation'
     source_product: 'llm_analytics'
-    source_id: string
-    description: string
-    weight: number
     extra: LlmEvalSignalExtra
-    remediation?: SignalRemediation
 }
 
 // LLM evaluation report (one signal per report run, distilled from many results)
 
-export interface LlmEvalReportSignalExtra {
+export interface LlmEvalReportSignalExtra extends SignalExtraBase {
     evaluation_id: string
     evaluation_name: string
     evaluation_description: string
@@ -150,19 +160,15 @@ export interface LlmEvalReportSignalExtra {
     period_end: string
 }
 
-export interface LlmEvaluationReportSignalInput {
+export interface LlmEvaluationReportSignalInput extends SignalInputBase {
     source_type: 'evaluation_report'
     source_product: 'llm_analytics'
-    source_id: string
-    description: string
-    weight: number
     extra: LlmEvalReportSignalExtra
-    remediation?: SignalRemediation
 }
 
 // Zendesk ticket
 
-export interface ZendeskTicketSignalExtra {
+export interface ZendeskTicketSignalExtra extends SignalExtraBase {
     url: string
     type: string | null
     tags: string[]
@@ -171,19 +177,15 @@ export interface ZendeskTicketSignalExtra {
     status: string
 }
 
-export interface ZendeskTicketSignalInput {
+export interface ZendeskTicketSignalInput extends SignalInputBase {
     source_type: 'ticket'
     source_product: 'zendesk'
-    source_id: string
-    description: string
-    weight: number
     extra: ZendeskTicketSignalExtra
-    remediation?: SignalRemediation
 }
 
 // GitHub issue
 
-export interface GithubIssueSignalExtra {
+export interface GithubIssueSignalExtra extends SignalExtraBase {
     html_url: string
     number: number
     labels: string[]
@@ -193,19 +195,15 @@ export interface GithubIssueSignalExtra {
     state: string
 }
 
-export interface GithubIssueSignalInput {
+export interface GithubIssueSignalInput extends SignalInputBase {
     source_type: 'issue'
     source_product: 'github'
-    source_id: string
-    description: string
-    weight: number
     extra: GithubIssueSignalExtra
-    remediation?: SignalRemediation
 }
 
 // Linear issue
 
-export interface LinearIssueSignalExtra {
+export interface LinearIssueSignalExtra extends SignalExtraBase {
     url: string
     identifier: string
     number: number
@@ -219,19 +217,15 @@ export interface LinearIssueSignalExtra {
     updated_at: string
 }
 
-export interface LinearIssueSignalInput {
+export interface LinearIssueSignalInput extends SignalInputBase {
     source_type: 'issue'
     source_product: 'linear'
-    source_id: string
-    description: string
-    weight: number
     extra: LinearIssueSignalExtra
-    remediation?: SignalRemediation
 }
 
 // Conversations ticket
 
-export interface ConversationsTicketSignalExtra {
+export interface ConversationsTicketSignalExtra extends SignalExtraBase {
     ticket_number: number
     channel_source: string
     channel_detail: string | null
@@ -241,30 +235,22 @@ export interface ConversationsTicketSignalExtra {
     email_subject: string | null
 }
 
-export interface ConversationsTicketSignalInput {
+export interface ConversationsTicketSignalInput extends SignalInputBase {
     source_type: 'ticket'
     source_product: 'conversations'
-    source_id: string
-    description: string
-    weight: number
     extra: ConversationsTicketSignalExtra
-    remediation?: SignalRemediation
 }
 
 // Error tracking
 
-export interface ErrorTrackingSignalExtra {
+export interface ErrorTrackingSignalExtra extends SignalExtraBase {
     fingerprint: string
 }
 
-export interface ErrorTrackingSignalInput {
+export interface ErrorTrackingSignalInput extends SignalInputBase {
     source_type: 'issue_created' | 'issue_reopened' | 'issue_spiking'
     source_product: 'error_tracking'
-    source_id: string
-    description: string
-    weight: number
     extra: ErrorTrackingSignalExtra
-    remediation?: SignalRemediation
 }
 
 // pganalyze issue (database performance finding)
@@ -276,7 +262,7 @@ export interface PgAnalyzeIssueReference {
     queryText: string | null
 }
 
-export interface PgAnalyzeIssueSignalExtra {
+export interface PgAnalyzeIssueSignalExtra extends SignalExtraBase {
     severity: string | null
     references: PgAnalyzeIssueReference[]
     database_id: string | null
@@ -285,19 +271,15 @@ export interface PgAnalyzeIssueSignalExtra {
     synced_at: string
 }
 
-export interface PgAnalyzeIssueSignalInput {
+export interface PgAnalyzeIssueSignalInput extends SignalInputBase {
     source_type: 'issue'
     source_product: 'pganalyze'
-    source_id: string
-    description: string
-    weight: number
     extra: PgAnalyzeIssueSignalExtra
-    remediation?: SignalRemediation
 }
 
 // Endpoint execution failure
 
-export interface EndpointExecutionFailedSignalExtra {
+export interface EndpointExecutionFailedSignalExtra extends SignalExtraBase {
     endpoint_name: string
     endpoint_version: number | null
     materialized: boolean
@@ -306,14 +288,10 @@ export interface EndpointExecutionFailedSignalExtra {
     error_message: string
 }
 
-export interface EndpointExecutionFailedSignalInput {
+export interface EndpointExecutionFailedSignalInput extends SignalInputBase {
     source_type: 'endpoint_execution_failed'
     source_product: 'endpoints'
-    source_id: string
-    description: string
-    weight: number
     extra: EndpointExecutionFailedSignalExtra
-    remediation?: SignalRemediation
 }
 
 // Signals scout — cross-source findings emitted by the headless Signals scout harness.
@@ -327,7 +305,7 @@ export interface SignalsScoutEvidenceEntry {
     summary: string
 }
 
-export interface SignalsScoutSignalExtra {
+export interface SignalsScoutSignalExtra extends SignalExtraBase {
     scout_run_id: string
     /** The `tasks.TaskRun` id the scout span ran inside. Join key into the `signals_scouts_runs`
      * LLM-analytics view, which is keyed on `task_run_id` (the `scout_run_id` bridge row is not). */
@@ -351,19 +329,15 @@ export interface SignalsScoutSignalExtra {
     mcp_trace_id?: string
 }
 
-export interface SignalsScoutSignalInput {
+export interface SignalsScoutSignalInput extends SignalInputBase {
     source_type: 'cross_source_issue'
     source_product: 'signals_scout'
-    source_id: string
-    description: string
-    weight: number
     extra: SignalsScoutSignalExtra
-    remediation?: SignalRemediation
 }
 
 // Logs alert notification (firing / broken)
 
-export interface LogsAlertStateChangeSignalExtra {
+export interface LogsAlertStateChangeSignalExtra extends SignalExtraBase {
     alert_id: string
     alert_name: string
     action: 'firing' | 'broken'
@@ -376,14 +350,10 @@ export interface LogsAlertStateChangeSignalExtra {
     url: string
 }
 
-export interface LogsAlertStateChangeSignalInput {
+export interface LogsAlertStateChangeSignalInput extends SignalInputBase {
     source_type: 'alert_state_change'
     source_product: 'logs'
-    source_id: string
-    description: string
-    weight: number
     extra: LogsAlertStateChangeSignalExtra
-    remediation?: SignalRemediation
 }
 
 // ── Report reviewer types ────────────────────────────────────────────────────────
