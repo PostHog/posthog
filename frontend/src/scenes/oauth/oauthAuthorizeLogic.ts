@@ -6,6 +6,7 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
+    API_SCOPES,
     DEFAULT_OAUTH_SCOPES,
     MCP_SERVER_OAUTH_SCOPES,
     getMinimumEquivalentScopes,
@@ -29,6 +30,11 @@ const IDENTITY_SCOPES = ['openid', 'profile', 'email', 'introspection']
 const scopeObjectKey = (scope: string): string => (scope === '*' ? '*' : scope.split(':')[0])
 
 const toReadOnlyScope = (scope: string): string => (scope.endsWith(':write') ? `${scope.split(':')[0]}:read` : scope)
+
+const WILDCARD_READ_DESCRIPTION = 'Read access to all PostHog data'
+
+// `*` grants read+write to everything; its read-only form is every object's read scope.
+const wildcardReadScopes = (): string[] => API_SCOPES.map(({ key }) => `${key}:read`)
 
 const isNativeProtocol = (url: string): boolean => {
     try {
@@ -427,7 +433,8 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         ],
         hasWriteScopes: [
             (s) => [s.scopes],
-            (scopes: string[]): boolean => getMinimumEquivalentScopes(scopes).some((scope) => scope.endsWith(':write')),
+            (scopes: string[]): boolean =>
+                getMinimumEquivalentScopes(scopes).some((scope) => scope.endsWith(':write') || scope === '*'),
         ],
         scopeRows: [
             (s) => [s.scopes, s.deniedScopeObjects, s.readOnlyMode],
@@ -440,6 +447,15 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 return getMinimumEquivalentScopes(scopes)
                     .filter((scope) => scope.includes(':') || scope === '*')
                     .map((scope) => {
+                        if (scope === '*') {
+                            return {
+                                key: '*',
+                                description: readOnlyMode
+                                    ? WILDCARD_READ_DESCRIPTION
+                                    : (getScopeDescription('*') ?? '*'),
+                                granted: !denied.has('*'),
+                            }
+                        }
                         const effective = readOnlyMode ? toReadOnlyScope(scope) : scope
                         return {
                             key: scopeObjectKey(scope),
@@ -457,7 +473,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 const resources = getMinimumEquivalentScopes(scopes)
                     .filter((scope) => scope.includes(':') || scope === '*')
                     .filter((scope) => !denied.has(scopeObjectKey(scope)))
-                    .map((scope) => (readOnlyMode ? toReadOnlyScope(scope) : scope))
+                    .flatMap((scope) => {
+                        if (scope === '*') {
+                            return readOnlyMode ? wildcardReadScopes() : ['*']
+                        }
+                        return [readOnlyMode ? toReadOnlyScope(scope) : scope]
+                    })
                 return Array.from(new Set([...identity, ...resources]))
             },
         ],

@@ -1,7 +1,5 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
-import { expectLogic } from 'kea-test-utils'
-
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -28,56 +26,67 @@ describe('oauthAuthorizeLogic', () => {
         logic.unmount()
     })
 
-    it('grants the full requested set (collapsed to highest action) by default', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setScopes(['openid', 'feature_flag:read', 'feature_flag:write', 'insight:read'])
-        }).toMatchValues({
-            effectiveScopes: ['openid', 'feature_flag:write', 'insight:read'],
-        })
+    const effectiveScopesCases: { name: string; scopes: string[]; apply?: () => void; expected: string[] }[] = [
+        {
+            name: 'grants the full requested set, collapsed to the highest action',
+            scopes: ['openid', 'feature_flag:read', 'feature_flag:write', 'insight:read'],
+            expected: ['openid', 'feature_flag:write', 'insight:read'],
+        },
+        {
+            name: 'downgrades every write scope to read in read-only mode',
+            scopes: ['openid', 'feature_flag:write', 'dashboard:write', 'query:read'],
+            apply: () => logic.actions.setReadOnlyMode(true),
+            expected: ['openid', 'feature_flag:read', 'dashboard:read', 'query:read'],
+        },
+        {
+            name: 'drops a denied object and keeps identity scopes',
+            scopes: ['openid', 'email', 'feature_flag:write'],
+            apply: () => logic.actions.toggleDeniedScope('feature_flag'),
+            expected: ['openid', 'email'],
+        },
+        {
+            name: 'grants the wildcard unchanged when read-only is off',
+            scopes: ['openid', '*'],
+            expected: ['openid', '*'],
+        },
+    ]
+
+    it.each(effectiveScopesCases)('effectiveScopes $name', ({ scopes, apply, expected }) => {
+        logic.actions.setScopes(scopes)
+        apply?.()
+        expect(logic.values.effectiveScopes).toEqual(expected)
     })
 
-    it('downgrades write scopes to read in read-only mode', async () => {
-        logic.actions.setScopes(['openid', 'feature_flag:write', 'dashboard:write', 'query:read'])
-        await expectLogic(logic, () => {
-            logic.actions.setReadOnlyMode(true)
-        }).toMatchValues({
-            effectiveScopes: ['openid', 'feature_flag:read', 'dashboard:read', 'query:read'],
-        })
+    it('offers the read-only toggle for wildcard requests', () => {
+        logic.actions.setScopes(['*'])
+        expect(logic.values.hasWriteScopes).toBe(true)
     })
 
-    it('drops a scope when its object is denied, and re-adds it when toggled back', async () => {
+    it('expands the wildcard to read scopes in read-only mode', () => {
+        logic.actions.setScopes(['openid', '*'])
+        logic.actions.setReadOnlyMode(true)
+        const scopes = logic.values.effectiveScopes
+        expect(scopes).toContain('openid')
+        expect(scopes).toContain('feature_flag:read')
+        expect(scopes).not.toContain('*')
+        expect(scopes.some((scope) => scope.endsWith(':write'))).toBe(false)
+    })
+
+    it('drops a scope when its object is denied and re-adds it when toggled back', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write', 'insight:read'])
-        await expectLogic(logic, () => {
-            logic.actions.toggleDeniedScope('feature_flag')
-        }).toMatchValues({
-            effectiveScopes: ['openid', 'insight:read'],
-        })
-        await expectLogic(logic, () => {
-            logic.actions.toggleDeniedScope('feature_flag')
-        }).toMatchValues({
-            effectiveScopes: ['openid', 'feature_flag:write', 'insight:read'],
-        })
+        logic.actions.toggleDeniedScope('feature_flag')
+        expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:read'])
+        logic.actions.toggleDeniedScope('feature_flag')
+        expect(logic.values.effectiveScopes).toEqual(['openid', 'feature_flag:write', 'insight:read'])
     })
 
-    it('keeps identity scopes even when every resource scope is denied', async () => {
-        logic.actions.setScopes(['openid', 'email', 'feature_flag:write'])
-        await expectLogic(logic, () => {
-            logic.actions.toggleDeniedScope('feature_flag')
-        }).toMatchValues({
-            effectiveScopes: ['openid', 'email'],
-        })
-    })
-
-    it('resets read-only mode and denied scopes when scopes are reloaded', async () => {
+    it('resets read-only mode and denied scopes when scopes are reloaded', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write'])
         logic.actions.setReadOnlyMode(true)
         logic.actions.toggleDeniedScope('feature_flag')
-        await expectLogic(logic, () => {
-            logic.actions.setScopes(['openid', 'insight:write'])
-        }).toMatchValues({
-            readOnlyMode: false,
-            deniedScopeObjects: [],
-            effectiveScopes: ['openid', 'insight:write'],
-        })
+        logic.actions.setScopes(['openid', 'insight:write'])
+        expect(logic.values.readOnlyMode).toBe(false)
+        expect(logic.values.deniedScopeObjects).toEqual([])
+        expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:write'])
     })
 })
