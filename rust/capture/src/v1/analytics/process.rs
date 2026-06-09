@@ -190,7 +190,7 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
             Ok(raw_ts) => {
                 metrics::counter!(CAPTURE_V1_PARSED_EVENTS, "result" => "valid").increment(1);
                 let adjusted = normalize_timestamp(context, &event, raw_ts);
-                let illegal = is_distinct_id_illegal(&event.distinct_id);
+                let illegal = is_distinct_id_illegal(event.distinct_id());
                 if illegal {
                     illegal_distinct_id_count += 1;
                 }
@@ -264,11 +264,11 @@ fn observe_malformed_events(context: &Context, events: &[WrappedEvent]) {
     crate::ctx_log!(Level::WARN, context, "malformed events: {summary}");
 }
 
+/// Expects a pre-trimmed distinct_id (see `Event::distinct_id()`).
 fn is_distinct_id_illegal(distinct_id: &str) -> bool {
-    let trimmed = distinct_id.trim();
     ILLEGAL_DISTINCT_IDS
         .iter()
-        .any(|id| trimmed.eq_ignore_ascii_case(id))
+        .any(|id| distinct_id.eq_ignore_ascii_case(id))
 }
 
 fn validate_event(event: &Event) -> Result<DateTime<Utc>, Error> {
@@ -281,10 +281,10 @@ fn validate_event(event: &Event) -> Result<DateTime<Utc>, Error> {
     if event.event.len() > CAPTURE_V1_MAX_EVENT_NAME_LENGTH {
         return Err(Error::EventNameTooLong);
     }
-    if event.distinct_id.is_empty() {
+    if event.distinct_id().is_empty() {
         return Err(Error::MissingDistinctId);
     }
-    if event.distinct_id.len() > CAPTURE_V1_DISTINCT_ID_MAX_SIZE {
+    if event.distinct_id().len() > CAPTURE_V1_DISTINCT_ID_MAX_SIZE {
         return Err(Error::DistinctIdTooLarge);
     }
 
@@ -404,7 +404,7 @@ async fn apply_restrictions(
         };
 
         let event_ctx = EventContext {
-            distinct_id: Some(&event.event.distinct_id),
+            distinct_id: Some(event.event.distinct_id()),
             session_id: event.event.session_id.as_deref(),
             event_name: Some(&event.event.event),
             event_uuid: Some(event.event.uuid()),
@@ -456,7 +456,7 @@ async fn apply_token_distinct_id_limits(
             continue;
         }
         let cache_key =
-            GlobalRateLimitKey::TokenDistinctId(&context.api_token, &event.event.distinct_id)
+            GlobalRateLimitKey::TokenDistinctId(&context.api_token, event.event.distinct_id())
                 .to_cache_key();
         if limiter.is_limited(&cache_key, 1).await.is_some() {
             event.result = EventResult::Warning;
@@ -471,7 +471,7 @@ async fn apply_token_distinct_id_limits(
             if event.destination == Destination::AnalyticsMain {
                 event.destination = Destination::Overflow;
             }
-            limited_distinct_ids.insert(event.event.distinct_id.as_str());
+            limited_distinct_ids.insert(event.event.distinct_id());
         } else {
             allowed_count += 1;
         }
@@ -636,6 +636,37 @@ mod tests {
     }
 
     #[test]
+    fn event_whitespace_only_distinct_id_rejected() {
+        let mut event = valid_event();
+        event.distinct_id = "   ".to_string();
+        assert!(matches!(
+            validate_event(&event),
+            Err(Error::MissingDistinctId)
+        ));
+    }
+
+    #[test]
+    fn event_padded_distinct_id_ok() {
+        let mut event = valid_event();
+        event.distinct_id = "  user-42  ".to_string();
+        assert!(validate_event(&event).is_ok());
+        assert_eq!(event.distinct_id(), "user-42");
+    }
+
+    #[test]
+    fn event_distinct_id_length_checked_after_trim() {
+        let mut event = valid_event();
+        event.distinct_id = format!("  {}  ", "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE));
+        assert!(validate_event(&event).is_ok());
+
+        event.distinct_id = format!("  {}  ", "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE + 1));
+        assert!(matches!(
+            validate_event(&event),
+            Err(Error::DistinctIdTooLarge)
+        ));
+    }
+
+    #[test]
     fn event_illegal_distinct_ids_pass_validation() {
         let illegal_ids = [
             "anonymous",
@@ -795,6 +826,18 @@ mod tests {
             assert!(!normal.force_disable_person_processing, "id={id:?}");
             assert!(normal.details.is_none(), "id={id:?}");
         }
+    }
+
+    #[test]
+    fn validate_events_padded_illegal_distinct_id_still_flagged() {
+        let ctx = test_utils::test_context();
+        let mut event = valid_event();
+        event.distinct_id = "  NULL  ".to_string();
+        let batch = valid_batch(vec![event]);
+        let events = validate_events(&ctx, batch).unwrap();
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert!(events[0].force_disable_person_processing);
+        assert_eq!(events[0].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
 
     #[test]

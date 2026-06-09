@@ -400,7 +400,7 @@ pub fn assert_round_trip(
         serde_json::from_str(&captured.data).expect("data field must deserialize as RawEvent");
 
     assert_eq!(captured.uuid, wrapped.uuid);
-    assert_eq!(captured.distinct_id, wrapped.event.distinct_id);
+    assert_eq!(captured.distinct_id, wrapped.event.distinct_id());
     assert_eq!(captured.event, wrapped.event.event);
 
     (captured, data)

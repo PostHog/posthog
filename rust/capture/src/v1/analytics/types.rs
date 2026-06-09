@@ -85,6 +85,13 @@ impl Event {
     pub fn uuid(&self) -> &str {
         self.uuid.trim()
     }
+
+    /// Trimmed accessor for the raw distinct_id string. Prefer this over
+    /// direct field access so callers are insulated from client-submitted
+    /// whitespace and padded IDs resolve to the same person.
+    pub fn distinct_id(&self) -> &str {
+        self.distinct_id.trim()
+    }
 }
 
 #[derive(Debug)]
@@ -156,7 +163,7 @@ impl SinkEvent for WrappedEvent {
 
         CapturedEventHeaders {
             token: Some(ctx.api_token.clone()),
-            distinct_id: Some(self.event.distinct_id.clone()),
+            distinct_id: Some(self.event.distinct_id().to_owned()),
             session_id: self.event.session_id.clone(),
             timestamp: self
                 .adjusted_timestamp
@@ -190,7 +197,7 @@ impl SinkEvent for WrappedEvent {
                 let _ = write!(buf, "{}:{}", ctx.api_token, ctx.client_ip);
             }
             (false, _) => {
-                let _ = write!(buf, "{}:{}", ctx.api_token, self.event.distinct_id);
+                let _ = write!(buf, "{}:{}", ctx.api_token, self.event.distinct_id());
             }
         }
     }
@@ -200,7 +207,7 @@ impl SinkEvent for WrappedEvent {
         let properties: &RawValue = spliced.as_deref().unwrap_or(&self.event.properties);
         let ingestion_data = IngestionData {
             event: &self.event.event,
-            distinct_id: Some(&self.event.distinct_id),
+            distinct_id: Some(self.event.distinct_id()),
             uuid: Some(self.uuid),
             properties,
             timestamp: Some(&self.event.timestamp),
@@ -223,7 +230,7 @@ impl SinkEvent for WrappedEvent {
             .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true);
         let ie = IngestionEvent {
             uuid: self.uuid,
-            distinct_id: &self.event.distinct_id,
+            distinct_id: self.event.distinct_id(),
             ip: ip_ref,
             data: &data,
             now: &now,
@@ -1070,6 +1077,24 @@ mod tests {
         assert_eq!(props["$window_id"], "win-xyz789");
         assert_eq!(props["$cookieless_mode"], false);
         assert_eq!(props["$process_person_profile"], true);
+    }
+
+    #[test]
+    fn serialize_padded_distinct_id_trimmed_everywhere() {
+        let mut wrapped = pageview_event();
+        wrapped.event.distinct_id = "  user-42  ".to_string();
+        let ctx = serialize_ctx();
+
+        let (captured, data) = serialize_and_parse(&wrapped, &ctx);
+        assert_eq!(captured.distinct_id, "user-42");
+        assert_eq!(data.distinct_id, Some(Value::String("user-42".to_string())));
+
+        let headers = wrapped.headers(&ctx);
+        assert_eq!(headers.distinct_id.as_deref(), Some("user-42"));
+
+        let mut key = String::new();
+        wrapped.partition_key(&ctx, &mut key);
+        assert_eq!(key, format!("{}:user-42", ctx.api_token));
     }
 
     #[test]
