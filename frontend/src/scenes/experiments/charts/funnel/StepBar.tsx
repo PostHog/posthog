@@ -77,16 +77,9 @@ function openExperimentPersonsModalForSeries({
         return
     }
 
-    // Skip drop-off queries for the first metric step (stepIndex 1)
-    // Drop-offs at step 1 would mean "exposed but never entered the funnel",
-    // which can't be queried via the actors funnel (it starts at the first metric event)
-    if (!converted && backendStepNo === 1) {
-        return
-    }
-
-    // For drop-offs, the mapping is straightforward
-    // Frontend step 2 drop-off = "completed step 1 ($pageview) but not step 2 (click)" = backend -2 = -stepIndex
-    // Frontend step 3 drop-off = "completed step 2 (click) but not step 3 (next event)" = backend -3 = -stepIndex
+    // For drop-offs, the mapping is straightforward (funnelStep = -stepIndex):
+    // Step 1 drop-off = "exposed but did not reach the first metric event" = backend -1
+    // Step 2 drop-off = "completed step 1 but not step 2 (click)" = backend -2
     const funnelStep = converted ? backendStepNo : -backendStepNo
 
     // Create ExperimentActorsQuery with exposure configuration
