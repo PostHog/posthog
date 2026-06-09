@@ -52,6 +52,8 @@ autopsy() {
         return
     fi
 
+    dump_pg_activity
+
     local pid
     for pid in $pids; do
         echo "===== py-spy dump --native (pid ${pid}) ====="
@@ -63,6 +65,31 @@ autopsy() {
             maybe_sudo "$py_spy" dump --pid "$pid" || true
         echo
     done
+}
+
+dump_pg_activity() {
+    [ -z "${DATABASE_URL:-}" ] && return 0
+    echo "===== pg_stat_activity (lock holders) ====="
+    # The hang signature is a teardown TRUNCATE blocked on another session's
+    # lock; pg_blocking_pids names the holder. Tests run on test_posthog.
+    python3 - <<'PYEOF' || true
+import os
+import psycopg
+
+with psycopg.connect(os.environ["DATABASE_URL"], dbname="test_posthog", connect_timeout=5) as conn:
+    rows = conn.execute(
+        """
+        SELECT pid, pg_blocking_pids(pid) AS blocked_by, state,
+               wait_event_type, wait_event, now() - xact_start AS xact_age,
+               application_name, left(query, 240) AS query
+        FROM pg_stat_activity
+        WHERE datname = current_database() AND pid <> pg_backend_pid()
+        ORDER BY xact_start NULLS LAST
+        """
+    ).fetchall()
+    for row in rows:
+        print(row)
+PYEOF
 }
 
 # setsid: own process group, so the watchdog can kill the full tree (turbo
