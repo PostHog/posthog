@@ -228,7 +228,7 @@ jobs:
             matrix:
                 include: ${{ fromJson(needs.changes.outputs.matrix_include || '[]') }}
         if: needs.changes.outputs.dagster == 'true'
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-latest-16
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

@@ -438,7 +438,7 @@ jobs:
             needs.turbo-discover.result == 'success' &&
             needs.turbo-discover.outputs.matrix != '[]' &&
             needs.turbo-discover.outputs.matrix != ''
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-latest-16
         timeout-minutes: 40
         name: Product tests (${{ matrix.group }})
         strategy:
@@ -1707,7 +1707,7 @@ jobs:
 
         name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Runner type is performance-critical — consult #team-devex before changing
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-latest-16
 
         strategy:
             fail-fast: false
