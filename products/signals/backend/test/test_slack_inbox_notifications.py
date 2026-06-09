@@ -853,6 +853,23 @@ def test_build_signal_thread_blocks_escapes_content_to_block_mention_injection()
     assert "&lt;!here&gt;" in fallback
 
 
+def test_build_signal_thread_blocks_escapes_source_line_in_header_and_fallback() -> None:
+    # An unknown source type flows verbatim into the source line, so it must be escaped both places.
+    signal = {
+        "source_product": "custom",
+        "source_type": "<@U42>",
+        "weight": 1.0,
+        "content": "body",
+        "extra": {},
+    }
+    blocks, fallback = _build_signal_thread_blocks(signal)
+    header_text = blocks[0]["elements"][0]["text"]
+    assert "<@U42>" not in header_text
+    assert "<@U42>" not in fallback
+    assert "&lt;@U42&gt;" in header_text
+    assert "&lt;@U42&gt;" in fallback
+
+
 def test_build_signal_thread_blocks_rejects_unsafe_detail_url() -> None:
     signal = {
         "source_product": "zendesk",

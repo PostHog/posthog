@@ -460,8 +460,8 @@ def _build_signal_thread_blocks(signal: dict) -> tuple[list[dict], str]:
     except (TypeError, ValueError):
         weight = 0.0
 
-    source_line = _signal_source_line(source_product, source_type)
-    header_line = f"*{_escape_mrkdwn(source_line)}*  ·  Weight: {weight:.1f}"
+    source_line = _escape_mrkdwn(_signal_source_line(source_product, source_type))
+    header_line = f"*{source_line}*  ·  Weight: {weight:.1f}"
     blocks: list[dict] = [{"type": "context", "elements": [{"type": "mrkdwn", "text": header_line}]}]
 
     content = (signal.get("content") or "").strip()
@@ -475,7 +475,8 @@ def _build_signal_thread_blocks(signal: dict) -> tuple[list[dict], str]:
     if detail_parts:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "  ·  ".join(detail_parts)}]})
 
-    # Slack parses mrkdwn mentions in `text` (push notifications, search) even with blocks present — escape it too.
+    # Slack parses mrkdwn mentions in `text` (push notifications, search) even with blocks present, so both
+    # the source line (escaped above) and content are escaped here too.
     fallback = source_line if not content else f"{source_line}: {_escape_mrkdwn(content[:120])}"
     return blocks, fallback
 
@@ -578,7 +579,10 @@ def dispatch_inbox_item_notifications(
     source_products: list[str] | None = None,
     signals: list[dict] | None = None,
 ) -> int:
-    """Send Slack notifications for a newly-ready report. Returns count of messages sent.
+    """Send Slack notifications for a newly-ready report.
+
+    Returns the number of top-level notification messages sent (one per destination
+    channel); threaded evidence replies are not included in the count.
 
     When ``signals`` is provided, each evidence signal is posted as a reply in the
     notification's thread, mirroring the inbox UI so reviewers can scan it from Slack.
