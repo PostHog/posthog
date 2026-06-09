@@ -8,6 +8,7 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantTrendsQuery,
     FunnelsDataWarehouseNode,
+    FunnelsQuery,
     HogQLPropertyFilter,
 )
 
@@ -113,9 +114,10 @@ class TestSchema(BaseTest):
 
         casted = cast_assistant_query(query)
 
+        assert isinstance(casted, FunnelsQuery)
         self.assertEqual(len(casted.series), 2)
         for step in casted.series:
-            self.assertIsInstance(step, FunnelsDataWarehouseNode)
+            assert isinstance(step, FunnelsDataWarehouseNode)
             self.assertEqual(step.kind, "FunnelsDataWarehouseNode")
             # All fields the backend needs to actually run the query must survive the cast.
             self.assertEqual(step.id, "invoices")
@@ -129,6 +131,7 @@ class TestSchema(BaseTest):
 
         casted = cast_assistant_query(query)
 
+        assert isinstance(casted, FunnelsQuery)
         self.assertEqual(casted.series[0].kind, "EventsNode")
         self.assertIsInstance(casted.series[1], FunnelsDataWarehouseNode)
 
@@ -148,14 +151,20 @@ class TestSchema(BaseTest):
 
         casted = cast_assistant_query(query)
 
+        assert isinstance(casted, FunnelsQuery)
         self.assertEqual(len(casted.series), 2)
-        first = casted.series[0]
-        self.assertIsInstance(first, FunnelsDataWarehouseNode)
+        first, second = casted.series[0], casted.series[1]
+        assert isinstance(first, FunnelsDataWarehouseNode)
+        assert isinstance(second, FunnelsDataWarehouseNode)
+        assert first.properties is not None and second.properties is not None
         self.assertEqual(len(first.properties), 1)
-        self.assertIsInstance(first.properties[0], HogQLPropertyFilter)
-        self.assertEqual(first.properties[0].type, "hogql")
-        self.assertEqual(first.properties[0].key, "classification = 'startup'")
-        self.assertEqual(casted.series[1].properties[0].key, "classification = 'standard'")
+        startup_filter = first.properties[0]
+        assert isinstance(startup_filter, HogQLPropertyFilter)
+        self.assertEqual(startup_filter.type, "hogql")
+        self.assertEqual(startup_filter.key, "classification = 'startup'")
+        standard_filter = second.properties[0]
+        assert isinstance(standard_filter, HogQLPropertyFilter)
+        self.assertEqual(standard_filter.key, "classification = 'standard'")
 
     def test_funnel_data_warehouse_step_does_not_accept_arbitrary_property_types(self):
         """If this test fails, check the schema of the warehouse node's `properties[].type`. It must be an enum."""
