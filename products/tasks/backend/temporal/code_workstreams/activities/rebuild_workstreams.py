@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Optional
 
+from django.db.models import Max
 from django.utils import timezone
 
 from temporalio import activity
@@ -43,10 +44,15 @@ def _repo_name(full_path: Optional[str]) -> Optional[str]:
     return full_path.split("/")[-1]
 
 
+def _cloud_pr_url(task: Task) -> Optional[str]:
+    run = task.latest_run
+    return (run.output or {}).get("pr_url") if run and run.output else None
+
+
 def _task_to_input(task: Task) -> tuple[TaskInput, Optional[str]]:
     run: Optional[TaskRun] = task.latest_run
     last_activity = run.updated_at if run else task.updated_at
-    cloud_pr_url = (run.output or {}).get("pr_url") if run and run.output else None
+    cloud_pr_url = _cloud_pr_url(task)
     return (
         TaskInput(
             id=str(task.id),
@@ -117,11 +123,15 @@ def rebuild_team_workstreams(input: RebuildTeamWorkstreamsInput) -> RebuildTeamW
     cutoff = now - ACTIVITY_WINDOW
     now_ms = _epoch_ms(now)
 
-    recent_task_ids = list(
-        TaskRun.objects.filter(team_id=input.team_id, updated_at__gte=cutoff)
-        .values_list("task_id", flat=True)
-        .distinct()[:MAX_TASKS_PER_TEAM]
-    )
+    # Group by task and order by most-recent activity so the MAX_TASKS_PER_TEAM cap deterministically
+    # keeps the freshest tasks instead of an arbitrary slice that flickers between cycles.
+    recent_task_ids = [
+        row["task_id"]
+        for row in TaskRun.objects.filter(team_id=input.team_id, updated_at__gte=cutoff)
+        .values("task_id")
+        .annotate(last_activity=Max("updated_at"))
+        .order_by("-last_activity")[:MAX_TASKS_PER_TEAM]
+    ]
     tasks = list(
         Task.objects.filter(id__in=recent_task_ids, archived=False, deleted=False)
         .select_related("created_by")
@@ -129,10 +139,14 @@ def rebuild_team_workstreams(input: RebuildTeamWorkstreamsInput) -> RebuildTeamW
     )
 
     by_user: dict[int, list[Task]] = defaultdict(list)
+    needed_pr_urls: set[str] = set()
     for task in tasks:
         if task.created_by_id is None:
             continue
         by_user[task.created_by_id].append(task)
+        pr_url = _cloud_pr_url(task)
+        if pr_url:
+            needed_pr_urls.add(pr_url)
 
     github_logins_by_user = _github_logins_by_user(list(by_user.keys()))
 
@@ -140,7 +154,11 @@ def rebuild_team_workstreams(input: RebuildTeamWorkstreamsInput) -> RebuildTeamW
     total_pruned = 0
 
     with team_scope(input.team_id):
-        snapshots_by_url = {s.pr_url: s for s in CodePrSnapshot.objects.filter(team_id=input.team_id)}
+        # Only load snapshots we will actually look up, so memory stays bounded by recent tasks
+        # rather than the team's all-time snapshot count.
+        snapshots_by_url = {
+            s.pr_url: s for s in CodePrSnapshot.objects.filter(team_id=input.team_id, pr_url__in=needed_pr_urls)
+        }
 
         for user_id, user_tasks in by_user.items():
             user_github_logins = github_logins_by_user.get(user_id, set())

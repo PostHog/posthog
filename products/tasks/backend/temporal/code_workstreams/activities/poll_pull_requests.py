@@ -45,7 +45,10 @@ def _resolve_integration(ref: PrRef) -> GitHubIntegrationBase | None:
             integration.refresh_access_token()
         return integration
     if ref.github_user_integration_id:
-        return UserGitHubIntegration(UserIntegration.objects.get(id=ref.github_user_integration_id))
+        user_integration = UserGitHubIntegration(UserIntegration.objects.get(id=ref.github_user_integration_id))
+        if user_integration.access_token_expired():
+            user_integration.refresh_access_token()
+        return user_integration
     return None
 
 

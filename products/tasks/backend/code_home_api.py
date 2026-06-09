@@ -1,6 +1,7 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import cast
 
+from django.db import transaction
 from django.utils import timezone
 
 from rest_framework import status, viewsets
@@ -24,7 +25,7 @@ RUNNING_STATUSES = (TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 _AUTH_CLASSES = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
 
 
-def _epoch_ms(dt) -> int:
+def _epoch_ms(dt: datetime) -> int:
     return int(dt.timestamp() * 1000)
 
 
@@ -69,35 +70,40 @@ class CodeWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         expected_version = request.data.get("expectedVersion")
         bindings = config_in.get("bindings") or {}
 
-        current = self._get_or_seed()
-        if not isinstance(expected_version, int) or current.version != expected_version:
-            return Response(
-                {"status": "conflict", "config": _serialize_config(current)},
-                status=status.HTTP_409_CONFLICT,
-            )
+        self._get_or_seed()  # ensure the row exists before we lock it
 
-        result = validate_bindings(bindings)
-        if not result.can_save:
-            return Response(
-                {
-                    "status": "invalid",
-                    "config": _serialize_config(current),
-                    "diagnostics": [_serialize_diagnostic(d) for d in result.diagnostics],
-                },
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
+        with transaction.atomic():
+            current = CodeWorkflowConfig.objects.select_for_update().get(team=self.team, user=self.request.user)
+            if not isinstance(expected_version, int) or current.version != expected_version:
+                return Response(
+                    {"status": "conflict", "config": _serialize_config(current)},
+                    status=status.HTTP_409_CONFLICT,
+                )
 
-        current.bindings = bindings
-        current.version = current.version + 1
-        current.save(update_fields=["bindings", "version", "updated_at"])
+            result = validate_bindings(bindings)
+            if not result.can_save:
+                return Response(
+                    {
+                        "status": "invalid",
+                        "config": _serialize_config(current),
+                        "diagnostics": [_serialize_diagnostic(d) for d in result.diagnostics],
+                    },
+                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                )
+
+            current.bindings = bindings
+            current.version = current.version + 1
+            current.save(update_fields=["bindings", "version", "updated_at"])
         return Response({"status": "saved", "config": _serialize_config(current)})
 
     @action(detail=False, methods=["post"], url_path="reset", required_scopes=["task:write"])
     def reset(self, request, **kwargs):
-        config = self._get_or_seed()
-        config.bindings = build_default_bindings()
-        config.version = config.version + 1
-        config.save(update_fields=["bindings", "version", "updated_at"])
+        self._get_or_seed()  # ensure the row exists before we lock it
+        with transaction.atomic():
+            config = CodeWorkflowConfig.objects.select_for_update().get(team=self.team, user=self.request.user)
+            config.bindings = build_default_bindings()
+            config.version = config.version + 1
+            config.save(update_fields=["bindings", "version", "updated_at"])
         return Response(_serialize_config(config))
 
 
@@ -189,6 +195,7 @@ class CodeHomeViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @action(detail=False, methods=["post"], url_path="refresh", required_scopes=["task:write"])
     def refresh(self, request, **kwargs):
+        # Deferred import keeps the heavy temporalio dependency off the module import path.
         from .temporal.code_workstreams.client import trigger_team_code_workstreams_evaluation
 
         started = trigger_team_code_workstreams_evaluation(self.team.id)

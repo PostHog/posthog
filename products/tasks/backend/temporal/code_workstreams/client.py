@@ -1,8 +1,8 @@
-import asyncio
 import logging
 
 from django.conf import settings
 
+from asgiref.sync import async_to_sync
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -17,14 +17,12 @@ def trigger_team_code_workstreams_evaluation(team_id: int) -> bool:
     client = sync_connect()
     workflow_id = f"evaluate-team-code-workstreams-ondemand-{team_id}"
     try:
-        asyncio.run(
-            client.start_workflow(
-                "evaluate-team-code-workstreams",
-                EvaluateTeamCodeWorkstreamsInput(team_id=team_id),
-                id=workflow_id,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                task_queue=settings.TASKS_TASK_QUEUE,
-            )
+        async_to_sync(client.start_workflow)(  # type: ignore[misc]
+            "evaluate-team-code-workstreams",  # type: ignore[arg-type]
+            EvaluateTeamCodeWorkstreamsInput(team_id=team_id),  # type: ignore[arg-type]
+            id=workflow_id,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            task_queue=settings.TASKS_TASK_QUEUE,
         )
         return True
     except WorkflowAlreadyStartedError:
