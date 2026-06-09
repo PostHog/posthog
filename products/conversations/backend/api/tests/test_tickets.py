@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 
 from posthog.test.base import (
@@ -23,7 +24,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import ActivityLog, Comment, Organization, User
+from posthog.models import ActivityLog, Comment, Organization, Tag, User
 from posthog.models.person import Person
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
@@ -57,6 +58,55 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    def _ticket_with_tags(self, *tag_names):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="-".join(tag_names) or "untagged",
+            distinct_id="user-123",
+            status=Status.NEW,
+        )
+        for name in tag_names:
+            tag, _ = Tag.objects.get_or_create(name=name, team_id=self.team.id)
+            ticket.tagged_items.create(tag=tag)
+        return ticket
+
+    def _list_ids(self, **params):
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/", data=params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return {r["id"] for r in response.json()["results"]}
+
+    def test_filter_tags_all_and_exclude(self, mock_on_commit):
+        t_ab = str(self._ticket_with_tags("alpha", "beta").id)
+        t_a = str(self._ticket_with_tags("alpha").id)
+        t_bc = str(self._ticket_with_tags("beta", "gamma").id)
+
+        # `tags` is unchanged: OR (any of the listed tags).
+        self.assertEqual(self._list_ids(tags=json.dumps(["alpha", "beta"])), {t_ab, t_a, t_bc})
+
+        # `tags_all` is AND: must carry every listed tag.
+        self.assertEqual(self._list_ids(tags_all=json.dumps(["alpha", "beta"])), {t_ab})
+
+        # `tags_exclude` is NOT: drops tickets carrying any listed tag.
+        exclude_ids = self._list_ids(tags_exclude=json.dumps(["gamma"]))
+        self.assertIn(t_ab, exclude_ids)
+        self.assertIn(t_a, exclude_ids)
+        self.assertNotIn(t_bc, exclude_ids)
+
+        # The groups compose with AND: has alpha, not beta.
+        self.assertEqual(
+            self._list_ids(tags_all=json.dumps(["alpha"]), tags_exclude=json.dumps(["beta"])),
+            {t_a},
+        )
+
+        # Malformed JSON is ignored, not a 500 (mirrors the `tags` param).
+        self.assertEqual(
+            self.client.get(
+                f"/api/projects/{self.team.id}/conversations/tickets/", data={"tags_all": "not-json"}
+            ).status_code,
+            status.HTTP_200_OK,
+        )
 
     def test_list_tickets_only_returns_team_tickets(self, mock_on_commit):
         other_ticket = Ticket.objects.create_with_number(
