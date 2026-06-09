@@ -181,7 +181,7 @@ Filter a step down to a stage with a HogQL property filter over the table's colu
       "id_field": "id",
       "timestamp_field": "period_start",
       "aggregation_target_field": "organization_id",
-      "properties": [{ "kind": "EventPropertyFilter", "type": "hogql", "key": "classification = 'startup'" }]
+      "properties": [{ "type": "hogql", "key": "classification = 'startup'" }]
     },
     {
       "kind": "FunnelsDataWarehouseNode",
@@ -191,7 +191,7 @@ Filter a step down to a stage with a HogQL property filter over the table's colu
       "id_field": "id",
       "timestamp_field": "period_start",
       "aggregation_target_field": "organization_id",
-      "properties": [{ "kind": "EventPropertyFilter", "type": "hogql", "key": "classification = 'standard'" }]
+      "properties": [{ "type": "hogql", "key": "classification = 'standard'" }]
     }
   ],
   "funnelsFilter": { "funnelOrderType": "ordered", "funnelWindowInterval": 60, "funnelWindowIntervalUnit": "month" }
