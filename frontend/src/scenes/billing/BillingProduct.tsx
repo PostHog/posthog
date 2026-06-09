@@ -386,9 +386,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         Need additional platform and support (aka enterprise) features like{' '}
                                         <b>SAML SSO</b>, <b>advanced permissioning</b>, and more?{' '}
                                         <Link
-                                            onClick={() =>
-                                                openSupportForm({ kind: 'support', target_area: 'billing' })
-                                            }
+                                            onClick={() => openSupportForm({ kind: 'support', target_area: 'billing' })}
                                         >
                                             Get in touch
                                         </Link>{' '}
