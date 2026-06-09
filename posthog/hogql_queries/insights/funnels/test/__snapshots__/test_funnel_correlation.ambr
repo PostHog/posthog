@@ -1246,7 +1246,7 @@
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
             funnel_actors.steps AS steps,
-            arrayJoin(arrayConcat([tuple('Total_Values_In_Query', '', '')], if(isNull(event_table.event), [], arrayMap(prop -> tuple(event_table.event, prop.1, prop.2), JSONExtractKeysAndValues(event_table.properties, 'String'))))) AS prop
+            arrayJoin(arrayConcat([tuple('Total_Values_In_Query', '', '')], if(empty(event_table.event), [], arrayMap(prop -> tuple(event_table.event, prop.1, prop.2), JSONExtractKeysAndValues(event_table.properties, 'String'))))) AS prop
      FROM funnel_actors
      LEFT JOIN events AS event_table ON and(equals(event_table.team_id, 99999), and(equals(funnel_actors.actor_id, event_table.`$group_1`), greaterOrEquals(toTimeZone(toDateTime(toTimeZone(event_table.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(toTimeZone(toDateTime(toTimeZone(event_table.timestamp, 'UTC'), 'UTC'), 'UTC'), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC'))), equals(event_table.team_id, 99999), greater(toTimeZone(toDateTime(toTimeZone(event_table.timestamp, 'UTC'), 'UTC'), 'UTC'), funnel_actors.first_timestamp), less(toTimeZone(toDateTime(toTimeZone(event_table.timestamp, 'UTC'), 'UTC'), 'UTC'), coalesce(funnel_actors.final_timestamp, plus(toTimeZone(funnel_actors.first_timestamp, 'UTC'), toIntervalDay(14)), assumeNotNull(toDateTime('2020-01-14 23:59:59', 'UTC')))), notIn(event_table.event, tuple('paid', 'user signed up')), in(event_table.event, tuple('positively_related', 'negatively_related')))))
   GROUP BY name,

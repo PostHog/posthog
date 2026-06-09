@@ -573,9 +573,11 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 allow_denormalized_props=False,
                 table_alias="event_table",
             )
+            # With join_use_nulls=0 (our default), unmatched LEFT JOIN rows yield '' for
+            # event_table.event rather than NULL, so guard with empty() instead of isNull().
             event_property_array_query = f"""
                 if(
-                    isNull(event_table.event),
+                    empty(event_table.event),
                     [],
                     [tuple(event_table.event, 'elements_chain', concat({event_type_expression}, '{self.ELEMENTS_DIVIDER}', event_table.elements_chain))]
                 )
@@ -583,7 +585,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         else:
             event_property_array_query = """
                 if(
-                    isNull(event_table.event),
+                    empty(event_table.event),
                     [],
                     arrayMap(prop -> tuple(event_table.event, prop.1, prop.2), JSONExtractKeysAndValues(event_table.properties, 'String'))
                 )
