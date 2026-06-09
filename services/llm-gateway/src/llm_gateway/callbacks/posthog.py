@@ -29,6 +29,11 @@ _LITELLM_INTERNAL_METADATA_KEYS = frozenset({
     "endpoint",
     "user_api_key",
     "user_api_key_hash",
+    "user_api_key_alias",
+    "user_api_key_team_id",
+    "user_api_key_org_id",
+    "user_api_key_user_id",
+    "user_api_key_end_user_id",
 })
 
 
