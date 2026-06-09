@@ -24,6 +24,11 @@ class RechargeEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     partition_key: Optional[str] = "created_at"
     supports_incremental: bool = True
+    # Whether the list endpoint accepts a `sort_by` query param. The 2021-11 API
+    # dropped `sort_by` for `/products` (it isn't in the sorting reference for
+    # this version), so sending it returns a 422. Endpoints without sort support
+    # rely on cursor pagination for ordering instead.
+    supports_sort: bool = True
     # Default sort field used when not syncing incrementally. Recharge accepts
     # `<field>-asc` / `<field>-desc`; `id-asc` is a stable monotonic order that
     # avoids page-boundary skips/dupes when rows are inserted mid-sync.
@@ -81,10 +86,15 @@ RECHARGE_ENDPOINTS: dict[str, RechargeEndpointConfig] = {
         path="/onetimes",
         incremental_fields=_UPDATED_AND_CREATED,
     ),
+    # `/products` on the 2021-11 API only accepts cursor pagination + `limit`/
+    # `ids` — unlike 2021-01 it exposes neither `sort_by` nor a `*_min` timestamp
+    # filter, so sending either returns a 422. Full-refresh, cursor-ordered only.
     "products": RechargeEndpointConfig(
         name="products",
         path="/products",
-        incremental_fields=_UPDATED_AND_CREATED,
+        incremental_fields=[],
+        supports_incremental=False,
+        supports_sort=False,
     ),
     "payment_methods": RechargeEndpointConfig(
         name="payment_methods",
