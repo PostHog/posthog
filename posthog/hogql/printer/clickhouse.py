@@ -266,12 +266,6 @@ class ClickHousePrinter(BasePrinter):
             date = args[3] if len(args) > 3 and args[3] else "today()"
             db = django_settings.CLICKHOUSE_DATABASE
             scale = EXCHANGE_RATE_DECIMAL_PRECISION
-            # The dictionary's `rate` attribute is Decimal64(scale); dictGetOrDefault always returns the
-            # attribute type, so the default literal must be Decimal64 (a Decimal128 default would be cast
-            # back down to Decimal64 before returning — it does not widen the result). The promotion to
-            # Decimal128 (38 significant digits, far wider integer range than Decimal64's ~10^8 at scale 10,
-            # which otherwise overflows when summing converted amounts) happens via the amount cast and
-            # safe_from_rate below: ClickHouse unifies the two if() branches to Decimal128.
             from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, {scale}))"
             to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, {scale}))"
             # Use if() around divisor to avoid division by zero — with enable_analyzer=0, the old analyzer evaluates all branches regardless of condition.
