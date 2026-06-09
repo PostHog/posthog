@@ -191,6 +191,14 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
     resources it inspects (binds path params), so it runs on a deep copy and
     never touches the stored manifest.
 
+    On top of the engine's rules, nesting is capped at one level: a parent must
+    itself be top-level. The engine supports deeper chains, but each extra level
+    multiplies the per-sync request volume by the parent's row count and every
+    ancestor full-scans on every run — and no shipped fan-out source (PostHog
+    built-ins, or any of Airbyte's declarative connectors) uses more than one
+    level. Starting strict is deliberately cheap to relax later; loosening the
+    cap is backwards-compatible, tightening it would break stored manifests.
+
     Returns the engine's parent-resolution map (resource name -> resolve param,
     ``None`` for top-level resources) so callers that need it — the probe's
     child filter — don't rebuild the graph.
@@ -198,7 +206,6 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
     try:
         graph, _, resolved = _build_resource_graph(manifest)
         list(graph.static_order())
-        return resolved
     except KeyError as exc:
         # A resolve param missing "resource"/"field" raises KeyError from deep
         # inside the engine — surface it as a validation error, not a 500.
@@ -210,6 +217,17 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
         raise ManifestValidationError(f"Resources form a dependency cycle: {rendered}") from exc
     except (ValueError, NotImplementedError) as exc:
         raise ManifestValidationError(str(exc)) from exc
+
+    for name, resolved_param in resolved.items():
+        if resolved_param is None:
+            continue
+        parent = resolved_param.resolve_config["resource"]
+        if resolved.get(parent) is not None:
+            raise ManifestValidationError(
+                f"Resource {name!r} depends on {parent!r}, which itself depends on another resource — "
+                "a resource can only depend on a top-level resource (one level of nesting)"
+            )
+    return resolved
 
 
 def _format_validation_errors(exc: ValidationError) -> str:

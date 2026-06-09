@@ -149,30 +149,18 @@ function splitCsv(value: string): string[] {
 }
 
 /**
- * Names of every stream that (transitively) depends on `rootName` via
- * `parent_stream`. Used to keep the parent options cycle-free: a stream can't
- * pick itself or any of its own descendants as a parent.
+ * Names of the streams that `streams[index]` may depend on: named, not itself,
+ * and top-level — nesting is capped at one level (a stream that already has a
+ * parent can't be a parent itself), mirroring the backend validation. This also
+ * makes cycles structurally impossible to build in the UI.
  */
-export function descendantStreamNames(streams: StreamForm[], rootName: string): Set<string> {
-    const childrenByParent = new Map<string, string[]>()
-    for (const stream of streams) {
-        const parent = stream.parent_stream.trim()
-        if (parent && stream.name.trim()) {
-            childrenByParent.set(parent, [...(childrenByParent.get(parent) ?? []), stream.name])
-        }
-    }
-    const descendants = new Set<string>()
-    const queue = [rootName]
-    while (queue.length > 0) {
-        const current = queue.shift() as string
-        for (const child of childrenByParent.get(current) ?? []) {
-            if (!descendants.has(child)) {
-                descendants.add(child)
-                queue.push(child)
-            }
-        }
-    }
-    return descendants
+export function eligibleParentStreams(streams: StreamForm[], index: number): string[] {
+    return streams
+        .filter(
+            (other, otherIndex) =>
+                otherIndex !== index && other.name.trim().length > 0 && other.parent_stream.trim().length === 0
+        )
+        .map((other) => other.name)
 }
 
 /**

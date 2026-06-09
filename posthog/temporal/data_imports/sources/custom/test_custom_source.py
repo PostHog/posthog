@@ -880,6 +880,20 @@ def _break_missing_resolve_resource(m: dict) -> None:
     del m["resources"][1]["endpoint"]["params"]["form_id"]["resource"]
 
 
+def _break_nested_child(m: dict) -> None:
+    # Grandchild: nesting is capped at one level — a parent must be top-level.
+    m["resources"].append(
+        {
+            "name": "answers",
+            "primary_key": "id",
+            "endpoint": {
+                "path": "/responses/{response_token}/answers",
+                "params": {"response_token": {"type": "resolve", "resource": "responses", "field": "token"}},
+            },
+        }
+    )
+
+
 class TestCustomSourceFanoutValidation(SimpleTestCase):
     def test_accepts_valid_fanout(self):
         validate_manifest(_fanout_manifest())
@@ -892,6 +906,7 @@ class TestCustomSourceFanoutValidation(SimpleTestCase):
             ("multiple_resolve_params", _break_multiple_resolve_params),
             ("missing_resolve_field", _break_missing_resolve_field),
             ("missing_resolve_resource", _break_missing_resolve_resource),
+            ("nested_child", _break_nested_child),
         ]
     )
     def test_rejects_invalid_fanout(self, _name, break_manifest):
@@ -912,6 +927,16 @@ class TestCustomSourceFanoutValidation(SimpleTestCase):
         message = str(ctx.exception)
         assert "dependency cycle" in message
         assert not message.startswith("(")
+
+    def test_nested_child_error_message_names_the_resources(self):
+        manifest = _fanout_manifest()
+        _break_nested_child(manifest)
+        with self.assertRaises(ManifestValidationError) as ctx:
+            validate_manifest(manifest)
+        message = str(ctx.exception)
+        assert "'answers'" in message
+        assert "'responses'" in message
+        assert "one level of nesting" in message
 
     def test_validate_credentials_rejects_broken_graph(self):
         # Graph errors must block create/update — that's where they're fixable.
@@ -935,6 +960,9 @@ class TestFanoutChain(SimpleTestCase):
         assert _fanout_chain(manifest, "responses") == [parent, child]
 
     def test_multi_level_chain(self):
+        # Create-time validation rejects nesting beyond one level, but the sync
+        # path must still walk a deeper chain correctly if a stored manifest
+        # carries one (e.g. written before the cap existed).
         manifest = _fanout_manifest()
         # grandchild: /forms/{form_id}/responses/{response_token}/answers, resolving `responses`.
         manifest["resources"].append(

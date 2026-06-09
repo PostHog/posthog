@@ -1,6 +1,6 @@
 import {
     buildManifest,
-    descendantStreamNames,
+    eligibleParentStreams,
     extractAuthSecrets,
     ManifestState,
     parseManifestIntoState,
@@ -508,21 +508,20 @@ describe('fan-out (parent/child)', () => {
         expect('params' in manifest.resources[0].endpoint).toBe(false)
     })
 
-    it('lists transitive descendants for cycle-free parent options', () => {
+    it('offers only top-level streams as parents — one level of nesting, no cycles', () => {
         const state = childState()
         state.streams.push({
-            ...state.streams[1],
-            id: 'stream-answers',
-            name: 'answers',
-            path: '/responses/{response_token}/answers',
-            parent_stream: 'responses',
-            parent_resolve_field: 'token',
-            parent_path_param: 'response_token',
-            include_from_parent: '',
+            ...state.streams[0],
+            id: 'stream-users',
+            name: 'users',
+            path: '/users',
         })
-        expect(descendantStreamNames(state.streams, 'forms')).toEqual(new Set(['responses', 'answers']))
-        expect(descendantStreamNames(state.streams, 'responses')).toEqual(new Set(['answers']))
-        expect(descendantStreamNames(state.streams, 'answers')).toEqual(new Set())
+        // The child stream may pick either top-level stream, but not itself.
+        expect(eligibleParentStreams(state.streams, 1)).toEqual(['forms', 'users'])
+        // A top-level stream can't pick the child (it has a parent) — so mutual
+        // cycles and grandchildren are unbuildable.
+        expect(eligibleParentStreams(state.streams, 0)).toEqual(['users'])
+        expect(eligibleParentStreams(state.streams, 2)).toEqual(['forms'])
     })
 
     it('renaming a parent stream follows through to its children', () => {

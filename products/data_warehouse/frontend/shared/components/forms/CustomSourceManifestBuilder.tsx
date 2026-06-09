@@ -13,7 +13,7 @@ import {
     type AuthType,
     CURSOR_TYPES,
     type CursorType,
-    descendantStreamNames,
+    eligibleParentStreams,
     type HeaderEntry,
     type ManifestState,
     type Paginator,
@@ -290,15 +290,10 @@ function HeadersSection({
     )
 }
 
-// A stream can't depend on itself or on any of its own descendants — that
-// would be a dependency cycle, which the backend rejects at save.
+// Only top-level streams are offered as parents — nesting is capped at one
+// level (backend-enforced), which also makes cycles unbuildable in the UI.
 function parentOptionsFor(streams: StreamForm[], index: number): { value: string; label: string }[] {
-    const descendants = descendantStreamNames(streams, streams[index].name)
-    return streams
-        .filter(
-            (other, otherIndex) => otherIndex !== index && other.name.trim().length > 0 && !descendants.has(other.name)
-        )
-        .map((other) => ({ value: other.name, label: other.name }))
+    return eligibleParentStreams(streams, index).map((name) => ({ value: name, label: name }))
 }
 
 function StreamCard({
