@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-28 17:11:00 UTC
+// Generated at: 2026-06-09 11:02:10 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -20,10 +20,12 @@ export type CanonicalProvider =
     | 'ambient-fp8'
     | 'anthropic'
     | 'anthropic-2'
+    | 'anthropic-claude-on-aws'
     | 'arcee-ai'
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
     | 'azure'
+    | 'azure-eu'
     | 'azure-swedencentral'
     | 'azure-us-east-2'
     | 'baidu-fp4'
@@ -38,7 +40,6 @@ export type CanonicalProvider =
     | 'cloudflare-fp8'
     | 'cohere'
     | 'crucible'
-    | 'crucible-fast'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'
@@ -48,7 +49,7 @@ export type CanonicalProvider =
     | 'deepseek'
     | 'dekallm-bf16'
     | 'dekallm-fp8'
-    | 'featherless'
+    | 'digitalocean'
     | 'fireworks'
     | 'friendli'
     | 'gmicloud-bf16'
@@ -86,7 +87,7 @@ export type CanonicalProvider =
     | 'nebius-base'
     | 'nebius-fp4'
     | 'nebius-fp8'
-    | 'nebius-int4'
+    | 'nex-agi-fp8'
     | 'nextbit-bf16'
     | 'nextbit-fp8'
     | 'nextbit-int4'
@@ -97,6 +98,7 @@ export type CanonicalProvider =
     | 'novita-fp8'
     | 'nvidia'
     | 'nvidia-bf16'
+    | 'open-inference-bf16'
     | 'open-inference-int8'
     | 'openai'
     | 'openai-default'
@@ -104,7 +106,6 @@ export type CanonicalProvider =
     | 'parasail-fp4'
     | 'parasail-fp8'
     | 'parasail-int4'
-    | 'parasail-int8'
     | 'perceptron'
     | 'perplexity'
     | 'phala'

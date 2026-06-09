@@ -96,6 +96,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "is_cached": False,
             "insight": None,
             "button_tile": None,
+            "widget": None,
             "show_description": None,
             "transparent_background": None,
         }

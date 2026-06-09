@@ -39,8 +39,8 @@ export const getCoreEventsListUrl = (projectId: string, params?: CoreEventsListP
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/core_events/?${stringifiedParams}`
-        : `/api/environments/${projectId}/core_events/`
+        ? `/api/projects/${projectId}/core_events/?${stringifiedParams}`
+        : `/api/projects/${projectId}/core_events/`
 }
 
 /**
@@ -61,7 +61,7 @@ export const coreEventsList = async (
 }
 
 export const getCoreEventsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/core_events/`
+    return `/api/projects/${projectId}/core_events/`
 }
 
 /**
@@ -84,7 +84,7 @@ export const coreEventsCreate = async (
 }
 
 export const getCoreEventsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/core_events/${id}/`
+    return `/api/projects/${projectId}/core_events/${id}/`
 }
 
 /**
@@ -105,7 +105,7 @@ export const coreEventsRetrieve = async (
 }
 
 export const getCoreEventsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/core_events/${id}/`
+    return `/api/projects/${projectId}/core_events/${id}/`
 }
 
 /**
@@ -129,7 +129,7 @@ export const coreEventsUpdate = async (
 }
 
 export const getCoreEventsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/core_events/${id}/`
+    return `/api/projects/${projectId}/core_events/${id}/`
 }
 
 /**
@@ -153,7 +153,7 @@ export const coreEventsPartialUpdate = async (
 }
 
 export const getCoreEventsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/core_events/${id}/`
+    return `/api/projects/${projectId}/core_events/${id}/`
 }
 
 /**

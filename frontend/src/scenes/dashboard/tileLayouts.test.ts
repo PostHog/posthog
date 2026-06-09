@@ -115,6 +115,30 @@ describe('calculating tile layouts', () => {
         expect(ys.every((y, i) => i === 0 || y > ys[i - 1])).toBe(true)
     })
 
+    it.each([
+        {
+            name: 'uses default widget minH when catalog omits minH',
+            widgetType: 'unknown_widget',
+            expectedMinH: 4,
+            expectedMinW: 6,
+        },
+    ])('$name', ({ widgetType, expectedMinH, expectedMinW }) => {
+        const tiles: DashboardTile<QueryBasedInsightModel>[] = [
+            {
+                id: 1,
+                widget: { widget_type: widgetType, config: {} },
+                layouts: { sm: { i: '1', x: 0, y: 0, w: 6, h: 5 } },
+            } as unknown as DashboardTile<QueryBasedInsightModel>,
+        ]
+
+        const result = calculateLayouts(tiles)
+
+        expect(result.sm?.[0]?.minH).toBe(expectedMinH)
+        expect(result.xs?.[0]?.minH).toBe(expectedMinH)
+        expect(result.sm?.[0]?.minW).toBe(expectedMinW)
+        expect(result.xs?.[0]?.minW).toBe(expectedMinW)
+    })
+
     it('xs follows sm dirty-placement order when no tiles have stored sm layouts', () => {
         const tiles: DashboardTile<QueryBasedInsightModel>[] = [
             textTileWithLayout({} as Record<DashboardLayoutSize, TileLayout>, 1),

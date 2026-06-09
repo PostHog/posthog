@@ -45,14 +45,16 @@ DOTFILES_URI_PARAMETER = "dotfiles_uri"
 DOTFILES_BRANCH_PARAMETER = "dotfiles_branch"
 JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
 
-# Region selector. The template defines `workspace_region` with a us-east-1
-# default; eu-central-1 became a valid option when the EU infrastructure went
-# live. The value is immutable after creation, but it must still be forwarded
-# on `coder update` and the parameter sync -- when a template author changes a
-# parameter's allowed values, Coder re-prompts existing workspaces for that
-# parameter regardless of `--use-parameter-defaults`, and the prompt is not
-# bypassable by any flag. Pinning the current value short-circuits the picker.
-# Valid values match the template contract exactly.
+# Create-time region selector. The template defines `workspace_region` with a
+# us-east-1 default; eu-central-1 became a valid option when the EU
+# infrastructure went live. The value is immutable after creation, so it is
+# forwarded on `coder create` only -- never on `coder update` or the pre-start
+# parameter sync. Coder carries an immutable parameter's value forward on its
+# own during an update and *rejects* any explicit `--parameter
+# workspace_region=` with "parameter is immutable and cannot be updated". The
+# option-change re-prompt that no flag can bypass only applies to *mutable*
+# parameters, so forwarding the region here breaks every resume instead of
+# suppressing a picker. Valid values match the template contract exactly.
 WORKSPACE_REGION_PARAMETER = "workspace_region"
 REGIONS = ("us-east-1", "eu-central-1")
 DEFAULT_REGION = REGIONS[0]

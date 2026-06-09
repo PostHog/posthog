@@ -139,6 +139,7 @@ class CreateNotebookTool(MaxTool):
                 artifact=artifact,
                 blocks=blocks,
                 title=title,
+                state_messages=self._state.messages,
             )
 
         # Build response message

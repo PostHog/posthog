@@ -61,8 +61,11 @@ test.describe('SQL Editor', () => {
         })
 
         test('Add source link', async ({ page }) => {
+            // Add source opens the new-source page in a new browser tab
+            const popupPromise = page.context().waitForEvent('page')
             await page.getByTestId('sql-editor-add-source').click()
-            await expect(page).toHaveURL(/.*\/data-warehouse\/new-source/)
+            const newSourceTab = await popupPromise
+            await expect(newSourceTab).toHaveURL(/.*\/data-warehouse\/new-source/)
         })
 
         test('Run query', async ({ page }) => {

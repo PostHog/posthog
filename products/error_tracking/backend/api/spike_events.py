@@ -1,7 +1,4 @@
-from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
-
-from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
@@ -30,7 +27,6 @@ class ErrorTrackingSpikeEventSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-@extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingSpikeEventViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
     serializer_class = ErrorTrackingSpikeEventSerializer

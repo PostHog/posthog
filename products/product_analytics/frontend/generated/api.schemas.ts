@@ -432,12 +432,13 @@ export interface HogQLQueryModifiersApi {
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     optimizeJoinedFilters?: boolean | null
     optimizeProjections?: boolean | null
-    /** HogQL parser backend; absent → `cpp_with_rust_py_shadow` (cpp is primary, rust-py runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
+    /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
     parserMode?: ParserModeApi | null
     personsArgMaxVersion?: PersonsArgMaxVersionApi | null
     personsJoinMode?: PersonsJoinModeApi | null
     personsOnEventsMode?: PersonsOnEventsModeApi | null
     propertyGroupsMode?: PropertyGroupsModeApi | null
+    pushDownPredicates?: boolean | null
     s3TableUseInvalidColumns?: boolean | null
     /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
     sessionIdPushdown?: boolean | null
@@ -788,6 +789,8 @@ export interface DataWarehouseSyncWarningApi {
     message: string
     /** Name of the ExternalDataSchema responsible for syncing the table */
     schema_name: string
+    /** ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables. */
+    source_id?: string | null
     /** Source type, e.g. "Stripe", "Hubspot" */
     source_type: string
     /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
@@ -810,6 +813,8 @@ export interface TrendsQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: TrendsQueryResponseApiResultsItem[]
@@ -1554,6 +1559,7 @@ export interface TrendsFilterApi {
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: TrendsFilterApiResultCustomizations
     showAlertThresholdLines?: boolean | null
+    showAnnotations?: boolean | null
     showConfidenceIntervals?: boolean | null
     showLabelsOnSeries?: boolean | null
     showLegend?: boolean | null
@@ -1563,6 +1569,8 @@ export interface TrendsFilterApi {
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
     smoothingIntervals?: number | null
+    /** On the horizontal bar-value chart, stack a series' breakdown values into a single bar instead of rendering one bar per breakdown value. */
+    stackBreakdownValues?: boolean | null
     /** Custom label rendered under the X axis. */
     xAxisLabel?: string | null
     /** Custom label rendered alongside the Y axis. */
@@ -1875,9 +1883,13 @@ export interface FunnelsFilterApi {
     /** Goal Lines */
     goalLines?: GoalLineApi[] | null
     hiddenLegendBreakdowns?: string[] | null
+    /** Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent tail of the trend isn't dragged down by entrants who still have time to convert. */
+    hideIncompleteConversionWindowPeriods?: boolean | null
     layout?: FunnelLayoutApi | null
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: FunnelsFilterApiResultCustomizations
+    /** Whether to render annotations on the chart. Only applies to historical-trends funnels. */
+    showAnnotations?: boolean | null
     /** Display linear regression trend lines on the chart (only for historical trends viz) */
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
@@ -1893,6 +1905,8 @@ export interface FunnelsQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
@@ -2064,6 +2078,8 @@ export interface RetentionQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: RetentionResultApi[]
@@ -2347,6 +2363,8 @@ export interface PathsQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: PathsLinkApi[]
@@ -2418,6 +2436,8 @@ export interface StickinessQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: StickinessQueryResponseApiResultsItem[]
@@ -2553,6 +2573,8 @@ export interface LifecycleQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: LifecycleQueryResponseApiResultsItem[]
@@ -2776,6 +2798,8 @@ export interface WebStatsTableQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
@@ -2866,6 +2890,8 @@ export interface WebOverviewQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: WebOverviewItemApi[]
@@ -2993,6 +3019,8 @@ export interface ResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[][]
@@ -3017,6 +3045,8 @@ export interface Response1Api {
     offset: number
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[][]
@@ -3041,6 +3071,8 @@ export interface Response2Api {
     offset: number
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[][]
@@ -3100,6 +3132,8 @@ export interface Response3Api {
     query?: string | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
@@ -3122,6 +3156,8 @@ export interface Response4Api {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: WebOverviewItemApi[]
@@ -3147,6 +3183,8 @@ export interface Response5Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
@@ -3173,6 +3211,8 @@ export interface Response6Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
@@ -3197,6 +3237,8 @@ export interface Response7Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
@@ -3232,6 +3274,8 @@ export interface Response8Api {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     /**
@@ -3259,6 +3303,8 @@ export interface Response9Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
@@ -3282,6 +3328,8 @@ export interface Response10Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[][]
@@ -3302,6 +3350,8 @@ export interface Response11Api {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
@@ -3321,6 +3371,8 @@ export interface Response12Api {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
@@ -3348,6 +3400,8 @@ export interface Response13Api {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: RevenueAnalyticsMRRQueryResultItemApi[]
@@ -3380,6 +3434,8 @@ export interface Response14Api {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: RevenueAnalyticsOverviewItemApi[]
@@ -3399,6 +3455,8 @@ export interface Response15Api {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
@@ -3421,6 +3479,8 @@ export interface Response16Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
@@ -3454,6 +3514,8 @@ export interface Response18Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: MarketingAnalyticsItemApi[][]
@@ -3476,6 +3538,8 @@ export interface Response19Api {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: Response19ApiResults
@@ -3499,6 +3563,8 @@ export interface Response20Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: MarketingAnalyticsItemApi[][]
@@ -3545,13 +3611,13 @@ export type IntegrationKindApi = (typeof IntegrationKindApi)[keyof typeof Integr
 
 export const IntegrationKindApi = {
     Slack: 'slack',
-    SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
     Hubspot: 'hubspot',
     GooglePubsub: 'google-pubsub',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GoogleAds: 'google-ads',
+    GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     LinkedinAds: 'linkedin-ads',
     Snapchat: 'snapchat',
@@ -3645,6 +3711,8 @@ export interface Response21Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: ErrorTrackingIssueApi[]
@@ -3690,6 +3758,8 @@ export interface Response22Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: ErrorTrackingCorrelatedIssueApi[]
@@ -3837,6 +3907,8 @@ export interface Response25Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: LLMTraceApi[]
@@ -3859,12 +3931,42 @@ export interface Response26Api {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
+}
+
+export interface Response27Api {
+    columns: unknown[]
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    kind?: 'AccountsQuery'
+    limit: number
+    /** When `metrics` is set on the query, the aggregated values in the same order. */
+    metricsResults?: (number | null)[] | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset: number
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: unknown[][]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    types: string[]
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
@@ -4004,6 +4106,8 @@ export interface EventsQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[][]
@@ -4035,6 +4139,8 @@ export interface ActorsQueryResponseApi {
     offset: number
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[][]
@@ -4298,6 +4404,8 @@ export interface FunnelCorrelationResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: FunnelCorrelationResultApi
@@ -4826,6 +4934,8 @@ export interface HogQLQueryResponseApi {
     query?: string | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
@@ -4855,7 +4965,7 @@ export type HogQLQueryApiValues = { [key: string]: unknown } | null
 export type HogQLQueryApiVariables = { [key: string]: HogQLVariableApi } | null
 
 export interface HogQLQueryApi {
-    /** Optional direct external data source id for running against a specific source */
+    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
     connectionId?: string | null
     explain?: boolean | null
     filters?: HogQLFiltersApi | null
@@ -4923,6 +5033,8 @@ export interface GroupsQueryResponseApi {
     offset: number
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[][]
@@ -4963,6 +5075,8 @@ export interface WebExternalClicksTableQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
@@ -5022,6 +5136,8 @@ export interface WebGoalsQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
@@ -5141,6 +5257,8 @@ export interface WebVitalsPathBreakdownQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     /**
@@ -5228,6 +5346,8 @@ export interface SessionAttributionExplorerQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
@@ -5265,6 +5385,8 @@ export interface SessionsQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[][]
@@ -5406,6 +5528,8 @@ export interface RevenueAnalyticsGrossRevenueQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
@@ -5439,6 +5563,8 @@ export interface RevenueAnalyticsMetricsQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
@@ -5472,6 +5598,8 @@ export interface RevenueAnalyticsMRRQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: RevenueAnalyticsMRRQueryResultItemApi[]
@@ -5504,6 +5632,8 @@ export interface RevenueAnalyticsOverviewQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: RevenueAnalyticsOverviewItemApi[]
@@ -5543,6 +5673,8 @@ export interface RevenueAnalyticsTopCustomersQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
@@ -5578,6 +5710,8 @@ export interface RevenueExampleEventsQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
@@ -5613,6 +5747,8 @@ export interface RevenueExampleDataWarehouseTablesQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown
@@ -5936,6 +6072,8 @@ export interface MarketingAnalyticsTableQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: MarketingAnalyticsItemApi[][]
@@ -6006,6 +6144,8 @@ export interface MarketingAnalyticsAggregatedQueryResponseApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: MarketingAnalyticsAggregatedQueryResponseApiResults
@@ -6069,6 +6209,8 @@ export interface NonIntegratedConversionsTableQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: MarketingAnalyticsItemApi[][]
@@ -6169,6 +6311,8 @@ export interface ErrorTrackingQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: ErrorTrackingIssueApi[]
@@ -6232,6 +6376,8 @@ export interface ErrorTrackingIssueCorrelationQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: ErrorTrackingCorrelatedIssueApi[]
@@ -6339,6 +6485,8 @@ export interface TracesQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: LLMTraceApi[]
@@ -6408,6 +6556,8 @@ export interface TraceQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: LLMTraceApi[]
@@ -6502,6 +6652,8 @@ export interface EndpointsUsageTableQueryResponseApi {
     offset?: number | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponseApi | null
     results: unknown[]
@@ -6526,6 +6678,58 @@ export interface EndpointsUsageTableQueryApi {
     offset?: number | null
     orderBy?: (EndpointsUsageOrderByFieldApi | EndpointsUsageOrderByDirectionApi)[] | null
     response?: EndpointsUsageTableQueryResponseApi | null
+    tags?: QueryLogTagsApi | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export interface AccountsQueryResponseApi {
+    columns: unknown[]
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    kind?: 'AccountsQuery'
+    limit: number
+    /** When `metrics` is set on the query, the aggregated values in the same order. */
+    metricsResults?: (number | null)[] | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset: number
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: unknown[][]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    types: string[]
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
+}
+
+export interface AccountsQueryApi {
+    accountExecutive?: string | number | null
+    accountOwner?: string | number | null
+    allRolesUnassigned?: boolean | null
+    csm?: string | number | null
+    /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
+    filterExpression?: string | null
+    kind?: 'AccountsQuery'
+    limit?: number | null
+    /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
+    metrics?: string[] | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    orderBy?: string[] | null
+    response?: AccountsQueryResponseApi | null
+    search?: string | null
+    select?: string[] | null
+    tagNames?: string[] | null
     tags?: QueryLogTagsApi | null
     /** version of the node, used for schema migrations */
     version?: number | null
@@ -6559,6 +6763,7 @@ export type DataTableNodeApiResponse =
     | Response24Api
     | Response25Api
     | Response26Api
+    | Response27Api
     | null
 
 export interface DataTableNodeApi {
@@ -6665,6 +6870,7 @@ export interface DataTableNodeApi {
         | TracesQueryApi
         | TraceQueryApi
         | EndpointsUsageTableQueryApi
+        | AccountsQueryApi
     tags?: QueryLogTagsApi | null
     /** version of the node, used for schema migrations */
     version?: number | null
@@ -6944,6 +7150,13 @@ export const EffectivePrivilegeLevelEnumApi = {
     Number37: 37,
 } as const
 
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
+
 /**
  * @nullable
  */
@@ -7051,6 +7264,8 @@ export interface InsightApi {
     readonly alerts: readonly unknown[]
     /** @nullable */
     readonly last_viewed_at: string | null
+    /** How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
 export interface PaginatedInsightListApi {
@@ -7169,6 +7384,8 @@ export interface PatchedInsightApi {
     readonly alerts?: readonly unknown[]
     /** @nullable */
     readonly last_viewed_at?: string | null
+    /** How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 
 export interface ChangeApi {
@@ -7314,6 +7531,8 @@ export interface TrendingInsightApi {
     readonly user_access_level: string | null
     /** @nullable */
     readonly last_viewed_at: string | null
+    /** How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
     /** Number of distinct viewers in the time window. Higher values indicate insights that more people in the project actively look at, which is a strong proxy for which insights matter. */
     readonly view_count: number
     /** Up to 3 of the most recent users who viewed this insight in the time window. */
@@ -7432,7 +7651,7 @@ Background calculation can be tracked using the `query_status` response field.
      */
     saved?: boolean
     /**
-     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     * Search term matched across name, derived_name, description, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches together in one list, ordered exact-first; each result's `search_match_type` is `exact` or `similar`.
      */
     search?: string
     short_id?: string

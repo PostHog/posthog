@@ -722,6 +722,7 @@ async fn parity_leader_strong_get_person() {
         person_id: 42,
         read_options: Some(ReadOptions {
             consistency: ConsistencyLevel::Strong.into(),
+            ..Default::default()
         }),
     };
     let raw_req = with_consistency(
@@ -801,6 +802,7 @@ async fn parity_leader_person_not_found() {
         person_id: 999,
         read_options: Some(ReadOptions {
             consistency: ConsistencyLevel::Strong.into(),
+            ..Default::default()
         }),
     };
     let raw_req = with_consistency(

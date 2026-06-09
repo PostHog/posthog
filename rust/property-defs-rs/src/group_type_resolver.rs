@@ -145,6 +145,7 @@ impl GroupTypeResolver {
             team_ids: unique_team_ids,
             read_options: Some(ReadOptions {
                 consistency: consistency.into(),
+                ..Default::default()
             }),
         });
         let metadata = request.metadata_mut();

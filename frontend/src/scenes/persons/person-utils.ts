@@ -131,14 +131,18 @@ export function coercePropertyValue(value: string | number | boolean | null): st
     return result
 }
 
-export const asLink = (person?: PersonPropType | null): string | undefined =>
-    person?.distinct_id
+export const asLink = (person?: PersonPropType | null): string | undefined => {
+    if (!person?.properties) {
+        return undefined
+    }
+    return person.distinct_id
         ? urls.personByDistinctId(person.distinct_id)
-        : person?.distinct_ids?.length
+        : person.distinct_ids?.length
           ? urls.personByDistinctId(person.distinct_ids[0])
-          : person?.id
+          : person.id
             ? urls.personByUUID(person.id)
             : undefined
+}
 
 /**
  * Parse a row from the HogQL person query into a PersonType.

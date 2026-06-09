@@ -10,16 +10,20 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import VitallySourceConfig
 from posthog.temporal.data_imports.sources.vitally.settings import (
+    CUSTOM_OBJECT_SCHEMA_PREFIX,
     ENDPOINTS as VITALLY_ENDPOINTS,
     INCREMENTAL_FIELDS as VITALLY_INCREMENTAL_FIELDS,
+    UPDATED_AT_INCREMENTAL_FIELD,
 )
 from posthog.temporal.data_imports.sources.vitally.vitally import (
+    list_custom_object_definitions,
     validate_credentials as validate_vitally_credentials,
     vitally_source,
 )
@@ -41,7 +45,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        schemas = [
+        schemas: list[SourceSchema] = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=VITALLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
@@ -50,6 +54,38 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
             )
             for endpoint in VITALLY_ENDPOINTS
         ]
+
+        # Discover custom objects and expose one schema per object so users can sync the
+        # underlying records. The static `Custom_Objects` endpoint only returns the
+        # definitions; instances live at `/resources/customObjects/:id/instances`.
+        # Skip the outbound request when the caller only wants static schemas, and never
+        # let a discovery failure take down the static endpoints that need no network call.
+        if names is None or any(name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for name in names):
+            try:
+                definitions = list_custom_object_definitions(
+                    config.secret_token, config.region.selection, config.region.subdomain
+                )
+            except Exception as e:
+                capture_exception(e)
+                definitions = []
+
+            for definition in definitions:
+                machine_name = definition.get("name")
+                if not machine_name:
+                    continue
+                schema_name = f"{CUSTOM_OBJECT_SCHEMA_PREFIX}{machine_name}"
+                if schema_name in VITALLY_ENDPOINTS:
+                    continue
+                schemas.append(
+                    SourceSchema(
+                        name=schema_name,
+                        label=definition.get("label") or machine_name,
+                        supports_incremental=True,
+                        supports_append=True,
+                        incremental_fields=[UPDATED_AT_INCREMENTAL_FIELD],
+                    )
+                )
+
         if names is not None:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]

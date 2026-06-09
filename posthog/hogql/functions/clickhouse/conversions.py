@@ -43,6 +43,7 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "_toInt16": HogQLFunctionMeta("toInt16", 1, 1),
     "_toInt32": HogQLFunctionMeta("toInt32", 1, 1),
     "_toInt64": HogQLFunctionMeta("toInt64", 1, 1),
+    "_toUInt8": HogQLFunctionMeta("toUInt8", 1, 1, signatures=[((UnknownType(),), IntegerType())]),
     "_toUInt64": HogQLFunctionMeta("toUInt64", 1, 1, signatures=[((UnknownType(),), IntegerType())]),
     "_toUInt128": HogQLFunctionMeta("toUInt128", 1, 1),
     "toFloat": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),

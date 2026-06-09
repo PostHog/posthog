@@ -1,4 +1,4 @@
-import type { Series, TooltipConfig } from 'lib/hog-charts'
+import type { Series, TooltipConfig } from '@posthog/quill-charts'
 
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
 

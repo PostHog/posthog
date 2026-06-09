@@ -76,7 +76,7 @@ export function getExposureConfigDisplayName(config: ExperimentExposureConfig): 
 
 export function getVariantColor(variantKey: string, featureFlagVariants: MultivariateFlagVariant[]): string {
     const variantIndex = featureFlagVariants.findIndex((v) => v.key === variantKey)
-    return variantIndex !== -1 ? getSeriesColor(variantIndex) : 'var(--text-muted)'
+    return variantIndex !== -1 ? getSeriesColor(variantIndex) : 'var(--muted)'
 }
 
 export function formatUnitByQuantity(value: number, unit: string): string {
@@ -950,15 +950,4 @@ export function getOrderedMetricsWithResults(
             displayIndex: index,
             metricIndex: originalIndexMap.get(metric.uuid) ?? index, // Original position for retry
         }))
-}
-
-export function matchesSharedMetricSearch(
-    metric: { name: string; description?: string; tags?: string[] },
-    searchLower: string
-): boolean {
-    return (
-        metric.name.toLowerCase().includes(searchLower) ||
-        (metric.description?.toLowerCase().includes(searchLower) ?? false) ||
-        (metric.tags?.some((tag) => tag.toLowerCase().includes(searchLower)) ?? false)
-    )
 }

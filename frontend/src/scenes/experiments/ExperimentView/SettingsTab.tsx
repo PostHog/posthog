@@ -15,6 +15,7 @@ import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getCupedSelection, resolveCupedEnabled, resolveCupedLookbackDays } from './cuped'
 import { CupedModal } from './CupedModal'
+import { resolveSequentialEnabled } from './sequential'
 import { StatsMethodModal } from './StatsMethodModal'
 
 export function SettingsTab(): JSX.Element {
@@ -40,6 +41,12 @@ export function SettingsTab(): JSX.Element {
         DEFAULT_LOOKBACK_DAYS
     )
 
+    const teamDefaultSequentialEnabled = experimentsConfig?.default_sequential_testing_enabled ?? false
+    const sequentialEnabled = resolveSequentialEnabled(
+        experiment.stats_config?.frequentist,
+        teamDefaultSequentialEnabled
+    )
+
     const returnTo = urls.experiment(experiment.id)
 
     // Only show alerts section for saved experiments, as the alert relies on experiment.id for filtering
@@ -52,6 +59,7 @@ export function SettingsTab(): JSX.Element {
                 <div className="flex items-center gap-2">
                     <span>
                         {isBayesian ? 'Bayesian' : 'Frequentist'} / {confidenceDisplay}
+                        {!isBayesian && sequentialEnabled && ' · Sequential testing'}
                     </span>
                     <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openStatsEngineModal} />
                 </div>

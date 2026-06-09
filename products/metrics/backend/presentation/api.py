@@ -9,7 +9,7 @@ import datetime as dt
 from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError
@@ -21,7 +21,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
 
-from products.metrics.backend.facade.api import query_metric, team_has_metrics
+from products.metrics.backend.facade.api import list_metric_names, query_metric, team_has_metrics
 
 __all__ = ["MetricsViewSet"]
 
@@ -58,6 +58,17 @@ class _MetricQueryResponseSerializer(serializers.Serializer):
     results = _MetricQueryPointSerializer(many=True, help_text="Time-bucketed points, ordered by time ascending.")
 
 
+class _MetricNameSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Metric name as it appears in the team's data.")
+    metric_type = serializers.CharField(
+        help_text="OTel metric type (gauge, sum, histogram, summary, exponential_histogram)."
+    )
+
+
+class _MetricNamesResponseSerializer(serializers.Serializer):
+    results = _MetricNameSerializer(many=True, help_text="Distinct metric names ordered by recent activity.")
+
+
 @extend_schema(tags=["metrics"])
 class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "metrics"
@@ -78,6 +89,42 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         return Response({"hasMetrics": has_metrics}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "value",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                description="Substring filter (case-insensitive) applied to metric names.",
+            ),
+            OpenApiParameter(
+                "limit",
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                description="Max number of names to return. Defaults to 100, capped at 1000.",
+            ),
+        ],
+        responses={200: _MetricNamesResponseSerializer},
+    )
+    @action(detail=False, methods=["GET"], required_scopes=["metrics:read"])
+    def values(self, request: Request, *args, **kwargs) -> Response:
+        """Distinct metric names for the team. Backs the picker UI."""
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        search = request.query_params.get("value") or ""
+        limit_raw = request.query_params.get("limit") or "100"
+        try:
+            limit = int(limit_raw)
+        except ValueError:
+            raise ParseError("limit must be an integer")
+
+        try:
+            results = list_metric_names(team=self.team, search=search, limit=limit)
+        except ValueError as exc:
+            raise ParseError(str(exc))
+
+        return Response({"results": results}, status=status.HTTP_200_OK)
 
     @extend_schema(request=_MetricQueryRequestSerializer, responses={200: _MetricQueryResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["metrics:read"])

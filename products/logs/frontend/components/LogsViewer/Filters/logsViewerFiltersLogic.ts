@@ -1,3 +1,4 @@
+import equal from 'fast-deep-equal'
 import { actions, afterMount, kea, key, listeners, path, propsChanged, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
@@ -5,7 +6,13 @@ import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/
 import { dayjs } from 'lib/dayjs'
 
 import { DateRange, LogSeverityLevel, LogsQuery } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator, UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
+import {
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
+} from '~/types'
 
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { zoomDateRange } from 'products/logs/frontend/components/LogsViewer/Filters/zoom-utils'
@@ -24,6 +31,37 @@ export const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 export interface LogsViewerFiltersLogicProps {
     id: string
     initialFilters?: Partial<LogsViewerFilters>
+    // Filters enforced by the embedding scene (e.g. the person profile Logs tab pins
+    // a distinct_id filter so the tab can't fall back to project-wide logs). Kept
+    // entirely separate from the user-editable `filterGroup` — combined with it only
+    // at query-build time via `queryFilterGroup` so the chips never see them and
+    // can't drift when the pinned shape changes (e.g. `logs_distinct_id_attribute_key`
+    // resolves to a non-default key after mount).
+    pinnedFilters?: UniversalFiltersGroup
+}
+
+// Combines the user-editable filterGroup with pinned filters (prepended to the inner
+// AND group). Used at query-build time and for taxonomic value suggestions so the
+// query and suggestion stay scoped, without putting pinned filters into editable state.
+export function combineWithPinnedFilters(
+    filterGroup: UniversalFiltersGroup,
+    pinnedFilters: UniversalFiltersGroup | undefined
+): UniversalFiltersGroup {
+    if (!pinnedFilters?.values?.length) {
+        return filterGroup
+    }
+    const inner = filterGroup.values[0] as UniversalFiltersGroup | undefined
+    const innerValues = inner?.values ?? []
+    return {
+        ...filterGroup,
+        values: [
+            {
+                type: FilterLogicalOperator.And,
+                values: [...pinnedFilters.values, ...innerValues],
+            } as UniversalFiltersGroup,
+            ...filterGroup.values.slice(1),
+        ],
+    }
 }
 
 export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
@@ -47,6 +85,11 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             filters,
             pushToHistory,
         }),
+
+        // Mirror of the `pinnedFilters` prop into state so consumers (LogsFilterBar)
+        // can read it via useValues without going through the kea selector input-prop
+        // machinery (which doesn't accept optional props).
+        setPinnedFilters: (pinnedFilters: UniversalFiltersGroup | undefined) => ({ pinnedFilters }),
 
         zoomDateRange: (multiplier: number) => ({ multiplier }),
 
@@ -107,6 +150,12 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
                 setFilterGroup: (_, { openFilterOnInsert }) => openFilterOnInsert,
             },
         ],
+        pinnedFilters: [
+            undefined as UniversalFiltersGroup | undefined,
+            {
+                setPinnedFilters: (_, { pinnedFilters }) => pinnedFilters,
+            },
+        ],
     }),
 
     selectors({
@@ -120,6 +169,15 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
                 serviceNames: LogsQuery['serviceNames'],
                 filterGroup: UniversalFiltersGroup
             ): LogsViewerFilters => ({ dateRange, searchTerm, severityLevels, serviceNames, filterGroup }),
+        ],
+        // Combined view used for query payloads and taxonomic value suggestions —
+        // user-editable `filterGroup` with pinned filters prepended. Pinned filters
+        // intentionally never enter `filterGroup` itself so chips and saved views
+        // can't pick them up.
+        queryFilterGroup: [
+            (s) => [s.filterGroup, s.pinnedFilters],
+            (filterGroup: UniversalFiltersGroup, pinnedFilters: UniversalFiltersGroup | undefined) =>
+                combineWithPinnedFilters(filterGroup, pinnedFilters),
         ],
         utcDateRange: [
             (s) => [s.dateRange],
@@ -177,11 +235,20 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
                 false
             )
         }
+        // Mirror the prop into state when content changes (e.g. switching between
+        // people on the person profile, or the team's pinned attribute key resolving
+        // after mount). Deep-equal check avoids redundant updates on identical re-renders.
+        if (!equal(logicProps.pinnedFilters, oldProps.pinnedFilters)) {
+            actions.setPinnedFilters(logicProps.pinnedFilters)
+        }
     }),
 
     afterMount(({ actions, props: logicProps }) => {
         if (logicProps.initialFilters) {
             actions.setFilters(logicProps.initialFilters, false)
+        }
+        if (logicProps.pinnedFilters) {
+            actions.setPinnedFilters(logicProps.pinnedFilters)
         }
     }),
 ])

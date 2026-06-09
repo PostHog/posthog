@@ -80,7 +80,6 @@ function makeProps(overrides: Partial<RequestProperties> = {}): RequestPropertie
         projectId: '1',
         requestStartTime: Date.now(),
         transport: 'streamable-http',
-        version: 1,
         ...overrides,
     }
 }
@@ -143,7 +142,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.requestContext.mcpClientName).toBe('Claude Desktop')
         expect(result.sessionContext?.mcpClientName).toBe('claude-code')
         expect(result.clientProfile.clientName).toBe('claude-code')
-        expect(result.clientProfile.isCodingAgent()).toBe(true)
+        expect(result.clientProfile.isCliModeEnabled()).toBe(true)
     })
 
     it('uses cached session client props for instruction capabilities without overwriting request props', async () => {

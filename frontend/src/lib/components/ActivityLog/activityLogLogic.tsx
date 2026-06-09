@@ -18,7 +18,7 @@ import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { actionActivityDescriber } from 'scenes/actions/actionActivityDescriber'
 import { alertConfigurationActivityDescriber } from 'scenes/alerts/activityDescriptions'
 import { annotationActivityDescriber } from 'scenes/annotations/activityDescriptions'
-import { userActivityDescriber } from 'scenes/authentication/activityDescriptions'
+import { userActivityDescriber } from 'scenes/authentication/shared/activityDescriptions'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
 import { dashboardActivityDescriber } from 'scenes/dashboard/dashboardActivityDescriber'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
@@ -50,6 +50,7 @@ import { ActivityScope } from '~/types'
 import { ticketActivityDescriber } from 'products/conversations/frontend/activityDescriber'
 import { externalDataSourceActivityDescriber } from 'products/data_warehouse/frontend/shared/components/activityDescriptions'
 import { endpointActivityDescriber } from 'products/endpoints/frontend/activityDescriber'
+import { signalScoutConfigActivityDescriber } from 'products/signals/frontend/activityDescriber'
 import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows/misc/workflowActivityDescriber'
 
 import type { activityLogLogicType } from './activityLogLogicType'
@@ -186,6 +187,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return productTourActivityDescriber
         case ActivityScope.TICKET:
             return ticketActivityDescriber
+        case ActivityScope.SIGNAL_SCOUT_CONFIG:
+            return signalScoutConfigActivityDescriber
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }
@@ -195,6 +198,8 @@ export type ActivityLogLogicProps = {
     scope: ActivityScope | ActivityScope[]
     // if no id is provided, the list is not scoped by id and shows all activity ordered by time
     id?: number | string
+    // page to load on mount (callers that deep-link into a paginated activity feed)
+    startingPage?: number
 }
 
 export const activityLogLogic = kea<activityLogLogicType>([
@@ -217,9 +222,9 @@ export const activityLogLogic = kea<activityLogLogicType>([
             },
         ],
     })),
-    reducers(() => ({
+    reducers(({ props }) => ({
         page: [
-            1,
+            props.startingPage ?? 1,
             {
                 setPage: (_, { page }) => page,
             },

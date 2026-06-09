@@ -31,6 +31,7 @@ import {
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -239,12 +240,19 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                       },
                   ]
                 : []),
-            {
-                label: 'Schedule',
-                description: 'Run your workflow on a schedule',
-                value: 'schedule',
-                icon: <IconClock />,
-            },
+            // The generic "schedule" trigger is hidden from new workflows. It's only offered when the
+            // current trigger is already a schedule, so existing workflows still render and can be
+            // switched to a different trigger type without crashing.
+            ...(type === 'schedule'
+                ? [
+                      {
+                          label: 'Schedule',
+                          description: 'Run your workflow on a schedule',
+                          value: 'schedule',
+                          icon: <IconClock />,
+                      },
+                  ]
+                : []),
             {
                 label: 'Tracking pixel',
                 description: 'Trigger your workflow using a 1x1 tracking pixel',
@@ -544,7 +552,7 @@ function BatchScheduleSection(): JSX.Element {
     return (
         <>
             <LemonDivider />
-            <LemonLabel>Schedule</LemonLabel>
+            <LemonLabel showOptional>Schedule</LemonLabel>
             <RecurringSchedulePicker />
         </>
     )
@@ -774,6 +782,10 @@ function FrequencySection(): JSX.Element {
 function ConversionGoalSection(): JSX.Element {
     const { setWorkflowValue } = useActions(workflowLogic)
     const { workflow } = useValues(workflowLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const waitUntilEventEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_WAIT_UNTIL_EVENT]
+    const conversionEventFilters = workflow.conversion?.events?.[0]?.filters ?? {}
 
     return (
         <div className="flex flex-col py-2 w-full">
@@ -805,21 +817,36 @@ function ConversionGoalSection(): JSX.Element {
                     />
                 </div>
 
-                <div className="flex flex-col gap-1 items-start">
+                <div className="flex flex-col gap-1 items-start w-full">
                     <LemonLabel>
                         Detect conversion from events
-                        <LemonTag>Coming soon</LemonTag>
+                        {!waitUntilEventEnabled && <LemonTag>Coming soon</LemonTag>}
                     </LemonLabel>
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlusSmall />}
-                        onClick={() => {
-                            posthog.capture('workflows workflow event conversion clicked')
-                            lemonToast.info('Event targeting coming soon!')
-                        }}
-                    >
-                        Add event conversion
-                    </LemonButton>
+                    {waitUntilEventEnabled ? (
+                        <HogFlowEventFilters
+                            filtersKey="workflow-conversion-events"
+                            filters={conversionEventFilters}
+                            setFilters={(newFilters) =>
+                                setWorkflowValue('conversion', {
+                                    ...workflow.conversion,
+                                    events: newFilters ? [{ filters: newFilters }] : undefined,
+                                })
+                            }
+                            typeKey="workflow-conversion-event"
+                            buttonCopy="Add event"
+                        />
+                    ) : (
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlusSmall />}
+                            onClick={() => {
+                                posthog.capture('workflows workflow event conversion clicked')
+                                lemonToast.info('Event targeting coming soon!')
+                            }}
+                        >
+                            Add event conversion
+                        </LemonButton>
+                    )}
                 </div>
             </div>
         </div>

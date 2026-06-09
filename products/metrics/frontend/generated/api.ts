@@ -12,12 +12,14 @@ import type {
     AppMetricsResponseApi,
     AppMetricsTotalsResponseApi,
     MetricsHasMetricsRetrieve200,
+    MetricsValuesRetrieveParams,
+    _MetricNamesResponseApi,
     _MetricQueryRequestApi,
     _MetricQueryResponseApi,
 } from './api.schemas'
 
 export const getEventFilterMetricsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/event_filter/metrics/`
+    return `/api/projects/${projectId}/event_filter/metrics/`
 }
 
 /**
@@ -38,7 +40,7 @@ export const eventFilterMetricsRetrieve = async (
 }
 
 export const getEventFilterMetricsTotalsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/event_filter/metrics/totals/`
+    return `/api/projects/${projectId}/event_filter/metrics/totals/`
 }
 
 /**
@@ -86,5 +88,35 @@ export const metricsQueryCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_metricQueryRequestApi),
+    })
+}
+
+export const getMetricsValuesRetrieveUrl = (projectId: string, params?: MetricsValuesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/metrics/values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/metrics/values/`
+}
+
+/**
+ * Distinct metric names for the team. Backs the picker UI.
+ */
+export const metricsValuesRetrieve = async (
+    projectId: string,
+    params?: MetricsValuesRetrieveParams,
+    options?: RequestInit
+): Promise<_MetricNamesResponseApi> => {
+    return apiMutator<_MetricNamesResponseApi>(getMetricsValuesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }

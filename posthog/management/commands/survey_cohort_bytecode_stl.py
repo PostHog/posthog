@@ -10,7 +10,7 @@ from django.core.management.base import BaseCommand
 
 import structlog
 
-from posthog.models.cohort.cohort import Cohort, CohortType
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_IDENTIFIER_V0, Operation
 

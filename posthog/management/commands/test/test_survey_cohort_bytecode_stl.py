@@ -13,7 +13,8 @@ from posthog.management.commands.survey_cohort_bytecode_stl import (
     iter_bytecode_leaves,
     iter_instructions,
 )
-from posthog.models.cohort.cohort import Cohort, CohortType
+
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 
 from common.hogvm.python.operation import Operation
 

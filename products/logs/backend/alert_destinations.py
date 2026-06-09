@@ -125,6 +125,15 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
 
 EVENT_KINDS: tuple[EventKind, ...] = tuple(EVENT_KIND_CONFIG.keys())
 
+# HogFunction.name is `models.CharField(max_length=400)` — clip rendered names to fit.
+_HOG_FUNCTION_NAME_MAX_LEN = 400
+
+
+def _clip_name(name: str) -> str:
+    if len(name) <= _HOG_FUNCTION_NAME_MAX_LEN:
+        return name
+    return name[: _HOG_FUNCTION_NAME_MAX_LEN - 1] + "…"
+
 
 _SEVERITY_SERVICE_CONTEXT = (
     "{if(length(event.properties.severity_levels) > 0 or length(event.properties.service_names) > 0,"
@@ -195,7 +204,7 @@ def build_slack_config(
         "type": "internal_destination",
         "enabled": True,
         "filters": _filter_for(alert, kind),
-        "name": f"Logs alert — {alert.name} ({spec.display_kind}) → Slack #{channel_display}",
+        "name": _clip_name(f"Logs alert — {alert.name} ({spec.display_kind}) → Slack #{channel_display}"),
         "description": spec.destination_description(alert.name),
         "template_id": "template-slack",
         "inputs": {
@@ -218,7 +227,7 @@ def build_webhook_config(
         "type": "internal_destination",
         "enabled": True,
         "filters": _filter_for(alert, kind),
-        "name": f"Logs alert — {alert.name} ({spec.display_kind}) → Webhook {webhook_url}",
+        "name": _clip_name(f"Logs alert — {alert.name} ({spec.display_kind}) → Webhook {webhook_url}"),
         "description": spec.destination_description(alert.name),
         "template_id": "template-webhook",
         "inputs": {

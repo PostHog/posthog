@@ -1,5 +1,11 @@
 import { Layout } from 'react-grid-layout'
 
+import {
+    DASHBOARD_WIDGET_CATALOG,
+    getDashboardWidgetCatalogEntry,
+    type DashboardWidgetCatalogEntry,
+} from '@posthog/products-dashboards/frontend/widget_types/catalog'
+
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
@@ -15,6 +21,45 @@ export interface TileLayout {
 
 const MIN_TILE_HEIGHT_ROWS = 2
 const MIN_TEXT_TILE_HEIGHT_ROWS = 1
+const MIN_WIDGET_TILE_WIDTH_COLS = 6
+const MIN_WIDGET_TILE_HEIGHT_ROWS = 4
+
+type WidgetCatalogLayout = DashboardWidgetCatalogEntry['defaultLayout']
+
+/**
+ * Widget tile sizing from `DASHBOARD_WIDGET_CATALOG[].defaultLayout` (w, h, minW, minH).
+ * Returns undefined when `widget_type` is missing or unknown; callers use scene fallbacks
+ * (default size 6×5, mins `MIN_WIDGET_TILE_WIDTH_COLS` / `MIN_WIDGET_TILE_HEIGHT_ROWS`).
+ */
+function getWidgetCatalogLayout(widgetType: string | undefined): WidgetCatalogLayout | undefined {
+    if (!widgetType || !(widgetType in DASHBOARD_WIDGET_CATALOG)) {
+        return undefined
+    }
+    return getDashboardWidgetCatalogEntry(widgetType).defaultLayout
+}
+
+function getTileMinDimensions({
+    isTextTile,
+    isButtonTile,
+    isWidgetTile,
+    widgetCatalogLayout,
+}: {
+    isTextTile: boolean
+    isButtonTile: boolean
+    isWidgetTile: boolean
+    widgetCatalogLayout: WidgetCatalogLayout | undefined
+}): { minW: number; minH: number } {
+    if (isTextTile || isButtonTile) {
+        return { minW: 1, minH: MIN_TEXT_TILE_HEIGHT_ROWS }
+    }
+    if (isWidgetTile) {
+        return {
+            minW: widgetCatalogLayout?.minW ?? MIN_WIDGET_TILE_WIDTH_COLS,
+            minH: widgetCatalogLayout?.minH ?? MIN_WIDGET_TILE_HEIGHT_ROWS,
+        }
+    }
+    return { minW: 2, minH: MIN_TILE_HEIGHT_ROWS }
+}
 
 export interface DuplicateLayoutResult {
     duplicateLayouts: { sm?: TileLayout }
@@ -92,6 +137,15 @@ function canPlaceToRight(
     })
 }
 
+export function defaultSmLayoutAtBottom(smLayout: Layout | undefined, w: number, h: number): TileLayout {
+    let maxBottom = 0
+    for (const layout of smLayout ?? []) {
+        maxBottom = Math.max(maxBottom, (layout.y ?? 0) + (layout.h ?? 0))
+    }
+
+    return { x: 0, y: maxBottom, w, h }
+}
+
 export const sortTilesByLayout = (
     tiles: Array<DashboardTile<QueryBasedInsightModel>>,
     col: DashboardLayoutSize
@@ -165,15 +219,24 @@ export const calculateLayouts = (
 
             const isTextTile = !!tile.text
             const isButtonTile = !!tile.button_tile
+            const isWidgetTile = !!tile.widget
+            const widgetCatalogLayout = isWidgetTile ? getWidgetCatalogLayout(tile.widget?.widget_type) : undefined
             if (isButtonTile) {
                 defaultW = 3
                 defaultH = 1
+            } else if (isWidgetTile) {
+                defaultW = widgetCatalogLayout?.w ?? 6
+                defaultH = widgetCatalogLayout?.h ?? 5
             }
             const xsSmH = breakpoint === 'xs' ? tile.layouts?.sm?.h : undefined
             const realW = Math.min(w || defaultW, columnCount)
             const realH = h || (typeof xsSmH === 'number' && xsSmH > 0 ? xsSmH : undefined) || defaultH
-            const minH = isTextTile || isButtonTile ? MIN_TEXT_TILE_HEIGHT_ROWS : MIN_TILE_HEIGHT_ROWS
-            const minW = isTextTile || isButtonTile ? 1 : 2
+            const { minW, minH } = getTileMinDimensions({
+                isTextTile,
+                isButtonTile,
+                isWidgetTile,
+                widgetCatalogLayout,
+            })
 
             return {
                 i: tile.id?.toString(),

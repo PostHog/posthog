@@ -120,6 +120,7 @@ async fn test_get_person_with_strong_consistency_returns_unimplemented() {
         person_id: 1,
         read_options: Some(ReadOptions {
             consistency: ConsistencyLevel::Strong.into(),
+            ..Default::default()
         }),
     });
 
@@ -142,6 +143,7 @@ async fn test_get_person_with_explicit_eventual_consistency_succeeds() {
         person_id: 1,
         read_options: Some(ReadOptions {
             consistency: ConsistencyLevel::Eventual.into(),
+            ..Default::default()
         }),
     });
 

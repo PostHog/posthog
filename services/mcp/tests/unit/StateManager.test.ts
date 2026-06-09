@@ -212,6 +212,68 @@ describe('StateManager', () => {
             expect(await cache.get('projectId')).toBeUndefined()
         })
 
+        it('falls back to the first scoped team when the user has no active team', async () => {
+            // Regression: `/api/users/@me/` returns `team: null` when the user
+            // has no `current_team` (newly provisioned account, left last
+            // org). Reading `.id` on the null team would 500 the whole request
+            // before any tool dispatch.
+            const teamScopedApiKey = {
+                ...mockApiKey,
+                scoped_teams: [123, 456],
+            }
+            const userWithoutCurrent: ApiUser = { ...mockUser, team: null, organization: null }
+
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(teamScopedApiKey)
+            vi.spyOn(stateManager, 'getUser').mockResolvedValue(userWithoutCurrent)
+
+            const result = await stateManager.setDefaultOrganizationAndProject()
+
+            expect(result.projectId).toBe(123)
+            expect(result.organizationId).toBeUndefined()
+        })
+
+        it('falls back to the first scoped org when the user has no active org', async () => {
+            // Same regression for the org-scoped branch: reading
+            // `activeOrganization.id` on null would 500 the request.
+            const scopedOrgApiKey = {
+                ...mockApiKey,
+                scoped_organizations: ['org-3'],
+            }
+            const userWithoutCurrent: ApiUser = { ...mockUser, team: null, organization: null }
+
+            const mockApi = stateManager as any
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
+            vi.spyOn(stateManager, 'getUser').mockResolvedValue(userWithoutCurrent)
+
+            mockApi._api = {
+                organizations: () => ({
+                    projects: () => ({
+                        list: vi.fn().mockResolvedValue({ success: true, data: [789] }),
+                    }),
+                }),
+            }
+
+            const result = await stateManager.setDefaultOrganizationAndProject()
+
+            expect(result.organizationId).toBe('org-3')
+            expect(result.projectId).toBe(789)
+        })
+
+        it('returns empty context when the user has no active org and the key is unscoped', async () => {
+            // With nothing to anchor on (no scoped teams, no scoped orgs, no
+            // current_organization) the resolver should surface a recoverable
+            // missing-context state rather than crash or fabricate an org id.
+            const userWithoutCurrent: ApiUser = { ...mockUser, team: null, organization: null }
+
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(mockApiKey)
+            vi.spyOn(stateManager, 'getUser').mockResolvedValue(userWithoutCurrent)
+
+            const result = await stateManager.setDefaultOrganizationAndProject()
+
+            expect(result.organizationId).toBeUndefined()
+            expect(result.projectId).toBeUndefined()
+        })
+
         it('returns the org alone when the projects fetch fails', async () => {
             const scopedOrgApiKey = {
                 ...mockApiKey,

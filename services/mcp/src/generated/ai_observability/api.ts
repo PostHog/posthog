@@ -9,6 +9,56 @@
 import * as zod from 'zod'
 
 /**
+ * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. Use `refresh=true` to bypass the 5-minute response cache.
+ */
+export const llmAnalyticsPersonalSpendListQueryDateFromDefault = `-30d`
+export const llmAnalyticsPersonalSpendListQueryDateFromMax = 32
+
+export const llmAnalyticsPersonalSpendListQueryDateToMax = 32
+
+export const llmAnalyticsPersonalSpendListQueryLimitDefault = 50
+export const llmAnalyticsPersonalSpendListQueryLimitMax = 200
+
+export const llmAnalyticsPersonalSpendListQueryProductMax = 64
+
+export const llmAnalyticsPersonalSpendListQueryRefreshDefault = false
+
+export const LlmAnalyticsPersonalSpendListQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .min(1)
+        .max(llmAnalyticsPersonalSpendListQueryDateFromMax)
+        .default(llmAnalyticsPersonalSpendListQueryDateFromDefault)
+        .describe(
+            'Start of the spend window. Accepts absolute dates (`2026-04-23`) or relative strings (`-7d`, `-1m`, etc.) — same parser used elsewhere in PostHog. Defaults to `-30d`. The window between `date_from` and `date_to` cannot exceed 90 days.'
+        ),
+    date_to: zod
+        .string()
+        .max(llmAnalyticsPersonalSpendListQueryDateToMax)
+        .nullish()
+        .describe('End of the spend window. Accepts the same formats as `date_from`. Defaults to `now` when omitted.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(llmAnalyticsPersonalSpendListQueryLimitMax)
+        .default(llmAnalyticsPersonalSpendListQueryLimitDefault)
+        .describe(
+            'Maximum number of rows to return per breakdown (1-200, defaults to 50). Each breakdown returns up to this many rows ordered by cost descending. Per-breakdown `truncated: true` indicates more rows exist beyond the limit.'
+        ),
+    product: zod
+        .string()
+        .min(1)
+        .max(llmAnalyticsPersonalSpendListQueryProductMax)
+        .describe(
+            'Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code.'
+        ),
+    refresh: zod
+        .boolean()
+        .default(llmAnalyticsPersonalSpendListQueryRefreshDefault)
+        .describe('If true, bypass the result cache and re-run the underlying queries against ClickHouse.'),
+})
+
+/**
  * Create a new evaluation run.
 
 This endpoint validates the request and enqueues a Temporal workflow
@@ -70,6 +120,12 @@ export const EvaluationsCreateParams = /* @__PURE__ */ zod.object({
 export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsCreateBodyConditionsItemIdMax = 100
+
+export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsCreateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsCreateBodyConditionsItemRolloutPercentageMax = 100
+
 export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 
 export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
@@ -116,10 +172,33 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Output config. For 'boolean' output_type: {allows_na} to permit N/A results."),
     conditions: zod
-        .unknown()
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsCreateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsCreateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsCreateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsCreateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
+        )
         .optional()
         .describe(
-            'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
+            'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
         ),
     model_configuration: zod
         .union([
@@ -170,6 +249,12 @@ export const EvaluationsPartialUpdateParams = /* @__PURE__ */ zod.object({
 export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
+
+export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax = 100
+
 export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 
 export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -218,10 +303,33 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Output config. For 'boolean' output_type: {allows_na} to permit N/A results."),
     conditions: zod
-        .unknown()
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsPartialUpdateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
+        )
         .optional()
         .describe(
-            'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
+            'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
         ),
     model_configuration: zod
         .union([
@@ -1983,54 +2091,4 @@ export const TaggersTestHogCreateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe('Optional tag whitelist. Returned tags outside this list are filtered out.'),
-})
-
-/**
- * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. Use `refresh=true` to bypass the 5-minute response cache.
- */
-export const llmAnalyticsPersonalSpendListQueryDateFromDefault = `-30d`
-export const llmAnalyticsPersonalSpendListQueryDateFromMax = 32
-
-export const llmAnalyticsPersonalSpendListQueryDateToMax = 32
-
-export const llmAnalyticsPersonalSpendListQueryLimitDefault = 50
-export const llmAnalyticsPersonalSpendListQueryLimitMax = 200
-
-export const llmAnalyticsPersonalSpendListQueryProductMax = 64
-
-export const llmAnalyticsPersonalSpendListQueryRefreshDefault = false
-
-export const LlmAnalyticsPersonalSpendListQueryParams = /* @__PURE__ */ zod.object({
-    date_from: zod
-        .string()
-        .min(1)
-        .max(llmAnalyticsPersonalSpendListQueryDateFromMax)
-        .default(llmAnalyticsPersonalSpendListQueryDateFromDefault)
-        .describe(
-            'Start of the spend window. Accepts absolute dates (`2026-04-23`) or relative strings (`-7d`, `-1m`, etc.) — same parser used elsewhere in PostHog. Defaults to `-30d`. The window between `date_from` and `date_to` cannot exceed 90 days.'
-        ),
-    date_to: zod
-        .string()
-        .max(llmAnalyticsPersonalSpendListQueryDateToMax)
-        .nullish()
-        .describe('End of the spend window. Accepts the same formats as `date_from`. Defaults to `now` when omitted.'),
-    limit: zod
-        .number()
-        .min(1)
-        .max(llmAnalyticsPersonalSpendListQueryLimitMax)
-        .default(llmAnalyticsPersonalSpendListQueryLimitDefault)
-        .describe(
-            'Maximum number of rows to return per breakdown (1-200, defaults to 50). Each breakdown returns up to this many rows ordered by cost descending. Per-breakdown `truncated: true` indicates more rows exist beyond the limit.'
-        ),
-    product: zod
-        .string()
-        .min(1)
-        .max(llmAnalyticsPersonalSpendListQueryProductMax)
-        .describe(
-            'Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code.'
-        ),
-    refresh: zod
-        .boolean()
-        .default(llmAnalyticsPersonalSpendListQueryRefreshDefault)
-        .describe('If true, bypass the result cache and re-run the underlying queries against ClickHouse.'),
 })

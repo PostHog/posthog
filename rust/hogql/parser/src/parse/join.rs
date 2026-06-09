@@ -933,6 +933,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// reference is expected. The caller has already consumed the leading
     /// `(` if any; we consume the `VALUES` keyword and emit a ValuesQuery.
     fn parse_values_query(&mut self) -> Result<E::Value, ParseError> {
+        // cpp's `valuesClause` ctx spans `VALUES` through the final row's
+        // `)`, so position from the VALUES keyword to `last_consumed_end`
+        // (after the last `)` the loop consumes) — not the outer parens the
+        // caller strips.
+        let start = self.peek0.start;
         self.expect_kw(Kw::Values, "VALUES")?;
         let mut rows: Vec<E::Value> = Vec::new();
         loop {
@@ -944,7 +949,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 break;
             }
         }
-        Ok(self.emit.values_query(rows))
+        let values = self.emit.values_query(rows);
+        Ok(self.wrap_pos(values, start))
     }
 
     /// `SAMPLE ratioExpr PERCENT? (OFFSET ratioExpr)? (LPAREN ident RPAREN)?`

@@ -11,6 +11,7 @@ from hogli_commands.product import gh as gh_module
 from hogli_commands.product.checks import (
     CheckContext,
     FileFolderConflictsCheck,
+    OrphanedTestFilesCheck,
     PackageJsonScriptsCheck,
     ProductYamlCheck,
     ProductYamlOwnersCheck,
@@ -822,6 +823,8 @@ class TestValidateInterfaceBlocks:
             (["backend\\\\.**"], "overly broad"),
             # Specific submodule — not broad.
             (["backend\\\\.models.*"], None),
+            # Facade + routes — routes is public surface, not a mix.
+            (["backend\\\\.facade.*", "backend\\\\.routes.*"], None),
         ],
         ids=[
             "pure_facade",
@@ -832,6 +835,7 @@ class TestValidateInterfaceBlocks:
             "broad_tach_regex",
             "broad_globstar",
             "specific_submodule",
+            "facade_plus_routes",
         ],
     )
     def test_blocks(self, expose: list[str], expected_issue: str | None) -> None:
@@ -927,3 +931,109 @@ class TestAlternationSorting:
         )
         issues = validate_facade_alternation(tach, tmp_path)
         assert any("not sorted" in i for i in issues)
+
+
+# ---------------------------------------------------------------------------
+# OrphanedTestFilesCheck — ensures every product test file is reachable by
+# either backend:test or a known external runner.
+# ---------------------------------------------------------------------------
+
+
+class TestOrphanedTestFilesCheck:
+    """Verifies the lint catches test files left behind by misconfigured scripts."""
+
+    _orphan_check = OrphanedTestFilesCheck()
+
+    def _ctx(self, tmp_path: Path, *, scripts: dict[str, str] | None = None, name: str = "my_product") -> CheckContext:
+        product_dir = tmp_path / name
+        product_dir.mkdir()
+        backend_dir = product_dir / "backend"
+        backend_dir.mkdir()
+        if scripts is not None:
+            (product_dir / "package.json").write_text(json.dumps({"scripts": scripts}))
+        return CheckContext(
+            name=name,
+            product_dir=product_dir,
+            backend_dir=backend_dir,
+            is_isolated=False,
+            structure={},
+            detailed=False,
+        )
+
+    def test_skip_when_no_test_files(self, tmp_path: Path) -> None:
+        ctx = self._ctx(tmp_path)
+        result = self._orphan_check.run(ctx)
+        assert result.skip is True
+
+    def test_orphan_flagged_when_backend_test_missing(self, tmp_path: Path) -> None:
+        ctx = self._ctx(tmp_path)
+        (ctx.backend_dir / "api" / "test").mkdir(parents=True)
+        (ctx.backend_dir / "api" / "test" / "test_thing.py").write_text("")
+        result = self._orphan_check.run(ctx)
+        assert any("backend/api/test/test_thing.py" in line for line in result.lines)
+        assert result.issues
+
+    def test_no_orphans_when_backend_test_covers(self, tmp_path: Path) -> None:
+        ctx = self._ctx(
+            tmp_path,
+            scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"},
+        )
+        (ctx.backend_dir / "api" / "test").mkdir(parents=True)
+        (ctx.backend_dir / "api" / "test" / "test_thing.py").write_text("")
+        result = self._orphan_check.run(ctx)
+        assert not result.issues
+
+    def test_specific_file_path_in_pytest_does_not_false_flag(self, tmp_path: Path) -> None:
+        ctx = self._ctx(
+            tmp_path,
+            scripts={"backend:test": "pytest backend/test_max_tools.py -v"},
+        )
+        (ctx.backend_dir / "test_max_tools.py").write_text("")
+        result = self._orphan_check.run(ctx)
+        assert not result.issues
+
+    def test_directory_prefix_does_not_eat_unrelated_paths(self, tmp_path: Path) -> None:
+        ctx = self._ctx(
+            tmp_path,
+            scripts={"backend:test": "pytest backend/api"},
+        )
+        (ctx.backend_dir / "api").mkdir()
+        (ctx.backend_dir / "api" / "test_covered.py").write_text("")
+        (ctx.backend_dir / "api_v2").mkdir()
+        (ctx.backend_dir / "api_v2" / "test_uncovered.py").write_text("")
+        result = self._orphan_check.run(ctx)
+        assert any("api_v2/test_uncovered.py" in i for i in result.issues)
+        assert not any("api/test_covered.py" in i for i in result.issues)
+
+    def test_dags_tests_exempted_via_external_runner(self, tmp_path: Path) -> None:
+        # ci-dagster.yml runs `pytest products/**/dags`. The check should not
+        # flag test files under `dags/` even when backend:test doesn't cover them.
+        ctx = self._ctx(tmp_path, scripts={"backend:test": "pytest backend/"})
+        (ctx.product_dir / "dags" / "tests").mkdir(parents=True)
+        (ctx.product_dir / "dags" / "tests" / "test_thing.py").write_text("")
+        result = self._orphan_check.run(ctx)
+        assert not result.issues
+
+    def test_per_product_exemption_applied(self, tmp_path: Path) -> None:
+        # products/tasks/backend/temporal/ is covered by ci-backend.yml Temporal
+        # segment, not the product matrix.
+        ctx = self._ctx(
+            tmp_path,
+            scripts={"backend:test": "pytest backend/tests backend/services"},
+            name="tasks",
+        )
+        (ctx.backend_dir / "temporal" / "tests").mkdir(parents=True)
+        (ctx.backend_dir / "temporal" / "tests" / "test_workflow.py").write_text("")
+        result = self._orphan_check.run(ctx)
+        assert not result.issues
+
+    def test_per_product_exemption_does_not_apply_to_other_products(self, tmp_path: Path) -> None:
+        ctx = self._ctx(
+            tmp_path,
+            scripts={"backend:test": "pytest backend/tests"},
+            name="not_tasks",
+        )
+        (ctx.backend_dir / "temporal" / "tests").mkdir(parents=True)
+        (ctx.backend_dir / "temporal" / "tests" / "test_workflow.py").write_text("")
+        result = self._orphan_check.run(ctx)
+        assert any("backend/temporal/tests/test_workflow.py" in i for i in result.issues)

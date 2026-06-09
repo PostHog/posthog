@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import groupby
 from typing import Any, Optional, cast
 
@@ -504,6 +504,32 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             select=fill_select,
             select_from=fill_select_from,
         )
+
+        if self.context.funnelsFilter.hideIncompleteConversionWindowPeriods:
+            # Drop periods whose conversion window hasn't fully elapsed yet (relative to now), so the
+            # recent tail of the trend isn't dragged down by entrants who still have time to convert.
+            # A period is kept only once its whole interval has cleared the window, i.e. even its last
+            # possible entrant has had the full window: entrance_period_start + interval <= now - window.
+            cutoff = date_range.now_with_timezone - timedelta(seconds=self.conversion_window_limit())
+            cutoff_as_hogql = ast.Call(
+                name="assumeNotNull",
+                args=[ast.Call(name="toDateTime", args=[ast.Constant(value=cutoff.strftime("%Y-%m-%d %H:%M:%S"))])],
+            )
+            period_end = ast.ArithmeticOperation(
+                left=ast.ArithmeticOperation(
+                    left=get_start_of_interval_hogql(interval.value, team=team, source=date_from_as_hogql),
+                    right=ast.Call(name=interval_func, args=[ast.Field(chain=["number"])]),
+                    op=ast.ArithmeticOperationOp.Add,
+                ),
+                right=ast.Call(name=interval_func, args=[ast.Constant(value=1)]),
+                op=ast.ArithmeticOperationOp.Add,
+            )
+            fill_query.where = ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=period_end,
+                right=cutoff_as_hogql,
+            )
+
         return fill_query
 
     def get_step_counts_without_aggregation_query(

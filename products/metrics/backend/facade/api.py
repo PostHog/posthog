@@ -11,6 +11,7 @@ from typing import Any
 from posthog.models import Team
 
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
+from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
 
 
@@ -40,4 +41,20 @@ def query_metric(
         date_from=date_from,
         date_to=date_to,
     )
+    return runner.run()
+
+
+def list_metric_names(
+    *,
+    team: Team,
+    search: str = "",
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """List distinct metric names for the team's picker.
+
+    Returns a list of `{"name": str, "metric_type": str}` dicts ordered by
+    most-recently-seen, with exact-name matches floated to the top.
+    Raises `ValueError` for an out-of-range limit.
+    """
+    runner = MetricNamesQueryRunner(team=team, search=search, limit=limit)
     return runner.run()

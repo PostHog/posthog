@@ -51,7 +51,7 @@ function buildQuery(
                             type: PropertyFilterType.Event,
                             key: 'scanner_output_verdict',
                             operator: PropertyOperator.Exact,
-                            value: 'true',
+                            value: 'yes',
                         },
                     ],
                 },
@@ -145,14 +145,12 @@ function chartTitle(scannerType: ScannerType): string {
 export function ScannerInsightsChart({
     scannerId,
     scannerType,
-    tabId,
 }: {
     scannerId: string
     scannerType: ScannerType
-    tabId: string
 }): JSX.Element {
-    const { chartDateFrom, chartDateTo } = useValues(replayScannerLogic({ id: scannerId, tabId }))
-    const { setChartDateRange } = useActions(replayScannerLogic({ id: scannerId, tabId }))
+    const { chartDateFrom, chartDateTo } = useValues(replayScannerLogic({ id: scannerId }))
+    const { setChartDateRange } = useActions(replayScannerLogic({ id: scannerId }))
     // `tags.productKey` is required for ClickHouse query tagging; without it the runner aborts.
     const source: TrendsQuery = {
         ...buildQuery(scannerId, scannerType, chartDateFrom, chartDateTo),

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSearch } from '@posthog/icons'
+import { IconGear, IconSearch, IconTarget, IconX } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
@@ -31,11 +31,11 @@ const ANALYTICS_TILES = [
 ]
 
 export const WebAnalyticsMenu = (): JSX.Element => {
-    const { shouldFilterTestAccounts, useWebAnalyticsPrecompute, hiddenTiles, productTab } =
+    const { hasSavedFocusMode, hiddenTiles, isFocusModeActive, productTab, showFocusMode, useWebAnalyticsPrecompute } =
         useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { setShouldFilterTestAccounts, setUseWebAnalyticsPrecompute, setTileVisibility } =
+    const { enterFocusMode, exitFocusMode, openFocusModeModal, setUseWebAnalyticsPrecompute, setTileVisibility } =
         useActions(webAnalyticsLogic)
 
     const showTileToggles = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_TOGGLES]
@@ -47,32 +47,43 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                 <Link to={urls.sessionAttributionExplorer()} buttonProps={{ menuItem: true }}>
                     <IconSearch /> Session Attribution Explorer
                 </Link>
-            </ScenePanelActionsSection>
-            <ScenePanelDivider />
-            <ScenePanelActionsSection>
-                <ButtonPrimitive
-                    menuItem
-                    onClick={() => {
-                        setShouldFilterTestAccounts(!shouldFilterTestAccounts)
-                    }}
-                >
-                    <LemonSwitch checked={shouldFilterTestAccounts} size="xsmall" />
-                    Filter out internal and test users
-                </ButtonPrimitive>
-                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE] && (
-                    <Tooltip title="When on, eligible web analytics tiles load from a pre-computed result instead of running a live query. Results are faster but may be a few minutes behind the latest events. Other tiles run live as usual.">
-                        <ButtonPrimitive
-                            menuItem
-                            onClick={() => {
-                                setUseWebAnalyticsPrecompute(!useWebAnalyticsPrecompute)
-                            }}
-                        >
-                            <LemonSwitch checked={useWebAnalyticsPrecompute} size="xsmall" />
-                            Allow precompute
-                        </ButtonPrimitive>
-                    </Tooltip>
+                {showFocusMode && (
+                    <ButtonPrimitive menuItem onClick={() => openFocusModeModal()}>
+                        <IconGear />
+                        Focus mode settings...
+                    </ButtonPrimitive>
                 )}
+                {showFocusMode &&
+                    (isFocusModeActive ? (
+                        <ButtonPrimitive menuItem onClick={exitFocusMode}>
+                            <IconX />
+                            Exit focus mode
+                        </ButtonPrimitive>
+                    ) : hasSavedFocusMode ? (
+                        <ButtonPrimitive menuItem onClick={enterFocusMode}>
+                            <IconTarget />
+                            Enter focus mode
+                        </ButtonPrimitive>
+                    ) : null)}
             </ScenePanelActionsSection>
+            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE] && (
+                <>
+                    <ScenePanelDivider />
+                    <ScenePanelActionsSection>
+                        <Tooltip title="When on, eligible web analytics tiles load from a pre-computed result instead of running a live query. Results are faster but may be a few minutes behind the latest events. Other tiles run live as usual.">
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => {
+                                    setUseWebAnalyticsPrecompute(!useWebAnalyticsPrecompute)
+                                }}
+                            >
+                                <LemonSwitch checked={useWebAnalyticsPrecompute} size="xsmall" />
+                                Allow precompute
+                            </ButtonPrimitive>
+                        </Tooltip>
+                    </ScenePanelActionsSection>
+                </>
+            )}
             {showTileToggles && availableTiles.length > 0 && (
                 <>
                     <ScenePanelDivider />

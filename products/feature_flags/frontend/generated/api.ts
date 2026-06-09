@@ -29,11 +29,9 @@ import type {
     FeatureFlagsAllActivityRetrieveParams,
     FeatureFlagsEvaluationReasonsRetrieveParams,
     FeatureFlagsListParams,
-    FeatureFlagsLocalEvaluationRetrieveParams,
     FeatureFlagsMyFlagsRetrieveParams,
     FlagValueResponseApi,
     FlagValueValuesRetrieveParams,
-    LocalEvaluationResponseApi,
     MyFlagsResponseApi,
     PaginatedFeatureFlagListApi,
     PaginatedScheduledChangeListApi,
@@ -502,7 +500,7 @@ export const featureFlagsBulkDeleteCreate = async (
     })
 }
 
-export const getFeatureFlagsBulkKeysCreateUrl = (projectId: string) => {
+export const getFeatureFlagsBulkKeysRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/feature_flags/bulk_keys/`
 }
 
@@ -510,12 +508,12 @@ export const getFeatureFlagsBulkKeysCreateUrl = (projectId: string) => {
  * Get feature flag keys by IDs.
 Accepts a list of feature flag IDs and returns a mapping of ID to key.
  */
-export const featureFlagsBulkKeysCreate = async (
+export const featureFlagsBulkKeysRetrieve = async (
     projectId: string,
     bulkKeysRequestApi?: BulkKeysRequestApi,
     options?: RequestInit
 ): Promise<BulkKeysResponseApi> => {
-    return apiMutator<BulkKeysResponseApi>(getFeatureFlagsBulkKeysCreateUrl(projectId), {
+    return apiMutator<BulkKeysResponseApi>(getFeatureFlagsBulkKeysRetrieveUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -589,41 +587,6 @@ export const featureFlagsEvaluationReasonsRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getFeatureFlagsEvaluationReasonsRetrieveUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getFeatureFlagsLocalEvaluationRetrieveUrl = (
-    projectId: string,
-    params?: FeatureFlagsLocalEvaluationRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/feature_flags/local_evaluation/?${stringifiedParams}`
-        : `/api/projects/${projectId}/feature_flags/local_evaluation/`
-}
-
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
-export const featureFlagsLocalEvaluationRetrieve = async (
-    projectId: string,
-    params?: FeatureFlagsLocalEvaluationRetrieveParams,
-    options?: RequestInit
-): Promise<LocalEvaluationResponseApi> => {
-    return apiMutator<LocalEvaluationResponseApi>(getFeatureFlagsLocalEvaluationRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

@@ -71,7 +71,7 @@ def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> N
     logger.debug(f"Table size delta in MiB = {table_size_delta:.2f}")
 
     job.storage_delta_mib = table_size_delta
-    job.save()
+    job.save(update_fields=["storage_delta_mib", "updated_at"])
 
     table.size_in_s3_mib = total_mib
     table.save()

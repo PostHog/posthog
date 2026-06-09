@@ -23,9 +23,10 @@ from posthog.schema import (
 
 from posthog.redis import get_async_client
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.utils.types import AssistantOutput
 from ee.hogai.utils.types.base import ApprovalPayload, AssistantStreamedMessageUnion
-from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
 _tracer = trace.get_tracer(__name__)
