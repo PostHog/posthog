@@ -2639,8 +2639,10 @@ email@example.org,
     def test_unrelated_edit_on_cohort_with_stored_minute_leaf_is_allowed(
         self, _patch_calc, _patch_capture, _patch_on_commit
     ):
-        # negation defaults to False on BehavioralFilter, so a re-validated leaf carries it; mirror
-        # the normalized shape a real pre-existing cohort would have stored so the identity matches.
+        # Un-normalized stored leaf: `negation` is omitted, the shape a direct API/import write
+        # produces (the serializer's pydantic dump, which defaults `negation` to False, never ran).
+        # The incoming re-validated leaf WILL carry `negation: False`, so `_leaf_identity` must
+        # normalize both sides or this unrelated edit would spuriously 400.
         minute_leaf = {
             "type": "behavioral",
             "key": "$pageview",
@@ -2650,7 +2652,6 @@ email@example.org,
             "time_interval": "minute",
             "operator": "gte",
             "operator_value": 3,
-            "negation": False,
         }
         stored_filters = {"properties": {"type": "AND", "values": [minute_leaf]}}
         # Seed via the model layer to bypass the serializer gate — only reachable via direct API/import.

@@ -951,7 +951,10 @@ class CohortSerializer(serializers.ModelSerializer):
 
     @staticmethod
     def _leaf_identity(leaf: dict) -> tuple:
-        # Identity over user-meaningful fields; ignores bytecode/conditionHash noise.
+        # Identity over user-meaningful fields; ignores bytecode/conditionHash noise. `negation` is
+        # normalized because the incoming leaves are pydantic-normalized (`negation` defaults to
+        # `False`) while a leaf stored un-normalized (direct API/import) omits it — comparing raw
+        # would read `None != False` and spuriously re-reject an unrelated edit to such a cohort.
         return (
             leaf.get("type"),
             leaf.get("value"),
@@ -961,7 +964,7 @@ class CohortSerializer(serializers.ModelSerializer):
             leaf.get("time_value"),
             leaf.get("operator"),
             leaf.get("operator_value"),
-            leaf.get("negation"),
+            bool(leaf.get("negation", False)),
         )
 
     @classmethod
