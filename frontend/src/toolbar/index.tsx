@@ -79,6 +79,23 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
     })
 }
 
+// A failed `fetch()` throws a generic `TypeError` whose message varies by browser
+// ("Failed to fetch" in Chromium, "NetworkError when attempting to fetch resource."
+// in Firefox, "Load failed" in Safari). These are transient and unactionable, so we
+// detect them to avoid reporting them as exceptions.
+function isNetworkError(error: unknown): boolean {
+    if (!(error instanceof TypeError)) {
+        return false
+    }
+    const message = error.message.toLowerCase()
+    return (
+        message.includes('failed to fetch') ||
+        message.includes('networkerror') ||
+        message.includes('load failed') ||
+        message.includes('network request failed')
+    )
+}
+
 const win = window as any
 win['posthogToolbarController'] = posthogToolbarController
 
@@ -113,7 +130,12 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?:
             })
             .catch((error) => {
                 toolbarLogger.error('flags', 'Error fetching toolbar feature flags')
-                captureToolbarException(error, 'preloaded_flags_fetch')
+                // Transient network failures (ad blockers, navigation aborts, CORS, dropped
+                // connections) surface as a generic `TypeError: Failed to fetch` and are
+                // unactionable, so keep the log above but don't report them as exceptions.
+                if (!isNetworkError(error)) {
+                    captureToolbarException(error, 'preloaded_flags_fetch')
+                }
             })
     }
 
