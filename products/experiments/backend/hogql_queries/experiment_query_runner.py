@@ -643,40 +643,15 @@ class ExperimentQueryRunner(QueryRunner):
 
         num_metric_steps = len(self.metric.series)
 
-        # Validate step range (same validation as before)
-        if funnel_step == -1:
-            # -1 would mean "dropped before first metric step" which is invalid
-            # because we only query exposed users who are already past the exposure checkpoint
-            # Build event names string (handle EventsNode, ActionsNode, and ExperimentDataWarehouseNode)
-            from posthog.schema import ActionsNode, EventsNode
-
-            event_names: list[str] = []
-            for step in self.metric.series[:2]:
-                if isinstance(step, EventsNode):
-                    event_names.append(step.event or "All events")
-                elif isinstance(step, ActionsNode):
-                    event_names.append(f"Action {step.id}")
-                else:  # ExperimentDataWarehouseNode
-                    event_names.append(f"DW table {step.table_name}")
-
-            metric_events_str = " → ".join(event_names)
-            if len(self.metric.series) > 2:
-                metric_events_str += " → ..."
-
-            raise ValidationError(
-                f"Cannot query drop-offs before the first metric step in experiment funnels. "
-                f"Experiment funnel structure: [Exposure → {metric_events_str}]. "
-                f"Drop-offs at funnelStep=-1 would mean 'exposed but never entered the funnel', "
-                f"which cannot be queried through the actors API. "
-                f"Valid drop-off steps: -2 (dropped after first metric step) to -{num_metric_steps + 1}."
-            )
-
-        if funnel_step < -1:
+        # funnelStep=-1 is a valid drop-off: "exposed but never reached the first metric step".
+        # step_reached is 0-indexed with exposure as step 0, so the WHERE clause resolves it to
+        # step_reached == 0 — the exposed users who did not validly enter the funnel.
+        if funnel_step < 0:
             max_drop_off = -(num_metric_steps + 1)
             if funnel_step < max_drop_off:
                 raise ValidationError(
                     f"Invalid drop-off step {funnel_step} for experiment with {num_metric_steps} metric steps. "
-                    f"Valid drop-off steps: -2 (dropped after first metric step) to {max_drop_off}."
+                    f"Valid drop-off steps: -1 (exposed, did not reach first metric step) to {max_drop_off}."
                 )
 
         if funnel_step > num_metric_steps:
