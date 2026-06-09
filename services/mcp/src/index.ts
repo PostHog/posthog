@@ -1,9 +1,10 @@
-import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
+import { MCP_DOCS_URL, getAuthorizationServerUrl } from '@/lib/constants'
 import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
+import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 import type { CloudRegion } from '@/tools/types'
 
 import { RequestProperties } from './mcp'
@@ -167,7 +168,7 @@ const handleRequest = async (
             JSON.stringify({
                 resource: resourceUrl.toString().replace(/\/$/, ''),
                 authorization_servers: [authorizationServer],
-                scopes_supported: OAUTH_SCOPES_SUPPORTED,
+                scopes_supported: getAdvertisedOAuthScopes(),
                 bearer_methods_supported: ['header'],
             }),
             {
