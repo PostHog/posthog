@@ -34,7 +34,18 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
-from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE, DATA_WAREHOUSE_EXPERIMENTS
+from posthog.hogql.database.lazy_join_tags import (
+    DATA_WAREHOUSE,
+    DATA_WAREHOUSE_EXPERIMENTS,
+    ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+    ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
+    EVENTS_TO_SESSIONS_V2,
+    EVENTS_TO_SESSIONS_V3,
+    PERSON_DISTINCT_ID_OVERRIDES,
+    PERSONS,
+    REPLAY_TO_SESSIONS_V2,
+    REPLAY_TO_SESSIONS_V3,
+)
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -79,12 +90,10 @@ from posthog.hogql.database.schema.duckdb_table_functions import GenerateSeriesT
 from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import (
     ErrorTrackingFingerprintIssueStateTable,
     RawErrorTrackingFingerprintIssueStateTable,
-    join_with_error_tracking_fingerprint_issue_state_table,
 )
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
-    join_with_error_tracking_issue_fingerprint_overrides_table,
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
@@ -107,34 +116,20 @@ from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
     RawPersonDistinctIdOverridesTable,
-    join_with_person_distinct_id_overrides_table,
 )
 from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable, RawPersonDistinctIdsTable
-from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable, join_with_persons_table
+from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.pg_embeddings import PgEmbeddingsTable
 from posthog.hogql.database.schema.preaggregation_results import PreaggregationResultsTable
 from posthog.hogql.database.schema.precalculated_events import PrecalculatedEventsTable
 from posthog.hogql.database.schema.precalculated_person_properties import PrecalculatedPersonPropertiesTable
 from posthog.hogql.database.schema.query_log_archive import QueryLogArchiveTable, RawQueryLogArchiveTable
-from posthog.hogql.database.schema.session_replay_events import (
-    RawSessionReplayEventsTable,
-    SessionReplayEventsTable,
-    join_replay_table_to_sessions_table_v2,
-    join_replay_table_to_sessions_table_v3,
-)
+from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable, SessionReplayEventsTable
 from posthog.hogql.database.schema.session_replay_features import SessionReplayFeaturesTable
 from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
-from posthog.hogql.database.schema.sessions_v2 import (
-    RawSessionsTableV2,
-    SessionsTableV2,
-    join_events_table_to_sessions_table_v2,
-)
-from posthog.hogql.database.schema.sessions_v3 import (
-    RawSessionsTableV3,
-    SessionsTableV3,
-    join_events_table_to_sessions_table_v3,
-)
+from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2, SessionsTableV2
+from posthog.hogql.database.schema.sessions_v3 import RawSessionsTableV3, SessionsTableV3
 from posthog.hogql.database.schema.spans import TraceAttributesTable, TraceSpansTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.system import SystemTables
@@ -1215,7 +1210,7 @@ class Database(BaseModel):
                     events_table.fields["person"] = LazyJoin(
                         from_field=["person_id"],
                         join_table=database.get_table("persons"),
-                        join_function=join_with_persons_table,
+                        resolver=PERSONS,
                     )
 
                 _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database)
@@ -1237,14 +1232,14 @@ class Database(BaseModel):
                 events_table.fields["session"] = LazyJoin(
                     from_field=["$session_id"],
                     join_table=sessions,
-                    join_function=join_events_table_to_sessions_table_v2,
+                    resolver=EVENTS_TO_SESSIONS_V2,
                 )
 
                 replay_events = database.get_table("session_replay_events")
                 replay_events.fields["session"] = LazyJoin(
                     from_field=["session_id"],
                     join_table=sessions,
-                    join_function=join_replay_table_to_sessions_table_v2,
+                    resolver=REPLAY_TO_SESSIONS_V2,
                 )
                 cast(LazyJoin, replay_events.fields["events"]).join_table = events_table
 
@@ -1252,7 +1247,7 @@ class Database(BaseModel):
                 raw_replay_events.fields["session"] = LazyJoin(
                     from_field=["session_id"],
                     join_table=sessions,
-                    join_function=join_replay_table_to_sessions_table_v2,
+                    resolver=REPLAY_TO_SESSIONS_V2,
                 )
                 cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
             elif not database._is_direct_query() and modifiers.sessionTableVersion == SessionTableVersion.V3:
@@ -1263,14 +1258,14 @@ class Database(BaseModel):
                 events_table.fields["session"] = LazyJoin(
                     from_field=["$session_id"],
                     join_table=sessions,
-                    join_function=join_events_table_to_sessions_table_v3,
+                    resolver=EVENTS_TO_SESSIONS_V3,
                 )
 
                 replay_events = database.get_table("session_replay_events")
                 replay_events.fields["session"] = LazyJoin(
                     from_field=["session_id"],
                     join_table=sessions,
-                    join_function=join_replay_table_to_sessions_table_v3,
+                    resolver=REPLAY_TO_SESSIONS_V3,
                 )
                 cast(LazyJoin, replay_events.fields["events"]).join_table = events_table
 
@@ -1278,7 +1273,7 @@ class Database(BaseModel):
                 raw_replay_events.fields["session"] = LazyJoin(
                     from_field=["session_id"],
                     join_table=sessions,
-                    join_function=join_replay_table_to_sessions_table_v3,
+                    resolver=REPLAY_TO_SESSIONS_V3,
                 )
                 cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
 
@@ -1698,7 +1693,7 @@ def _use_person_id_from_person_overrides(database: Database) -> None:
     table.fields["override"] = LazyJoin(
         from_field=["distinct_id"],
         join_table=database.get_table("person_distinct_id_overrides"),
-        join_function=join_with_person_distinct_id_overrides_table,
+        resolver=PERSON_DISTINCT_ID_OVERRIDES,
     )
     table.fields["person_id"] = ExpressionField(
         name="person_id",
@@ -1740,7 +1735,7 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
     table.fields["exception_issue_override"] = LazyJoin(
         from_field=["fingerprint"],
         join_table=ErrorTrackingIssueFingerprintOverridesTable(),
-        join_function=join_with_error_tracking_issue_fingerprint_overrides_table,
+        resolver=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
     )
     table.fields["issue_id"] = ExpressionField(name="issue_id", expr=exprs["issue_id"])
 
@@ -1748,7 +1743,7 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
     table.fields["fingerprint_issue_state"] = LazyJoin(
         from_field=["fingerprint"],
         join_table=ErrorTrackingFingerprintIssueStateTable(),
-        join_function=join_with_error_tracking_fingerprint_issue_state_table,
+        resolver=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
     )
     table.fields["issue_id_v2"] = ExpressionField(name="issue_id_v2", expr=exprs["issue_id_v2"])
     table.fields["issue_name"] = ExpressionField(name="issue_name", expr=exprs["issue_name"])

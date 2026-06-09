@@ -1,9 +1,16 @@
 import json
+from collections.abc import Iterator
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, SessionTableVersion
+
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.lazy_join_registry import RESOLVERS, get_lazy_join_resolver
 from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE, FOREIGN_KEY
-from posthog.hogql.database.models import LazyJoin
+from posthog.hogql.database.models import LazyJoin, Table, TableNode
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
 from posthog.hogql.errors import ResolutionError
 
@@ -57,3 +64,85 @@ class TestLazyJoinResolvers(BaseTest):
         lazy_join = LazyJoin(from_field=["id"], join_table="x")
         with self.assertRaises(ResolutionError):
             lazy_join.resolve_join_to_add(None, None, None)  # type: ignore[arg-type]
+
+
+def _walk_lazy_joins(database: Database) -> Iterator[tuple[str, LazyJoin]]:
+    """Yield every LazyJoin reachable from the database's table tree, with its path for error messages."""
+    seen: set[int] = set()
+
+    def walk_field_or_table(path: str, item: object) -> Iterator[tuple[str, LazyJoin]]:
+        if id(item) in seen:
+            return
+        seen.add(id(item))
+        if isinstance(item, LazyJoin):
+            yield path, item
+            if isinstance(item.join_table, Table):
+                yield from walk_field_or_table(f"{path}.<join_table>", item.join_table)
+        elif isinstance(item, Table):
+            for name, field in item.fields.items():
+                yield from walk_field_or_table(f"{path}.{name}", field)
+
+    def walk_node(path: str, node: TableNode) -> Iterator[tuple[str, LazyJoin]]:
+        if node.table is not None:
+            yield from walk_field_or_table(path, node.table)
+        for name, child in node.children.items():
+            yield from walk_node(f"{path}.{name}", child)
+
+    yield from walk_node("", database.tables)
+
+
+class TestBuiltDatabaseSerializable(BaseTest):
+    """The serializability gate: a built Database must describe every lazy join as plain data
+    (a tag listed in the resolver manifest + JSON-able params), never as a Python closure."""
+
+    @parameterized.expand(
+        [
+            ("default", HogQLQueryModifiers()),
+            ("sessions_v3", HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3)),
+            (
+                "poe_overrides_joined",
+                HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+            ),
+        ]
+    )
+    def test_built_database_lazy_joins_carry_no_closures(self, _name: str, modifiers: HogQLQueryModifiers) -> None:
+        database = Database.create_for(team=self.team, modifiers=modifiers)
+
+        lazy_joins = list(_walk_lazy_joins(database))
+        assert len(lazy_joins) > 15  # sanity: the walker actually reached the schema's joins
+
+        for path, lazy_join in lazy_joins:
+            assert lazy_join.join_function is None, f"{path} still holds a join_function closure"
+            assert lazy_join.resolver is not None, f"{path} has no resolver tag"
+            get_lazy_join_resolver(lazy_join.resolver)  # the tag must resolve through the manifest
+            json.dumps(lazy_join.resolver_params)  # params must round-trip through JSON
+
+
+class TestLazyJoinManifest(BaseTest):
+    def test_manifest_is_the_explicit_contract(self):
+        """The manifest is the closed contract a serialized Database depends on. Changing this
+        list changes what consumers of a serialized schema must implement — update deliberately."""
+        assert sorted(RESOLVERS) == [
+            "account_notebooks",
+            "account_tags",
+            "data_warehouse",
+            "data_warehouse_experiments",
+            "error_tracking_fingerprint_issue_state",
+            "error_tracking_issue_fingerprint_overrides",
+            "events_to_sessions_v1",
+            "events_to_sessions_v2",
+            "events_to_sessions_v3",
+            "foreign_key",
+            "group_n",
+            "groups_revenue_analytics",
+            "person_distinct_id_overrides",
+            "person_distinct_ids",
+            "persons",
+            "persons_pdi",
+            "persons_revenue_analytics",
+            "replay_to_console_logs",
+            "replay_to_events",
+            "replay_to_sessions_v1",
+            "replay_to_sessions_v2",
+            "replay_to_sessions_v3",
+        ]

@@ -10,6 +10,7 @@ join subqueries below can be resolved by the planner.
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.lazy_join_tags import ACCOUNT_NOTEBOOKS, ACCOUNT_TAGS
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     FieldOrTable,
@@ -155,11 +156,11 @@ def _account_notebooks_join(join_to_add: LazyJoinToAdd, context: HogQLContext, n
 account_tags_lazy_join: LazyJoin = LazyJoin(
     from_field=["id"],
     join_table=_AccountTagsTable(),
-    join_function=_account_tags_join,
+    resolver=ACCOUNT_TAGS,
 )
 
 account_notebooks_lazy_join: LazyJoin = LazyJoin(
     from_field=["id"],
     join_table=_AccountNotebooksTable(),
-    join_function=_account_notebooks_join,
+    resolver=ACCOUNT_NOTEBOOKS,
 )

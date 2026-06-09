@@ -2,6 +2,30 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from posthog.hogql.database import lazy_join_tags as tags
+from posthog.hogql.database.schema.account_aggregates import _account_notebooks_join, _account_tags_join
+from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import (
+    join_with_error_tracking_fingerprint_issue_state_table,
+)
+from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
+    join_with_error_tracking_issue_fingerprint_overrides_table,
+)
+from posthog.hogql.database.schema.groups import join_with_group_n_table
+from posthog.hogql.database.schema.groups_revenue_analytics import join_with_groups_revenue_analytics_table
+from posthog.hogql.database.schema.person_distinct_id_overrides import join_with_person_distinct_id_overrides_table
+from posthog.hogql.database.schema.person_distinct_ids import join_with_person_distinct_ids_table
+from posthog.hogql.database.schema.persons import join_with_persons_table
+from posthog.hogql.database.schema.persons_pdi import persons_pdi_join
+from posthog.hogql.database.schema.persons_revenue_analytics import join_with_persons_revenue_analytics_table
+from posthog.hogql.database.schema.session_replay_events import (
+    join_replay_table_to_sessions_table_v1,
+    join_replay_table_to_sessions_table_v2,
+    join_replay_table_to_sessions_table_v3,
+    join_with_console_logs_log_entries_table,
+    join_with_events_table,
+)
+from posthog.hogql.database.schema.sessions_v1 import join_events_table_to_sessions_table
+from posthog.hogql.database.schema.sessions_v2 import join_events_table_to_sessions_table_v2
+from posthog.hogql.database.schema.sessions_v3 import join_events_table_to_sessions_table_v3
 from posthog.hogql.database.warehouse_join_resolvers import (
     resolve_data_warehouse_experiments_join,
     resolve_data_warehouse_join,
@@ -28,6 +52,25 @@ RESOLVERS: dict[str, LazyJoinResolver] = {
     tags.FOREIGN_KEY: resolve_foreign_key_join,
     tags.DATA_WAREHOUSE: resolve_data_warehouse_join,
     tags.DATA_WAREHOUSE_EXPERIMENTS: resolve_data_warehouse_experiments_join,
+    tags.PERSONS: join_with_persons_table,
+    tags.PERSONS_PDI: persons_pdi_join,
+    tags.PERSON_DISTINCT_IDS: join_with_person_distinct_ids_table,
+    tags.PERSON_DISTINCT_ID_OVERRIDES: join_with_person_distinct_id_overrides_table,
+    tags.GROUP_N: join_with_group_n_table,
+    tags.GROUPS_REVENUE_ANALYTICS: join_with_groups_revenue_analytics_table,
+    tags.PERSONS_REVENUE_ANALYTICS: join_with_persons_revenue_analytics_table,
+    tags.EVENTS_TO_SESSIONS_V1: join_events_table_to_sessions_table,
+    tags.EVENTS_TO_SESSIONS_V2: join_events_table_to_sessions_table_v2,
+    tags.EVENTS_TO_SESSIONS_V3: join_events_table_to_sessions_table_v3,
+    tags.REPLAY_TO_SESSIONS_V1: join_replay_table_to_sessions_table_v1,
+    tags.REPLAY_TO_SESSIONS_V2: join_replay_table_to_sessions_table_v2,
+    tags.REPLAY_TO_SESSIONS_V3: join_replay_table_to_sessions_table_v3,
+    tags.REPLAY_TO_EVENTS: join_with_events_table,
+    tags.REPLAY_TO_CONSOLE_LOGS: join_with_console_logs_log_entries_table,
+    tags.ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES: join_with_error_tracking_issue_fingerprint_overrides_table,
+    tags.ERROR_TRACKING_FINGERPRINT_ISSUE_STATE: join_with_error_tracking_fingerprint_issue_state_table,
+    tags.ACCOUNT_TAGS: _account_tags_join,
+    tags.ACCOUNT_NOTEBOOKS: _account_notebooks_join,
 }
 
 
