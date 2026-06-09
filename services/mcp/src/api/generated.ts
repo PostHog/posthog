@@ -20342,6 +20342,8 @@ export namespace Schemas {
       _create_in_folder?: string;
       /** @nullable */
       readonly batch_export_id: string | null;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     /**
@@ -20393,6 +20395,8 @@ export namespace Schemas {
       readonly status: HogFunctionStatus | null;
       /** @nullable */
       readonly execution_order: number | null;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface HogInvocationResult {
@@ -30660,6 +30664,8 @@ export namespace Schemas {
       _create_in_folder?: string;
       /** @nullable */
       readonly batch_export_id?: string | null;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
     /**
