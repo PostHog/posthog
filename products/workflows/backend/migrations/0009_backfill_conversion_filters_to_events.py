@@ -20,15 +20,14 @@ def backfill_conversion_filters_to_events(apps, schema_editor):
         conversion = flow.conversion or {}
         filters = conversion.get("filters")
 
-        # A correct conversion.filters is a list (or absent). Only the object form is malformed.
-        if not isinstance(filters, dict):
+        # A valid conversion.filters is a list of property filters. The only malformed shape we fix
+        # is the event object {"events": [...], "source": "events"} that predates conversion.events.
+        # Leave any other shape untouched rather than risk wiping data we don't recognize.
+        if not isinstance(filters, dict) or not filters.get("events"):
             continue
 
         new_conversion = dict(conversion)
-        if filters.get("events"):
-            existing_events = new_conversion.get("events") or []
-            new_conversion["events"] = [*existing_events, {"filters": filters}]
-
+        new_conversion["events"] = [*(new_conversion.get("events") or []), {"filters": filters}]
         new_conversion["filters"] = []
         new_conversion["bytecode"] = []
 
@@ -37,9 +36,6 @@ def backfill_conversion_filters_to_events(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    # Data migration over a potentially large table: don't wrap every row in one transaction.
-    atomic = False
-
     dependencies = [
         ("workflows", "0008_teamworkflowsconfig"),
     ]

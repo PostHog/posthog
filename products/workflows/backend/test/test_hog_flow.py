@@ -61,16 +61,22 @@ class TestHogFlow(TestCase):
         migration.backfill_conversion_filters_to_events(django_apps, None)
 
         bad.refresh_from_db()
-        assert bad.conversion["filters"] == []
-        assert bad.conversion["bytecode"] == []
-        assert bad.conversion["events"] == [{"filters": event_obj}]
+        bad_conversion = bad.conversion
+        assert bad_conversion is not None
+        assert bad_conversion["filters"] == []
+        assert bad_conversion["bytecode"] == []
+        assert bad_conversion["events"] == [{"filters": event_obj}]
 
         good.refresh_from_db()
-        assert good.conversion["filters"] == good_filters
-        assert not good.conversion.get("events")
+        good_conversion = good.conversion
+        assert good_conversion is not None
+        assert good_conversion["filters"] == good_filters
+        assert not good_conversion.get("events")
 
         # Idempotent: a second run must not double-move or change anything.
         migration.backfill_conversion_filters_to_events(django_apps, None)
         bad.refresh_from_db()
-        assert bad.conversion["filters"] == []
-        assert bad.conversion["events"] == [{"filters": event_obj}]
+        bad_conversion = bad.conversion
+        assert bad_conversion is not None
+        assert bad_conversion["filters"] == []
+        assert bad_conversion["events"] == [{"filters": event_obj}]
