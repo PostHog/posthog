@@ -794,7 +794,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     assess_heatmap: {
         name: 'Assess a heatmap',
         description:
-            'Assess a page heatmap — click, rageclick, and scroll-depth data plus the elements under the hot spots — and recommend concrete changes',
+            'Assess a heatmap for a page — click, rageclick, and scroll-depth data plus the elements under the hot spots — and recommend concrete changes',
         product: Scene.WebAnalytics,
         icon: iconForType('web_analytics'),
         displayFormatter: (toolCall) => {
