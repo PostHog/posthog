@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
+from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -264,9 +265,11 @@ class TestPropertyValuesQueryRunnerAggregatedTable(ClickhouseTestMixin, APIBaseT
         return runner.calculate().results
 
     def _flag_on(self):
+        client = MagicMock()
+        client.feature_enabled.side_effect = lambda flag, *args, **kwargs: flag == PROPERTY_VALUES_TABLE_FLAG
         return patch(
-            "posthog.hogql_queries.property_values_query_runner.posthoganalytics.feature_enabled",
-            side_effect=lambda flag, *args, **kwargs: flag == PROPERTY_VALUES_TABLE_FLAG,
+            "posthog.hogql_queries.property_values_query_runner._flags_client",
+            return_value=client,
         )
 
     def _insert_rows(self, rows: list[tuple]) -> None:
@@ -394,12 +397,20 @@ class TestPropertyValuesQueryRunnerAggregatedTable(ClickhouseTestMixin, APIBaseT
         with self._flag_on():
             assert runner._use_property_values_table is False
 
-    def test_flag_off_uses_events_scan(self):
+    @parameterized.expand(
+        [
+            ("flag_off", False),
+            ("eval_failed", None),
+        ]
+    )
+    def test_flag_not_enabled_uses_events_scan(self, _name: str, flag_value: Optional[bool]):
         self._insert_rows([(self.team.pk, "event", "browser", "TableOnly", 3, datetime.now())])
 
+        client = MagicMock()
+        client.feature_enabled.return_value = flag_value
         with patch(
-            "posthog.hogql_queries.property_values_query_runner.posthoganalytics.feature_enabled",
-            return_value=False,
+            "posthog.hogql_queries.property_values_query_runner._flags_client",
+            return_value=client,
         ):
             results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"))
         assert results == []

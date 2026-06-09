@@ -7,6 +7,7 @@ from typing import Any, Optional, cast
 from django.utils import timezone
 
 import posthoganalytics
+from posthoganalytics.client import Client
 
 from posthog.schema import (
     CachedPropertyValuesQueryResponse,
@@ -34,6 +35,25 @@ from posthog.utils import convert_property_value, flatten, get_instance_region, 
 from products.access_control.backend.property_access_control import get_restricted_property_names
 
 PROPERTY_VALUES_TABLE_FLAG = "property-values-table"
+
+_remote_flags_client: Optional[Client] = None
+
+
+def _flags_client() -> Client:
+    # Dedicated client that never loads flag definitions (no personal_api_key, no
+    # definition provider), so every check evaluates remotely: flag flips must take
+    # effect immediately, and the tight timeout keeps a degraded flags service from
+    # stalling autocomplete. Eval failures return None and the gate fails closed.
+    global _remote_flags_client
+    if _remote_flags_client is None:
+        _remote_flags_client = Client(
+            posthoganalytics.api_key,
+            host=posthoganalytics.host,
+            disabled=posthoganalytics.disabled,
+            enable_local_evaluation=False,
+            feature_flags_request_timeout_seconds=0.3,
+        )
+    return _remote_flags_client
 
 
 class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse]):
@@ -87,7 +107,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         if self.query.is_column or self.query.property_key.startswith("$virt_"):
             return False
         team_id = str(self.team.pk)
-        if not posthoganalytics.feature_enabled(
+        if not _flags_client().feature_enabled(
             PROPERTY_VALUES_TABLE_FLAG,
             team_id,
             person_properties={"region": get_instance_region() or "DEV", "team_id": team_id},
