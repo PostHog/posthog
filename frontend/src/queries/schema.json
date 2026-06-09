@@ -42580,7 +42580,8 @@
                 "used_on_separate_team",
                 "new_product",
                 "sales_led",
-                "onboarding_delegated"
+                "onboarding_delegated",
+                "has_product_data"
             ],
             "type": "string"
         },

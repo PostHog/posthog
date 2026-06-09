@@ -1,11 +1,20 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
+
+from django.utils import timezone
 
 from posthog.schema import ProductItemCategory
 
 from posthog.models import User
-from posthog.models.file_system.user_product_list import UserProductList, get_user_product_list_count
+from posthog.models.file_system.user_product_list import (
+    UserProductList,
+    get_product_paths_with_data,
+    get_user_product_list_count,
+)
 from posthog.products import Products
 
+from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.growth.backend.cross_sell_candidate_selector import (
     BASE_PREFERENCE_WEIGHTS,
     DEFAULT_IGNORED_CATEGORIES,
@@ -450,3 +459,78 @@ class TestUserProductList(BaseTest):
         schema_reasons = {value for _, value in UserProductListReason.__members__.items()}
 
         assert backend_reasons == schema_reasons, "Backend reasons do not match schema reasons"
+
+    def _make_user(self) -> User:
+        user = User.objects.create_user(
+            email="data-user@posthog.com", password="password", first_name="Data", allow_sidebar_suggestions=True
+        )
+        user.join(organization=self.organization)
+        return user
+
+    def test_get_product_paths_with_data_returns_paths_for_recent_events(self):
+        EventDefinition.objects.create(team=self.team, name="$pageview", last_seen_at=timezone.now())
+
+        assert get_product_paths_with_data(self.team) == ["Web analytics"]
+
+    def test_get_product_paths_with_data_ignores_stale_events(self):
+        EventDefinition.objects.create(
+            team=self.team, name="$pageview", last_seen_at=timezone.now() - timedelta(days=90)
+        )
+
+        assert get_product_paths_with_data(self.team) == []
+
+    def test_get_product_paths_with_data_ignores_never_seen_events(self):
+        EventDefinition.objects.create(team=self.team, name="$pageview", last_seen_at=None)
+
+        assert get_product_paths_with_data(self.team) == []
+
+    def test_sync_from_product_data_seeds_product_with_recent_data(self):
+        user = self._make_user()
+        EventDefinition.objects.create(team=self.team, name="$pageview", last_seen_at=timezone.now())
+
+        created_items = UserProductList.sync_from_product_data(user=user, team=self.team)
+
+        assert [item.product_path for item in created_items] == ["Web analytics"]
+        item = created_items[0]
+        assert item.enabled is True
+        assert item.reason == UserProductList.Reason.HAS_PRODUCT_DATA
+
+    def test_sync_from_product_data_uses_precomputed_paths(self):
+        user = self._make_user()
+
+        created_items = UserProductList.sync_from_product_data(
+            user=user, team=self.team, product_paths_with_data=["Web analytics"]
+        )
+
+        assert [item.product_path for item in created_items] == ["Web analytics"]
+
+    def test_sync_from_product_data_respects_allow_sidebar_suggestions_false(self):
+        user = self._make_user()
+        user.allow_sidebar_suggestions = False
+        user.save()
+
+        created_items = UserProductList.sync_from_product_data(
+            user=user, team=self.team, product_paths_with_data=["Web analytics"]
+        )
+
+        assert created_items == []
+        assert not UserProductList.objects.filter(user=user, team=self.team).exists()
+
+    def test_sync_from_product_data_does_not_reenable_disabled_product(self):
+        user = self._make_user()
+        UserProductList.objects.create(
+            user=user,
+            team=self.team,
+            product_path="Web analytics",
+            enabled=False,
+            reason=UserProductList.Reason.NEW_PRODUCT,
+        )
+
+        created_items = UserProductList.sync_from_product_data(
+            user=user, team=self.team, product_paths_with_data=["Web analytics"]
+        )
+
+        assert created_items == []
+        row = UserProductList.objects.get(user=user, team=self.team, product_path="Web analytics")
+        assert row.enabled is False
+        assert row.reason == UserProductList.Reason.NEW_PRODUCT

@@ -85,6 +85,8 @@ const USER_PRODUCT_LIST_REASON_DEFAULTS: { [key in UserProductListReason]?: stri
         'You use this product on another project so we think you might like it here.',
     [UserProductListReason.NEW_PRODUCT]: 'This is a brand new product. Give it a try!',
     [UserProductListReason.SALES_LED]: 'This product is recommended for you by our team.',
+    [UserProductListReason.HAS_PRODUCT_DATA]:
+        'We added this because your project is already sending the data it needs.',
 }
 
 // Show active state for items that are active in the URL

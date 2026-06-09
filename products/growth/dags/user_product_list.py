@@ -10,7 +10,11 @@ import pydantic
 from posthog.dags.common import JobOwners
 from posthog.dags.common.ops import get_all_team_ids_op
 from posthog.exceptions_capture import capture_exception
-from posthog.models.file_system.user_product_list import UserProductList, get_user_product_list_count
+from posthog.models.file_system.user_product_list import (
+    UserProductList,
+    get_product_paths_with_data,
+    get_user_product_list_count,
+)
 from posthog.models.team import Team
 from posthog.models.user import ROLE_CHOICES, User
 from posthog.products import Products
@@ -522,4 +526,156 @@ sync_cross_sell_products_monthly_schedule = dagster.ScheduleDefinition(
     cron_schedule="0 5 1 * *",  # 1st day of every month at 5am UTC
     execution_timezone="UTC",
     name="sync_cross_sell_products_monthly_schedule",
+)
+
+
+@dataclass(kw_only=True)
+class SyncProductDataResult:
+    team_id: int
+    users_processed: int
+    products_created: int
+    status: Literal["success", "failed", "error"]
+
+
+@dagster.op
+def sync_product_data_for_team_op(
+    context: dagster.OpExecutionContext,
+    team_ids: list[int],
+) -> list[SyncProductDataResult]:
+    """Suggest products to a batch of teams' users based on the data the team is sending."""
+    results = []
+
+    for team_id in team_ids:
+        try:
+            team = Team.objects.get(id=team_id)
+            users_processed = 0
+            products_created = 0
+
+            # Resolve the team's data signals once and reuse across every user on the team.
+            product_paths_with_data = get_product_paths_with_data(team)
+
+            if product_paths_with_data:
+                users_qs = (
+                    team.all_users_with_access()
+                    .exclude(allow_sidebar_suggestions=False)
+                    .only("id", "allow_sidebar_suggestions")
+                )
+                for user in users_qs.iterator(chunk_size=500):
+                    created_items = UserProductList.sync_from_product_data(
+                        user=user,
+                        team=team,
+                        product_paths_with_data=product_paths_with_data,
+                    )
+                    users_processed += 1
+                    products_created += len(created_items)
+
+            context.log.info(
+                f"Team {team_id}: processed {users_processed} users, created {products_created} product entries"
+            )
+
+            results.append(
+                SyncProductDataResult(
+                    team_id=team_id,
+                    users_processed=users_processed,
+                    products_created=products_created,
+                    status="success",
+                )
+            )
+        except Team.DoesNotExist:
+            context.log.warning(f"Team {team_id} not found")
+            results.append(
+                SyncProductDataResult(
+                    team_id=team_id,
+                    users_processed=0,
+                    products_created=0,
+                    status="failed",
+                )
+            )
+        except Exception as e:
+            context.log.exception(f"Failed to process team {team_id}")
+            capture_exception(e, {"team_id": team_id, "team": "team-growth"})
+            results.append(
+                SyncProductDataResult(
+                    team_id=team_id,
+                    users_processed=0,
+                    products_created=0,
+                    status="error",
+                )
+            )
+        finally:
+            # Release per-connection buffers between teams to keep RSS flat
+            # across a 1000-team batch inside one subprocess.
+            connections.close_all()
+
+    success_results = [r for r in results if r.status == "success"]
+    failed_results = [r for r in results if r.status in ("failed", "error")]
+
+    context.add_output_metadata(
+        {
+            "batch_size": dagster.MetadataValue.int(len(team_ids)),
+            "processed": dagster.MetadataValue.int(len(results)),
+            "success_count": dagster.MetadataValue.int(len(success_results)),
+            "failed_count": dagster.MetadataValue.int(len(failed_results)),
+            "total_users_processed": dagster.MetadataValue.int(sum(r.users_processed for r in results)),
+            "total_products_created": dagster.MetadataValue.int(sum(r.products_created for r in results)),
+        }
+    )
+
+    return results
+
+
+@dagster.op
+def aggregate_product_data_sync_results_op(
+    context: dagster.OpExecutionContext,
+    results: list[list[SyncProductDataResult]],
+) -> None:
+    """Aggregate results from all team processing ops."""
+    flat_results = [r for batch in results for r in batch]
+
+    total_teams = len(flat_results)
+    success_count = sum(1 for r in flat_results if r.status == "success")
+    failed_count = sum(1 for r in flat_results if r.status in ("failed", "error"))
+    total_users_processed = sum(r.users_processed for r in flat_results)
+    total_products_created = sum(r.products_created for r in flat_results)
+
+    context.log.info(
+        f"Completed processing {total_teams} teams: {success_count} succeeded, {failed_count} failed. "
+        f"Processed {total_users_processed} users, created {total_products_created} product entries"
+    )
+
+    context.add_output_metadata(
+        {
+            "total_teams": dagster.MetadataValue.int(total_teams),
+            "success_count": dagster.MetadataValue.int(success_count),
+            "failed_count": dagster.MetadataValue.int(failed_count),
+            "total_users_processed": dagster.MetadataValue.int(total_users_processed),
+            "total_products_created": dagster.MetadataValue.int(total_products_created),
+        }
+    )
+
+    if failed_count > 0:
+        failed_team_ids = [r.team_id for r in flat_results if r.status in ("failed", "error")]
+        context.log.warning(f"Failed to sync product-data products for {failed_count} teams: {failed_team_ids}")
+
+
+@dagster.job(
+    description="Suggests products to users based on the data their team is sending, for all teams",
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 5}),
+    tags={"owner": JobOwners.TEAM_GROWTH.value},
+)
+def sync_product_data_products_monthly_job():
+    """
+    Monthly job that suggests products to each user based on the data their team is sending.
+    For each team, finds products whose powering events were recently seen and suggests them.
+    """
+    team_ids = get_all_team_ids_op()
+    results = team_ids.map(sync_product_data_for_team_op)
+    aggregate_product_data_sync_results_op(results.collect())
+
+
+sync_product_data_products_monthly_schedule = dagster.ScheduleDefinition(
+    job=sync_product_data_products_monthly_job,
+    cron_schedule="0 5 8 * *",  # 8th day of every month at 5am UTC
+    execution_timezone="UTC",
+    name="sync_product_data_products_monthly_schedule",
 )

@@ -5224,6 +5224,7 @@ class UserProductListReason(StrEnum):
     NEW_PRODUCT = "new_product"
     SALES_LED = "sales_led"
     ONBOARDING_DELEGATED = "onboarding_delegated"
+    HAS_PRODUCT_DATA = "has_product_data"
 
 
 class VectorSearchResponseItem(BaseModel):

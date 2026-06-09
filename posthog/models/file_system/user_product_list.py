@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
@@ -13,6 +14,7 @@ from posthog.schema import ProductIntentContext, ProductItemCategory, ProductKey
 from posthog.models.utils import UpdatedMetaFields, UUIDModel, uuid7
 from posthog.products import Products
 
+from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.growth.backend.cross_sell_candidate_selector import DEFAULT_IGNORED_CATEGORIES, CrossSellCandidateSelector
 
 if TYPE_CHECKING:
@@ -37,6 +39,44 @@ def get_user_product_list_count(team: "Team") -> list[dict[str, Any]]:
         .annotate(colleague_count=Count("user", distinct=True))
         .order_by("-colleague_count")
     )
+
+
+# Products that are useful to a team purely because the team is sending the events that
+# power them, even if no one explicitly onboarded. Maps a sidebar product path to the event
+# whose recent presence implies the product is in use.
+PRODUCT_DATA_EVENT_SIGNALS: dict[str, str] = {
+    "Web analytics": "$pageview",
+}
+
+# How recently the powering event must have been seen for the product to count as in use.
+PRODUCT_DATA_RECENCY_DAYS = 30
+
+
+def get_product_paths_with_data(team: "Team", since_days: int = PRODUCT_DATA_RECENCY_DAYS) -> list[str]:
+    """Return the sidebar product paths the team is actively generating data for.
+
+    A product qualifies when the event powering it (see PRODUCT_DATA_EVENT_SIGNALS) has been
+    seen for the team within the last `since_days`. Paths missing from the static products list
+    are skipped so a rename can't seed an invalid entry.
+    """
+    if not PRODUCT_DATA_EVENT_SIGNALS:
+        return []
+
+    cutoff = timezone.now() - timedelta(days=since_days)
+    recently_seen_events = set(
+        EventDefinition.objects.filter(
+            team=team,
+            name__in=list(PRODUCT_DATA_EVENT_SIGNALS.values()),
+            last_seen_at__gte=cutoff,
+        ).values_list("name", flat=True)
+    )
+
+    valid_paths = set(Products.get_product_paths())
+    return [
+        path
+        for path, event_name in PRODUCT_DATA_EVENT_SIGNALS.items()
+        if event_name in recently_seen_events and path in valid_paths
+    ]
 
 
 def backfill_user_product_list_for_new_user(user: "User", team: "Team") -> None:
@@ -87,6 +127,10 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         # User delegated onboarding setup to a teammate; we pre-populate their sidebar so
         # the post-delegation home page isn't empty.
         ONBOARDING_DELEGATED = "onboarding_delegated", "Onboarding Delegated"
+
+        # The team is sending the events that power this product (e.g. pageviews for Web
+        # analytics), so it's useful to them even if no one explicitly onboarded to it.
+        HAS_PRODUCT_DATA = "has_product_data", "Has Product Data"
 
     # When the system suggests a product to the user, we store the reason why we suggested it in here
     # And and optional freeform text field to be displayed to the user on hover
@@ -319,6 +363,42 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
                 defaults={
                     "enabled": True,
                     "reason": UserProductList.Reason.USED_SIMILAR_PRODUCTS,
+                },
+            )
+
+            if created:
+                created_items.append(item)
+
+        return created_items
+
+    @staticmethod
+    def sync_from_product_data(
+        user: "User",
+        team: "Team",
+        product_paths_with_data: list[str] | None = None,
+    ) -> "list[UserProductList]":
+        """
+        Suggest products the team is actively sending data for but the user hasn't decided on.
+
+        Mirrors the other sync_* seeders: respects allow_sidebar_suggestions and never overrides
+        a row the user previously disabled. Accepts a precomputed list so a caller can resolve the
+        team's data signals once and reuse it across every user on the team.
+        """
+        if user.allow_sidebar_suggestions is False:
+            return []
+
+        if product_paths_with_data is None:
+            product_paths_with_data = get_product_paths_with_data(team)
+
+        created_items = []
+        for product_path in product_paths_with_data:
+            item, created = UserProductList.objects.get_or_create(
+                user=user,
+                team=team,
+                product_path=product_path,
+                defaults={
+                    "enabled": True,
+                    "reason": UserProductList.Reason.HAS_PRODUCT_DATA,
                 },
             )
 
