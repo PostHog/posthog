@@ -72,6 +72,13 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
             if own_markers is not None:
                 node.own_markers = [marker for marker in own_markers if marker.name != "django_db"]
             node = node.parent
+        # NodeKeywords forbids __delitem__ in newer pytest — the own_markers
+        # mutation above is what actually strips the marker; this pop is a
+        # legacy belt-and-braces that's a no-op when not supported.
+        try:
+            item.keywords.pop("django_db", None)
+        except (ValueError, TypeError):
+            pass
 
 
 @pytest.fixture(scope="session")
@@ -270,7 +277,7 @@ def _sandbox_settings(
     tasks queue in the developer's environment.
 
     Also patches ``posthoganalytics.feature_enabled`` to return True for all
-    flags so permission checks (TasksAccessPermission) and workflow guards pass.
+    flags so workflow guards pass.
     """
     from unittest.mock import patch
 
@@ -503,6 +510,10 @@ def _mcp_server(_django_live_server, _sandbox_settings):
 
     Pointed at the in-process Django live server (which uses the test DB).
     Uses a non-default port to avoid conflicts with a running dev MCP server.
+
+    Runs the Node-native Hono server via ``pnpm dev:hono``. In production the
+    Cloudflare Worker is now a proxy that forwards to a regional Hono
+    deployment, so Hono is what real users hit.
     """
     mcp_dir = Path(settings.BASE_DIR) / "services" / "mcp"
     if not (mcp_dir / "node_modules").exists():
@@ -511,30 +522,24 @@ def _mcp_server(_django_live_server, _sandbox_settings):
 
     api_url = str(_django_live_server)
 
+    # The Hono server reads config directly from process env — no wrangler
+    # --var wiring needed. PORT picks the listen port; the dev:hono script
+    # bundles via esbuild then spawns Node on the bundle.
     env = {
         **os.environ,
         "POSTHOG_API_BASE_URL": api_url,
         "MCP_APPS_BASE_URL": f"http://localhost:{MCP_PORT}",
         "POSTHOG_MCP_APPS_ANALYTICS_BASE_URL": api_url,
         "NODE_ENV": "development",
+        "PORT": str(MCP_PORT),
+        "HOST": "0.0.0.0",
     }
 
-    # Wrangler's .dev.vars file (committed) overrides process env, so we must
-    # pass --var on the CLI to point the MCP at our in-process Django test DB.
-    wrangler_vars = [
-        f"POSTHOG_API_BASE_URL:{api_url}",
-        f"POSTHOG_MCP_APPS_ANALYTICS_BASE_URL:{api_url}",
-        f"MCP_APPS_BASE_URL:http://localhost:{MCP_PORT}",
-    ]
-    var_args: list[str] = []
-    for v in wrangler_vars:
-        var_args.extend(["--var", v])
-
-    logger.info("Starting MCP server on port %d (API: %s)", MCP_PORT, api_url)
+    logger.info("Starting MCP server (Hono runtime) on port %d (API: %s)", MCP_PORT, api_url)
     _, stop = _LONG_LIVED_SUBPROCESSES.start(
         name="MCP server",
         port=MCP_PORT,
-        cmd=["pnpm", "wrangler", "dev", "--port", str(MCP_PORT), *var_args],
+        cmd=["pnpm", "dev:hono"],
         cwd=mcp_dir,
         env=env,
         log_prefix="mcp",

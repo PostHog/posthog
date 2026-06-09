@@ -4,6 +4,7 @@ use common::TestContext;
 use personhog_replica::storage::postgres::ConsistencyLevel;
 use personhog_replica::storage::GroupKey;
 use rand::Rng;
+use rstest::rstest;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -186,6 +187,90 @@ async fn test_get_group_type_mappings() {
     let group_types: Vec<&str> = result.iter().map(|m| m.group_type.as_str()).collect();
     assert!(group_types.contains(&"project"));
     assert!(group_types.contains(&"organization"));
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::no_mappings(&[], None)]
+#[case::one_mapping(&[("organization", 0)], Some(1))]
+#[case::three_mappings(&[("organization", 0), ("project", 1), ("instance", 2)], Some(3))]
+#[tokio::test]
+async fn test_count_group_type_mappings(
+    #[case] mappings: &[(&str, i32)],
+    #[case] expected_count: Option<i64>,
+) {
+    let ctx = TestContext::new().await;
+
+    for (group_type, index) in mappings {
+        ctx.insert_group_type_mapping(group_type, *index)
+            .await
+            .expect("Failed to insert mapping");
+    }
+
+    let result = ctx
+        .storage
+        .count_group_type_mappings(ConsistencyLevel::Eventual)
+        .await
+        .expect("Failed to count group type mappings");
+
+    let entry = result.iter().find(|(tid, _)| *tid == ctx.team_id);
+    match expected_count {
+        Some(count) => assert_eq!(entry, Some(&(ctx.team_id, count))),
+        None => assert!(entry.is_none()),
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_count_group_type_mappings_multiple_teams() {
+    let ctx1 = TestContext::new().await;
+    let ctx2 = TestContext::new().await;
+
+    ctx1.insert_group_type_mapping("org", 0)
+        .await
+        .expect("Failed to insert mapping");
+    ctx2.insert_group_type_mapping("company", 0)
+        .await
+        .expect("Failed to insert mapping");
+    ctx2.insert_group_type_mapping("project", 1)
+        .await
+        .expect("Failed to insert mapping");
+
+    let result = ctx1
+        .storage
+        .count_group_type_mappings(ConsistencyLevel::Eventual)
+        .await
+        .expect("Failed to count group type mappings");
+
+    let entry1 = result.iter().find(|(tid, _)| *tid == ctx1.team_id);
+    let entry2 = result.iter().find(|(tid, _)| *tid == ctx2.team_id);
+    assert_eq!(entry1, Some(&(ctx1.team_id, 1)));
+    assert_eq!(entry2, Some(&(ctx2.team_id, 2)));
+
+    ctx1.cleanup().await.ok();
+    ctx2.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_count_group_type_mappings_ordered_by_team_id() {
+    let ctx = TestContext::new().await;
+
+    ctx.insert_group_type_mapping("org", 0)
+        .await
+        .expect("Failed to insert mapping");
+
+    let result = ctx
+        .storage
+        .count_group_type_mappings(ConsistencyLevel::Eventual)
+        .await
+        .expect("Failed to count group type mappings");
+
+    let team_ids: Vec<i64> = result.iter().map(|(tid, _)| *tid).collect();
+    let mut sorted = team_ids.clone();
+    sorted.sort();
+    assert_eq!(team_ids, sorted);
 
     ctx.cleanup().await.ok();
 }

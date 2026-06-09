@@ -1,11 +1,10 @@
 import { actions, afterMount, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 
 import { ApiConfig } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
-import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
 import { urls } from '~/scenes/urls'
 import { Breadcrumb } from '~/types'
 
@@ -36,7 +35,6 @@ export interface SkillLogicProps {
     skillName: string | 'new'
     mode?: SkillMode
     selectedVersion?: number | null
-    tabId?: string
 }
 
 export interface SkillFormFileValues {
@@ -125,10 +123,7 @@ function findExistingSkill(skillName: string): LLMSkillListApi | undefined {
 export const llmSkillLogic = kea<llmSkillLogicType>([
     path(['scenes', 'ai-observability', 'llmSkillLogic']),
     props({ skillName: 'new' } as SkillLogicProps),
-    key(
-        ({ skillName, selectedVersion, tabId }) =>
-            `skill-${skillName}:${selectedVersion ?? 'latest'}::${tabId ?? 'default'}`
-    ),
+    key(({ skillName, selectedVersion }) => `skill-${skillName}:${selectedVersion ?? 'latest'}`),
     actions({
         setSkill: (skill: ResolvedLLMSkill | SkillFormValues) => ({ skill }),
         deleteSkill: true,
@@ -557,7 +552,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         }
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         '/prompt-management/skills/:name': (_, __, ___, { method }) => {
             if (method === 'PUSH' && values.isNewSkill) {
                 actions.setSkill(DEFAULT_SKILL_FORM_VALUES)

@@ -196,6 +196,18 @@ export type ExternalDataSchemaApiAvailableColumnsItem = {
     is_nullable?: boolean
 }
 
+/**
+ * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+ * @nullable
+ */
+export type ExternalDataSchemaApiSource = {
+    readonly id?: string
+    readonly source_type?: string
+    readonly supports_column_selection?: boolean
+    /** @nullable */
+    readonly user_access_level?: string | null
+} | null
+
 export interface ExternalDataSchemaApi {
     readonly id: string
     readonly name: string
@@ -275,6 +287,11 @@ export interface ExternalDataSchemaApi {
     enabled_columns?: string[] | null
     /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
     readonly available_columns: readonly ExternalDataSchemaApiAvailableColumnsItem[]
+    /**
+     * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+     * @nullable
+     */
+    readonly source: ExternalDataSchemaApiSource
 }
 
 export interface PaginatedExternalDataSchemaListApi {
@@ -296,6 +313,18 @@ export type PatchedExternalDataSchemaApiAvailableColumnsItem = {
     data_type?: string
     is_nullable?: boolean
 }
+
+/**
+ * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+ * @nullable
+ */
+export type PatchedExternalDataSchemaApiSource = {
+    readonly id?: string
+    readonly source_type?: string
+    readonly supports_column_selection?: boolean
+    /** @nullable */
+    readonly user_access_level?: string | null
+} | null
 
 export interface PatchedExternalDataSchemaApi {
     readonly id?: string
@@ -376,6 +405,11 @@ export interface PatchedExternalDataSchemaApi {
     enabled_columns?: string[] | null
     /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
     readonly available_columns?: readonly PatchedExternalDataSchemaApiAvailableColumnsItem[]
+    /**
+     * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+     * @nullable
+     */
+    readonly source?: PatchedExternalDataSchemaApiSource
 }
 
 /**
@@ -410,6 +444,7 @@ export const CreatedViaEnumApi = {
  * `Chargebee` - Chargebee
  * `Clerk` - Clerk
  * `GoogleAds` - GoogleAds
+ * `GoogleSearchConsole` - GoogleSearchConsole
  * `TemporalIO` - TemporalIO
  * `DoIt` - DoIt
  * `GoogleSheets` - GoogleSheets
@@ -537,6 +572,7 @@ export const CreatedViaEnumApi = {
  * `Plain` - Plain
  * `Resend` - Resend
  * `PgAnalyze` - PgAnalyze
+ * `WorkOS` - WorkOS
  * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -561,6 +597,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Chargebee: 'Chargebee',
     Clerk: 'Clerk',
     GoogleAds: 'GoogleAds',
+    GoogleSearchConsole: 'GoogleSearchConsole',
     TemporalIO: 'TemporalIO',
     DoIt: 'DoIt',
     GoogleSheets: 'GoogleSheets',
@@ -688,6 +725,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Plain: 'Plain',
     Resend: 'Resend',
     PgAnalyze: 'PgAnalyze',
+    WorkOS: 'WorkOS',
     Custom: 'Custom',
 } as const
 
@@ -806,6 +844,7 @@ export interface ExternalDataSourceCreateApi {
   * `Chargebee` - Chargebee
   * `Clerk` - Clerk
   * `GoogleAds` - GoogleAds
+  * `GoogleSearchConsole` - GoogleSearchConsole
   * `TemporalIO` - TemporalIO
   * `DoIt` - DoIt
   * `GoogleSheets` - GoogleSheets
@@ -933,6 +972,7 @@ export interface ExternalDataSourceCreateApi {
   * `Plain` - Plain
   * `Resend` - Resend
   * `PgAnalyze` - PgAnalyze
+  * `WorkOS` - WorkOS
   * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -1114,6 +1154,7 @@ export interface DatabaseSchemaRequestApi {
   * `Chargebee` - Chargebee
   * `Clerk` - Clerk
   * `GoogleAds` - GoogleAds
+  * `GoogleSearchConsole` - GoogleSearchConsole
   * `TemporalIO` - TemporalIO
   * `DoIt` - DoIt
   * `GoogleSheets` - GoogleSheets
@@ -1241,6 +1282,7 @@ export interface DatabaseSchemaRequestApi {
   * `Plain` - Plain
   * `Resend` - Resend
   * `PgAnalyze` - PgAnalyze
+  * `WorkOS` - WorkOS
   * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
 }
@@ -1550,7 +1592,7 @@ export const DataWarehouseSavedQueryApiQueryKind = {
 } as const
 
 /**
- * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+ * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"}
  */
 export type DataWarehouseSavedQueryApiQuery = {
     kind?: DataWarehouseSavedQueryApiQueryKind
@@ -1573,7 +1615,7 @@ export interface DataWarehouseSavedQueryApi {
      * @maxLength 128
      */
     name: string
-    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
     query: DataWarehouseSavedQueryApiQuery
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -1651,7 +1693,7 @@ export const PatchedDataWarehouseSavedQueryApiQueryKind = {
 } as const
 
 /**
- * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+ * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"}
  */
 export type PatchedDataWarehouseSavedQueryApiQuery = {
     kind?: PatchedDataWarehouseSavedQueryApiQueryKind
@@ -1674,7 +1716,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @maxLength 128
      */
     name?: string
-    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
     query?: PatchedDataWarehouseSavedQueryApiQuery
     readonly created_by?: UserBasicApi
     readonly created_at?: string

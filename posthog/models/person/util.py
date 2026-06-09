@@ -46,6 +46,7 @@ from posthog.personhog_client.proto import (
     GetPersonRequest,
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
+    ReadOptions,
 )
 from posthog.settings import TEST
 
@@ -96,6 +97,7 @@ def _batched_get_persons_by_distinct_ids(
     distinct_ids: list[str],
     operation: str,
     deduplicate_by_person: bool = True,
+    read_options: ReadOptions | None = None,
 ) -> list[person_pb2.PersonWithDistinctIds]:
     client = _get_client()
     seen_person_ids: set[int] = set()
@@ -104,7 +106,7 @@ def _batched_get_persons_by_distinct_ids(
     for i in range(0, len(distinct_ids), PERSONHOG_BATCH_SIZE):
         batch = distinct_ids[i : i + PERSONHOG_BATCH_SIZE]
         resp = client.get_persons_by_distinct_ids_in_team(
-            GetPersonsByDistinctIdsInTeamRequest(team_id=team_id, distinct_ids=batch)
+            GetPersonsByDistinctIdsInTeamRequest(team_id=team_id, distinct_ids=batch, read_options=read_options)
         )
 
         present_results = [r for r in resp.results if r.person and r.person.id]
@@ -603,6 +605,49 @@ def validate_person_uuids_exist(team_id: int, uuids: list[str]) -> list[str]:
             .filter(team_id=team_id, uuid__in=uuids)
             .values_list("uuid", flat=True)
         ],
+        team_id=team_id,
+    )
+
+
+_UUID_ONLY_READ_OPTIONS = ReadOptions(field_mask=["uuid", "id", "team_id"])
+
+
+def get_person_uuids_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> list[str]:
+    """Return person UUIDs for the given distinct IDs.
+
+    Lightweight UUID-only variant — uses field masking to skip fetching
+    properties and other heavy fields from personhog.
+    """
+    if not distinct_ids:
+        return []
+
+    def personhog_fn() -> list[str]:
+        results = _batched_get_persons_by_distinct_ids(
+            team_id,
+            distinct_ids,
+            "get_person_uuids_by_distinct_ids",
+            read_options=_UUID_ONLY_READ_OPTIONS,
+        )
+        return [r.person.uuid for r in results]
+
+    def orm_fn() -> list[str]:
+        person_ids_qs = (
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=team_id, distinct_id__in=distinct_ids)
+            .values_list("person_id", flat=True)
+            .distinct()
+        )
+        return [
+            str(uuid)
+            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=team_id, id__in=person_ids_qs)
+            .values_list("uuid", flat=True)
+        ]
+
+    return _personhog_routed(
+        "get_person_uuids_by_distinct_ids",
+        personhog_fn,
+        orm_fn,
         team_id=team_id,
     )
 

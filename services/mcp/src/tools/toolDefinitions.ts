@@ -1,5 +1,6 @@
 import z from 'zod'
 
+import { hasScope, hasScopes } from '@/lib/api'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 
 import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
@@ -189,4 +190,44 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
     }
 
     return entries.map(([toolName, _]) => toolName)
+}
+
+export interface ScopeGatedTool {
+    name: string
+    title: string
+    description: string
+    /** Scopes the tool requires that the current API key is missing. */
+    missingScopes: string[]
+}
+
+/**
+ * Tools that pass every filter except the API key's scopes — i.e. they exist
+ * and are enabled for this session's features, but the token lacks the scopes
+ * to call them. Surfaced by the exec `search` command so an agent gets an
+ * actionable "add this scope" hint instead of silently concluding the tool is
+ * missing.
+ */
+export function getScopeGatedTools(scopes: string[], options?: ToolFilterOptions): ScopeGatedTool[] {
+    const toolDefinitions = getToolDefinitions()
+    const excluded = new Set(options?.excludeTools ?? [])
+    const gated: ScopeGatedTool[] = []
+
+    for (const name of getToolsForFeatures(options)) {
+        if (excluded.has(name)) {
+            continue
+        }
+        const definition = toolDefinitions[name]
+        const required = definition?.required_scopes ?? []
+        if (!definition || required.length === 0 || hasScopes(scopes, required)) {
+            continue
+        }
+        gated.push({
+            name,
+            title: definition.title,
+            description: definition.description,
+            missingScopes: required.filter((scope) => !hasScope(scopes, scope)),
+        })
+    }
+
+    return gated
 }

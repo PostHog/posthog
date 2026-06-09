@@ -49,7 +49,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
             opt_in_site_apps: true,
             disable_surveys: window.IMPERSONATED_SESSION,
-            disable_product_tours: window.IMPERSONATED_SESSION,
+            disable_product_tours: true,
             opt_out_capturing_by_default: window.IMPERSONATED_SESSION,
             __preview_deferred_init_extensions: shouldDefer(),
             error_tracking: {
@@ -161,7 +161,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
                 ...options.sessionRecording,
             },
             person_profiles: 'always',
-            __add_tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
+            tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
             __preview_disable_xhr_credentials: true,
             capture_performance: {
                 //disabling to investigate if this is associated with memory leak in the posthog app

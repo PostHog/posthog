@@ -152,6 +152,46 @@ describe('PropertyValue', () => {
         expect(input).toHaveValue('user.*7$')
     })
 
+    it.each([
+        {
+            label: 'trims surrounding whitespace from a pasted value before committing it',
+            propertyKey: '$ai_trace_id',
+            operator: PropertyOperator.Exact,
+            pastedValue: ' 9c8a6265-382a-4972-9640-b400dabdd83e ',
+            expectedArg: ['9c8a6265-382a-4972-9640-b400dabdd83e'],
+        },
+        {
+            label: 'preserves surrounding whitespace for regex operators, where it can be meaningful',
+            propertyKey: '$current_url',
+            operator: PropertyOperator.Regex,
+            pastedValue: 'foo ',
+            expectedArg: 'foo ',
+        },
+    ])('$label', async ({ propertyKey, operator, pastedValue, expectedArg }) => {
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey={propertyKey}
+                    type={PropertyFilterType.Event}
+                    operator={operator}
+                    onSet={onSet}
+                    value={[]}
+                />
+            </Provider>
+        )
+
+        const user = userEvent.setup()
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.paste(pastedValue)
+        await user.keyboard('{Enter}')
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenCalledWith(expectedArg)
+        })
+    })
+
     it('keeps numeric-only input for non-regex numeric properties', async () => {
         propertyDefinitionsModel.actions.updatePropertyDefinitions({
             'event/userId': {

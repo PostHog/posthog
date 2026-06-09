@@ -46,22 +46,29 @@ class OpenAIConfig:
 
     SUPPORTED_MODELS: list[str] = [
         "gpt-5.4",
-        "gpt-5.2-pro",
         "gpt-5.2",
         "gpt-5.1",
-        "gpt-5-pro",
         "gpt-5-nano",
         "gpt-5-mini",
         "gpt-5",
-        "o3-pro",
         "gpt-4.1-nano",
         "gpt-4.1-mini",
         "gpt-4.1",
         "o4-mini",
         "o3",
-        "o1-pro",
         "o3-mini",
     ]
+
+    # "Pro" tier models are served only by the Responses API, so they 404 on chat
+    # completions. Excluded from the picker (curated list + list_models discovery).
+    RESPONSES_ONLY_MODELS: frozenset[str] = frozenset(
+        {
+            "gpt-5.2-pro",
+            "gpt-5-pro",
+            "o1-pro",
+            "o3-pro",
+        }
+    )
 
     # Models available to trial users (PostHog pays). Excludes expensive
     # "pro" tiers and includes one flagship model for quality evaluation.
@@ -77,17 +84,13 @@ class OpenAIConfig:
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
         "gpt-5.4",
-        "gpt-5.2-pro",
         "gpt-5.2",
         "gpt-5.1",
-        "gpt-5-pro",
         "gpt-5-nano",
         "gpt-5-mini",
         "gpt-5",
-        "o3-pro",
         "o4-mini",
         "o3",
-        "o1-pro",
         "o3-mini",
     ]
 
@@ -387,7 +390,9 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             filtered = [
                 m
                 for m in api_models
-                if m.id not in supported and m.id.startswith(("gpt-", "o1", "o3", "o4", "chatgpt-"))
+                if m.id not in supported
+                and m.id not in OpenAIConfig.RESPONSES_ONLY_MODELS
+                and m.id.startswith(("gpt-", "o1", "o3", "o4", "chatgpt-"))
             ]
             filtered.sort(key=lambda m: m.created, reverse=True)
             other = [m.id for m in filtered]

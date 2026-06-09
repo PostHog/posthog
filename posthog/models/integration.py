@@ -43,6 +43,7 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import IntegrityError, generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -163,6 +164,7 @@ class Integration(models.Model):
         GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_PUBSUB = "google-pubsub"
+        GOOGLE_SEARCH_CONSOLE = "google-search-console"
         GOOGLE_SHEETS = "google-sheets"
         HUBSPOT = "hubspot"
         INTERCOM = "intercom"
@@ -175,6 +177,8 @@ class Integration(models.Model):
         REDDIT_ADS = "reddit-ads"
         SALESFORCE = "salesforce"
         SLACK = "slack"
+        # Deprecated — kept in choices to avoid a no-op migration. The runtime no longer creates
+        # or reads this kind; see `products/slack_app/backend/api.py` for the live integration.
         SLACK_POSTHOG_CODE = "slack-posthog-code"
         SNAPCHAT = "snapchat"
         STRIPE = "stripe"
@@ -290,10 +294,10 @@ POSTHOG_SLACK_SCOPE = ",".join(
 class OauthIntegration:
     supported_kinds = [
         "slack",
-        "slack-posthog-code",
         "salesforce",
         "hubspot",
         "google-ads",
+        "google-search-console",
         "google-sheets",
         "snapchat",
         "linkedin-ads",
@@ -337,19 +341,6 @@ class OauthIntegration:
                 client_id=from_settings["SLACK_APP_CLIENT_ID"],
                 client_secret=from_settings["SLACK_APP_CLIENT_SECRET"],
                 scope=POSTHOG_SLACK_SCOPE,
-                id_path="team.id",
-                name_path="team.name",
-            )
-        elif kind == "slack-posthog-code":
-            if not settings.SLACK_POSTHOG_CODE_CLIENT_ID or not settings.SLACK_POSTHOG_CODE_CLIENT_SECRET:
-                raise NotImplementedError("PostHog Code Slack app not configured")
-
-            return OauthConfig(
-                authorize_url="https://slack.com/oauth/v2/authorize",
-                token_url="https://slack.com/api/oauth.v2.access",
-                client_id=settings.SLACK_POSTHOG_CODE_CLIENT_ID,
-                client_secret=settings.SLACK_POSTHOG_CODE_CLIENT_SECRET,
-                scope="app_mentions:read,channels:read,groups:read,channels:history,groups:history,chat:write,reactions:write,users:read,users:read.email",
                 id_path="team.id",
                 name_path="team.name",
             )
@@ -412,6 +403,22 @@ class OauthIntegration:
                 client_id=settings.GOOGLE_ADS_APP_CLIENT_ID,
                 client_secret=settings.GOOGLE_ADS_APP_CLIENT_SECRET,
                 scope="https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
+                id_path="sub",
+                name_path="email",
+            )
+        elif kind == "google-search-console":
+            if not settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID or not settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET:
+                raise NotImplementedError("Google Search Console app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://oauth2.googleapis.com/token",
+                client_id=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID,
+                client_secret=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET,
+                scope="https://www.googleapis.com/auth/webmasters.readonly https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
@@ -634,21 +641,15 @@ class OauthIntegration:
     @classmethod
     def redirect_uri(cls, kind: str) -> str:
         # The redirect uri is fixed but should always be https and include the "next" parameter for the frontend to redirect
-        # slack-posthog-code piggybacks on the approved /integrations/slack/callback redirect URI
-        # because the approved production Slack app is still under review for the new path.
-        # The real kind is carried in OAuth state so the callback still creates a slack-posthog-code integration.
-        path_kind = "slack" if kind == "slack-posthog-code" else kind
         if settings.DEBUG and settings.NGROK_URL:
-            return f"{settings.NGROK_URL}/integrations/{path_kind}/callback"
-        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{path_kind}/callback"
+            return f"{settings.NGROK_URL}/integrations/{kind}/callback"
+        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
     def authorize_url(cls, kind: str, token: str, next: str = "", is_sandbox: bool = False) -> str:
         oauth_config = cls.oauth_config_for_kind(kind, is_sandbox=is_sandbox)
 
         state_payload: dict[str, str] = {"next": next, "token": token}
-        if kind == "slack-posthog-code":
-            state_payload["kind"] = kind
 
         if kind == "tiktok-ads":
             # TikTok uses different parameter names
@@ -1126,7 +1127,7 @@ class SlackIntegrationError(Exception):
     pass
 
 
-SLACK_INTEGRATION_KINDS: tuple[str, ...] = ("slack", "slack-posthog-code")
+SLACK_INTEGRATION_KINDS: tuple[str, ...] = ("slack",)
 
 SLACK_CHANNELS_PAGE_SIZE = 1000
 SLACK_CHANNELS_MAX_PAGES = 10
@@ -1250,14 +1251,6 @@ class SlackIntegration:
             )
 
         return config
-
-    @classmethod
-    def posthog_code_slack_config(cls) -> dict[str, str]:
-        return {
-            "SLACK_POSTHOG_CODE_CLIENT_ID": settings.SLACK_POSTHOG_CODE_CLIENT_ID,
-            "SLACK_POSTHOG_CODE_CLIENT_SECRET": settings.SLACK_POSTHOG_CODE_CLIENT_SECRET,
-            "SLACK_POSTHOG_CODE_SIGNING_SECRET": settings.SLACK_POSTHOG_CODE_SIGNING_SECRET,
-        }
 
 
 def sign_slack_request(body: bytes, signing_secret: str) -> tuple[str, str]:
@@ -1999,7 +1992,7 @@ class EmailIntegration:
     def create_native_integration(
         cls, config: dict, team_id: int, organization_id: str, created_by: User | None = None
     ) -> Integration:
-        email_address: str = config["email"]
+        email_address: str = config["email"].lower()
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
         mail_from_subdomain: str = config.get("mail_from_subdomain", "feedback")
@@ -2020,7 +2013,13 @@ class EmailIntegration:
         # Create domain in the appropriate provider
         if provider == "ses":
             ses = SESProvider()
-            ses.create_email_domain(domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id)
+            org_team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
+            ses.create_email_domain(
+                domain,
+                mail_from_subdomain=mail_from_subdomain,
+                team_id=team_id,
+                org_team_ids=org_team_ids,
+            )
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:
@@ -2863,7 +2862,7 @@ class GitLabIntegration:
 
 class MetaAdsIntegration:
     integration: Integration
-    api_version: str = "v23.0"
+    api_version: str = "v25.0"
 
     def __init__(self, integration: Integration) -> None:
         if integration.kind != "meta-ads":
@@ -3317,7 +3316,7 @@ class StripeIntegration:
 
     # These are the scopes we'll give Stripe when creating a local OAuth App
     # and sending them access
-    SCOPES = " ".join(
+    SCOPES: str = " ".join(
         [
             "customer_journey:read",
             "query:read",

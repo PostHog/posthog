@@ -22,7 +22,7 @@ describe('workflowLogic schedule reducers', () => {
 
     beforeEach(() => {
         initKeaTests()
-        logic = workflowLogic({ id: 'new', tabId: 'default' })
+        logic = workflowLogic({ id: 'new' })
         logic.mount()
     })
 

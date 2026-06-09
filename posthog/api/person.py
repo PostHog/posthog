@@ -44,11 +44,10 @@ from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.event_usage import get_request_analytics_properties
 from posthog.metrics import LABEL_TEAM_ID
-from posthog.models import Cohort, Filter, Person, Team, User
+from posthog.models import Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.cohort.util import get_all_cohort_ids_by_person_uuid
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
@@ -74,10 +73,11 @@ from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
-from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.utils import format_query_params_absolute_url, is_anonymous_id, refresh_requested_by_client
 
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
 from products.product_analytics.backend.api.insight import capture_legacy_api_call
 
 logger = structlog.get_logger(__name__)
@@ -231,6 +231,42 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
     )
 
 
+class PersonSplitRequestSerializer(serializers.Serializer):
+    main_distinct_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The distinct_id to **keep** on this person; every *other* distinct_id is moved "
+            "to its own new single-id person. If omitted, the first distinct_id on the person "
+            "is used and the person's properties are wiped. "
+            "To surgically *remove* one or more distinct_ids while leaving the merge intact, "
+            "use `distinct_ids_to_split` instead — these parameters are inverses of each other "
+            "and cannot be combined."
+        ),
+    )
+    distinct_ids_to_split = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "List of distinct_ids to **move off** this person onto new single-id persons. "
+            "The original person keeps every other distinct_id and its properties. New persons "
+            "are created with deterministic UUIDs derived from `(team_id, distinct_id)`. "
+            "Cannot be combined with `main_distinct_id`."
+        ),
+    )
+
+
+class PersonSplitResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(
+        help_text=(
+            "Always `true` when the split task was enqueued. The split itself runs "
+            "asynchronously — a 201 response means the task was accepted, not that the "
+            "merge state has already been updated."
+        )
+    )
+
+
 class AsyncDeletionStatusSerializer(serializers.Serializer):
     person_uuid = serializers.CharField(
         source="key", help_text="The UUID of the person whose events are queued for deletion."
@@ -361,16 +397,7 @@ class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
 def get_funnel_actor_class(filter: Filter) -> Callable:
     funnel_actor_class: type[ActorBaseQuery]
 
-    if filter.correlation_person_entity and EE_AVAILABLE:
-        if EE_AVAILABLE:
-            from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
-
-            funnel_actor_class = FunnelCorrelationActors
-        else:
-            raise ValueError(
-                "Funnel Correlations is not available without an enterprise license and enterprise supported deployment"
-            )
-    elif filter.funnel_viz_type == FunnelVizType.TRENDS:
+    if filter.funnel_viz_type == FunnelVizType.TRENDS:
         funnel_actor_class = ClickhouseFunnelTrendsActors
     else:
         if filter.funnel_order_type == "unordered":
@@ -808,6 +835,27 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             resp["Cache-Control"] = "max-age=10"
             return resp
 
+    @extend_schema(
+        description=(
+            "Split distinct_ids off a merged person. Two mutually exclusive modes:\n\n"
+            "- **`distinct_ids_to_split`** (recommended for surgical edits): moves only the "
+            "listed distinct_ids off this person onto new single-id persons. The original "
+            "person keeps every other distinct_id and its properties.\n"
+            "- **`main_distinct_id`** (legacy semantics): keeps only the specified distinct_id "
+            "on this person; moves every *other* distinct_id off onto its own new person. If "
+            "omitted, the person's properties are wiped and the first distinct_id is treated "
+            "as the one to keep.\n\n"
+            "The split runs asynchronously: a 201 response means the task was enqueued. "
+            "Newly-created split-off persons get a deterministic UUID derived from "
+            "`(team_id, distinct_id)`, so they can be located client-side without polling. "
+            "If you need to delete a split-off person after this call, prefer looking it up by "
+            "that deterministic UUID rather than by distinct_id, since the latter still "
+            "resolves to the original merged person until the async task completes."
+        ),
+        request=PersonSplitRequestSerializer,
+        responses={201: PersonSplitResponseSerializer},
+        parameters=[_PERSON_ID_PARAMETER],
+    )
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = self.get_object()

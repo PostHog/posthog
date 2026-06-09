@@ -1,6 +1,7 @@
 import { BreakPointFunction, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
 
@@ -16,8 +17,7 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import {
     UnexpectedNeverError,
     getDefaultInterval,
@@ -79,6 +79,7 @@ import {
     TeamPublicType,
     TeamType,
     UniversalFiltersGroupValue,
+    UserType,
     WebAnalyticsFiltersConfig,
 } from '~/types'
 
@@ -119,7 +120,7 @@ import {
     hasURLSearchParams,
 } from './constants'
 import { FOCUS_MODE_TILE_IDS, computeFocusHiddenTiles } from './focus-mode/focusModeMapping'
-import { WebAnalyticsConcern } from './focus-mode/types'
+import { WebAnalyticsConcern, getFocusModeOnboardingSeenKey } from './focus-mode/types'
 import { webAnalyticsHealthLogic } from './health'
 import { IncludeHostToggle } from './IncludeHostToggle'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
@@ -142,7 +143,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             teamLogic,
             ['currentTeam', 'baseCurrency'],
             userLogic,
-            ['hasAvailableFeature'],
+            ['hasAvailableFeature', 'user'],
             preflightLogic,
             ['isDev'],
             authorizedUrlListLogic({
@@ -152,8 +153,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 productTourId: null,
             }),
             ['authorizedUrls', 'showProposedURLForm', 'isProposedUrlSubmitting', 'suggestions as urlSuggestions'],
-            webAnalyticsHealthLogic,
-            ['webAnalyticsHealthStatus'],
             webAnalyticsFilterLogic,
             [
                 'rawWebAnalyticsFilters',
@@ -195,6 +194,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ],
             dataNodeCollectionLogic({ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }),
             ['cancelAllLoading'],
+            userLogic,
+            ['updateUser'],
         ],
     })),
     actions({
@@ -234,8 +235,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setTileVisibility: (tileId: TileId, visible: boolean) => ({ tileId, visible }),
         setHiddenTiles: (hiddenTiles: TileId[]) => ({ hiddenTiles }),
         resetTileVisibility: () => true,
-        openFocusModeModal: true,
+        openFocusModeModal: (onboarding: boolean = false) => ({ onboarding }),
         closeFocusModeModal: true,
+        openFocusModeOnboarding: true,
+        dismissFocusModeOnboarding: true,
+        startFocusModeOnboarding: true,
+        markFocusModeOnboardingSeen: true,
         setFocusModeConcerns: (concerns: WebAnalyticsConcern[]) => ({ concerns }),
         setFocusModeDraftConcerns: (concerns: WebAnalyticsConcern[]) => ({ concerns }),
         setFocusModeEnabled: (enabled: boolean) => ({ enabled }),
@@ -530,6 +535,22 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     openFocusModeModal: () => true,
                     closeFocusModeModal: () => false,
                     setProductTab: (state, { tab }) => (tab === ProductTab.ANALYTICS ? state : false),
+                },
+            ],
+            focusModeOnboardingModalOpen: [
+                false,
+                {
+                    openFocusModeOnboarding: () => true,
+                    dismissFocusModeOnboarding: () => false,
+                    startFocusModeOnboarding: () => false,
+                    setProductTab: (state, { tab }) => (tab === ProductTab.ANALYTICS ? state : false),
+                },
+            ],
+            focusModeModalIsOnboarding: [
+                false,
+                {
+                    openFocusModeModal: (_, { onboarding }) => onboarding,
+                    closeFocusModeModal: () => false,
                 },
             ],
             focusModeConcerns: [
@@ -971,11 +992,26 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         showFocusMode: [
             (s) => [s.featureFlags, s.productTab],
             (featureFlags, productTab: ProductTab): boolean =>
-                !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE] && productTab === ProductTab.ANALYTICS,
+                featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE] === 'test' && productTab === ProductTab.ANALYTICS,
         ],
         hasSavedFocusMode: [
             (s) => [s.focusModeConcerns],
             (focusModeConcerns: WebAnalyticsConcern[]): boolean => focusModeConcerns.length > 0,
+        ],
+        hasSeenFocusModeOnboarding: [
+            (s) => [s.user, s.currentTeam],
+            (user: UserType | null, currentTeam: TeamPublicType | TeamType | null): boolean =>
+                !!currentTeam && !!user?.has_seen_product_intro_for?.[getFocusModeOnboardingSeenKey(currentTeam.id)],
+        ],
+        shouldAutoOpenFocusModeOnboarding: [
+            (s) => [s.user, s.currentTeam, s.showFocusMode, s.hasSavedFocusMode, s.hasSeenFocusModeOnboarding],
+            (
+                user: UserType | null,
+                currentTeam: TeamPublicType | TeamType | null,
+                showFocusMode: boolean,
+                hasSavedFocusMode: boolean,
+                hasSeenFocusModeOnboarding: boolean
+            ): boolean => !!user && !!currentTeam && showFocusMode && !hasSavedFocusMode && !hasSeenFocusModeOnboarding,
         ],
         isFocusModeActive: [
             (s) => [s.showFocusMode, s.focusModeEnabled, s.focusModeConcerns],
@@ -2427,7 +2463,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         actions.loadShouldShowGeoIPQueries()
     }),
 
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const stateToUrl = (): string => {
             const urlParams = new URLSearchParams(router.values.location.search)
 
@@ -2574,7 +2610,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values }) => {
         const toAction = (
             { productTab = ProductTab.ANALYTICS }: { productTab?: ProductTab },
             {
@@ -2842,6 +2878,27 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             openFocusModeModal: () => {
                 actions.setFocusModeDraftConcerns(values.focusModeConcerns)
             },
+            markFocusModeOnboardingSeen: () => {
+                const teamId = values.currentTeam?.id
+                if (!teamId) {
+                    return
+                }
+                actions.updateUser({
+                    has_seen_product_intro_for: {
+                        ...values.user?.has_seen_product_intro_for,
+                        [getFocusModeOnboardingSeenKey(teamId)]: true,
+                    },
+                })
+            },
+            startFocusModeOnboarding: () => {
+                actions.markFocusModeOnboardingSeen()
+                eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingStarted()
+                actions.openFocusModeModal(true)
+            },
+            dismissFocusModeOnboarding: () => {
+                actions.markFocusModeOnboardingSeen()
+                eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingSkipped()
+            },
             enterFocusMode: () => {
                 if (!values.showFocusMode || values.focusModeConcerns.length === 0) {
                     return
@@ -2858,10 +2915,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 if (!values.showFocusMode || values.focusModeDraftConcerns.length === 0) {
                     return
                 }
+                const wasOnboarding = values.focusModeModalIsOnboarding
+                const concernCount = values.focusModeDraftConcerns.length
                 actions.setFocusModeConcerns(values.focusModeDraftConcerns)
                 actions.setHiddenTiles(computeFocusHiddenTiles(values.hiddenTiles, values.focusModeDraftConcerns))
                 actions.setFocusModeEnabled(true)
                 actions.closeFocusModeModal()
+                if (wasOnboarding) {
+                    eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingCompleted({
+                        concern_count: concernCount,
+                    })
+                }
             },
             setGraphsTab: ({ tab }) => {
                 checkGraphsTabIsCompatibleWithConversionGoal(tab, values.conversionGoal)
@@ -2918,6 +2982,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         }
     }),
+    subscriptions(({ actions, values }) => ({
+        shouldAutoOpenFocusModeOnboarding: (shouldOpen: boolean) => {
+            if (shouldOpen && !values.focusModeOnboardingModalOpen) {
+                actions.openFocusModeOnboarding()
+                eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingShown()
+            }
+        },
+    })),
     afterMount(({ actions, values }) => {
         checkCustomEventConversionGoalHasSessionIdsHelper(
             values.conversionGoal,

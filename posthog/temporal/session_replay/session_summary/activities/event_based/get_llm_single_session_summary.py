@@ -13,10 +13,11 @@ from posthog.temporal.session_replay.session_summary.state import (
 )
 from posthog.temporal.session_replay.session_summary.types.inputs import SingleSessionSummaryInputs
 
+from products.replay.backend.models.session_summaries import SessionSummaryRunMeta, SingleSessionSummary
+
 from ee.hogai.session_summaries.llm.consume import get_exception_event_ids_from_summary, get_llm_single_session_summary
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
-from ee.models.session_summaries import SessionSummaryRunMeta, SingleSessionSummary
 
 
 def _store_final_summary_in_db_from_activity(

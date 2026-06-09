@@ -33,11 +33,11 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
-from posthog.models.cohort.util import get_count_operator, get_count_operator_ast
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.util import get_count_operator, get_count_operator_ast
 
 
 class SeriesWithExtras:

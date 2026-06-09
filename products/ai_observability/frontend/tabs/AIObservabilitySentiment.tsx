@@ -8,10 +8,11 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { urls } from 'scenes/urls'
 
 import { MessageSentimentBar, SENTIMENT_BAR_COLOR } from '../components/SentimentTag'
+import { normalizeMessages } from '../messageNormalization'
 import { extractContentText, formatScore } from '../sentimentUtils'
 import type { SentimentLabel } from '../sentimentUtils'
 import type { CompatMessage } from '../types'
-import { getTraceTimestamp, normalizeMessages } from '../utils'
+import { getTraceTimestamp } from '../utils'
 import type {
     GroupedSentimentCard,
     SentimentCard,

@@ -27,6 +27,10 @@ export const logsConfigLogic = kea<logsConfigLogicType>([
                     // nosemgrep: prefer-codegen-api
                     return await api.get(`api/projects/${values.currentTeamId}/logs_config/`)
                 },
+                updateLogsConfig: async (patch: Partial<LogsConfig>): Promise<LogsConfig> => {
+                    // nosemgrep: prefer-codegen-api
+                    return await api.update(`api/projects/${values.currentTeamId}/logs_config/`, patch)
+                },
             },
         ],
     })),
