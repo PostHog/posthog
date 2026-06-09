@@ -181,6 +181,22 @@ class TestHogQLTypeSystem:
         self._assert_first_column_type("SELECT reinterpretAsFloat64('12345678')", ast.FloatType(nullable=False))
         self._assert_first_column_type("SELECT reinterpretAsUUID('1234567890123456')", ast.UUIDType(nullable=False))
 
+    def test_resolver_infers_date_arithmetic_granularity(self) -> None:
+        # Sub-day arithmetic promotes a Date to DateTime, matching ClickHouse.
+        for sub_day in ("addHours", "addMinutes", "addSeconds", "subtractHours", "subtractMinutes"):
+            self._assert_first_column_type(
+                f"SELECT {sub_day}(toDate('2020-01-01'), 1)", ast.DateTimeType(nullable=False)
+            )
+
+        # Day-and-above arithmetic keeps the Date.
+        for day_plus in ("addDays", "addWeeks", "addMonths", "subtractDays", "subtractYears"):
+            self._assert_first_column_type(f"SELECT {day_plus}(toDate('2020-01-01'), 1)", ast.DateType(nullable=False))
+
+        # A DateTime argument stays a DateTime under sub-day arithmetic.
+        self._assert_first_column_type(
+            "SELECT addHours(toDateTime('2020-01-01 00:00:00'), 1)", ast.DateTimeType(nullable=False)
+        )
+
     def test_resolver_infers_array_and_tuple_access_types(self) -> None:
         self._assert_first_column_type("SELECT [1, 2.0][1]", ast.FloatType(nullable=False))
 

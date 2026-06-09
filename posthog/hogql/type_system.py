@@ -283,7 +283,24 @@ _DATE_PART_RESULT_FUNCTIONS = frozenset(
     }
 )
 _DATE_STRING_RESULT_FUNCTIONS = frozenset({"timezoneof", "formatdatetime", "datename", "monthname"})
+# Day-and-above granularity: ClickHouse keeps a Date argument as a Date.
 _DATE_ARITHMETIC_FIRST_ARG_RESULT_FUNCTIONS = frozenset(
+    {
+        "adddays",
+        "addweeks",
+        "addmonths",
+        "addquarters",
+        "addyears",
+        "subtractdays",
+        "subtractweeks",
+        "subtractmonths",
+        "subtractquarters",
+        "subtractyears",
+    }
+)
+
+# Sub-day granularity: ClickHouse promotes a Date argument to DateTime.
+_SUB_DAY_DATE_ARITHMETIC_FUNCTIONS = frozenset(
     {
         "addnanoseconds",
         "addmicroseconds",
@@ -291,22 +308,12 @@ _DATE_ARITHMETIC_FIRST_ARG_RESULT_FUNCTIONS = frozenset(
         "addseconds",
         "addminutes",
         "addhours",
-        "adddays",
-        "addweeks",
-        "addmonths",
-        "addquarters",
-        "addyears",
         "subtractnanoseconds",
         "subtractmicroseconds",
         "subtractmilliseconds",
         "subtractseconds",
         "subtractminutes",
         "subtracthours",
-        "subtractdays",
-        "subtractweeks",
-        "subtractmonths",
-        "subtractquarters",
-        "subtractyears",
     }
 )
 _READABLE_STRING_RESULT_FUNCTIONS = frozenset(
@@ -1018,6 +1025,14 @@ def _infer_generic_function_type(
         return dataclasses.replace(arg_types[0])
 
     if normalized_name in _DATE_ARITHMETIC_FIRST_ARG_RESULT_FUNCTIONS and arg_types:
+        return dataclasses.replace(arg_types[0])
+
+    if normalized_name in _SUB_DAY_DATE_ARITHMETIC_FUNCTIONS and arg_types:
+        # ClickHouse promotes a Date argument to the datetime family (DateTime, or DateTime64 for
+        # Date32 / sub-second granularity); a datetime argument stays in the datetime family. The
+        # constant types are family-level (no precision), so promoting Date -> DateTimeType suffices.
+        if isinstance(arg_types[0], ast.DateType):
+            return ast.DateTimeType(nullable=arg_types[0].nullable)
         return dataclasses.replace(arg_types[0])
 
     if normalized_name in {"rank", "dense_rank", "row_number"}:
