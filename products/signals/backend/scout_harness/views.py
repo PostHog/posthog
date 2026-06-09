@@ -39,7 +39,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.permissions import APIScopePermission
 
-from products.signals.backend.models import SignalProjectProfile, SignalScoutConfig, SignalScoutRun
+from products.signals.backend.models import SignalProjectProfile, SignalScoutConfig, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.serializers import (
     EmitFindingRequestSerializer,
     EmitFindingResponseSerializer,
@@ -53,6 +53,7 @@ from products.signals.backend.scout_harness.serializers import (
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
     SignalScoutConfigSerializer,
+    SignalScoutEmissionSerializer,
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
 )
@@ -200,6 +201,40 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if detail is None:
             raise exceptions.NotFound()
         return Response(SignalScoutRunDetailSerializer(detail.as_dict()).data)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=SignalScoutEmissionSerializer(many=True),
+                description="Findings this run emitted to the inbox, newest first.",
+            ),
+            404: OpenApiResponse(description="Run not found or not visible to this project."),
+        },
+        summary="List a run's emitted findings",
+        description=(
+            "Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit "
+            "with its `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, and "
+            "the deterministic `source_id` that joins back to the underlying signal. Lets a team and its "
+            "agents see *what* a run surfaced without parsing `emitted_finding_ids` or scanning the signal "
+            "store. Strictly team-scoped — a run UUID belonging to another team returns 404."
+        ),
+        operation_id="signals_scout_runs_emissions",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="emissions",
+        required_scopes=["signal_scout:read"],
+        pagination_class=None,
+    )
+    def emissions(self, request: Request, **kwargs) -> Response:
+        run_id = _parse_run_id_or_404(kwargs)
+        team_id = _canonical_team_id(self)
+        # Team-scope the run lookup first so a foreign-team UUID is a clean 404, not an empty list.
+        if not SignalScoutRun.objects.filter(id=run_id, team_id=team_id).exists():
+            raise exceptions.NotFound()
+        emissions = SignalScoutEmission.objects.filter(scout_run_id=run_id, team_id=team_id).order_by("-emitted_at")
+        return Response(SignalScoutEmissionSerializer(emissions, many=True).data)
 
     @validated_request(
         request_serializer=EmitFindingRequestSerializer,

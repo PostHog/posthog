@@ -12,7 +12,7 @@ from rest_framework import serializers
 
 from posthog.schema import Severity
 
-from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 
 # --- Run history -----------------------------------------------------------
@@ -80,6 +80,53 @@ class SignalScoutRunDetailSerializer(SignalScoutRunSummarySerializer):
     """Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
     today; kept distinct so future detail-only extensions (linked Signal rows,
     LLMA token-cost join) can land here without bloating the list response."""
+
+
+class SignalScoutEmissionSerializer(serializers.ModelSerializer):
+    """One finding a scout run emitted to the inbox — the persisted, queryable record of
+    *what* the run surfaced, returned by `signals-scout-runs-emissions`. The emitted text
+    lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
+    back into the underlying signal store."""
+
+    run_id = serializers.CharField(
+        source="scout_run_id",
+        help_text="UUID of the `SignalScoutRun` that emitted this finding.",
+    )
+    finding_id = serializers.CharField(
+        help_text="Stable id the finding was emitted under; matches an entry in the run's `emitted_finding_ids`.",
+    )
+    description = serializers.CharField(
+        help_text="The emitted finding prose — the signal's `description` as surfaced to the inbox.",
+    )
+    weight = serializers.FloatField(
+        help_text="Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.",
+    )
+    confidence = serializers.FloatField(
+        help_text="Agent's confidence the finding is real in [0, 1].",
+    )
+    severity = serializers.CharField(
+        allow_null=True,
+        help_text="Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.",
+    )
+    source_id = serializers.CharField(
+        help_text="Deterministic `run:<run_id>:finding:<finding_id>` — the join key into the underlying signal store.",
+    )
+    emitted_at = serializers.DateTimeField(help_text="ISO-8601 timestamp the finding was emitted.")
+
+    class Meta:
+        model = SignalScoutEmission
+        fields = [
+            "id",
+            "run_id",
+            "finding_id",
+            "description",
+            "weight",
+            "confidence",
+            "severity",
+            "source_id",
+            "emitted_at",
+        ]
+        read_only_fields = fields
 
 
 class SearchRecentRunsQuerySerializer(serializers.Serializer):

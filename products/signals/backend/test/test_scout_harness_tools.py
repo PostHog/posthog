@@ -14,7 +14,7 @@ from parameterized import parameterized
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalScratchpad
+from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalScratchpad
 from products.signals.backend.scout_harness.tools import (
     MAX_EVIDENCE_ENTRIES,
     EvidenceEntry,
@@ -719,6 +719,35 @@ async def test_emit_finding_records_tally_on_run(ateam_emit, arun_emit):
     await database_sync_to_async(arun_emit.refresh_from_db)()
     assert arun_emit.emitted_count == 2
     assert arun_emit.emitted_finding_ids == ["f-one", "f-two"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_persists_emission_rows(ateam_emit, arun_emit):
+    # Each successful emit writes a SignalScoutEmission row carrying the finding's content,
+    # so a team can read *what* a run surfaced without scanning the signal store.
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()):
+        await emit_finding(
+            team=ateam_emit,
+            run=arun_emit,
+            description="Checkout 500s post-deploy",
+            weight=0.7,
+            confidence=0.85,
+            evidence=[EvidenceEntry(source_product="error_tracking", summary="500s on /checkout")],
+            severity="P1",
+            finding_id="f-emit",
+        )
+
+    rows = await database_sync_to_async(lambda: list(SignalScoutEmission.all_teams.filter(scout_run=arun_emit)))()
+    assert len(rows) == 1
+    emission = rows[0]
+    assert emission.team_id == ateam_emit.id
+    assert emission.finding_id == "f-emit"
+    assert emission.description == "Checkout 500s post-deploy"
+    assert emission.weight == 0.7
+    assert emission.confidence == 0.85
+    assert emission.severity == "P1"
+    assert emission.source_id == f"run:{arun_emit.id}:finding:f-emit"
 
 
 @pytest.mark.asyncio

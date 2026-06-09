@@ -277,6 +277,23 @@ tools:
             `emitted_finding_ids`. Status, timestamps, and error flow from the linked `tasks.TaskRun`; emitted findings
             live as `Signal` rows queryable by `source_id = run:<run_id>:finding:<finding_id>` (one per id in
             `emitted_finding_ids`). Strictly team-scoped — a UUID belonging to another team returns 404.
+    signals-scout-runs-emissions:
+        operation: signals_scout_runs_emissions
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List a scout run's emitted findings
+        description: >
+            Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its
+            `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, and the deterministic
+            `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal. Use this to see
+            *what* a run actually surfaced, not just how many (`emitted_count`) or which ids (`emitted_finding_ids`).
+            Strictly team-scoped — a run UUID belonging to another team returns 404.
     signals-scout-scratchpad-forget:
         operation: signals_scout_scratchpad_forget
         enabled: true

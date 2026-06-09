@@ -38850,6 +38850,35 @@ export namespace Schemas {
     }
 
     /**
+     * One finding a scout run emitted to the inbox — the persisted, queryable record of
+    *what* the run surfaced, returned by `signals-scout-runs-emissions`. The emitted text
+    lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
+    back into the underlying signal store.
+     */
+    export interface SignalScoutEmission {
+      readonly id: string;
+      /** UUID of the `SignalScoutRun` that emitted this finding. */
+      run_id: string;
+      /** Stable id the finding was emitted under; matches an entry in the run's `emitted_finding_ids`. */
+      finding_id: string;
+      /** The emitted finding prose — the signal's `description` as surfaced to the inbox. */
+      description: string;
+      /** Agent's weight for the signal in [0, 1]. Drives ranking in the inbox. */
+      weight: number;
+      /** Agent's confidence the finding is real in [0, 1]. */
+      confidence: number;
+      /**
+         * Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.
+         * @nullable
+         */
+      severity: string | null;
+      /** Deterministic `run:<run_id>:finding:<finding_id>` — the join key into the underlying signal store. */
+      source_id: string;
+      /** ISO-8601 timestamp the finding was emitted. */
+      emitted_at: string;
+    }
+
+    /**
      * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
     today; kept distinct so future detail-only extensions (linked Signal rows,
     LLMA token-cost join) can land here without bloating the list response.

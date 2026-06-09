@@ -12,6 +12,7 @@ import {
     SignalsScoutEmitSignalBody,
     SignalsScoutEmitSignalParams,
     SignalsScoutProjectProfileGetQueryParams,
+    SignalsScoutRunsEmissionsParams,
     SignalsScoutRunsListQueryParams,
     SignalsScoutRunsRetrieveParams,
     SignalsScoutScratchpadForgetBody,
@@ -440,6 +441,24 @@ const signalsScoutRunsRetrieve = (): ToolBase<typeof SignalsScoutRunsRetrieveSch
     },
 })
 
+const SignalsScoutRunsEmissionsSchema = SignalsScoutRunsEmissionsParams.omit({ project_id: true })
+
+const signalsScoutRunsEmissions = (): ToolBase<
+    typeof SignalsScoutRunsEmissionsSchema,
+    WithPostHogUrl<Schemas.SignalScoutEmission[]>
+> => ({
+    name: 'signals-scout-runs-emissions',
+    schema: SignalsScoutRunsEmissionsSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutRunsEmissionsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalScoutEmission[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.id))}/emissions/`,
+        })
+        return await withPostHogUrl(context, result, '/inbox')
+    },
+})
+
 const SignalsScoutScratchpadForgetSchema = SignalsScoutScratchpadForgetBody
 
 const signalsScoutScratchpadForget = (): ToolBase<
@@ -529,6 +548,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'signals-scout-project-profile-get': signalsScoutProjectProfileGet,
     'signals-scout-runs-list': signalsScoutRunsList,
     'signals-scout-runs-retrieve': signalsScoutRunsRetrieve,
+    'signals-scout-runs-emissions': signalsScoutRunsEmissions,
     'signals-scout-scratchpad-forget': signalsScoutScratchpadForget,
     'signals-scout-scratchpad-remember': signalsScoutScratchpadRemember,
     'signals-scout-scratchpad-search': signalsScoutScratchpadSearch,
