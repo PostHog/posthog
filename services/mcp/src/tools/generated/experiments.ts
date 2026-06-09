@@ -315,6 +315,7 @@ const experimentList = (): ToolBase<typeof ExperimentListSchema, WithPostHogUrl<
                 query: {
                     archived: params.archived,
                     created_by_id: params.created_by_id,
+                    event: params.event,
                     feature_flag_id: params.feature_flag_id,
                     limit: params.limit,
                     offset: params.offset,

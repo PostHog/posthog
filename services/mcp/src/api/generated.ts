@@ -12599,7 +12599,7 @@ export namespace Schemas {
          * @nullable
          */
       widget_type: string | null;
-      /** Live widget query result payload. */
+      /** Live widget query result payload. List widgets return results (array), limit (configured page size), hasMore (boolean), totalCount (matching rows for current filters), totalCountCapped (true when totalCount hit the widget max and more may exist), and optional offset/nextOffset. error_tracking_list results are issue summaries; session_replay_list results are recording metadata. */
       result: unknown;
       /**
          * Error message when the widget could not be run.
@@ -14396,12 +14396,6 @@ export namespace Schemas {
          */
       description: string;
       /**
-         * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
-         * @minimum 0
-         * @maximum 1
-         */
-      weight: number;
-      /**
          * Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.
          * @minimum 0
          * @maximum 1
@@ -14436,6 +14430,7 @@ export namespace Schemas {
       mcp_trace_id?: string | null;
       /**
          * Stable id for this finding, baked into the signal's source_id for traceability. NOT a dedupe key — re-emitting the same id creates another signal.
+         * @maxLength 100
          * @nullable
          */
       finding_id?: string | null;
@@ -16752,8 +16747,6 @@ export namespace Schemas {
       ExitOnlyAtEnd: 'exit_only_at_end',
     } as const;
 
-    export type ExperimentFeatureFlag = { [key: string]: unknown };
-
     export interface ExperimentHoldout {
       readonly id: number;
       /** @maxLength 400 */
@@ -16948,7 +16941,7 @@ export namespace Schemas {
       end_date?: string | null;
       /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
       feature_flag_key: string;
-      readonly feature_flag: ExperimentFeatureFlag;
+      readonly feature_flag: MinimalFeatureFlag;
       readonly holdout: ExperimentHoldout;
       /**
          * ID of a holdout group to exclude from the experiment.
@@ -29542,8 +29535,6 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
-    export type PatchedExperimentFeatureFlag = { [key: string]: unknown };
-
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -29566,7 +29557,7 @@ export namespace Schemas {
       end_date?: string | null;
       /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
       feature_flag_key?: string;
-      readonly feature_flag?: PatchedExperimentFeatureFlag;
+      readonly feature_flag?: MinimalFeatureFlag;
       readonly holdout?: ExperimentHoldout;
       /**
          * ID of a holdout group to exclude from the experiment.
@@ -31974,6 +31965,11 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnum[];
+      /**
+         * Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.
+         * @nullable
+         */
+      readonly is_pending_deletion?: boolean | null;
     }
 
     export interface PatchedProjectSecretAPIKey {
@@ -34116,6 +34112,24 @@ export namespace Schemas {
       point_in_time_metadata: PersonPropertiesAtTimeMetadata;
     }
 
+    export interface PersonSplitRequest {
+      /**
+         * The distinct_id to **keep** on this person; every *other* distinct_id is moved to its own new single-id person. If omitted, the first distinct_id on the person is used and the person's properties are wiped. To surgically *remove* one or more distinct_ids while leaving the merge intact, use `distinct_ids_to_split` instead — these parameters are inverses of each other and cannot be combined.
+         * @nullable
+         */
+      main_distinct_id?: string | null;
+      /**
+         * List of distinct_ids to **move off** this person onto new single-id persons. The original person keeps every other distinct_id and its properties. New persons are created with deterministic UUIDs derived from `(team_id, distinct_id)`. Cannot be combined with `main_distinct_id`.
+         * @nullable
+         */
+      distinct_ids_to_split?: string[] | null;
+    }
+
+    export interface PersonSplitResponse {
+      /** Always `true` when the split task was enqueued. The split itself runs asynchronously — a 201 response means the task was accepted, not that the merge state has already been updated. */
+      success: boolean;
+    }
+
     export interface PersonUpdatePropertyRequest {
       /** The property key to set. */
       key: string;
@@ -34250,6 +34264,36 @@ export namespace Schemas {
       tabs?: PinnedSceneTab[];
       /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
+    }
+
+    export interface PreviewInviteRequest {
+      /**
+         * Which targeted interviewee to render the preview for (an email or PostHog distinct ID already on the topic). Leave blank to preview for the first targeted interviewee.
+         * @maxLength 400
+         */
+      interviewee_identifier?: string;
+    }
+
+    export interface PreviewInviteResult {
+      /** The identifier (email or distinct ID) the preview was rendered for. */
+      interviewee_identifier: string;
+      /** The display name used in the email greeting, derived from the identifier. */
+      user_name: string;
+      /**
+         * The email address the invite would be sent to. Null for distinct-ID-only interviewees.
+         * @nullable
+         */
+      email: string | null;
+      /** The rendered subject line (saved topic subject, sanitized, or the default). */
+      subject: string;
+      /** The fully rendered, CSS-inlined HTML body of the invite email. Safe to display in a sandboxed iframe. */
+      html: string;
+      /** An illustrative placeholder interview link shown in the previewed email body. The preview never exposes a real per-recipient share token — that link is minted only when invites are sent. */
+      interview_url: string;
+      /** True if this interviewee has an email address and could actually receive the invite. */
+      emailable: boolean;
+      /** Always true — the previewed interview_url is an illustrative placeholder, never a live link. */
+      is_preview_link: boolean;
     }
 
     /**
@@ -35102,6 +35146,11 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
+      /**
+         * Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.
+         * @nullable
+         */
+      readonly is_pending_deletion: boolean | null;
     }
 
     /**
@@ -38887,6 +38936,46 @@ export namespace Schemas {
          */
       readonly last_run_at: string | null;
       readonly created_at: string;
+    }
+
+    /**
+     * One finding a scout run emitted to the inbox — the persisted, queryable record of
+    *what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
+    lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
+    back into the underlying signal store.
+     */
+    export interface SignalScoutEmission {
+      readonly id: string;
+      /** UUID of the `SignalScoutRun` that emitted this finding. */
+      run_id: string;
+      /** Stable id the finding was emitted under; matches an entry in the run's `emitted_finding_ids`. */
+      finding_id: string;
+      /** The emitted finding prose — the signal's `description` as surfaced to the inbox. */
+      description: string;
+      /**
+         * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
+         * @minimum 0
+         * @maximum 1
+         */
+      weight: number;
+      /**
+         * Agent's confidence the finding is real in [0, 1].
+         * @minimum 0
+         * @maximum 1
+         */
+      confidence: number;
+      /** Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.
+
+      * `P0` - P0
+      * `P1` - P1
+      * `P2` - P2
+      * `P3` - P3
+      * `P4` - P4 */
+      severity: AutonomyPriorityEnum | null;
+      /** Deterministic `run:<run_id>:finding:<finding_id>` — the join key into the underlying signal store. */
+      source_id: string;
+      /** ISO-8601 timestamp the finding was emitted. */
+      emitted_at: string;
     }
 
     /**
@@ -48716,6 +48805,10 @@ export namespace Schemas {
      * Filter to experiments created by the given user ID.
      */
     created_by_id?: number;
+    /**
+     * Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.
+     */
+    event?: string;
     /**
      * Filter to experiments linked to the given feature flag ID.
      */
