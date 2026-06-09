@@ -817,8 +817,8 @@ def _fanout_chain(manifest: dict[str, Any], chosen_name: str) -> list[dict[str, 
     names: list[str] = [chosen_name]
     seen: set[str] = {chosen_name}
     current = chosen_name
-    while resolved.get(current) is not None:
-        parent_name = resolved[current].resolve_config["resource"]
+    while (resolved_param := resolved.get(current)) is not None:
+        parent_name = resolved_param.resolve_config["resource"]
         if parent_name in seen:
             # The graph builder itself doesn't reject cycles (only the
             # create-time `static_order` check does), so a stored manifest can
