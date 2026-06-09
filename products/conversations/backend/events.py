@@ -47,7 +47,7 @@ def _get_actor_distinct_id(
     User actions are attributed to the staff member.
     System/external/customer actions are attributed to the customer.
     """
-    if actor_type == "user" and actor:
+    if actor_type == "user" and actor and actor.distinct_id:
         return actor.distinct_id
     return ticket.distinct_id or ticket.channel_source or "unknown"
 
