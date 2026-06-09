@@ -2,7 +2,6 @@ import './CohortField.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-// @ts-expect-error - useId exists in React 18 but @types/react is pinned to v17
 import { useEffect, useId, useRef } from 'react'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
