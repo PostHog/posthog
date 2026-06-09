@@ -20,6 +20,7 @@ import { GENERATED_TOOLS as endpoints } from './endpoints'
 import { GENERATED_TOOLS as error_tracking } from './error_tracking'
 import { GENERATED_TOOLS as experiments } from './experiments'
 import { GENERATED_TOOLS as feature_flags } from './feature_flags'
+import { GENERATED_TOOLS as health_issues } from './health_issues'
 import { GENERATED_TOOLS as integrations } from './integrations'
 import { GENERATED_TOOLS as logs } from './logs'
 import { GENERATED_TOOLS as marketing_analytics } from './marketing_analytics'
@@ -31,7 +32,6 @@ import { GENERATED_TOOLS as proxyRecords } from './proxy-records'
 import { GENERATED_TOOLS as queryWrappers } from './query-wrappers'
 import { GENERATED_TOOLS as replay } from './replay'
 import { GENERATED_TOOLS as replay_vision } from './replay_vision'
-import { GENERATED_TOOLS as sdk_health } from './sdk_health'
 import { GENERATED_TOOLS as signals } from './signals'
 import { GENERATED_TOOLS as subscriptions } from './subscriptions'
 import { GENERATED_TOOLS as surveys } from './surveys'
@@ -62,6 +62,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...error_tracking,
     ...experiments,
     ...feature_flags,
+    ...health_issues,
     ...integrations,
     ...logs,
     ...marketing_analytics,
@@ -73,7 +74,6 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...queryWrappers,
     ...replay,
     ...replay_vision,
-    ...sdk_health,
     ...signals,
     ...subscriptions,
     ...surveys,
