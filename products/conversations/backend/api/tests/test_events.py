@@ -34,7 +34,7 @@ class TestConversationEvents(BaseTest):
             anonymous_traits={"name": "Test Customer", "email": "test@example.com"},
         )
 
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     def test_capture_ticket_created_uses_team_token(self, mock_capture):
         capture_ticket_created(self.ticket)
 
@@ -48,7 +48,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["customer_name"] == "Test Customer"
         assert call_kwargs["properties"]["customer_email"] == "test@example.com"
 
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     def test_capture_ticket_status_changed_uses_team_token(self, mock_capture):
         capture_ticket_status_changed(self.ticket, "new", "pending", actor=self.user, actor_type="user")
 
@@ -64,7 +64,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["actor_id"] == self.user.id
         assert call_kwargs["properties"]["actor_email"] == self.user.email
 
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     def test_capture_ticket_priority_changed_uses_team_token(self, mock_capture):
         capture_ticket_priority_changed(self.ticket, None, "high", actor=self.user, actor_type="user")
 
@@ -80,7 +80,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["actor_id"] == self.user.id
         assert call_kwargs["properties"]["actor_email"] == self.user.email
 
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     def test_capture_ticket_assigned_uses_team_token(self, mock_capture):
         capture_ticket_assigned(self.ticket, "user", "123", actor=self.user, actor_type="user")
 
@@ -96,7 +96,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["actor_id"] == self.user.id
         assert call_kwargs["properties"]["actor_email"] == self.user.email
 
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     def test_capture_message_sent_uses_team_token(self, mock_capture):
         capture_message_sent(self.ticket, "msg-123", "Hello customer", author=self.user)
 
@@ -113,7 +113,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["actor_id"] == self.user.id
         assert call_kwargs["properties"]["actor_email"] == self.user.email
 
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     def test_capture_message_received_uses_team_token(self, mock_capture):
         capture_message_received(self.ticket, "msg-456", "Hello support")
 
@@ -154,7 +154,7 @@ class TestConversationEvents(BaseTest):
             ),
         ]
     )
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     def test_all_events_include_base_properties(self, _name, capture_fn, expected_event, extra_args, mock_capture):
         capture_fn(self.ticket, *extra_args)
 
@@ -168,7 +168,7 @@ class TestConversationEvents(BaseTest):
         assert props["status"] == self.ticket.status
         assert props["priority"] == self.ticket.priority
 
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     def test_message_content_truncated_to_1000_chars(self, mock_capture):
         long_content = "x" * 1500
         capture_message_sent(self.ticket, "msg-id", long_content, author=self.user)
@@ -176,7 +176,7 @@ class TestConversationEvents(BaseTest):
         call_kwargs = mock_capture.call_args.kwargs
         assert len(call_kwargs["properties"]["message_content"]) == 1000
 
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     def test_event_uses_ticket_team_token_not_other_team(self, mock_capture):
         """Verify events route to the ticket's team, not any other team."""
         from posthog.models import Organization, Team
@@ -192,7 +192,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["token"] == self.team.api_token
         assert call_kwargs["token"] != other_team.api_token
 
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     def test_two_teams_events_routed_to_respective_projects(self, mock_capture):
         """Events from Team 1 ticket use Team 1 token, Team 2 ticket uses Team 2 token."""
         from posthog.models import Organization, Team
@@ -234,7 +234,7 @@ class TestConversationEvents(BaseTest):
             ("empty_distinct_id", False, False, False),
         ]
     )
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
     def test_capture_ticket_created_person_processing(
         self, _name, has_person, is_identified, expect_groups, mock_get_persons, mock_capture
@@ -267,7 +267,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["process_person_profile"] is expect_groups
         assert "$groups" not in call_kwargs["properties"]
 
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
     def test_capture_ticket_created_groups_from_person_org(self, mock_get_persons, mock_capture):
         from posthog.models.person.person import Person
@@ -287,7 +287,7 @@ class TestConversationEvents(BaseTest):
         assert groups["project"] == str(self.team.uuid)
         assert "instance" in groups
 
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
     def test_capture_message_received_groups_from_person_org(self, mock_get_persons, mock_capture):
         from posthog.models.person.person import Person
@@ -314,7 +314,7 @@ class TestConversationEvents(BaseTest):
             ("empty_distinct_id", False, False),
         ]
     )
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
     def test_capture_message_received_person_processing(
         self, _name, has_person, is_identified, mock_get_persons, mock_capture
@@ -347,7 +347,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["process_person_profile"] is False
         assert "$groups" not in call_kwargs["properties"]
 
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids", side_effect=Exception("db timeout"))
     def test_capture_message_received_still_fires_on_person_lookup_failure(self, mock_get_persons, mock_capture):
         capture_message_received(self.ticket, "msg-456", "Hello support")
@@ -363,7 +363,7 @@ class TestConversationEvents(BaseTest):
             ("user_has_no_membership", True, False),
         ]
     )
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
     def test_capture_ticket_created_no_groups_when(
         self, _name, create_user, create_membership, mock_get_persons, mock_capture
@@ -381,7 +381,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["process_person_profile"] is False
         assert "$groups" not in call_kwargs["properties"]
 
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids", side_effect=Exception("db timeout"))
     def test_capture_ticket_created_still_fires_on_person_lookup_failure(self, mock_get_persons, mock_capture):
         capture_ticket_created(self.ticket)
@@ -400,7 +400,7 @@ class TestConversationEvents(BaseTest):
             ("email_from_only", "email", None, "biz@acme.com"),
         ]
     )
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     @patch("products.conversations.backend.events._get_persons_by_email")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
     def test_capture_ticket_created_email_fallback_groups(
@@ -449,7 +449,7 @@ class TestConversationEvents(BaseTest):
             ("person_without_membership", True),
         ]
     )
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     @patch("products.conversations.backend.events._get_persons_by_email")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
     def test_capture_ticket_created_email_fallback_no_groups(
@@ -483,7 +483,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["process_person_profile"] is False
         assert "$groups" not in call_kwargs["properties"]
 
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     @patch("products.conversations.backend.events._get_persons_by_email")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
     def test_capture_ticket_created_identified_person_without_membership_skips_email_fallback(
@@ -509,7 +509,7 @@ class TestConversationEvents(BaseTest):
             ("github_no_email", "github"),
         ]
     )
-    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.capture_internal_routed")
     @patch("products.conversations.backend.events._get_persons_by_email")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
     def test_capture_ticket_created_non_verified_channels_skip_email_fallback(

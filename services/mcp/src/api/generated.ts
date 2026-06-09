@@ -509,10 +509,13 @@ export namespace Schemas {
     }
 
     export interface AccountsQuery {
-      accountExecutive?: string | number | null;
-      accountOwner?: string | number | null;
+      /** Match accounts whose account executive is any of these user ids (OR semantics). */
+      accountExecutive?: number[] | null;
+      /** Match accounts whose account owner is any of these user ids (OR semantics). */
+      accountOwner?: number[] | null;
       allRolesUnassigned?: boolean | null;
-      csm?: string | number | null;
+      /** Match accounts whose CSM is any of these user ids (OR semantics). */
+      csm?: number[] | null;
       /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
       filterExpression?: string | null;
       kind?: 'AccountsQuery';
@@ -31965,6 +31968,11 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnum[];
+      /**
+         * Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.
+         * @nullable
+         */
+      readonly is_pending_deletion?: boolean | null;
     }
 
     export interface PatchedProjectSecretAPIKey {
@@ -34107,6 +34115,24 @@ export namespace Schemas {
       point_in_time_metadata: PersonPropertiesAtTimeMetadata;
     }
 
+    export interface PersonSplitRequest {
+      /**
+         * The distinct_id to **keep** on this person; every *other* distinct_id is moved to its own new single-id person. If omitted, the first distinct_id on the person is used and the person's properties are wiped. To surgically *remove* one or more distinct_ids while leaving the merge intact, use `distinct_ids_to_split` instead — these parameters are inverses of each other and cannot be combined.
+         * @nullable
+         */
+      main_distinct_id?: string | null;
+      /**
+         * List of distinct_ids to **move off** this person onto new single-id persons. The original person keeps every other distinct_id and its properties. New persons are created with deterministic UUIDs derived from `(team_id, distinct_id)`. Cannot be combined with `main_distinct_id`.
+         * @nullable
+         */
+      distinct_ids_to_split?: string[] | null;
+    }
+
+    export interface PersonSplitResponse {
+      /** Always `true` when the split task was enqueued. The split itself runs asynchronously — a 201 response means the task was accepted, not that the merge state has already been updated. */
+      success: boolean;
+    }
+
     export interface PersonUpdatePropertyRequest {
       /** The property key to set. */
       key: string;
@@ -34241,6 +34267,36 @@ export namespace Schemas {
       tabs?: PinnedSceneTab[];
       /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
+    }
+
+    export interface PreviewInviteRequest {
+      /**
+         * Which targeted interviewee to render the preview for (an email or PostHog distinct ID already on the topic). Leave blank to preview for the first targeted interviewee.
+         * @maxLength 400
+         */
+      interviewee_identifier?: string;
+    }
+
+    export interface PreviewInviteResult {
+      /** The identifier (email or distinct ID) the preview was rendered for. */
+      interviewee_identifier: string;
+      /** The display name used in the email greeting, derived from the identifier. */
+      user_name: string;
+      /**
+         * The email address the invite would be sent to. Null for distinct-ID-only interviewees.
+         * @nullable
+         */
+      email: string | null;
+      /** The rendered subject line (saved topic subject, sanitized, or the default). */
+      subject: string;
+      /** The fully rendered, CSS-inlined HTML body of the invite email. Safe to display in a sandboxed iframe. */
+      html: string;
+      /** An illustrative placeholder interview link shown in the previewed email body. The preview never exposes a real per-recipient share token — that link is minted only when invites are sent. */
+      interview_url: string;
+      /** True if this interviewee has an email address and could actually receive the invite. */
+      emailable: boolean;
+      /** Always true — the previewed interview_url is an illustrative placeholder, never a live link. */
+      is_preview_link: boolean;
     }
 
     /**
@@ -35093,6 +35149,11 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
+      /**
+         * Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.
+         * @nullable
+         */
+      readonly is_pending_deletion: boolean | null;
     }
 
     /**

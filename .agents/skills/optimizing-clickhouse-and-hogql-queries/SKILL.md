@@ -130,9 +130,21 @@ Worth a mention specific to PostHog: per [`CLAUDE.md`](../../../CLAUDE.md), new 
 
 ### JSON operations on properties
 
-Any `JSONExtractString(properties, ...)`, `JSONExtractFloat(properties, ...)`, `JSONHas(properties, ...)`, or similar against the raw `properties` / `person_properties` / `group_properties` column is a huge smell. It means ClickHouse has to parse the JSON blob at query time for every row it reads.
+Any `JSONExtractString(properties, ...)`, `JSONExtractFloat(properties, ...)`, `JSONHas(properties, ...)`, or similar against the raw `properties` / `person_properties` / `group_properties` column is a huge smell. It means ClickHouse has to parse the JSON blob at query time for every row it reads. This holds for both event and person property blobs: reading either as raw JSON can be up to ~100x slower than reading a directly materialized (`mat_*` / `dmat_*`) column, and ~10x slower than a property group read.
 
-We have three materialization strategies. Skim:
+**For any query that goes through the HogQL printer, the fix is mechanical and unconditional: replace every hand-written `JSONExtract*(properties, 'X')` with HogQL property access `properties.X` (wrap in `toFloat(...)` / `toInt(...)` when you need a non-string type). Convert _all_ of them — do not stop to work out which properties are materialized.** The printer path is most HogQL: backend `parse_select` / `execute_hogql_query` / `*QueryRunner` queries, and frontend `api.queryHogQL` / `` hogql`...` `` strings (they POST to `/query`, which runs the same printer). When the printer visits `properties.X` it does the materialization lookup against the live ClickHouse and emits the best available form — a directly materialized column, a property group read, a DMAT slot, or a `JSONExtract` fallback when nothing is materialized. So `properties.X` is **never worse** than the hand-written `JSONExtract`: worst case the printer emits the same `JSONExtract`; best case you get the materialized fast path, both now and automatically in the future when the column later gets materialized.
+
+**Do not try to determine which properties are materialized and convert only those.** Reading migration files, the materialized-columns registry, or a `DESCRIBE` to decide which `JSONExtract`s are "safe" to convert is the printer's job reimplemented by hand, and it reaches the wrong answer:
+
+- Materialization is frequently not created by a migration at all, so scanning migrations misses most of it.
+- Property groups cover properties that have no dedicated materialized column.
+- The materialized set differs per environment and changes over time, so any answer you compute is a snapshot that goes stale.
+
+Converting only the subset you could confirm leaves the query inconsistent (some properties as `properties.X`, sibling properties left as `JSONExtract`, sometimes forced into a `hogql.raw()` conditional to keep one of each) for zero benefit, and silently skips every property you couldn't find evidence for. Convert all of them and let the printer decide at print time.
+
+**The one exception is raw SQL that never goes through the printer** — multi-team `sync_execute` queries, ClickHouse migrations, and temporal activities that build query strings by hand (see Step 0). There is no printer to do the lookup (and `properties.X` HogQL syntax isn't available), so those queries _do_ have to reference the materialized column directly. That hand-rolled lookup is correct there, and only there.
+
+For the raw-SQL exception, and as background, we have three materialization strategies. You do **not** need to consult these to convert a printer-path query:
 
 - Directly materialized columns: [`posthog/clickhouse/materialized_columns.py`](../../../posthog/clickhouse/materialized_columns.py)
 - Property groups: [`posthog/clickhouse/property_groups.py`](../../../posthog/clickhouse/property_groups.py)
@@ -140,9 +152,9 @@ We have three materialization strategies. Skim:
 
 We are also experimenting with the new ClickHouse JSON data type. Check recent migrations under [`posthog/clickhouse/migrations/`](../../../posthog/clickhouse/migrations/) for the current state.
 
-If a property is not materialized in the local fixtures, snapshot tests will fall back to `JSONExtract*`. In test code, wrap the block in the `materialized()` context manager from [`posthog/test/base.py`](../../../posthog/test/base.py) (search for `def materialized`) to materialize a property for the duration of the test. It supports `create_minmax_index`, `create_bloom_filter_index`, and the lower-case variants when you also want to assert the skip index is used.
+In test code, if you need a property materialized for the duration of a test (e.g. to assert the printer emits a column read or that a skip index is used), wrap the block in the `materialized()` context manager from [`posthog/test/base.py`](../../../posthog/test/base.py) (search for `def materialized`). It supports `create_minmax_index`, `create_bloom_filter_index`, and the lower-case variants.
 
-**Important: `JSONExtract` in a test-extracted query is a noisy signal.** The HogQL printer's materialization lookup runs against whatever ClickHouse you're talking to. The test ClickHouse usually has a minimal materialized set (events `$browser`, `$os`, a few others), so the printer falls back to `JSONExtract(properties, ...)` and the `.ambr` snapshot bakes that in. Production has dozens of materialized properties per team and the printer emits direct column reads. Before chasing a JSON smell you saw in a snapshot, confirm it's actually `JSONExtract`-ing in production: pull the same query type from `system.query_log` (via `/query-clickhouse-via-metabase`) and see what the printer actually emitted. If prod is already on `pmat_X` and the snapshot just shows `JSONExtract`, the smell is a test-environment artifact, not a real performance problem.
+A `JSONExtract` you see in a `.ambr` snapshot or other printed SQL — where the _source_ query already uses `properties.X` — is just the printer's fallback because the test fixture lacks the materialized column prod has. There is nothing to change in the source, and it is not evidence of a production problem: prod may well emit a materialized column read for the same query. Don't "fix" the snapshot, and don't treat it as a perf bug.
 
 ### Primary key and skip indexes
 

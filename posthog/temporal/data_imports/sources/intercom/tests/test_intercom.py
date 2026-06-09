@@ -5,6 +5,7 @@ import pytest
 from unittest import mock
 
 from requests import Request, Response
+from requests.adapters import HTTPAdapter
 
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
@@ -20,6 +21,7 @@ from posthog.temporal.data_imports.sources.intercom.intercom import (
     _company_segments_generator,
     _conversation_parts_generator,
     _iter_companies,
+    _make_intercom_session,
     get_resource,
     intercom_source,
     validate_credentials,
@@ -297,6 +299,22 @@ class TestSubstreamGenerators:
 
         assert [c["id"] for c in companies] == ["co1", "co2"]
         assert mock_session.get.call_args_list[0].args[0] == next_url
+
+
+class TestSubstreamSessionRetries:
+    def test_idempotent_search_posts_are_retryable(self):
+        # The substream walk reaches `/conversations/search` and `/companies/list`
+        # via POST. The shared default retry policy excludes POST, so a transient
+        # read timeout on those calls would propagate unretried (unlike the GETs in
+        # the same walk). These POSTs are read-only/idempotent, so the session must
+        # retry them on transient read timeouts and 429/5xx.
+        session = _make_intercom_session("token")
+        retry = cast(HTTPAdapter, session.get_adapter(INTERCOM_API_BASE)).max_retries
+        allowed_methods = cast("frozenset[str]", retry.allowed_methods)
+
+        assert {"GET", "POST"} <= set(allowed_methods)
+        assert retry.total == 3
+        assert 429 in (retry.status_forcelist or ())
 
 
 class TestIntercomSource:
