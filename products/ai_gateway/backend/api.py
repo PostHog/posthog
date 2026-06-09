@@ -13,6 +13,7 @@ from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.models.gateway import Gateway, validate_gateway_slug
 from posthog.models.oauth import OAuthApplication
@@ -33,6 +34,16 @@ def _canonical_team(team: Team) -> Team:
     return team if team.parent_team_id is None else Team.objects.get(id=team.parent_team_id)
 
 
+def _scoped_teams_for_request(request: Request) -> list[int] | None:
+    """The token's project scope, or None for unscoped/session auth."""
+    authr = getattr(request, "successful_authenticator", None)
+    if isinstance(authr, OAuthAccessTokenAuthentication):
+        return authr.access_token.scoped_teams
+    if isinstance(authr, PersonalAPIKeyAuthentication):
+        return authr.personal_api_key.scoped_teams
+    return None
+
+
 class GatewayManagementPermission(TeamMemberStrictManagementPermission):
     """Authorize against the canonical (parent) team that owns the gateway.
 
@@ -48,7 +59,15 @@ class GatewayManagementPermission(TeamMemberStrictManagementPermission):
     member_level_actions = {"assignable_credentials", "assign_credential", "unassign_credential"}
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        level = view.user_permissions.team(_canonical_team(view.team)).effective_membership_level  # type: ignore[attr-defined]
+        canonical = _canonical_team(view.team)  # type: ignore[attr-defined]
+        # Gateways are owned by the canonical (parent) team, but APIScopePermission
+        # only checks a token's scoped_teams against the URL team — which may be a
+        # child environment. Re-check against the owner so a token scoped only to a
+        # child can't manage the parent's shared gateways.
+        scoped_teams = _scoped_teams_for_request(request)
+        if scoped_teams and canonical.id not in scoped_teams:
+            return False
+        level = view.user_permissions.team(canonical).effective_membership_level  # type: ignore[attr-defined]
         if level is None:
             return False
         member_ok = request.method in SAFE_METHODS or getattr(view, "action", None) in self.member_level_actions

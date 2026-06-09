@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 from rest_framework import status
 
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models.gateway import DEFAULT_GATEWAY_SLUG, Gateway
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -143,6 +144,36 @@ class TestGatewayAPI(APIBaseTest):
         # Admin on the parent → write allowed.
         levels[self.team.id] = OrganizationMembership.Level.ADMIN
         self.assertTrue(permission.has_permission(MagicMock(method="DELETE"), view))
+
+    def test_management_permission_rejects_token_scoped_to_child_only(self):
+        # APIScopePermission checks a token's scoped_teams against the URL team, which
+        # can be a child env. Gateways are parent-owned, so a token scoped only to the
+        # child must not manage them — the owner re-check lives in this permission.
+        child = Team.objects.create(organization=self.organization, name="child", parent_team=self.team)
+        permission = GatewayManagementPermission()
+
+        view = MagicMock()
+        view.team = child
+        view.action = None
+        view.user_permissions.team.return_value = MagicMock(
+            effective_membership_level=OrganizationMembership.Level.ADMIN
+        )
+
+        authr = PersonalAPIKeyAuthentication()
+        authr.personal_api_key = MagicMock()
+        request = MagicMock(method="DELETE", successful_authenticator=authr)
+
+        # Token confined to the child env → denied, even though the user is a parent admin.
+        authr.personal_api_key.scoped_teams = [child.id]
+        self.assertFalse(permission.has_permission(request, view))
+
+        # Token scoped to the parent (the gateway's owner) → allowed.
+        authr.personal_api_key.scoped_teams = [self.team.id]
+        self.assertTrue(permission.has_permission(request, view))
+
+        # Unscoped token → allowed, falls back to the membership check.
+        authr.personal_api_key.scoped_teams = None
+        self.assertTrue(permission.has_permission(request, view))
 
     def test_bound_credentials_count(self):
         gateway = self._gateway()
