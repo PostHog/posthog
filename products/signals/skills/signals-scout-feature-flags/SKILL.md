@@ -47,10 +47,11 @@ activity log — is signal. Internalize that shape: you are auditing the wiring 
 the flag UI and the code, not judging which features should be on.
 
 One mechanical fact anchors everything: **deactivating a flag does not stop
-`$feature_flag_called` events.** The SDK fires that event whenever code evaluates the
-flag, whatever the response. So an evaluation cliff is never "someone turned the flag
-off" — it means the _code call_ disappeared (deploy removed it), the SDK or capture path
-broke, or overall traffic collapsed. Conversely, a deactivated flag still receiving
+`$feature_flag_called` events.** Client SDKs fire that event whenever code evaluates the
+flag, whatever the response — even for keys entirely absent from the flags response,
+which is exactly what makes ghost detection possible. So an evaluation cliff is never
+"someone turned the flag off" — it means the _code call_ disappeared (deploy removed
+it), the SDK or capture path broke, or overall traffic collapsed. Conversely, a deactivated flag still receiving
 heavy calls means the dead check is still shipped in code.
 
 ## Quick close-out: are flags even in use?
@@ -208,7 +209,11 @@ Two ghost classes come back, with different stories:
 
 - **Soft-deleted but still called** — the key exists in `system.feature_flags` with
   `deleted = 1`. `activity-log-list {scope: "FeatureFlag"}` can often date the deletion;
-  calls continuing after it measure exactly how stale the shipped code is.
+  calls continuing after it measure exactly how stale the shipped code is. Before
+  emitting, pull the deleted row's `id` from `system.feature_flags` and call
+  `feature-flag-get-definition` — the list endpoint hides deleted flags, and a deleted
+  flag can still be experiment-linked (`experiment_set`): lingering experiment flags
+  belong to the experiments scout, not your ghost finding.
 - **Absent entirely** — no row at any `deleted` value: the flag was hard-deleted or the
   code shipped a check for a flag that was never created. These can run shockingly hot
   (six-figure weekly calls) because nothing in the flag UI ever surfaces them.
@@ -250,6 +255,12 @@ changed (a cohort emptied, a property stopped being set upstream). Confirm the m
 with `feature-flag-get-definition` (read the `filters` groups) and one SQL count on the
 targeted property before emitting — a distribution shift you can't mechanically explain
 is a `pattern:` memory, not a finding.
+
+**Cohort-targeted flags hide their edits:** if `filters` reference a cohort, a cohort
+definition update changes the response mix with **no** `FeatureFlag` activity entry.
+Check `activity-log-list {scope: "Cohort", item_id: <cohort-id>}` before calling drift —
+an intentional cohort edit near the shift is deliberate maintenance (context, not a
+finding).
 
 #### Flag-debt hygiene (P3 bundle)
 
