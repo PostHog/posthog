@@ -402,7 +402,7 @@ context already attached.
 For each candidate finding:
 
 - **Emit** via `signals-scout-emit-signal` if it clears the confidence bar.
-  Strong scout findings: weight ≥ 0.7, confidence ≥ 0.85, with concrete survey ids,
+  Strong scout findings: confidence ≥ 0.85, with concrete survey ids,
   question ids, response counts, score deltas, and (for themes) 2–3 verbatim quotes
   in the evidence. Sample-size matters here more than other domains — a finding on
   10 responses needs to be tighter than one on 200.

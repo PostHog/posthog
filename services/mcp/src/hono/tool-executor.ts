@@ -137,7 +137,7 @@ export class ToolExecutor {
                 toolMeta: tool._meta,
                 toolName: tool.name,
                 params: validation.data,
-                suppressStructuredContentForFormattedResults: state.clientProfile.isCodingAgent(),
+                suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
                 distinctId,
             })
         } catch (error: unknown) {
@@ -179,7 +179,7 @@ export class ToolExecutor {
                 toolMeta: resolved._meta,
                 toolName: 'exec',
                 params: validation.data,
-                suppressStructuredContentForFormattedResults: state.clientProfile.isCodingAgent(),
+                suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
                 distinctId: undefined,
             })
         } catch (error: unknown) {

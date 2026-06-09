@@ -61,6 +61,14 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   insight's own seasonality-matched baseline. Unlike the other specialists it
   bundles its own references (`anomaly-methods.md`, `watchlist-and-memory.md`,
   `emit-contract.md`).
+- `signals-scout-health-checks/` — the judgment layer over PostHog's own health
+  checks. Reads the project's active health issues (`health-issues-summary` /
+  `-list` / `-get`) rather than re-running detection, and decides which are worth
+  surfacing: bundles same-kind clusters into one finding, weights by real blast
+  radius (cross-referenced against event volume / reach / SDK-version share), and
+  prioritizes issues an agent can resolve via the MCP over credential-gated ones.
+  Its discriminator is kind-concentration × severity × agent-fixability ×
+  persistence, not raw firing count.
 
 ### How the coordinator decides what runs
 
@@ -111,7 +119,7 @@ The generalist (`signals-scout-general`) carries two references the rest of the
 fleet also reasons in terms of:
 
 - **`references/emit.md`** — the emit contract: required/recommended fields, the
-  weight vs. confidence rubrics, severity mapping, dedupe keys, `finding_id`
+  confidence rubric, severity mapping, dedupe keys, `finding_id`
   idempotency, and a worked example.
 - **`references/conventions.md`** — the four-states dedupe classifier, scratchpad
   key-prefix vocabulary, and cross-project noise patterns.
