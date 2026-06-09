@@ -160,7 +160,7 @@ class PersonHogClient:
         max_send_message_length: int = 4 * 1024 * 1024,
         max_recv_message_length: int = 128 * 1024 * 1024,
         client_idle_timeout_ms: int = 0,
-        max_retries: int = 2,
+        max_retries: int = 1,
         initial_backoff_ms: int = 50,
         max_backoff_ms: int = 1000,
     ):
@@ -362,7 +362,7 @@ def get_personhog_client() -> Optional[PersonHogClient]:
                     max_send_message_length=getattr(settings, "PERSONHOG_MAX_SEND_MESSAGE_LENGTH", 4 * 1024 * 1024),
                     max_recv_message_length=getattr(settings, "PERSONHOG_MAX_RECV_MESSAGE_LENGTH", 128 * 1024 * 1024),
                     client_idle_timeout_ms=getattr(settings, "PERSONHOG_CLIENT_IDLE_TIMEOUT_MS", 0),
-                    max_retries=getattr(settings, "PERSONHOG_MAX_RETRIES", 2),
+                    max_retries=getattr(settings, "PERSONHOG_MAX_RETRIES", 1),
                     initial_backoff_ms=getattr(settings, "PERSONHOG_INITIAL_BACKOFF_MS", 50),
                     max_backoff_ms=getattr(settings, "PERSONHOG_MAX_BACKOFF_MS", 1000),
                 )
