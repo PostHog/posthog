@@ -81,9 +81,16 @@ def resolve_materialized_property_source(
 
     Tries the backing columns in priority order — a static materialized column first, then a dmat column, then the first
     property-group map column — using the same registries the old printer used. Returns None when the property has no
-    backing column (so it stays a JSON read) or when materialization is turned off.
+    backing column (so it stays a JSON read), when materialization is turned off, or when the property is access-
+    restricted.
     """
     if context.modifiers.materializationMode == "disabled":
+        return None
+
+    # Property-level access control: a restricted property must never resolve to a backing column, on any path (value
+    # read, comparison, key-existence). The column holds the raw value and bypasses the printer's JSONDropKeys blob
+    # scrub, so reading or comparing it directly would leak the value. Declining here forces the scrubbed JSON path.
+    if property_name in restricted_property_keys_for_table_type(field_type.table_type, context):
         return None
 
     table_type: ast.Type | None = field_type.table_type
@@ -142,6 +149,11 @@ def resolve_property_group_source(
     resolves the group directly instead.
     """
     if context.modifiers.propertyGroupsMode not in (PropertyGroupsMode.ENABLED, PropertyGroupsMode.OPTIMIZED):
+        return None
+
+    # Same access-control rule as resolve_materialized_property_source: a restricted property never resolves to a group
+    # column. This guards the direct callers (JSONHas, property-group comparisons), which bypass that function.
+    if property_name in restricted_property_keys_for_table_type(field_type.table_type, context):
         return None
 
     table_type: ast.Type | None = field_type.table_type

@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, cleanup_materialized_columns, materialized
 
 from parameterized import parameterized
 
@@ -429,3 +429,49 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         # the restricted key never leaks as an inline literal in any PoE mode
         assert "'email'" not in sql
         assert "email" in context.values.values()
+
+
+class TestRestrictedPropertyWithMaterializedColumn(ClickhouseTestMixin, BaseTest):
+    """A restricted property that also has a materialized column must not be readable through that column.
+
+    The materialized column holds the raw value and bypasses the JSONDropKeys blob scrub, so reading or comparing it
+    directly is an information-disclosure leak. Every path (value read, comparison, key-existence) must decline the
+    materialized column for a restricted property and fall back to the scrubbed JSON blob.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.event_prop = PropertyDefinition.objects.create(
+            team=self.team,
+            name="secret_field",
+            property_type="String",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.event_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+    def _compile_select(self, query: str) -> str:
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
+        sql, _ = prepare_and_print_ast(parse_select(query), context=context, dialect="clickhouse")
+        return sql
+
+    def test_restricted_materialized_property_in_where_is_not_read_from_column(self):
+        self.addCleanup(cleanup_materialized_columns)
+        with materialized("events", "secret_field", is_nullable=False):
+            sql = self._compile_select("SELECT event FROM events WHERE properties.secret_field = 'foo'")
+        # The comparison must NOT read the bare materialized column — that bypasses the JSONDropKeys scrub and lets a
+        # user without access probe the value. It must go through the scrubbed blob (or a constant) instead.
+        assert "mat_secret_field" not in sql, f"restricted property leaked via materialized column: {sql}"
+
+    def test_restricted_materialized_property_read_is_not_read_from_column(self):
+        self.addCleanup(cleanup_materialized_columns)
+        with materialized("events", "secret_field", is_nullable=False):
+            sql = self._compile_select("SELECT properties.secret_field FROM events")
+        assert "mat_secret_field" not in sql, f"restricted property leaked via materialized column: {sql}"
