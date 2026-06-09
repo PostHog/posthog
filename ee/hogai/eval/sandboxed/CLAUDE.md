@@ -33,21 +33,21 @@ HedgeboxMatrix(
 
 These are the custom events the simulation captures. Property keys are exact.
 
-| Event | Properties | Notes |
-|---|---|---|
-| `signed_up` | `from_invite` (bool) | `False` for new account, `True` when joining a team via invite |
-| `logged_in` | — | |
-| `logged_out` | — | |
-| `uploaded_file` | `file_type` (mime str), `file_size_b` (int bytes), `used_mb` (int), optional `file_name` (hex, ~50%) | |
-| `downloaded_file` | `file_type`, `file_size_b`, `file_name` (hex) | also fired (~70%) when viewing a shared file |
-| `deleted_file` | `file_type`, `file_size_b` | no `file_name` |
-| `shared_file_link` | `file_type`, `file_size_b` | |
-| `upgraded_plan` | `previous_plan`, `new_plan` (plan strings, see below) | |
-| `downgraded_plan` | `previous_plan`, `new_plan` | |
-| `invited_team_member` | — | business plans only |
-| `removed_team_member` | — | business plans only |
-| `paid_bill` | `amount_usd` (float), `plan` (plan string) | **server-side** event (`$lib = posthog-python`), future-dated every 30 days after first upgrade |
-| `$feature_flag_called` | `$feature_flag`, `$feature_flag_response`, `<flag_key>` | fired at session start, only for experiment flags |
+| Event                  | Properties                                                                                           | Notes                                                                                           |
+| ---------------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `signed_up`            | `from_invite` (bool)                                                                                 | `False` for new account, `True` when joining a team via invite                                  |
+| `logged_in`            | —                                                                                                    |                                                                                                 |
+| `logged_out`           | —                                                                                                    |                                                                                                 |
+| `uploaded_file`        | `file_type` (mime str), `file_size_b` (int bytes), `used_mb` (int), optional `file_name` (hex, ~50%) |                                                                                                 |
+| `downloaded_file`      | `file_type`, `file_size_b`, `file_name` (hex)                                                        | also fired (~70%) when viewing a shared file                                                    |
+| `deleted_file`         | `file_type`, `file_size_b`                                                                           | no `file_name`                                                                                  |
+| `shared_file_link`     | `file_type`, `file_size_b`                                                                           |                                                                                                 |
+| `upgraded_plan`        | `previous_plan`, `new_plan` (plan strings, see below)                                                |                                                                                                 |
+| `downgraded_plan`      | `previous_plan`, `new_plan`                                                                          |                                                                                                 |
+| `invited_team_member`  | —                                                                                                    | business plans only                                                                             |
+| `removed_team_member`  | —                                                                                                    | business plans only                                                                             |
+| `paid_bill`            | `amount_usd` (float), `plan` (plan string)                                                           | **server-side** event (`$lib = posthog-python`), future-dated every 30 days after first upgrade |
+| `$feature_flag_called` | `$feature_flag`, `$feature_flag_response`, `<flag_key>`                                              | fired at session start, only for experiment flags                                               |
 
 Standard autocapture/web events are also present: `$pageview`, `$pageleave`, `$autocapture` (only for two outbound ad clicks, with `$event_type=click` and `$external_click_url`), `$identify`, `$groupidentify`. Error-tracking demo `$exception` events also exist (see "Error tracking" below).
 
@@ -72,16 +72,16 @@ One **plain flag**: `file-previews` (boolean, restricted to an internal email al
 
 **Experiment flags** all emit `$feature_flag_called` exposures and are only active during a fraction of the 120-day window. Use these exact keys when an eval touches experiments:
 
-| Flag key | Variants | Status in seeded data |
-|---|---|---|
-| `onboarding-test-v1` | control / red / blue | completed, **won** (red), legacy format |
-| `file-engagement-v2` | control / red / blue | **running** (last ~30% of window) |
-| `pricing-page-v3` | control / test | completed, **inconclusive** |
-| `sharing-incentive-v1` | control / test | completed, **lost** |
-| `upgrade-prompt-v1` | control / aggressive / subtle | **running** (recent) |
-| `team-collab-v1` | control / test | **stopped early** |
-| `retention-nudge-v1` | control / test | **draft** (never active → no exposures) |
-| `bias-warning-demo-uneven-split` | control (90%) / test (10%) | running; ~2% of users flip variant mid-experiment (triggers the multi-variant exclusion bias warning) |
+| Flag key                         | Variants                      | Status in seeded data                                                                                 |
+| -------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `onboarding-test-v1`             | control / red / blue          | completed, **won** (red), legacy format                                                               |
+| `file-engagement-v2`             | control / red / blue          | **running** (last ~30% of window)                                                                     |
+| `pricing-page-v3`                | control / test                | completed, **inconclusive**                                                                           |
+| `sharing-incentive-v1`           | control / test                | completed, **lost**                                                                                   |
+| `upgrade-prompt-v1`              | control / aggressive / subtle | **running** (recent)                                                                                  |
+| `team-collab-v1`                 | control / test                | **stopped early**                                                                                     |
+| `retention-nudge-v1`             | control / test                | **draft** (never active → no exposures)                                                               |
+| `bias-warning-demo-uneven-split` | control (90%) / test (10%)    | running; ~2% of users flip variant mid-experiment (triggers the multi-variant exclusion bias warning) |
 
 Variants actually change behavior (e.g. onboarding variant alters signup success rate; file-engagement variant multiplies upload/share rates) — so experiment results are non-trivial, not flat.
 
