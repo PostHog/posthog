@@ -591,7 +591,11 @@ jobs:
                       --reuse-db
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations --durations-path ../../.test_durations' || '' }}
-              run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
+                  # Bound below timeout-minutes (40): on a hang, dump native stacks of the
+                  # wedged pytest process and fail the step — preserving the log that a
+                  # job-level cancellation would discard. See run-with-hang-autopsy.sh.
+                  AUTOPSY_BOUND_SECONDS: '1500'
+              run: .github/scripts/run-with-hang-autopsy.sh pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
 
             - name: Upload timing data
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
