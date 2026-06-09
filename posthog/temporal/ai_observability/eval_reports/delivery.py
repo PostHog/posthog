@@ -306,6 +306,12 @@ def deliver_slack_report(
         if not integration_id or not channel:
             continue
 
+        # The Slack channel picker stores the target as "<channel_id>|#<channel_name>"
+        # (e.g. "C0B5CHB0JQH|#tech-devops-cron"). chat.postMessage only accepts the channel
+        # ID, so strip the "|#name" suffix before sending. Mirrors the subscriptions path in
+        # ee/tasks/subscriptions/slack_subscriptions.py, which splits the same composite value.
+        channel_id = channel.split("|")[0]
+
         try:
             integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="slack")
             client = SlackIntegration(integration).client
@@ -336,7 +342,7 @@ def deliver_slack_report(
                 )
 
             result = client.chat_postMessage(
-                channel=channel,
+                channel=channel_id,
                 blocks=blocks,
                 text=header_text,
             )
@@ -347,7 +353,7 @@ def deliver_slack_report(
                 for section in content.sections[1:]:
                     mrkdwn_text = _render_section_mrkdwn(section.title, section.content, project_id, citation_map)
                     client.chat_postMessage(
-                        channel=channel,
+                        channel=channel_id,
                         thread_ts=thread_ts,
                         text=mrkdwn_text[:3000],
                     )
