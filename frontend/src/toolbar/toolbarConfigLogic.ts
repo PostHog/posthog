@@ -782,6 +782,24 @@ async function exchangeCodeForTokens(
     }
 }
 
+// A network-layer fetch failure (host page offline, navigation away mid-request,
+// ad-blocker, CORS/mixed-content on the customer's page) rejects with a
+// `TypeError: Failed to fetch`. Left unguarded it propagates out of `toolbarFetch`
+// and is picked up by exception autocapture as noise, even though callers already
+// degrade gracefully on a non-200 response. Convert it into a synthetic non-200
+// Response matching the stub idioms in `toolbarFetch` so the caller's existing
+// error handling runs without an uncaught exception.
+async function fetchOrNetworkErrorResponse(input: string, init: RequestInit): Promise<Response> {
+    try {
+        return await fetch(input, init)
+    } catch (e) {
+        if (e instanceof TypeError) {
+            return new Response(JSON.stringify({ detail: 'network_error' }), { status: 503 })
+        }
+        throw e
+    }
+}
+
 export async function toolbarFetch(
     url: string,
     method: string = 'GET',
@@ -860,7 +878,7 @@ export async function toolbarFetch(
     const startTime = performance.now()
     let didRetry = false
 
-    let response = await fetch(fullUrl, {
+    let response = await fetchOrNetworkErrorResponse(fullUrl, {
         method,
         headers: buildHeaders(accessToken),
         ...(body !== undefined ? { body } : {}),
@@ -868,7 +886,7 @@ export async function toolbarFetch(
 
     response = await withTokenRefresh(response, async (newAccessToken) => {
         didRetry = true
-        return await fetch(fullUrl, {
+        return await fetchOrNetworkErrorResponse(fullUrl, {
             method,
             headers: buildHeaders(newAccessToken),
             ...(body !== undefined ? { body } : {}),

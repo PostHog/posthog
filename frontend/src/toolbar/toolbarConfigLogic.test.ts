@@ -900,6 +900,39 @@ describe('toolbar toolbarConfigLogic', () => {
         })
     })
 
+    describe('network-level fetch failures', () => {
+        it('returns a synthetic non-200 response instead of throwing on network TypeError', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'access-token',
+                refreshToken: 'refresh-token',
+                clientId: 'client-id',
+            })
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockClear()
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')))
+
+            const response = await toolbarFetch('/api/projects/@current/actions/')
+
+            expect(response.status).toBe(503)
+            expect(await response.json()).toEqual({ detail: 'network_error' })
+        })
+
+        it('does not swallow non-TypeError fetch rejections', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'access-token',
+                refreshToken: 'refresh-token',
+                clientId: 'client-id',
+            })
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockClear()
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new Error('boom')))
+
+            await expect(toolbarFetch('/api/projects/@current/actions/')).rejects.toThrow('boom')
+        })
+    })
+
     describe('authorization code extraction and hash cleanup', () => {
         let replaceStateSpy: jest.SpyInstance
 
