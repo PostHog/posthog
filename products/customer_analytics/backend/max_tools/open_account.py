@@ -41,6 +41,7 @@ class OpenAccountTool(MaxTool):
         resolved = await self._resolve_account(account)
         if resolved is None:
             return f"Couldn't find an account matching '{account}'.", {"error": "account_not_found"}
+        await self.check_object_access(resolved, "viewer", resource="account", action="read")
         return (
             f"Opened {resolved.name}'s {tab} tab.",
             {
