@@ -65,6 +65,18 @@ class TestInvitePostponeAPI(APIBaseTest):
         assert self.invite.expires_at is not None
         self.assertGreater(self.invite.expires_at, send_at)
 
+    def test_post_works_with_trailing_slash(self) -> None:
+        # The frontend api client appends a trailing slash to POST URLs without a query string,
+        # so the route must accept /api/invite_postpone/ as well as /api/invite_postpone.
+        send_at = timezone.now() + timedelta(hours=3)
+        response = self.client.post(
+            "/api/invite_postpone/", {"token": _token_for(self.invite.id), "send_at": send_at.isoformat()}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.invite.refresh_from_db()
+        self.assertIsNotNone(self.invite.scheduled_send_at)
+
     @override_settings(DEBUG=True)
     def test_post_in_debug_forces_one_minute_schedule(self) -> None:
         # In dev a postpone always comes back in ~1 minute, regardless of the requested time.
