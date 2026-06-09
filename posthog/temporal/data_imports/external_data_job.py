@@ -282,7 +282,10 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
             is_v3 = version_result.is_v3
         except Exception:
-            pass
+            workflow.logger.warning(
+                "Failed to check pipeline version, defaulting to V2",
+                extra={"schema_id": str(inputs.external_data_schema_id)},
+            )
 
         # Only acquire lock for V3 pipelines (V2 never enters this block)
         if is_v3:
@@ -298,7 +301,10 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
             except Exception:
-                pass
+                workflow.logger.error(
+                    "Failed to acquire V3 pipeline lock, skipping run",
+                    extra={"schema_id": str(inputs.external_data_schema_id)},
+                )
 
             if lock_result is None or not lock_result.acquired:
                 workflow.logger.info(
