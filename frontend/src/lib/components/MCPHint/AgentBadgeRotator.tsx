@@ -20,16 +20,23 @@ interface BadgeAgent {
 }
 
 const POSTHOG_CODE_URL = 'https://posthog.com/code'
+const POSTHOG_SLACK_URL = 'https://posthog.com/slack'
+const POSTHOG_CODE_LOGO = <IconLogomark className="size-4 shrink-0" />
+const POSTHOG_SLACK_LOGO = <IconSlack className="size-4 shrink-0" />
 
-// Show PostHog Code more often to increase engagement
+// Show PostHog Code + Slack more often to increase engagement
+// Also duplicate the entries to keep it in the screen for longer
 const AGENTS: BadgeAgent[] = [
-    { name: 'PostHog Code', logo: <IconLogomark className="size-4 shrink-0" />, url: POSTHOG_CODE_URL },
+    { name: 'PostHog Code', logo: POSTHOG_CODE_LOGO, url: POSTHOG_CODE_URL },
+    { name: 'PostHog Code', logo: POSTHOG_CODE_LOGO, url: POSTHOG_CODE_URL },
     { name: 'Claude', logo: claudeLogo },
     { name: 'Cursor', logo: cursorLogo, logoClassName: 'dark:invert' },
-    { name: 'PostHog Code', logo: <IconLogomark className="size-4 shrink-0" />, url: POSTHOG_CODE_URL },
+    { name: 'PostHog Code', logo: POSTHOG_CODE_LOGO, url: POSTHOG_CODE_URL },
+    { name: 'PostHog Code', logo: POSTHOG_CODE_LOGO, url: POSTHOG_CODE_URL },
     { name: 'Codex', logo: openaiLogo },
     { name: 'Gemini', logo: geminiLogo },
-    { name: 'Slack', logo: <IconSlack className="size-4 shrink-0" />, url: 'https://posthog.com/slack' },
+    { name: 'Slack', logo: POSTHOG_SLACK_LOGO, url: POSTHOG_SLACK_URL },
+    { name: 'Slack', logo: POSTHOG_SLACK_LOGO, url: POSTHOG_SLACK_URL },
 ]
 
 const ROTATE_INTERVAL_MS = 3000
@@ -49,12 +56,15 @@ export function AgentBadgeRotator({ className }: { className?: string }): JSX.El
     }, ROTATE_INTERVAL_MS)
 
     const agent = AGENTS[index]
-    const nameClasses = cn('font-semibold rainbow-text-fading', {
+    const textClassname = cn('font-semibold rainbow-text-fading', {
         'rainbow-text-animating': !isStorybook,
     })
 
     return (
-        <span className={cn('inline-flex items-center gap-1 relative align-text-bottom', className)} aria-live="polite">
+        <span
+            className={cn('inline-flex items-center gap-1 relative align-text-bottom mb-[-2px]', className)}
+            aria-live="polite"
+        >
             <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
             {agent.url ? (
                 /* oxlint-disable-next-line forbid-elements */
@@ -63,13 +73,13 @@ export function AgentBadgeRotator({ className }: { className?: string }): JSX.El
                     target="_blank"
                     rel="noopener noreferrer"
                     key={agent.name}
-                    className="inline-flex items-center gap-0.5"
+                    className="inline-flex items-center gap-1"
                 >
-                    <span className={nameClasses}>{agent.name}</span>
-                    <IconExternal className="size-3" />
+                    <span className={textClassname}>{agent.name}</span>
+                    <IconExternal className="size-3 text-muted" />
                 </a>
             ) : (
-                <span key={agent.name} className={nameClasses}>
+                <span key={agent.name} className={textClassname}>
                     {agent.name}
                 </span>
             )}
