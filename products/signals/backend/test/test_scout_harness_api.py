@@ -19,7 +19,13 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
-from products.signals.backend.models import SignalProjectProfile, SignalScoutConfig, SignalScoutRun, SignalScratchpad
+from products.signals.backend.models import (
+    SignalProjectProfile,
+    SignalScoutConfig,
+    SignalScoutEmission,
+    SignalScoutRun,
+    SignalScratchpad,
+)
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.tasks.backend.models import Task, TaskRun
 
@@ -181,6 +187,65 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
             )
 
 
+def _make_emission(team: Team, run: SignalScoutRun, *, finding_id: str, **overrides) -> SignalScoutEmission:
+    defaults: dict = {
+        "description": "Checkout 500s post-deploy",
+        "weight": 0.7,
+        "confidence": 0.85,
+        "severity": "P1",
+        "source_id": f"run:{run.id}:finding:{finding_id}",
+    }
+    defaults.update(overrides)
+    return SignalScoutEmission.objects.create(team=team, scout_run=run, finding_id=finding_id, **defaults)
+
+
+class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
+    def _emissions_url(self, run_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/emissions/"
+
+    def test_returns_emissions_for_run_newest_first(self) -> None:
+        run = _make_run(self.team, emitted_count=2, emitted_finding_ids=["f-a", "f-b"])
+        _make_emission(self.team, run, finding_id="f-a")
+        newer = _make_emission(self.team, run, finding_id="f-b")
+        response = self.client.get(self._emissions_url(str(run.id)))
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert [row["finding_id"] for row in body] == ["f-b", "f-a"]
+        first = body[0]
+        assert first["run_id"] == str(run.id)
+        assert first["description"] == "Checkout 500s post-deploy"
+        assert first["weight"] == 0.7
+        assert first["confidence"] == 0.85
+        assert first["severity"] == "P1"
+        assert first["source_id"] == f"run:{run.id}:finding:{newer.finding_id}"
+
+    def test_emissions_scoped_to_the_requested_run(self) -> None:
+        run_a = _make_run(self.team)
+        run_b = _make_run(self.team)
+        _make_emission(self.team, run_a, finding_id="f-a")
+        _make_emission(self.team, run_b, finding_id="f-b")
+        response = self.client.get(self._emissions_url(str(run_a.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["finding_id"] for row in response.json()] == ["f-a"]
+
+    def test_emissions_empty_for_run_that_emitted_nothing(self) -> None:
+        run = _make_run(self.team)
+        response = self.client.get(self._emissions_url(str(run.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_emissions_unknown_run_returns_404(self) -> None:
+        response = self.client.get(self._emissions_url("00000000-0000-0000-0000-000000000000"))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_emissions_other_teams_run_returns_404(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="Other")
+        run = _make_run(other)
+        _make_emission(other, run, finding_id="f-a")
+        response = self.client.get(self._emissions_url(str(run.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
 @override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _OIDC_RSA_KEY})
 class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def setUp(self) -> None:
@@ -208,7 +273,6 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def _payload(self, **overrides) -> dict:
         body: dict = {
             "description": "Checkout 500s spike correlates with payment-flag rollout",
-            "weight": 0.6,
             "confidence": 0.7,
             "evidence": [
                 {
@@ -239,11 +303,6 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def test_emit_finding_rejects_non_in_progress_run(self) -> None:
         run = _make_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
         response = self.client.post(self._emit_signal_url(str(run.id)), data=self._payload(), format="json")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    def test_emit_finding_validates_weight_range(self) -> None:
-        run = _make_run(self.team)
-        response = self.client.post(self._emit_signal_url(str(run.id)), data=self._payload(weight=2.0), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_emit_finding_unknown_run_returns_404(self) -> None:

@@ -43,16 +43,12 @@ return result`
 export interface LLMEvaluationLogicProps {
     evaluationId: string
     templateKey?: EvaluationTemplateKey
-    tabId?: string
 }
 
 export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     path(['products', 'ai_observability', 'evaluations', 'llmEvaluationLogic']),
     props({} as LLMEvaluationLogicProps),
-    key(
-        (props) =>
-            `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}::${props.tabId ?? 'default'}`
-    ),
+    key((props) => `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}`),
 
     connect(() => ({
         values: [

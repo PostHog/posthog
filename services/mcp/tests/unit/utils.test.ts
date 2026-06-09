@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { formatPrompt, redactToken, sanitizeHeaderValue } from '@/lib/utils'
+import { env } from '@/lib/env'
+import { extractBearerToken, formatPrompt, redactToken, sanitizeHeaderValue } from '@/lib/utils'
 import { omitResponseFields, pickResponseFields, withPostHogUrl } from '@/tools/tool-utils'
 import type { Context } from '@/tools/types'
+
+// Mock the env proxy that the production code reads through, rather than poking
+// process.env — so the test exercises the same abstraction as extractBearerToken.
+vi.mock('@/lib/env', () => ({ env: { NODE_ENV: undefined as string | undefined } }))
 
 describe('utils', () => {
     describe('redactToken', () => {
@@ -17,6 +22,53 @@ describe('utils', () => {
 
         it('fully masks an empty token', () => {
             expect(redactToken('')).toBe('****')
+        })
+    })
+
+    describe('extractBearerToken', () => {
+        beforeEach(() => {
+            env.NODE_ENV = 'development'
+        })
+
+        const req = (opts: { header?: string; url?: string }): Request =>
+            new Request(opts.url ?? 'https://mcp.posthog.com/', {
+                headers: opts.header ? { Authorization: opts.header } : {},
+            })
+
+        it('prefers the Authorization bearer header', () => {
+            expect(extractBearerToken(req({ header: 'Bearer phx_header', url: 'https://x/?token=phx_query' }))).toBe(
+                'phx_header'
+            )
+        })
+
+        it('falls back to the ?token query param in development', () => {
+            expect(extractBearerToken(req({ url: 'https://x/?token=phx_query' }))).toBe('phx_query')
+        })
+
+        it('falls back to the ?token query param in test', () => {
+            env.NODE_ENV = 'test'
+            expect(extractBearerToken(req({ url: 'https://x/?token=phx_query' }))).toBe('phx_query')
+        })
+
+        it('ignores the ?token query param in production', () => {
+            env.NODE_ENV = 'production'
+            expect(extractBearerToken(req({ url: 'https://x/?token=phx_query' }))).toBeUndefined()
+        })
+
+        // Fail closed: an unset NODE_ENV (e.g. no Cloudflare Workers binding) must
+        // not enable the query-param path.
+        it('ignores the ?token query param when NODE_ENV is unset', () => {
+            env.NODE_ENV = undefined
+            expect(extractBearerToken(req({ url: 'https://x/?token=phx_query' }))).toBeUndefined()
+        })
+
+        it('still reads the header in production', () => {
+            env.NODE_ENV = 'production'
+            expect(extractBearerToken(req({ header: 'Bearer phx_header' }))).toBe('phx_header')
+        })
+
+        it('returns undefined when no token is present', () => {
+            expect(extractBearerToken(req({}))).toBeUndefined()
         })
     })
 
