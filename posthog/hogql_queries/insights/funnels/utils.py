@@ -12,8 +12,10 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import apply_path_cleaning
 
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
+from posthog.models.team.team import Team
 from posthog.types import FunnelEntityNode, FunnelExclusionEntityNode
 
 
@@ -39,7 +41,11 @@ def funnel_window_interval_unit_to_sql(
 
 
 def get_breakdown_expr(
-    breakdowns: list[str | int] | str | int, properties_column: str | None, normalize_url: bool | None = False
+    breakdowns: list[str | int] | str | int,
+    properties_column: str | None,
+    normalize_url: bool | None = False,
+    path_cleaning: bool | None = False,
+    team: Team | None = None,
 ) -> ast.Expr:
     def make_field(breakdown: str | int) -> ast.Expr:
         if properties_column is None:
@@ -47,6 +53,10 @@ def get_breakdown_expr(
             return ast.Field(chain=[breakdown])
         else:
             return ast.Field(chain=[*properties_column.split("."), breakdown])
+
+    # Fail loudly rather than silently skipping cleaning if a caller forgets the team
+    if path_cleaning and team is None:
+        raise ValueError("get_breakdown_expr: path_cleaning=True requires a team")
 
     if isinstance(breakdowns, str) or isinstance(breakdowns, int) or breakdowns is None:
         return ast.Call(
@@ -66,6 +76,8 @@ def get_breakdown_expr(
                     ast.Constant(value=""),
                 ],
             )
+            if path_cleaning and team is not None:
+                expr = apply_path_cleaning(expr, team)
             if normalize_url:
                 regex = "[\\\\/?#]*$"
                 expr = parse_expr(

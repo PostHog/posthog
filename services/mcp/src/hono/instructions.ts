@@ -42,10 +42,8 @@ export class InstructionsBuilder {
 
         if (state.useSingleExec) {
             return this.formatter.buildExecInstructions(ctx)
-        } else if (state.version === 2) {
-            return this.formatter.buildV2Instructions(ctx)
         }
-        return this.formatter.buildV1Instructions(metadata)
+        return this.formatter.buildToolsInstructions(ctx)
     }
 
     buildContext(state: ResolvedState): InstructionsContext {
@@ -53,12 +51,12 @@ export class InstructionsBuilder {
             guidelines: this.guidelines,
             tools: state.allTools.map((t) => ({
                 name: t.name,
-                category: getToolDefinition(t.name, state.version).category,
+                category: getToolDefinition(t.name).category,
             })),
             queryTools: state.allTools
                 .filter((t) => t.name.startsWith('query-'))
                 .map((t) => {
-                    const def = getToolDefinition(t.name, state.version)
+                    const def = getToolDefinition(t.name)
                     return {
                         name: t.name,
                         title: def.title,

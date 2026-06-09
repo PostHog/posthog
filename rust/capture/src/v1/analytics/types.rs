@@ -173,6 +173,7 @@ impl SinkEvent for WrappedEvent {
             dlq_reason,
             dlq_step,
             dlq_timestamp,
+            content_encoding: None,
         }
     }
 

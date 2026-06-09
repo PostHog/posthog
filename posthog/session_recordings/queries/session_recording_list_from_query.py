@@ -123,6 +123,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         allow_event_property_expansion: bool = False,
         max_execution_time: int | None = None,
         extra_having_predicates: list[ast.Expr] | None = None,
+        session_ids_to_exclude: list[str] | None = None,
         **_,
     ):
         # TRICKY: we need to make sure we init test account filters only once,
@@ -184,6 +185,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._allow_event_property_expansion = allow_event_property_expansion
         self._max_execution_time = max_execution_time
         self._extra_having_predicates = extra_having_predicates or []
+        self._session_ids_to_exclude = session_ids_to_exclude
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
@@ -296,6 +298,17 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["session_id"]),
                     right=ast.Constant(value=self._query.session_ids),
+                )
+            )
+
+        # Exclude already-viewed recordings (the "hide viewed recordings" filter). Unlike session_ids,
+        # an empty list means "exclude nothing", so we only add the predicate when there's something to exclude.
+        if self._session_ids_to_exclude:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotIn,
+                    left=ast.Field(chain=["session_id"]),
+                    right=ast.Constant(value=self._session_ids_to_exclude),
                 )
             )
 

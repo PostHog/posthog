@@ -9,13 +9,17 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    HeatmapEventsResponseApi,
     HeatmapScreenshotResponseApi,
+    HeatmapScreenshotsContentRetrieveParams,
+    HeatmapsEventsRetrieveParams,
     HeatmapsListParams,
-    PaginatedHeatmapScreenshotResponseListApi,
-    PaginatedHeatmapsResponseListApi,
+    HeatmapsResponseApi,
     PaginatedWebAnalyticsFilterPresetListApi,
-    PatchedHeatmapScreenshotResponseApi,
+    PatchedSavedHeatmapRequestApi,
     PatchedWebAnalyticsFilterPresetApi,
+    SavedHeatmapListResponseApi,
+    SavedHeatmapRequestApi,
     SavedListParams,
     WebAnalyticsFilterPresetApi,
     WebAnalyticsFilterPresetsListParams,
@@ -40,20 +44,239 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getWebAnalyticsWeeklyDigestUrl = (projectId: string, params?: WebAnalyticsWeeklyDigestParams) => {
+export const getHeatmapScreenshotsContentRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: HeatmapScreenshotsContentRetrieveParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/web_analytics/weekly_digest/?${stringifiedParams}`
-        : `/api/environments/${projectId}/web_analytics/weekly_digest/`
+        ? `/api/projects/${projectId}/heatmap_screenshots/${id}/content/?${stringifiedParams}`
+        : `/api/projects/${projectId}/heatmap_screenshots/${id}/content/`
+}
+
+/**
+ * Fetch the rendered screenshot image (JPEG bytes) for a saved heatmap at a given viewport width. Returns 202 with the saved-heatmap metadata while the screenshot is still being generated.
+ */
+export const heatmapScreenshotsContentRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: HeatmapScreenshotsContentRetrieveParams,
+    options?: RequestInit
+): Promise<Blob | HeatmapScreenshotResponseApi> => {
+    return apiMutator<Blob | HeatmapScreenshotResponseApi>(
+        getHeatmapScreenshotsContentRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getHeatmapsListUrl = (projectId: string, params?: HeatmapsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/heatmaps/?${stringifiedParams}`
+        : `/api/projects/${projectId}/heatmaps/`
+}
+
+/**
+ * Aggregated heatmap interactions for a page. For type 'click'/'rageclick'/'mousemove' each result is a point with relative x, absolute client-y, and a count. For type 'scrolldepth' the response is scroll-depth buckets instead (cumulative reach down the page).
+ */
+export const heatmapsList = async (
+    projectId: string,
+    params?: HeatmapsListParams,
+    options?: RequestInit
+): Promise<HeatmapsResponseApi[]> => {
+    return apiMutator<HeatmapsResponseApi[]>(getHeatmapsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHeatmapsEventsRetrieveUrl = (projectId: string, params: HeatmapsEventsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/heatmaps/events/?${stringifiedParams}`
+        : `/api/projects/${projectId}/heatmaps/events/`
+}
+
+/**
+ * Drill into the individual session interactions behind one or more heatmap coordinates. Pass the 'points' you want to inspect (from the heatmaps list response) to get the underlying per-session events, so you can jump to the session recordings that produced a hotspot.
+ */
+export const heatmapsEventsRetrieve = async (
+    projectId: string,
+    params: HeatmapsEventsRetrieveParams,
+    options?: RequestInit
+): Promise<HeatmapEventsResponseApi> => {
+    return apiMutator<HeatmapEventsResponseApi>(getHeatmapsEventsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSavedListUrl = (projectId: string, params?: SavedListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/saved/?${stringifiedParams}`
+        : `/api/projects/${projectId}/saved/`
+}
+
+/**
+ * List saved heatmaps for the project. A saved heatmap pins a page URL and a set of viewport widths, and (for type 'screenshot') renders the page so heatmap data can be overlaid on it.
+ */
+export const savedList = async (
+    projectId: string,
+    params?: SavedListParams,
+    options?: RequestInit
+): Promise<SavedHeatmapListResponseApi[]> => {
+    return apiMutator<SavedHeatmapListResponseApi[]>(getSavedListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSavedCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/saved/`
+}
+
+/**
+ * Create a saved heatmap for a page URL. For type 'screenshot' (the default) this enqueues a headless render of the page at each target width; poll the saved heatmap or its content endpoint until status is 'completed'. Provide 'widths' to control which viewport widths are rendered.
+ */
+export const savedCreate = async (
+    projectId: string,
+    savedHeatmapRequestApi: SavedHeatmapRequestApi,
+    options?: RequestInit
+): Promise<HeatmapScreenshotResponseApi> => {
+    return apiMutator<HeatmapScreenshotResponseApi>(getSavedCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(savedHeatmapRequestApi),
+    })
+}
+
+export const getSavedRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/saved/${shortId}/`
+}
+
+/**
+ * Get a single saved heatmap by its short_id, including per-width render status.
+ */
+export const savedRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<HeatmapScreenshotResponseApi> => {
+    return apiMutator<HeatmapScreenshotResponseApi>(getSavedRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSavedPartialUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/saved/${shortId}/`
+}
+
+/**
+ * Update a saved heatmap (e.g. rename, change widths, or soft-delete via 'deleted'). Changing the URL of a 'screenshot' heatmap triggers a re-render.
+ */
+export const savedPartialUpdate = async (
+    projectId: string,
+    shortId: string,
+    patchedSavedHeatmapRequestApi?: PatchedSavedHeatmapRequestApi,
+    options?: RequestInit
+): Promise<HeatmapScreenshotResponseApi> => {
+    return apiMutator<HeatmapScreenshotResponseApi>(getSavedPartialUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSavedHeatmapRequestApi),
+    })
+}
+
+export const getSavedDestroyUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/saved/${shortId}/`
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export const savedDestroy = async (projectId: string, shortId: string, options?: RequestInit): Promise<unknown> => {
+    return apiMutator<unknown>(getSavedDestroyUrl(projectId, shortId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getSavedRegenerateCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/saved/${shortId}/regenerate/`
+}
+
+/**
+ * Re-run screenshot generation for a saved heatmap of type 'screenshot'. Clears existing renders and re-renders at every target width; status returns to 'processing'.
+ */
+export const savedRegenerateCreate = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<HeatmapScreenshotResponseApi> => {
+    return apiMutator<HeatmapScreenshotResponseApi>(getSavedRegenerateCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWebAnalyticsWeeklyDigestUrl = (projectId: string, params?: WebAnalyticsWeeklyDigestParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/web_analytics/weekly_digest/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics/weekly_digest/`
 }
 
 /**
@@ -79,15 +302,15 @@ export const getWebAnalyticsFilterPresetsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/web_analytics_filter_presets/?${stringifiedParams}`
-        : `/api/environments/${projectId}/web_analytics_filter_presets/`
+        ? `/api/projects/${projectId}/web_analytics_filter_presets/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics_filter_presets/`
 }
 
 export const webAnalyticsFilterPresetsList = async (
@@ -105,7 +328,7 @@ export const webAnalyticsFilterPresetsList = async (
 }
 
 export const getWebAnalyticsFilterPresetsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/web_analytics_filter_presets/`
+    return `/api/projects/${projectId}/web_analytics_filter_presets/`
 }
 
 export const webAnalyticsFilterPresetsCreate = async (
@@ -122,7 +345,7 @@ export const webAnalyticsFilterPresetsCreate = async (
 }
 
 export const getWebAnalyticsFilterPresetsRetrieveUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/web_analytics_filter_presets/${shortId}/`
+    return `/api/projects/${projectId}/web_analytics_filter_presets/${shortId}/`
 }
 
 export const webAnalyticsFilterPresetsRetrieve = async (
@@ -137,7 +360,7 @@ export const webAnalyticsFilterPresetsRetrieve = async (
 }
 
 export const getWebAnalyticsFilterPresetsUpdateUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/web_analytics_filter_presets/${shortId}/`
+    return `/api/projects/${projectId}/web_analytics_filter_presets/${shortId}/`
 }
 
 export const webAnalyticsFilterPresetsUpdate = async (
@@ -155,7 +378,7 @@ export const webAnalyticsFilterPresetsUpdate = async (
 }
 
 export const getWebAnalyticsFilterPresetsPartialUpdateUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/web_analytics_filter_presets/${shortId}/`
+    return `/api/projects/${projectId}/web_analytics_filter_presets/${shortId}/`
 }
 
 export const webAnalyticsFilterPresetsPartialUpdate = async (
@@ -173,7 +396,7 @@ export const webAnalyticsFilterPresetsPartialUpdate = async (
 }
 
 export const getWebAnalyticsFilterPresetsDestroyUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/web_analytics_filter_presets/${shortId}/`
+    return `/api/projects/${projectId}/web_analytics_filter_presets/${shortId}/`
 }
 
 /**
@@ -187,152 +410,5 @@ export const webAnalyticsFilterPresetsDestroy = async (
     return apiMutator<unknown>(getWebAnalyticsFilterPresetsDestroyUrl(projectId, shortId), {
         ...options,
         method: 'DELETE',
-    })
-}
-
-export const getHeatmapsListUrl = (projectId: string, params?: HeatmapsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/heatmaps/?${stringifiedParams}`
-        : `/api/projects/${projectId}/heatmaps/`
-}
-
-export const heatmapsList = async (
-    projectId: string,
-    params?: HeatmapsListParams,
-    options?: RequestInit
-): Promise<PaginatedHeatmapsResponseListApi> => {
-    return apiMutator<PaginatedHeatmapsResponseListApi>(getHeatmapsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getHeatmapsEventsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/heatmaps/events/`
-}
-
-export const heatmapsEventsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHeatmapsEventsRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getSavedListUrl = (projectId: string, params?: SavedListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/saved/?${stringifiedParams}`
-        : `/api/projects/${projectId}/saved/`
-}
-
-export const savedList = async (
-    projectId: string,
-    params?: SavedListParams,
-    options?: RequestInit
-): Promise<PaginatedHeatmapScreenshotResponseListApi> => {
-    return apiMutator<PaginatedHeatmapScreenshotResponseListApi>(getSavedListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getSavedCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/saved/`
-}
-
-export const savedCreate = async (
-    projectId: string,
-    heatmapScreenshotResponseApi: NonReadonly<HeatmapScreenshotResponseApi>,
-    options?: RequestInit
-): Promise<HeatmapScreenshotResponseApi> => {
-    return apiMutator<HeatmapScreenshotResponseApi>(getSavedCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(heatmapScreenshotResponseApi),
-    })
-}
-
-export const getSavedRetrieveUrl = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/saved/${shortId}/`
-}
-
-export const savedRetrieve = async (
-    projectId: string,
-    shortId: string,
-    options?: RequestInit
-): Promise<HeatmapScreenshotResponseApi> => {
-    return apiMutator<HeatmapScreenshotResponseApi>(getSavedRetrieveUrl(projectId, shortId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getSavedPartialUpdateUrl = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/saved/${shortId}/`
-}
-
-export const savedPartialUpdate = async (
-    projectId: string,
-    shortId: string,
-    patchedHeatmapScreenshotResponseApi?: NonReadonly<PatchedHeatmapScreenshotResponseApi>,
-    options?: RequestInit
-): Promise<HeatmapScreenshotResponseApi> => {
-    return apiMutator<HeatmapScreenshotResponseApi>(getSavedPartialUpdateUrl(projectId, shortId), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedHeatmapScreenshotResponseApi),
-    })
-}
-
-export const getSavedDestroyUrl = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/saved/${shortId}/`
-}
-
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
-export const savedDestroy = async (projectId: string, shortId: string, options?: RequestInit): Promise<unknown> => {
-    return apiMutator<unknown>(getSavedDestroyUrl(projectId, shortId), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getSavedRegenerateCreateUrl = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/saved/${shortId}/regenerate/`
-}
-
-export const savedRegenerateCreate = async (
-    projectId: string,
-    shortId: string,
-    heatmapScreenshotResponseApi: NonReadonly<HeatmapScreenshotResponseApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getSavedRegenerateCreateUrl(projectId, shortId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(heatmapScreenshotResponseApi),
     })
 }

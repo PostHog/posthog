@@ -548,13 +548,13 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                 hex(tryBase64Decode(trace_id)),
                 hex(tryBase64Decode(span_id)),
                 body,
-                attributes,
+                {attributes},
                 timestamp,
                 observed_timestamp,
                 severity_text,
                 severity_number,
                 severity_text as level,
-                resource_attributes,
+                {resource_attributes},
                 resource_fingerprint,
                 instrumentation_scope,
                 event_name,
@@ -564,6 +564,12 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
         """,
                 placeholders={
                     "where": self.where(),
+                    # Attribute maps dominate payload size. When excluded we still SELECT a column
+                    # (an empty map) so the positional result mapping in _calculate stays stable.
+                    "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
+                    "resource_attributes": parse_expr(
+                        "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
+                    ),
                 },
             )
         )

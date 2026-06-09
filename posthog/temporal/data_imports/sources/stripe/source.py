@@ -1,9 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.temporal.data_imports.sources.common.webhook_s3 import (
-    WebhookSourceManager,
-    is_webhook_feature_flag_enabled,
-)
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
@@ -29,6 +26,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSource,
+    WebhookSyncResult,
 )
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -46,17 +44,20 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 from posthog.temporal.data_imports.sources.stripe.settings import (
     APPEND_ONLY_INCREMENTAL_FIELDS as STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS,
     ENDPOINTS as STRIPE_ENDPOINTS,
+    WEBHOOK_ONLY_ENDPOINTS as STRIPE_WEBHOOK_ONLY_ENDPOINTS,
 )
 from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripeAuthenticationError,
     StripePermissionError,
     StripeResumeConfig,
     StripeValidationError,
+    _all_known_webhook_events,
     check_endpoint_permissions as check_stripe_endpoint_permissions,
     create_webhook,
     delete_webhook,
     get_external_webhook_info,
     stripe_source,
+    update_webhook_events,
     validate_credentials as validate_stripe_credentials,
 )
 
@@ -275,8 +276,14 @@ If automatic creation failed due to a permissions error and you're using a restr
             SourceSchema(
                 name=endpoint,
                 supports_incremental=False,
-                supports_webhooks=is_webhook_feature_flag_enabled(team_id)
-                and STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
+                # Webhook-only endpoints (e.g. Discount) have no list API and therefore no
+                # incremental fields, but they must still expose webhook support so the
+                # warehouse pipeline can route events into the correct table.
+                supports_webhooks=(
+                    STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None
+                    or endpoint in STRIPE_WEBHOOK_ONLY_ENDPOINTS
+                ),
+                webhook_only=endpoint in STRIPE_WEBHOOK_ONLY_ENDPOINTS,
                 # nested resources are only full refresh and are not in STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS
                 supports_append=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, []),
@@ -367,6 +374,24 @@ If automatic creation failed due to a permissions error and you're using a restr
     def create_webhook(self, config: StripeSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
         api_key = self._get_api_key(config, team_id)
         return create_webhook(api_key, config.stripe_account_id, webhook_url)
+
+    def get_desired_webhook_events(
+        self, config: StripeSourceConfig, eligible_schema_names: list[str]
+    ) -> list[str] | None:
+        # Every mappable event, not just the selected tables — auto-heals webhooks created
+        # before RESOURCE_TO_STRIPE_WEBHOOK_EVENT gained new resources.
+        return _all_known_webhook_events()
+
+    def sync_webhook_events(
+        self,
+        config: StripeSourceConfig,
+        webhook_url: str,
+        team_id: int,
+        eligible_schema_names: list[str],
+    ) -> WebhookSyncResult:
+        api_key = self._get_api_key(config, team_id)
+        desired_events = self.get_desired_webhook_events(config, eligible_schema_names) or []
+        return update_webhook_events(api_key, config.stripe_account_id, webhook_url, desired_events)
 
     def get_external_webhook_info(
         self, config: StripeSourceConfig, webhook_url: str, team_id: int

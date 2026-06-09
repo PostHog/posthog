@@ -1,7 +1,7 @@
 // Shared request-properties extraction. Both runtimes parse the same headers
 // and query params into the same shape, so the logic lives here.
 
-import { hash, parseMcpMode, sanitizeHeaderValue, type McpMode } from './utils'
+import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue, type McpMode } from './utils'
 
 export type Transport = 'streamable-http' | 'sse'
 
@@ -12,7 +12,6 @@ export type RequestProperties = {
     features?: string[] | undefined
     tools?: string[] | undefined
     region?: string | undefined
-    version?: number | undefined
     organizationId?: string | undefined
     projectId?: string | undefined
     clientUserAgent?: string | undefined
@@ -56,7 +55,7 @@ export function parseRequestProperties(
     const url = new URL(request.url)
     const params = url.searchParams
 
-    const token = request.headers.get('Authorization')?.split(' ')[1] ?? ''
+    const token = extractBearerToken(request) ?? ''
     const readOnlyRaw = header(request, 'x-posthog-read-only') || params.get('readonly')
 
     return {
@@ -68,7 +67,6 @@ export function parseRequestProperties(
         features: splitCsv(params.get('features')),
         tools: splitCsv(params.get('tools')),
         region: params.get('region') || undefined,
-        version: Number(header(request, 'x-posthog-mcp-version') || params.get('v')) || 1,
         readOnly: readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined,
         clientUserAgent: sanitizeHeaderValue(header(request, 'User-Agent')),
         mcpConsumer: sanitizeHeaderValue(

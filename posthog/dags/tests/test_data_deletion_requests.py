@@ -485,8 +485,8 @@ def test_full_job_event_deletion_deferred(cluster: ClickhouseCluster):
 
 
 @pytest.mark.django_db
-def test_verify_queued_promotes_when_events_gone():
-    from posthog.dags.data_deletion_requests import _count_remaining_matching_events
+def test_verify_queued_request_promotes_when_events_gone():
+    from posthog.models.data_deletion_request import verify_queued_request
 
     now = datetime.now()
     request = DataDeletionRequest.objects.create(
@@ -499,16 +499,79 @@ def test_verify_queued_promotes_when_events_gone():
         execution_mode=ExecutionMode.DEFERRED,
     )
 
-    assert _count_remaining_matching_events(request) == 0
+    outcome = verify_queued_request(request)
 
-    from django.utils import timezone
-
-    DataDeletionRequest.objects.filter(pk=request.pk, status=RequestStatus.QUEUED).update(
-        status=RequestStatus.COMPLETED, updated_at=timezone.now()
-    )
-
+    assert outcome.remaining == 0
+    assert outcome.promoted is True
     request.refresh_from_db()
     assert request.status == RequestStatus.COMPLETED
+
+
+@pytest.mark.django_db
+def test_verify_queued_request_keeps_status_when_events_remain(cluster: ClickhouseCluster):
+    from posthog.models.data_deletion_request import verify_queued_request
+
+    now = datetime.now()
+    cluster.any_host(_truncate_writable_events).result()
+    remaining_events = [(DEFERRED_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i)) for i in range(3)]
+    cluster.any_host(partial(_insert_events, remaining_events)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=DEFERRED_TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=now - timedelta(days=7),
+        end_time=now + timedelta(minutes=1),
+        status=RequestStatus.QUEUED,
+        execution_mode=ExecutionMode.DEFERRED,
+    )
+
+    outcome = verify_queued_request(request)
+
+    assert outcome.remaining == 3
+    assert outcome.promoted is False
+    request.refresh_from_db()
+    assert request.status == RequestStatus.QUEUED
+
+    cluster.any_host(_truncate_writable_events).result()
+
+
+@pytest.mark.django_db
+def test_verify_queued_job_promotes_in_window_and_skips_old(cluster: ClickhouseCluster):
+    from django.utils import timezone
+
+    from posthog.dags.data_deletion_requests import verify_queued_deletion_requests_job
+
+    now = datetime.now()
+    common = {
+        "team_id": DEFERRED_TEAM_ID,
+        "request_type": RequestType.EVENT_REMOVAL,
+        "events": ["$pageview"],
+        "start_time": now - timedelta(days=7),
+        "end_time": now + timedelta(minutes=1),
+        "status": RequestStatus.QUEUED,
+        "execution_mode": ExecutionMode.DEFERRED,
+    }
+    cluster.any_host(_truncate_writable_events).result()  # no matching events → remaining 0
+
+    recent = DataDeletionRequest.objects.create(**common)
+    old = DataDeletionRequest.objects.create(**common)
+    # created_at uses auto_now_add, so push `old` outside the default 28-day window via update().
+    DataDeletionRequest.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=60))
+
+    result = verify_queued_deletion_requests_job.execute_in_process()
+    assert result.success
+
+    recent.refresh_from_db()
+    old.refresh_from_db()
+    assert recent.status == RequestStatus.COMPLETED
+    assert old.status == RequestStatus.QUEUED
+
+
+def test_verify_queued_job_registered_in_clickhouse_location():
+    from posthog.dags.locations.clickhouse import defs
+
+    assert defs.get_job_def("verify_queued_deletion_requests_job") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -1675,4 +1738,32 @@ def test_pickup_sensor_routes_person_removal_request():
     assert isinstance(result, dagster.RunRequest)
     assert result.job_name == "data_deletion_request_person_removal"
     assert "load_person_removal_request" in result.run_config["ops"]
-    assert str(request.pk) == result.run_key
+    assert result.run_key == f"{request.pk}:{request.attempt_count}"
+
+
+@pytest.mark.django_db
+def test_pickup_sensor_run_key_changes_across_attempts():
+    # A re-approved/retried request keeps its pk but has a higher attempt_count, so
+    # the run_key must differ — otherwise Dagster dedupes and silently never relaunches.
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=datetime.now() - timedelta(days=7),
+        end_time=datetime.now(),
+        status=RequestStatus.APPROVED,
+        approved_at=datetime.now(),
+        attempt_count=0,
+    )
+    instance = dagster.DagsterInstance.ephemeral()
+
+    first = data_deletion_request_pickup_sensor(dagster.build_sensor_context(instance=instance))
+    assert isinstance(first, dagster.RunRequest)
+    assert first.run_key == f"{request.pk}:0"
+
+    # Simulate the load op having run once, then a retry re-approving the same request.
+    DataDeletionRequest.objects.filter(pk=request.pk).update(attempt_count=1)
+    second = data_deletion_request_pickup_sensor(dagster.build_sensor_context(instance=instance))
+    assert isinstance(second, dagster.RunRequest)
+    assert second.run_key == f"{request.pk}:1"
+    assert second.run_key != first.run_key

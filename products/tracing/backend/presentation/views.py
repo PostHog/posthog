@@ -11,6 +11,8 @@ No business logic here - that belongs in logic.py via the facade.
 """
 
 import json
+import base64
+import datetime as dt
 
 from drf_spectacular.utils import extend_schema
 from pydantic import ValidationError
@@ -34,9 +36,11 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.event_usage import report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 
+from ..facade.api import run_count_query
+from ..has_spans_query_runner import team_has_spans
 from ..logic import (
     TraceSpansQueryRunner,
     run_aggregation_query,
@@ -139,6 +143,11 @@ class _TracingQueryBodySerializer(serializers.Serializer):
         required=False,
         help_text="Number of child spans to prefetch per trace (1-100).",
     )
+    excludeAttributes = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Omit the per-span attributes map from results to keep payloads compact. Defaults to false.",
+    )
 
 
 class _TracingQueryRequestSerializer(serializers.Serializer):
@@ -149,6 +158,11 @@ class _TracingTraceRequestSerializer(serializers.Serializer):
     dateRange = _TracingDateRangeSerializer(
         required=False,
         help_text="Date range for the query. Defaults to last 24 hours.",
+    )
+    excludeAttributes = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Omit the per-span attributes map from results to keep payloads compact. Defaults to false.",
     )
 
 
@@ -267,7 +281,43 @@ class _TracingTreeRequestSerializer(serializers.Serializer):
     query = _TracingTreeQueryBodySerializer(help_text="The span call-tree aggregation query to execute.")
 
 
-@extend_schema(tags=["tracing"])
+class _HasSpansResponseSerializer(serializers.Serializer):
+    hasSpans = serializers.BooleanField(
+        help_text="Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state."
+    )
+
+
+class _TracingCountBodySerializer(serializers.Serializer):
+    dateRange = _TracingDateRangeSerializer(
+        required=False,
+        help_text="Date range for the count. Defaults to last hour.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Filter by service names.",
+    )
+    statusCodes = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        help_text="Filter by HTTP status codes.",
+    )
+    filterGroup = serializers.ListField(
+        child=_SpanPropertyFilterSerializer(),
+        required=False,
+        default=[],
+        help_text="Property filters for the count.",
+    )
+
+
+class _TracingCountRequestSerializer(serializers.Serializer):
+    query = _TracingCountBodySerializer(help_text="The span count query to execute.")
+
+
+class _TracingCountResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Number of spans matching the filters.")
+
+
 class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "tracing"
     serializer_class = _FallbackSerializer
@@ -295,6 +345,22 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         results = run_service_names_query(team=self.team, date_range=date_range, search=search)
         return Response({"results": results}, status=status.HTTP_200_OK)
+
+    @extend_schema(responses={200: _HasSpansResponseSerializer})
+    @action(detail=False, methods=["GET"], url_path="has_spans", required_scopes=["tracing:read"])
+    def has_spans(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        has_spans = team_has_spans(self.team)
+
+        report_user_action(
+            request.user,
+            "tracing has_spans checked",
+            {"has_spans": has_spans},
+            team=self.team,
+            request=request,
+        )
+
+        return Response({"hasSpans": has_spans}, status=status.HTTP_200_OK)
 
     @extend_schema(request=_TracingQueryRequestSerializer)
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
@@ -331,27 +397,98 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             after=after_cursor,
             rootSpans=query_data.get("rootSpans", True),
             prefetchSpans=prefetch_spans,
+            excludeAttributes=query_data.get("excludeAttributes", False),
         )
 
-        def make_runner(dr: DateRange) -> TraceSpansQueryRunner:
-            return TraceSpansQueryRunner(TraceSpansQuery(**{**spans_query.model_dump(), "dateRange": dr}), self.team)
+        runner = TraceSpansQueryRunner(spans_query, self.team)
+        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+        all_results = list(response.results)
 
-        results = list(
-            time_sliced_results(
-                runner=TraceSpansQueryRunner(spans_query, self.team),
-                order_by_earliest=order_by == "earliest",
-                make_runner=make_runner,
-            )
+        # Paginate at the trace level. The runner fetched up to requested_limit + 1 traces ordered
+        # by start time; decide hasMore on the trace count, drop the spans of the overflow trace,
+        # and emit a cursor pointing at the last kept trace. `trace_start` is the SQL pagination key
+        # carried on every span row (see TraceSpansQueryRunner.to_query) — read it directly rather
+        # than re-deriving min() over the prefetched spans, which can disagree with the SQL key.
+        earliest_first = order_by == "earliest"
+        trace_start: dict[str, dt.datetime] = {span["trace_id"]: span["trace_start"] for span in all_results}
+
+        ordered_traces = sorted(
+            trace_start.items(),
+            key=lambda item: (item[1], base64.b64encode(bytes.fromhex(item[0])).decode("ascii")),
+            reverse=not earliest_first,
+        )
+        has_more = len(ordered_traces) > requested_limit
+        kept_trace_ids = {tid for tid, _ in ordered_traces[:requested_limit]}
+        results = [span for span in all_results if span["trace_id"] in kept_trace_ids]
+
+        next_cursor = None
+        if has_more:
+            boundary_trace_id, boundary_ts = ordered_traces[requested_limit - 1]
+            next_cursor = base64.b64encode(
+                json.dumps({"timestamp": boundary_ts.isoformat(), "trace_id": boundary_trace_id}).encode("utf-8")
+            ).decode("utf-8")
+
+        report_user_action(
+            request.user,
+            "tracing query executed",
+            {
+                "traces_count": len(kept_trace_ids),
+                "spans_count": len(results),
+                "has_more": has_more,
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+                "status_codes_count": len(query_data.get("statusCodes") or []),
+                "order_by": order_by,
+                "is_paginated": bool(after_cursor),
+            },
+            team=self.team,
+            request=request,
         )
 
         return Response(
             {
                 "results": results,
-                "hasMore": False,  # TODO: tricky with the traces query as we prefetch an unknown number of spans
-                "nextCursor": None,
+                "hasMore": has_more,
+                "nextCursor": next_cursor,
             },
             status=status.HTTP_200_OK,
         )
+
+    @extend_schema(request=_TracingCountRequestSerializer, responses={200: _TracingCountResponseSerializer})
+    @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
+    def count(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        query_data = request.data.get("query", {})
+
+        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+        filter_group = (
+            self.get_model(self._normalize_filter_group(query_data.get("filterGroup")), PropertyGroupFilter)
+            if query_data.get("filterGroup")
+            else None
+        )
+
+        response = run_count_query(
+            team=self.team,
+            date_range=date_range,
+            service_names=query_data.get("serviceNames", None),
+            status_codes=query_data.get("statusCodes", None),
+            filter_group=filter_group,
+        )
+
+        report_user_action(
+            request.user,
+            "tracing count queried",
+            {
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+                "status_codes_count": len(query_data.get("statusCodes") or []),
+            },
+            team=self.team,
+            request=request,
+        )
+
+        return Response(response.results, status=status.HTTP_200_OK)
 
     @extend_schema(request=_TracingQueryRequestSerializer)
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
@@ -510,6 +647,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             limit=1000,
             prefetchSpans=2000,
             rootSpans=False,
+            excludeAttributes=query_data.get("excludeAttributes", False),
         )
 
         runner = TraceSpansQueryRunner(spans_query, self.team)

@@ -814,6 +814,27 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .describe('Search stack-frame source\/file path text.'),
 })
 
+export const ErrorTrackingReleasesCreateBody = /* @__PURE__ */ zod.object({
+    hash_id: zod.string(),
+    metadata: zod.unknown().optional(),
+    version: zod.string(),
+    project: zod.string(),
+})
+
+export const ErrorTrackingReleasesUpdateBody = /* @__PURE__ */ zod.object({
+    hash_id: zod.string(),
+    metadata: zod.unknown().optional(),
+    version: zod.string(),
+    project: zod.string(),
+})
+
+export const ErrorTrackingReleasesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    hash_id: zod.string().optional(),
+    metadata: zod.unknown().optional(),
+    version: zod.string().optional(),
+    project: zod.string().optional(),
+})
+
 export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
     project_rate_limit_value: zod
         .number()
@@ -942,27 +963,6 @@ export const ErrorTrackingSuppressionRulesReorderPartialUpdateBody = /* @__PURE_
         .optional(),
     disabled_data: zod.unknown().optional(),
     sampling_rate: zod.number().optional(),
-})
-
-export const ErrorTrackingReleasesCreateBody = /* @__PURE__ */ zod.object({
-    hash_id: zod.string(),
-    metadata: zod.unknown().optional(),
-    version: zod.string(),
-    project: zod.string(),
-})
-
-export const ErrorTrackingReleasesUpdateBody = /* @__PURE__ */ zod.object({
-    hash_id: zod.string(),
-    metadata: zod.unknown().optional(),
-    version: zod.string(),
-    project: zod.string(),
-})
-
-export const ErrorTrackingReleasesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    hash_id: zod.string().optional(),
-    metadata: zod.unknown().optional(),
-    version: zod.string().optional(),
-    project: zod.string().optional(),
 })
 
 export const ErrorTrackingSymbolSetsFinishUploadUpdateBody = /* @__PURE__ */ zod.object({

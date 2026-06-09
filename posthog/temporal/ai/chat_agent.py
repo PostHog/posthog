@@ -19,11 +19,12 @@ from posthog.models import Team, User
 from posthog.temporal.ai.base import AgentBaseWorkflow
 from posthog.temporal.common.client import async_connect
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.chat_agent.runner import ChatAgentRunner
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore
 from ee.hogai.stream.redis_stream import ConversationRedisStream, get_conversation_stream_key
 from ee.hogai.utils.types import AssistantMode, AssistantOutput
-from ee.models import Conversation
 
 logger = structlog.get_logger(__name__)
 

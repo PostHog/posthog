@@ -16,6 +16,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client import query_with_columns
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.ai_table_resolver import is_ai_events_enabled
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY, merge_heavy_properties
@@ -44,7 +45,6 @@ class EvaluationRunRequestSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["llm_analytics"])
 class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "evaluation"
     permission_classes = [IsAuthenticated, AccessControlPermission]
@@ -97,46 +97,49 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_result: list[dict] = []
         used_ai_events = False
 
-        if is_ai_events_enabled(self.team):
-            heavy_cols = ",\n                    ".join(HEAVY_COLUMN_NAMES)
-            query_result = query_with_columns(
-                f"""
-                SELECT
-                    uuid,
-                    event,
-                    properties,
-                    timestamp,
-                    team_id,
-                    distinct_id,
-                    person_id,
-                    {heavy_cols}
-                FROM ai_events
-                WHERE {" AND ".join(where_clauses)}
-                LIMIT 1
-                """,
-                params,
-                team_id=self.team_id,
-            )
-            used_ai_events = len(query_result) > 0
+        # Tag these direct ClickHouse reads so the manual-eval-trigger lookup is attributed
+        # to AI observability in query-usage analysis alongside the rest of the product.
+        with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=self.team_id):
+            if is_ai_events_enabled(self.team):
+                heavy_cols = ",\n                    ".join(HEAVY_COLUMN_NAMES)
+                query_result = query_with_columns(
+                    f"""
+                    SELECT
+                        uuid,
+                        event,
+                        properties,
+                        timestamp,
+                        team_id,
+                        distinct_id,
+                        person_id,
+                        {heavy_cols}
+                    FROM ai_events
+                    WHERE {" AND ".join(where_clauses)}
+                    LIMIT 1
+                    """,
+                    params,
+                    team_id=self.team_id,
+                )
+                used_ai_events = len(query_result) > 0
 
-        if not query_result:
-            query_result = query_with_columns(
-                f"""
-                SELECT
-                    uuid,
-                    event,
-                    properties,
-                    timestamp,
-                    team_id,
-                    distinct_id,
-                    person_id
-                FROM events
-                WHERE {" AND ".join(where_clauses)}
-                LIMIT 1
-                """,
-                params,
-                team_id=self.team_id,
-            )
+            if not query_result:
+                query_result = query_with_columns(
+                    f"""
+                    SELECT
+                        uuid,
+                        event,
+                        properties,
+                        timestamp,
+                        team_id,
+                        distinct_id,
+                        person_id
+                    FROM events
+                    WHERE {" AND ".join(where_clauses)}
+                    LIMIT 1
+                    """,
+                    params,
+                    team_id=self.team_id,
+                )
 
         if len(query_result) == 0:
             return Response({"error": f"Event {target_event_id} not found"}, status=404)

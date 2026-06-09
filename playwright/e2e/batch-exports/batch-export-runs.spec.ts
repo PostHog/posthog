@@ -79,10 +79,10 @@ test.describe('Batch export runs', () => {
         await expect(page.getByText('Failed')).toBeVisible()
 
         // Verify batch export context uses "Rows exported" (not "Events exported")
-        await expect(page.getByRole('cell', { name: 'Rows exported' })).toBeVisible()
+        await expect(page.getByRole('columnheader', { name: 'Rows exported' })).toBeVisible()
 
         // Verify "Bytes exported" column is shown for batch exports
-        await expect(page.getByRole('cell', { name: 'Bytes exported' })).toBeVisible()
+        await expect(page.getByRole('columnheader', { name: 'Bytes exported' })).toBeVisible()
     })
 
     test('Creates a backfill successfully from runs tab', async ({ page }) => {

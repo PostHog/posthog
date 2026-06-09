@@ -65,7 +65,8 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: '3.12'
+                  python-version: '3.13.13'
+                  token: ${{ github.token }}
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -97,7 +98,7 @@ jobs:
         name: LLM Services Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check outcomes
               run: |
@@ -106,7 +107,7 @@ jobs:
                     exit 1
                   fi
 
-                  if [[ "${{ needs.llm-gateway.result }}" != "success" && "${{ needs.llm-gateway.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.llm-gateway.result }}" == "failure" ]]; then
                     echo "LLM Gateway tests failed."
                     exit 1
                   fi

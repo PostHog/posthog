@@ -8,18 +8,17 @@ import {
     LemonTag,
     Tooltip,
 } from '@posthog/lemon-ui'
-
-import { TZLabel } from 'lib/components/TZLabel'
-
 import type {
     PaginatedSubscriptionDeliveryListApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
-} from '~/generated/core/api.schemas'
+} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 import {
     SubscriptionDeliveryStatusEnumApi,
     SubscriptionsDeliveriesListStatus as SubscriptionDeliveriesListStatusByValue,
-} from '~/generated/core/api.schemas'
+} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
+
+import { TZLabel } from 'lib/components/TZLabel'
 
 import { SubscriptionDeliveryDestinationCell } from './SubscriptionDestinationCell'
 import { TARGET_TYPE_LABEL } from './subscriptionLabels'

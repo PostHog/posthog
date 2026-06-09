@@ -27,7 +27,7 @@ async def test_s3_export_workflow_with_minio_bucket_with_various_intervals_and_m
     clickhouse_client,
     minio_client,
     ateam,
-    s3_batch_export,
+    s3_compatible_batch_export,
     bucket_name,
     interval,
     compression,
@@ -54,13 +54,14 @@ async def test_s3_export_workflow_with_minio_bucket_with_various_intervals_and_m
     await run_s3_batch_export_workflow(
         model=model,
         ateam=ateam,
-        batch_export_id=str(s3_batch_export.id),
-        s3_destination_config=s3_batch_export.destination.config,
+        batch_export_id=str(s3_compatible_batch_export.id),
+        s3_destination_config=s3_compatible_batch_export.destination.config,
         interval=interval,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         clickhouse_client=clickhouse_client,
         s3_client=minio_client,
+        destination_type="S3Compatible",
     )
 
 
@@ -73,7 +74,7 @@ async def test_s3_export_workflow_with_minio_bucket_with_various_compression_and
     clickhouse_client,
     minio_client,
     ateam,
-    s3_batch_export,
+    s3_compatible_batch_export,
     bucket_name,
     interval,
     compression,
@@ -93,13 +94,14 @@ async def test_s3_export_workflow_with_minio_bucket_with_various_compression_and
     await run_s3_batch_export_workflow(
         model=model,
         ateam=ateam,
-        batch_export_id=str(s3_batch_export.id),
-        s3_destination_config=s3_batch_export.destination.config,
+        batch_export_id=str(s3_compatible_batch_export.id),
+        s3_destination_config=s3_compatible_batch_export.destination.config,
         interval=interval,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         clickhouse_client=clickhouse_client,
         s3_client=minio_client,
+        destination_type="S3Compatible",
     )
 
 
@@ -112,7 +114,7 @@ async def test_s3_export_workflow_with_minio_bucket_with_exclude_events(
     clickhouse_client,
     minio_client,
     ateam,
-    s3_batch_export,
+    s3_compatible_batch_export,
     bucket_name,
     interval,
     compression,
@@ -131,13 +133,14 @@ async def test_s3_export_workflow_with_minio_bucket_with_exclude_events(
     await run_s3_batch_export_workflow(
         model=model,
         ateam=ateam,
-        batch_export_id=str(s3_batch_export.id),
-        s3_destination_config=s3_batch_export.destination.config,
+        batch_export_id=str(s3_compatible_batch_export.id),
+        s3_destination_config=s3_compatible_batch_export.destination.config,
         interval=interval,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         clickhouse_client=clickhouse_client,
         s3_client=minio_client,
+        destination_type="S3Compatible",
     )
 
 
@@ -153,7 +156,7 @@ async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
     clickhouse_client,
     minio_client,
     ateam,
-    s3_batch_export,
+    s3_compatible_batch_export,
     bucket_name,
     interval,
     compression,
@@ -185,14 +188,15 @@ async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
     await run_s3_batch_export_workflow(
         model=model,
         ateam=ateam,
-        batch_export_id=str(s3_batch_export.id),
-        s3_destination_config=s3_batch_export.destination.config,
+        batch_export_id=str(s3_compatible_batch_export.id),
+        s3_destination_config=s3_compatible_batch_export.destination.config,
         interval=interval,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         clickhouse_client=clickhouse_client,
         s3_client=minio_client,
         backfill_details=backfill_details,
+        destination_type="S3Compatible",
     )
 
 
@@ -205,7 +209,7 @@ async def test_s3_export_workflow_with_minio_bucket_without_events(
     clickhouse_client,
     minio_client,
     ateam,
-    s3_batch_export,
+    s3_compatible_batch_export,
     bucket_name,
     interval,
     compression,
@@ -223,14 +227,57 @@ async def test_s3_export_workflow_with_minio_bucket_without_events(
     await run_s3_batch_export_workflow(
         model=model,
         ateam=ateam,
-        batch_export_id=str(s3_batch_export.id),
-        s3_destination_config=s3_batch_export.destination.config,
+        batch_export_id=str(s3_compatible_batch_export.id),
+        s3_destination_config=s3_compatible_batch_export.destination.config,
         interval=interval,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         clickhouse_client=clickhouse_client,
         s3_client=minio_client,
         expect_no_data=True,
+        destination_type="S3Compatible",
+    )
+
+
+@pytest.mark.parametrize("interval", ["hour"], indirect=True)
+@pytest.mark.parametrize("compression", [None], indirect=True)
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+@pytest.mark.parametrize("file_format", ["JSONLines"], indirect=True)
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+async def test_s3_export_workflow_with_legacy_s3_destination_type(
+    clickhouse_client,
+    minio_client,
+    ateam,
+    s3_compatible_batch_export,
+    bucket_name,
+    interval,
+    compression,
+    exclude_events,
+    file_format,
+    s3_key_prefix,
+    model,
+    data_interval_start,
+    data_interval_end,
+    generate_test_data,
+):
+    """Cover the legacy `S3` dispatch path through the canonical `S3BatchExportInputs`.
+
+    Production rows with `type="S3"` continue to dispatch via the canonical input
+    dataclass until reclassification runs.
+
+    TODO: This test can be removed once we have deprecated the legacy `S3` destination type.
+    """
+    await run_s3_batch_export_workflow(
+        model=model,
+        ateam=ateam,
+        batch_export_id=str(s3_compatible_batch_export.id),
+        s3_destination_config=s3_compatible_batch_export.destination.config,
+        interval=interval,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        clickhouse_client=clickhouse_client,
+        s3_client=minio_client,
+        destination_type="S3",
     )
 
 
@@ -253,7 +300,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     bucket_name,
     compression,
     interval,
-    s3_batch_export,
+    s3_compatible_batch_export,
     s3_key_prefix,
     data_interval_end,
     data_interval_start,
@@ -270,11 +317,12 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     await run_s3_batch_export_workflow(
         model=model,
         ateam=ateam,
-        batch_export_id=str(s3_batch_export.id),
-        s3_destination_config=s3_batch_export.destination.config,
+        batch_export_id=str(s3_compatible_batch_export.id),
+        s3_destination_config=s3_compatible_batch_export.destination.config,
         interval=interval,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         clickhouse_client=clickhouse_client,
         s3_client=minio_client,
+        destination_type="S3Compatible",
     )
