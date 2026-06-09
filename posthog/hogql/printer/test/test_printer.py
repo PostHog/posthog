@@ -2578,6 +2578,23 @@ class TestPrinter(BaseTest):
         )
         self.assertNotIn("ifNull(in", sql)
 
+    @patch("posthog.hogql.transforms.clickhouse_physical_passes.get_materialized_column_for_property")
+    def test_materialized_property_through_column_aliased_table(self, mock_get_mat_col):
+        # A property read through a column-renamed table (`FROM events AS e (...)`, a ColumnAliasedTableType) must still
+        # resolve to its materialized column. The physical pass has to unwrap that table type to reach the real table; if
+        # it doesn't, the read silently falls back to a slow JSONExtract over the raw blob.
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        mock_get_mat_col.return_value = MaterializedColumn(
+            name="mat_foo",
+            details=MaterializedColumnDetails(table_column="properties", property_name="foo", is_disabled=False),
+            is_nullable=False,
+        )
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql = self._select("SELECT e.properties.foo FROM events AS e (a, b)", context)
+        self.assertIn("mat_foo", sql)
+        self.assertNotIn("JSONExtractRaw(events.properties", sql)
+
     def test_field_nullable_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
         context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore

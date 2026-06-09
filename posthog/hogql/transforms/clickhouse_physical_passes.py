@@ -87,7 +87,7 @@ def resolve_materialized_property_source(
         return None
 
     table_type: ast.Type | None = field_type.table_type
-    while isinstance(table_type, (ast.TableAliasType, ast.VirtualTableType)):
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
         table_type = table_type.table_type
     if not isinstance(table_type, ast.TableType):
         return None
@@ -145,7 +145,7 @@ def resolve_property_group_source(
         return None
 
     table_type: ast.Type | None = field_type.table_type
-    while isinstance(table_type, (ast.TableAliasType, ast.VirtualTableType)):
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
         table_type = table_type.table_type
     if not isinstance(table_type, ast.TableType):
         return None
@@ -223,7 +223,7 @@ def _augment_table_type(
     if isinstance(table_type, ast.VirtualTableType):
         # PoE person properties: the physical mat/group columns live on the underlying events table.
         return _augment_table_type(table_type.table_type, column_name, is_nullable=is_nullable)
-    if isinstance(table_type, ast.TableAliasType):
+    if isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
         inner = table_type.table_type
         if not isinstance(inner, ast.TableType):
             return None
