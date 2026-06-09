@@ -46,7 +46,7 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                             size="small"
                             className="w-36"
                             onChange={(newValue) => {
-                                updateAccessControlDefault(newValue as AccessControlLevel)
+                                updateAccessControlDefault(newValue as AccessControlLevel, 'v2')
                             }}
                             options={getLevelOptionsForResource(projectLevels)}
                         />

@@ -282,10 +282,8 @@ export const integrationsLogic = kea<integrationsLogicType>([
         },
         handleOauthCallback: async ({ kind, searchParams }) => {
             const { state, code, error, stripe_user_id, account_id, user_id } = searchParams
-            const { next, token, source, server_id, kind: stateKind } = fromParamsGivenUrl(state)
-            // slack-posthog-code reuses /integrations/slack/callback as its approved redirect URI,
-            // so the real kind is carried in OAuth state and takes precedence over the URL path.
-            const resolvedKind = (stateKind as IntegrationKind) || kind
+            const { next, token, source, server_id } = fromParamsGivenUrl(state)
+            const resolvedKind = kind
             let replaceUrl: string = next || urls.settings('project-integrations')
 
             if (error) {

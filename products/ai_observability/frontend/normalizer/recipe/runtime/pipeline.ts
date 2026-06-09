@@ -15,9 +15,8 @@ export class RecipePipeline implements DispatchEngine {
     readonly coercer = new SlotCoercer()
     private readonly recipes: Recipe[]
 
-    constructor(recipes: Recipe[]) {
-        // Sort a copy: the input is the shared module-level registry array.
-        this.recipes = [...recipes].sort((a, b) => a.priority - b.priority)
+    constructor(recipes: Iterable<Recipe>) {
+        this.recipes = [...recipes]
     }
 
     run(input: unknown, defaultRole: string): DispatchResult {

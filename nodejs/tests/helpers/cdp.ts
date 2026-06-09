@@ -39,6 +39,7 @@ function buildTestCdpProducerRegistry(
 const noopGroupReadRepository: GroupReadRepository = {
     fetchGroupsByKeys: () => Promise.resolve([]),
     fetchGroupTypesByTeamIds: () => Promise.resolve({}),
+    fetchGroupTypesByProjectIds: () => Promise.resolve({}),
 }
 
 const noopPersonReadRepository: PersonReadRepository = {

@@ -9,6 +9,7 @@
         "kea-router": "catalog:"
     },
     "peerDependencies": {
+        "@storybook/react": "catalog:",
         "@types/react": "*",
         "react": "*"
     }

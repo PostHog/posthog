@@ -115,7 +115,7 @@ class TestPostSlackUpdate(TestCase):
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
-    def test_in_progress_with_pr_swaps_reaction_and_deletes_progress(
+    def test_in_progress_with_pr_keeps_eyes_reaction_and_deletes_progress(
         self,
         mock_task_run_class,
         mock_handler_init,
@@ -134,7 +134,8 @@ class TestPostSlackUpdate(TestCase):
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
         mock_post_progress.assert_not_called()
-        mock_update_reaction.assert_called_once_with("hedgehog")
+        # Task is still running (PR opened mid-run) — reaction stays :eyes:, not :hedgehog:.
+        mock_update_reaction.assert_called_once_with("eyes")
         mock_delete_progress.assert_called_once()
 
     @patch.object(SlackThreadHandler, "delete_progress")
@@ -174,7 +175,7 @@ class TestPostSlackUpdate(TestCase):
             "https://github.com/org/repo/pull/1",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",
         )
-        mock_update_reaction.assert_called_once_with("hedgehog")
+        mock_update_reaction.assert_called_once_with("eyes")
         mock_delete_progress.assert_called_once()
         mock_post_progress.assert_not_called()
         mock_task_run_class.update_state_atomic.assert_called_once_with(

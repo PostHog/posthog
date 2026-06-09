@@ -382,6 +382,48 @@ export interface HogFlowActionApi {
     output_variable?: unknown
 }
 
+/**
+ * * `active` - Active
+ * `paused` - Paused
+ * `completed` - Completed
+ */
+export type HogFlowScheduleStatusEnumApi =
+    (typeof HogFlowScheduleStatusEnumApi)[keyof typeof HogFlowScheduleStatusEnumApi]
+
+export const HogFlowScheduleStatusEnumApi = {
+    Active: 'active',
+    Paused: 'paused',
+    Completed: 'completed',
+} as const
+
+export interface HogFlowScheduleApi {
+    readonly id: string
+    /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
+    rrule: string
+    /** ISO 8601 datetime the schedule starts from. */
+    starts_at: string
+    /**
+     * IANA timezone for interpreting the RRULE (default 'UTC').
+     * @maxLength 64
+     */
+    timezone?: string
+    /** Variable value overrides merged with the workflow defaults on each run. */
+    variables?: unknown
+    /** active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted).
+
+  * `active` - Active
+  * `paused` - Paused
+  * `completed` - Completed */
+    readonly status: HogFlowScheduleStatusEnumApi
+    /**
+     * Next scheduled fire time, computed by the scheduler.
+     * @nullable
+     */
+    readonly next_run_at: string | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
 export interface HogFlowApi {
     readonly id: string
     /**
@@ -423,6 +465,8 @@ export interface HogFlowApi {
     /** Workflow vars (key, type, default). Total <5KB. */
     variables?: HogFlowApiVariablesItem[]
     readonly billable_action_types: unknown
+    /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+    readonly schedules: readonly HogFlowScheduleApi[]
 }
 
 /**
@@ -471,6 +515,93 @@ export interface PatchedHogFlowApi {
     /** Workflow vars (key, type, default). Total <5KB. */
     variables?: PatchedHogFlowApiVariablesItem[]
     readonly billable_action_types?: unknown
+    /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+    readonly schedules?: readonly HogFlowScheduleApi[]
+}
+
+/**
+ * * `waiting` - Waiting
+ * `queued` - Queued
+ * `active` - Active
+ * `completed` - Completed
+ * `cancelled` - Cancelled
+ * `failed` - Failed
+ */
+export type HogFlowBatchJobStatusEnumApi =
+    (typeof HogFlowBatchJobStatusEnumApi)[keyof typeof HogFlowBatchJobStatusEnumApi]
+
+export const HogFlowBatchJobStatusEnumApi = {
+    Waiting: 'waiting',
+    Queued: 'queued',
+    Active: 'active',
+    Completed: 'completed',
+    Cancelled: 'cancelled',
+    Failed: 'failed',
+} as const
+
+export interface HogFlowBatchJobApi {
+    readonly id: string
+    /** Not currently tracked — stays at its initial value. Use the workflow logs/metrics endpoints for run outcome.
+
+  * `waiting` - Waiting
+  * `queued` - Queued
+  * `active` - Active
+  * `completed` - Completed
+  * `cancelled` - Cancelled
+  * `failed` - Failed */
+    status?: HogFlowBatchJobStatusEnumApi
+    /** ID of the workflow this batch run belongs to. */
+    hog_flow: string
+    /** Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters. */
+    filters?: unknown
+    /** Variable value overrides applied to this run. */
+    variables?: unknown
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    readonly updated_at: string
+}
+
+export interface HogInvocationResultApi {
+    invocation_id: string
+    status: string
+    error_kind: string
+    error_message: string
+    distinct_id: string
+    person_id: string
+    scheduled_at: string
+    /** @nullable */
+    started_at: string | null
+    /** @nullable */
+    finished_at: string | null
+    /** @nullable */
+    duration_ms: number | null
+    attempts: number
+    is_retry: boolean
+}
+
+/**
+ * The triggering payload (event/person/groups) the run executed against, as a JSON object.
+ */
+export type HogInvocationResultDetailApiInvocationGlobals = { [key: string]: unknown }
+
+export interface HogInvocationResultDetailApi {
+    /** The triggering payload (event/person/groups) the run executed against, as a JSON object. */
+    invocation_globals: HogInvocationResultDetailApiInvocationGlobals
+    invocation_id: string
+    status: string
+    error_kind: string
+    error_message: string
+    distinct_id: string
+    person_id: string
+    scheduled_at: string
+    /** @nullable */
+    started_at: string | null
+    /** @nullable */
+    finished_at: string | null
+    /** @nullable */
+    duration_ms: number | null
+    attempts: number
+    is_retry: boolean
 }
 
 /**
@@ -505,41 +636,41 @@ export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
 }
 
-/**
- * * `active` - Active
- * `paused` - Paused
- * `completed` - Completed
- */
-export type HogFlowScheduleStatusEnumApi =
-    (typeof HogFlowScheduleStatusEnumApi)[keyof typeof HogFlowScheduleStatusEnumApi]
-
-export const HogFlowScheduleStatusEnumApi = {
-    Active: 'active',
-    Paused: 'paused',
-    Completed: 'completed',
-} as const
-
-export interface HogFlowScheduleApi {
-    readonly id: string
-    rrule: string
-    starts_at: string
-    /** @maxLength 64 */
+export interface PatchedHogFlowScheduleApi {
+    readonly id?: string
+    /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
+    rrule?: string
+    /** ISO 8601 datetime the schedule starts from. */
+    starts_at?: string
+    /**
+     * IANA timezone for interpreting the RRULE (default 'UTC').
+     * @maxLength 64
+     */
     timezone?: string
+    /** Variable value overrides merged with the workflow defaults on each run. */
     variables?: unknown
-    readonly status: HogFlowScheduleStatusEnumApi
-    /** @nullable */
-    readonly next_run_at: string | null
-    readonly created_at: string
-    readonly updated_at: string
+    /** active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted).
+
+  * `active` - Active
+  * `paused` - Paused
+  * `completed` - Completed */
+    readonly status?: HogFlowScheduleStatusEnumApi
+    /**
+     * Next scheduled fire time, computed by the scheduler.
+     * @nullable
+     */
+    readonly next_run_at?: string | null
+    readonly created_at?: string
+    readonly updated_at?: string
 }
 
-export interface PaginatedHogFlowScheduleListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: HogFlowScheduleApi[]
+export interface WorkflowStatsRowApi {
+    /** The workflow these counts are for. */
+    workflow_id: string
+    /** Successful invocations in the window. */
+    succeeded: number
+    /** Failed invocations in the window. */
+    failed: number
 }
 
 /**
@@ -635,6 +766,35 @@ export const HogFlowsListStatus = {
     Archived: 'archived',
     Draft: 'draft',
 } as const
+
+export type HogFlowsInvocationResultsRetrieveParams = {
+    /**
+     * Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    /**
+     * Only return invocations triggered for this distinct_id (the person the run executed for).
+     * @minLength 1
+     */
+    distinct_id?: string
+    /**
+     * Maximum number of invocations to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'.
+     * @minLength 1
+     */
+    status?: string
+}
 
 export type HogFlowsLogsRetrieveParams = {
     /**
@@ -792,61 +952,15 @@ export const HogFlowsMetricsTotalsRetrieveInterval = {
     Week: 'week',
 } as const
 
-export type HogFlowsSchedulesListParams = {
-    created_at?: string
-    created_by?: number
-    id?: string
+export type HogFlowsMetricsGlobalRetrieveParams = {
     /**
-     * Number of results to return per page.
+     * Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d.
+     * @minLength 1
      */
-    limit?: number
+    after?: string
     /**
-     * The initial index from which to return the results.
+     * End of the window. Same format as 'after'. Defaults to now.
+     * @minLength 1
      */
-    offset?: number
-    /**
-     * * `draft` - Draft
-     * `active` - Active
-     * `archived` - Archived
-     */
-    status?: HogFlowsSchedulesListStatus
-    updated_at?: string
+    before?: string
 }
-
-export type HogFlowsSchedulesListStatus = (typeof HogFlowsSchedulesListStatus)[keyof typeof HogFlowsSchedulesListStatus]
-
-export const HogFlowsSchedulesListStatus = {
-    Active: 'active',
-    Archived: 'archived',
-    Draft: 'draft',
-} as const
-
-export type HogFlowsSchedulesCreateParams = {
-    created_at?: string
-    created_by?: number
-    id?: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * * `draft` - Draft
-     * `active` - Active
-     * `archived` - Archived
-     */
-    status?: HogFlowsSchedulesCreateStatus
-    updated_at?: string
-}
-
-export type HogFlowsSchedulesCreateStatus =
-    (typeof HogFlowsSchedulesCreateStatus)[keyof typeof HogFlowsSchedulesCreateStatus]
-
-export const HogFlowsSchedulesCreateStatus = {
-    Active: 'active',
-    Archived: 'archived',
-    Draft: 'draft',
-} as const

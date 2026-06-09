@@ -13,7 +13,7 @@ import type { Group as ProtoGroup } from '../../generated/personhog/personhog/ty
 import { Group as DomainGroup, GroupTypeIndex } from '../../types'
 import { epochMsToDateTime, eventualReadOptions, parseJsonBytes } from './client'
 
-const PERSONHOG_BATCH_SIZE = 250
+const PERSONHOG_BATCH_SIZE = 100
 const VALID_GROUP_TYPE_INDEXES = new Set<number>([0, 1, 2, 3, 4])
 
 function toGroupTypeIndex(value: number): GroupTypeIndex {

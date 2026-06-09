@@ -643,7 +643,6 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
             filters: true,
             deleted: true,
             type: true,
-            exposure_criteria: true,
             scheduling_config: true,
             _create_in_folder: true,
             primary_metrics_ordered_uuids: true,
@@ -674,6 +673,9 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
             }
             if (params.archived !== undefined) {
                 body['archived'] = params.archived
+            }
+            if (params.exposure_criteria !== undefined) {
+                body['exposure_criteria'] = params.exposure_criteria
             }
             if (params.metrics !== undefined) {
                 body['metrics'] = params.metrics

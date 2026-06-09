@@ -9,6 +9,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
+import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
 import { LLM_TRACES_PAGE_SIZE } from '../utils'
 import type { aiObservabilityTracesTabLogicType } from './aiObservabilityTracesTabLogicType'
 
@@ -48,7 +49,7 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
         setShowSentimentColumn: (show: boolean) => ({ show }),
     }),
 
-    reducers({
+    reducers(() => ({
         tracesQueryOverride: [
             null as DataTableNode | null,
             {
@@ -57,19 +58,19 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
         ],
         showInputOutputColumns: [
             true as boolean,
-            { persist: true },
+            buildAiObservabilityStorageConfig('traces.showInputOutputColumns'),
             {
                 setShowInputOutputColumns: (_, { show }) => show,
             },
         ],
         showSentimentColumn: [
             true as boolean,
-            { persist: true },
+            buildAiObservabilityStorageConfig('traces.showSentimentColumn'),
             {
                 setShowSentimentColumn: (_, { show }) => show,
             },
         ],
-    }),
+    })),
 
     selectors({
         tracesQuery: [

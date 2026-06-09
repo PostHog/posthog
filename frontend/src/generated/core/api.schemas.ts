@@ -8,81 +8,6 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `starting` - Starting
- * `completed` - Completed
- * `failed` - Failed
- * `skipped` - Skipped
- */
-export type SubscriptionDeliveryStatusEnumApi =
-    (typeof SubscriptionDeliveryStatusEnumApi)[keyof typeof SubscriptionDeliveryStatusEnumApi]
-
-export const SubscriptionDeliveryStatusEnumApi = {
-    Starting: 'starting',
-    Completed: 'completed',
-    Failed: 'failed',
-    Skipped: 'skipped',
-} as const
-
-export interface SubscriptionDeliveryApi {
-    /** Primary key for this delivery row. */
-    readonly id: string
-    /** Parent subscription id. */
-    readonly subscription: number
-    /** Temporal workflow id for this delivery run. */
-    readonly temporal_workflow_id: string
-    /** Dedupes activity retries for the same logical run. */
-    readonly idempotency_key: string
-    /** Why the run started (e.g. scheduled, manual, target_change). */
-    readonly trigger_type: string
-    /**
-     * Planned send time when applicable.
-     * @nullable
-     */
-    readonly scheduled_at: string | null
-    /** Channel snapshot at send time (email, slack, webhook). */
-    readonly target_type: string
-    /** Destination snapshot at send time (emails, channel id, URL). */
-    readonly target_value: string
-    /** ExportedAsset ids generated for this send. */
-    readonly exported_asset_ids: readonly number[]
-    /** Snapshot at send time: dashboard metadata, total_insight_count, and per-exported-insight entries (id, short_id, name, query_hash, cache_key, query_results, optional query_error). */
-    readonly content_snapshot: unknown
-    /** Per-destination outcomes; items use status success, failed, or partial. */
-    readonly recipient_results: unknown
-    /** Overall run status: starting, completed, failed, or skipped.
-
-  * `starting` - Starting
-  * `completed` - Completed
-  * `failed` - Failed
-  * `skipped` - Skipped */
-    readonly status: SubscriptionDeliveryStatusEnumApi
-    /** Top-level failure payload when status is failed, if any. */
-    readonly error: unknown
-    /** When the delivery row was created. */
-    readonly created_at: string
-    /** Last ORM update to this row. */
-    readonly last_updated_at: string
-    /**
-     * When the run finished, if applicable.
-     * @nullable
-     */
-    readonly finished_at: string | null
-    /**
-     * AI-generated summary included in this delivery, when one was produced.
-     * @nullable
-     */
-    readonly change_summary: string | null
-}
-
-export interface PaginatedSubscriptionDeliveryListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SubscriptionDeliveryApi[]
-}
-
-/**
  * * `engineering` - Engineering
  * `data` - Data
  * `product` - Product Management
@@ -211,6 +136,22 @@ export interface OrganizationDomainApi {
     readonly scim_base_url: string | null
     /** @nullable */
     readonly scim_bearer_token: string | null
+    /** Returns whether ID-JAG (XAA) is configured for this domain. */
+    readonly has_id_jag: boolean
+    /**
+     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
+     * @maxLength 512
+     * @nullable
+     */
+    id_jag_issuer_url?: string | null
+    /**
+     * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
+     * @maxLength 512
+     * @nullable
+     */
+    id_jag_jwks_url?: string | null
+    /** Allowed ID-JAG client IDs. Empty list allows any client_id. */
+    id_jag_allowed_clients?: string[]
 }
 
 export interface PaginatedOrganizationDomainListApi {
@@ -255,6 +196,22 @@ export interface PatchedOrganizationDomainApi {
     readonly scim_base_url?: string | null
     /** @nullable */
     readonly scim_bearer_token?: string | null
+    /** Returns whether ID-JAG (XAA) is configured for this domain. */
+    readonly has_id_jag?: boolean
+    /**
+     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
+     * @maxLength 512
+     * @nullable
+     */
+    id_jag_issuer_url?: string | null
+    /**
+     * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
+     * @maxLength 512
+     * @nullable
+     */
+    id_jag_jwks_url?: string | null
+    /** Allowed ID-JAG client IDs. Empty list allows any client_id. */
+    id_jag_allowed_clients?: string[]
 }
 
 /**
@@ -2228,6 +2185,68 @@ export interface PatchedFileSystemApi {
     readonly last_viewed_at?: string | null
 }
 
+export interface FolderInstructionsApi {
+    /** Unique identifier for this instructions version. */
+    readonly id: string
+    /** Markdown instructions describing the contents of the folder. */
+    readonly content: string
+    /** Monotonically increasing version number, starting at 1. */
+    readonly version: number
+    /** Whether this is the current (latest) version for the folder. */
+    readonly is_latest: boolean
+    /** User who published this version. */
+    readonly created_by: UserBasicApi
+    /** When this version was published. */
+    readonly created_at: string
+    /** When this version row was last modified. */
+    readonly updated_at: string
+}
+
+export interface FolderInstructionsPublishApi {
+    /** Full markdown instructions to publish as a new version for the folder. */
+    content: string
+    /**
+     * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
+     * @minimum 0
+     */
+    base_version?: number
+}
+
+export interface PatchedFolderInstructionsPublishApi {
+    /** Full markdown instructions to publish as a new version for the folder. */
+    content?: string
+    /**
+     * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
+     * @minimum 0
+     */
+    base_version?: number
+}
+
+/**
+ * Version-history entry: metadata only, with the markdown content omitted.
+ */
+export interface FolderInstructionsVersionApi {
+    /** Unique identifier for this instructions version. */
+    readonly id: string
+    /** Monotonically increasing version number, starting at 1. */
+    readonly version: number
+    /** Whether this is the current (latest) version for the folder. */
+    readonly is_latest: boolean
+    /** User who published this version. */
+    readonly created_by: UserBasicApi
+    /** When this version was published. */
+    readonly created_at: string
+}
+
+export interface PaginatedFolderInstructionsVersionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FolderInstructionsVersionApi[]
+}
+
 export interface FileSystemShortcutApi {
     readonly id: string
     /** Display path of the shortcut in the sidebar. */
@@ -2572,286 +2591,6 @@ export interface BulkUpdateTagsResponseApi {
 }
 
 /**
- * * `email` - Email
- * `slack` - Slack
- * `webhook` - Webhook
- */
-export type TargetTypeEnumApi = (typeof TargetTypeEnumApi)[keyof typeof TargetTypeEnumApi]
-
-export const TargetTypeEnumApi = {
-    Email: 'email',
-    Slack: 'slack',
-    Webhook: 'webhook',
-} as const
-
-/**
- * * `daily` - Daily
- * `weekly` - Weekly
- * `monthly` - Monthly
- * `yearly` - Yearly
- */
-export type SubscriptionFrequencyEnumApi =
-    (typeof SubscriptionFrequencyEnumApi)[keyof typeof SubscriptionFrequencyEnumApi]
-
-export const SubscriptionFrequencyEnumApi = {
-    Daily: 'daily',
-    Weekly: 'weekly',
-    Monthly: 'monthly',
-    Yearly: 'yearly',
-} as const
-
-/**
- * * `monday` - Monday
- * `tuesday` - Tuesday
- * `wednesday` - Wednesday
- * `thursday` - Thursday
- * `friday` - Friday
- * `saturday` - Saturday
- * `sunday` - Sunday
- */
-export type SubscriptionApiByweekdayItem =
-    (typeof SubscriptionApiByweekdayItem)[keyof typeof SubscriptionApiByweekdayItem]
-
-export const SubscriptionApiByweekdayItem = {
-    Monday: 'monday',
-    Tuesday: 'tuesday',
-    Wednesday: 'wednesday',
-    Thursday: 'thursday',
-    Friday: 'friday',
-    Saturday: 'saturday',
-    Sunday: 'sunday',
-} as const
-
-/**
- * Standard Subscription serializer.
- */
-export interface SubscriptionApi {
-    readonly id: number
-    /**
-     * Dashboard ID to subscribe to (mutually exclusive with insight on create).
-     * @nullable
-     */
-    dashboard?: number | null
-    /**
-     * Insight ID to subscribe to (mutually exclusive with dashboard on create).
-     * @nullable
-     */
-    insight?: number | null
-    /** @nullable */
-    readonly insight_short_id: string | null
-    /** @nullable */
-    readonly resource_name: string | null
-    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
-    dashboard_export_insights?: number[]
-    /** Delivery channel: email, slack, or webhook.
-
-  * `email` - Email
-  * `slack` - Slack
-  * `webhook` - Webhook */
-    target_type: TargetTypeEnumApi
-    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
-    target_value: string
-    /** How often to deliver: daily, weekly, monthly, or yearly.
-
-  * `daily` - Daily
-  * `weekly` - Weekly
-  * `monthly` - Monthly
-  * `yearly` - Yearly */
-    frequency: SubscriptionFrequencyEnumApi
-    /**
-     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    interval?: number
-    /**
-     * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
-     * @nullable
-     */
-    byweekday?: SubscriptionApiByweekdayItem[] | null
-    /**
-     * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    bysetpos?: number | null
-    /**
-     * Total number of deliveries before the subscription stops. Null for unlimited.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    count?: number | null
-    /** When to start delivering (ISO 8601 datetime). */
-    start_date: string
-    /**
-     * When to stop delivering (ISO 8601 datetime). Null for indefinite.
-     * @nullable
-     */
-    until_date?: string | null
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
-    deleted?: boolean
-    /** Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid. */
-    enabled?: boolean
-    /**
-     * Human-readable name for this subscription.
-     * @maxLength 100
-     * @nullable
-     */
-    title?: string | null
-    /** Human-readable schedule summary, e.g. 'sent daily'. */
-    readonly summary: string
-    /** @nullable */
-    readonly next_delivery_date: string | null
-    /**
-     * ID of a connected Slack integration. Required when target_type is slack.
-     * @nullable
-     */
-    integration_id?: number | null
-    /**
-     * Optional message included in the invitation email when adding new recipients.
-     * @nullable
-     */
-    invite_message?: string | null
-    summary_enabled?: boolean
-    /** @maxLength 500 */
-    summary_prompt_guide?: string
-}
-
-export interface PaginatedSubscriptionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SubscriptionApi[]
-}
-
-/**
- * * `monday` - Monday
- * `tuesday` - Tuesday
- * `wednesday` - Wednesday
- * `thursday` - Thursday
- * `friday` - Friday
- * `saturday` - Saturday
- * `sunday` - Sunday
- */
-export type PatchedSubscriptionApiByweekdayItem =
-    (typeof PatchedSubscriptionApiByweekdayItem)[keyof typeof PatchedSubscriptionApiByweekdayItem]
-
-export const PatchedSubscriptionApiByweekdayItem = {
-    Monday: 'monday',
-    Tuesday: 'tuesday',
-    Wednesday: 'wednesday',
-    Thursday: 'thursday',
-    Friday: 'friday',
-    Saturday: 'saturday',
-    Sunday: 'sunday',
-} as const
-
-/**
- * Standard Subscription serializer.
- */
-export interface PatchedSubscriptionApi {
-    readonly id?: number
-    /**
-     * Dashboard ID to subscribe to (mutually exclusive with insight on create).
-     * @nullable
-     */
-    dashboard?: number | null
-    /**
-     * Insight ID to subscribe to (mutually exclusive with dashboard on create).
-     * @nullable
-     */
-    insight?: number | null
-    /** @nullable */
-    readonly insight_short_id?: string | null
-    /** @nullable */
-    readonly resource_name?: string | null
-    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
-    dashboard_export_insights?: number[]
-    /** Delivery channel: email, slack, or webhook.
-
-  * `email` - Email
-  * `slack` - Slack
-  * `webhook` - Webhook */
-    target_type?: TargetTypeEnumApi
-    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
-    target_value?: string
-    /** How often to deliver: daily, weekly, monthly, or yearly.
-
-  * `daily` - Daily
-  * `weekly` - Weekly
-  * `monthly` - Monthly
-  * `yearly` - Yearly */
-    frequency?: SubscriptionFrequencyEnumApi
-    /**
-     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    interval?: number
-    /**
-     * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
-     * @nullable
-     */
-    byweekday?: PatchedSubscriptionApiByweekdayItem[] | null
-    /**
-     * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    bysetpos?: number | null
-    /**
-     * Total number of deliveries before the subscription stops. Null for unlimited.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    count?: number | null
-    /** When to start delivering (ISO 8601 datetime). */
-    start_date?: string
-    /**
-     * When to stop delivering (ISO 8601 datetime). Null for indefinite.
-     * @nullable
-     */
-    until_date?: string | null
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
-    deleted?: boolean
-    /** Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid. */
-    enabled?: boolean
-    /**
-     * Human-readable name for this subscription.
-     * @maxLength 100
-     * @nullable
-     */
-    title?: string | null
-    /** Human-readable schedule summary, e.g. 'sent daily'. */
-    readonly summary?: string
-    /** @nullable */
-    readonly next_delivery_date?: string | null
-    /**
-     * ID of a connected Slack integration. Required when target_type is slack.
-     * @nullable
-     */
-    integration_id?: number | null
-    /**
-     * Optional message included in the invitation email when adding new recipients.
-     * @nullable
-     */
-    invite_message?: string | null
-    summary_enabled?: boolean
-    /** @maxLength 500 */
-    summary_prompt_guide?: string
-}
-
-/**
  * * `disabled` - disabled
  * `toolbar` - toolbar
  */
@@ -2943,6 +2682,11 @@ export interface OrganizationApi {
     enforce_2fa?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
+    /**
+     * When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.
+     * @nullable
+     */
+    members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count: number
@@ -3457,27 +3201,6 @@ export interface UserPushTokenUnregisterRequestApi {
     token: string
 }
 
-export type SubscriptionsDeliveriesListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
-     * Return only deliveries in this run status (starting, completed, failed, or skipped).
-     */
-    status?: SubscriptionsDeliveriesListStatus
-}
-
-export type SubscriptionsDeliveriesListStatus =
-    (typeof SubscriptionsDeliveriesListStatus)[keyof typeof SubscriptionsDeliveriesListStatus]
-
-export const SubscriptionsDeliveriesListStatus = {
-    Completed: 'completed',
-    Failed: 'failed',
-    Skipped: 'skipped',
-    Starting: 'starting',
-} as const
-
 export type CimdVerificationTokensListParams = {
     /**
      * Number of results to return per page.
@@ -3538,6 +3261,21 @@ export type OrganizationsProjectsListParams = {
 }
 
 export type DesktopFileSystemListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type DesktopFileSystemInstructionsVersionsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -3657,7 +3395,7 @@ export type PropertyDefinitionsListParams = {
      */
     excluded_properties?: string
     /**
-     * Whether to return only properties for events in `event_names`
+     * Whether to return only properties for events in `event_names`. Note: this event scoping does not apply to feature flag properties ($feature/*), which are global and not tracked per-event; to retrieve feature flags use is_feature_flag=true instead.
      * @nullable
      */
     filter_by_event_names?: boolean | null
@@ -3666,7 +3404,7 @@ export type PropertyDefinitionsListParams = {
      */
     group_type_index?: number
     /**
-     * Whether to return only (or excluding) feature flag properties
+     * Whether to return only (or excluding) feature flag properties ($feature/*). Flags are global, not per-event, so they can't be scoped by event_names/filter_by_event_names — pass is_feature_flag=true to list them all.
      * @nullable
      */
     is_feature_flag?: boolean | null
@@ -3717,68 +3455,6 @@ export const PropertyDefinitionsListType = {
     Group: 'group',
     Session: 'session',
 } as const
-
-export type SubscriptionsListParams = {
-    /**
-     * Filter by creator user UUID.
-     */
-    created_by?: string
-    /**
-     * Filter by dashboard ID.
-     */
-    dashboard?: number
-    /**
-     * Filter by insight ID.
-     */
-    insight?: number
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string
-    /**
-     * Filter by subscription resource: insight vs dashboard export.
-     */
-    resource_type?: SubscriptionsListResourceType
-    /**
-     * A search term.
-     */
-    search?: string
-    /**
-     * Filter by delivery channel (email, Slack, or webhook).
-     */
-    target_type?: SubscriptionsListTargetType
-}
-
-export type SubscriptionsListResourceType =
-    (typeof SubscriptionsListResourceType)[keyof typeof SubscriptionsListResourceType]
-
-export const SubscriptionsListResourceType = {
-    Dashboard: 'dashboard',
-    Insight: 'insight',
-} as const
-
-export type SubscriptionsListTargetType = (typeof SubscriptionsListTargetType)[keyof typeof SubscriptionsListTargetType]
-
-export const SubscriptionsListTargetType = {
-    Email: 'email',
-    Slack: 'slack',
-    Webhook: 'webhook',
-} as const
-
-export type SubscriptionsSummaryQuotaRetrieve200 = {
-    active_count: number
-    /** @nullable */
-    limit: number | null
-    at_limit: boolean
-}
 
 export type UsersListParams = {
     email?: string

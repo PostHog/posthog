@@ -23,7 +23,7 @@ export const buildTrendsSeriesMeta = (r: IndexedTrendResult): TrendsSeriesMeta =
     breakdown_value: r.breakdown_value,
     compare_label: r.compare_label,
     days: r.days,
-    order: r.action?.order ?? r.id,
+    order: r.order ?? r.action?.order ?? 0,
     filter: r.filter,
 })
 

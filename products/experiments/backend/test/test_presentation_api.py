@@ -13,12 +13,12 @@ from rest_framework import status
 
 from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.test.test_journeys import journeys_for
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -260,6 +260,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "metrics_count": 0,
                 "secondary_metrics_count": 0,
                 "has_description": False,
+                "has_conclusion_comment": False,
                 "variant_count": 2,
                 "created_at": ANY,
                 "creation_mode": "new",
@@ -3486,6 +3487,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "metrics_count": 0,
                 "secondary_metrics_count": 0,
                 "has_description": False,
+                "has_conclusion_comment": False,
                 "variant_count": 2,
                 "created_at": ANY,
                 "creation_mode": expected_mode,

@@ -43,7 +43,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
 
     const { createStaticCohort } = useActions(exportsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { openCreateFromInsightModal } = useActions(endpointLogic({ tabId: insightProps.tabId || '' }))
+    const { openCreateFromInsightModal } = useActions(endpointLogic)
     const { push } = useActions(router)
     const { openAddToDashboardModal, openTerraformModal } = useActions(insightModalsLogic(insightLogicProps))
 

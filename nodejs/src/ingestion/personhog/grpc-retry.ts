@@ -1,6 +1,7 @@
 import { Code, ConnectError } from '@connectrpc/connect'
 
 import { logger } from '../../utils/logger'
+import { grpcErrorType, personhogRetriesTotal } from './metrics'
 
 const RETRYABLE_CODES = new Set([
     Code.Unavailable,
@@ -36,8 +37,12 @@ export async function withRetry<T>(
         } catch (error) {
             lastError = error
             if (!isRetryable(error) || attempt === maxRetries) {
+                logger.error(`[PersonHog] gRPC call failed in ${label}`, {
+                    error: String(error),
+                })
                 throw error
             }
+            personhogRetriesTotal.inc({ source: label, error_type: grpcErrorType(error) })
             logger.warn(`[${label}] Retryable gRPC error, retrying`, {
                 attempt: attempt + 1,
                 maxRetries,

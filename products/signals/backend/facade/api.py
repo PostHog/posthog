@@ -9,7 +9,7 @@ import structlog
 import temporalio
 import posthoganalytics
 
-from posthog.schema import SignalInput
+from posthog.schema import SignalInput, SignalRemediation
 
 from posthog.event_usage import groups
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
@@ -22,6 +22,20 @@ from products.signals.backend.models import SignalSourceConfig
 logger = structlog.get_logger(__name__)
 
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
+MAX_SIGNAL_REMEDIATION_TOKENS = 16000
+
+
+def _token_count(text: str) -> int:
+    return len(get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL).encode(text))
+
+
+def dismiss_report_from_slack(team_id: int, report_id: str, *, slack_user_id: str | None = None) -> bool:
+    """Facade entrypoint for the Slack 'Dismiss' button. See report_actions.suppress_report_from_slack."""
+    from products.signals.backend.report_actions import (
+        suppress_report_from_slack,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id)
 
 
 def _get_field_values(field: pydantic.fields.FieldInfo) -> tuple[str, ...]:
@@ -49,6 +63,27 @@ for _variant_type in get_args(SignalInput.model_fields["root"].annotation):
             _SIGNAL_VARIANT_LOOKUP[(_product, _source_type)] = _variant_type
 
 
+# Telemetry only forwards top-level *scalar* `extra` values, each truncated — never nested
+# lists/dicts. Source `extra` payloads nest customer-derived content (pganalyze
+# `references[].queryText` raw SQL, session-replay `event_history`, scout `evidence`
+# summaries) that must not leak into product analytics; scalars are the cheap-to-query
+# attribution we actually want (`scout_run_id`, `task_run_id`, `skill_name`, …). The cap
+# bounds top-level strings that could still be large (e.g. an `error_message`).
+_MAX_TELEMETRY_STR_LEN = 256
+
+
+def _telemetry_props_from_extra(extra: dict | None) -> dict:
+    if not extra:
+        return {}
+    props: dict = {}
+    for key, value in extra.items():
+        if isinstance(value, str):
+            props[key] = value[:_MAX_TELEMETRY_STR_LEN]
+        elif isinstance(value, (bool, int, float)):
+            props[key] = value
+    return props
+
+
 async def emit_signal(
     team: Team,
     source_product: str,
@@ -57,6 +92,7 @@ async def emit_signal(
     description: str,
     weight: float = 0.5,
     extra: dict | None = None,
+    remediation: SignalRemediation | None = None,
 ) -> None:
     """
     Emit a signal for grouping and potential report generation, fire-and-forget.
@@ -71,7 +107,17 @@ async def emit_signal(
         source_id: Unique identifier within the source (e.g., experiment UUID)
         description: Human-readable description that will be embedded
         weight: Importance/confidence of signal (0.0-1.0). Weight of 1.0 triggers summary.
-        extra: Optional product-specific metadata
+        extra: Optional product-specific metadata. Its top-level scalar values (truncated) are
+            flattened onto the `signal_emission_started` and `signal_emitted` analytics events
+            alongside the core `source_*` keys (which win on conflict) — see
+            `_telemetry_props_from_extra` — so per-source attribution (e.g. the scout harness's
+            `scout_run_id` / `skill_name`) is queryable downstream without a schema change.
+            Nested lists/dicts are never forwarded.
+        remediation: Optional fix guidance (separate from extra), validated against the
+            `SignalRemediation` schema and capped at MAX_SIGNAL_REMEDIATION_TOKENS tokens
+            (`human` + `agent` combined). When set, the signal is treated as actionable: the guidance
+            is surfaced to the research agent as authoritative direction, which it follows instead of
+            investigating from scratch. Not required by any existing source.
 
     Example:
         await emit_signal(
@@ -101,12 +147,20 @@ async def emit_signal(
     if not is_enabled:
         return
 
-    token_count = len(get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL).encode(description))
-    if token_count > MAX_SIGNAL_DESCRIPTION_TOKENS:
+    description_tokens = _token_count(description)
+    if description_tokens > MAX_SIGNAL_DESCRIPTION_TOKENS:
         raise ValueError(
-            f"Signal description exceeds {MAX_SIGNAL_DESCRIPTION_TOKENS} tokens ({token_count} tokens). "
+            f"Signal description exceeds {MAX_SIGNAL_DESCRIPTION_TOKENS} tokens ({description_tokens} tokens). "
             f"Truncate the description before calling emit_signal."
         )
+
+    if remediation is not None:
+        remediation_tokens = _token_count(f"{remediation.human}\n{remediation.agent}")
+        if remediation_tokens > MAX_SIGNAL_REMEDIATION_TOKENS:
+            raise ValueError(
+                f"Signal remediation exceeds {MAX_SIGNAL_REMEDIATION_TOKENS} tokens ({remediation_tokens} tokens). "
+                f"Trim the remediation guidance before calling emit_signal."
+            )
 
     # Validate the signal against the matching schema variant
     variant_model = _SIGNAL_VARIANT_LOOKUP.get((source_product, source_type))
@@ -122,16 +176,20 @@ async def emit_signal(
                 }
             ],
         )
-    variant_model.model_validate(
-        {
-            "source_product": source_product,
-            "source_type": source_type,
-            "source_id": source_id,
-            "description": description,
-            "weight": weight,
-            "extra": extra or {},
-        }
-    )
+    # Carry the remediation as a plain dict from here on (like `extra`) so it survives the
+    # Temporal/S3 JSON round-trip; `model_validate` below re-checks it against the variant's
+    # declared `remediation: SignalRemediation | None` field.
+    remediation_dict = remediation.model_dump(mode="json", exclude_none=True) if remediation is not None else None
+    payload_to_validate: dict = {
+        "source_product": source_product,
+        "source_type": source_type,
+        "source_id": source_id,
+        "description": description,
+        "weight": weight,
+        "extra": extra or {},
+        "remediation": remediation_dict,
+    }
+    variant_model.model_validate(payload_to_validate)
 
     # Fire a "started" marker so direct callers (error tracking, AI observability evals, etc.)
     # that don't go through the data-source pipeline still have a top-of-funnel event. The
@@ -141,6 +199,7 @@ async def emit_signal(
             event="signal_emission_started",
             distinct_id=str(team.uuid),
             properties={
+                **_telemetry_props_from_extra(extra),
                 "source_product": source_product,
                 "source_type": source_type,
                 "source_id": source_id,
@@ -166,6 +225,7 @@ async def emit_signal(
         description=description,
         weight=weight,
         extra=extra or {},
+        remediation=remediation_dict,
     )
 
     # Ensure the buffer workflow is running (idempotent)
@@ -197,6 +257,7 @@ async def emit_signal(
             event="signal_emitted",
             distinct_id=str(team.uuid),
             properties={
+                **_telemetry_props_from_extra(extra),
                 "source_product": source_product,
                 "source_type": source_type,
                 "source_id": source_id,

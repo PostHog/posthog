@@ -18,9 +18,6 @@ from posthog.api import (
     api_not_found,
     authentication,
     github,
-    hog_flow,
-    hog_flow_template,
-    hog_function_template,
     playwright_setup,
     report,
     router,
@@ -37,7 +34,7 @@ from posthog.api.id_jag import IdJagViewSet
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
-from posthog.api.sdk_doctor import sdk_doctor
+from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
@@ -50,6 +47,7 @@ from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
 from products.ai_observability.backend.api.personal_spend import personal_spend_eu_redirect
+from products.cdp.backend.api import hog_function_template
 from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
@@ -67,6 +65,7 @@ from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
     vapi_webhook,
 )
+from products.workflows.backend.api import hog_flow, hog_flow_template
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -272,7 +271,7 @@ urlpatterns = [
         csrf_exempt(user_interviews_start_call),
         name="user_interviews_start_call",
     ),
-    path("api/sdk_doctor/", sdk_doctor),
+    path("api/sdk_health/", sdk_health),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
     path(
         "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",

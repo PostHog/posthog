@@ -215,6 +215,38 @@ async def test_file_download_retrieve_returns_files(
     assert data["files"] == [str(file_download.id) for file_download in file_downloads]
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_file_download_retrieve_returns_empty_when_no_data_exported(
+    async_client: AsyncClient,
+    temporal_client,
+    team,
+    user,
+    data_interval_start,
+    data_interval_end,
+):
+    destination = await BatchExportDestination.objects.acreate(
+        type=BatchExportDestination.Destination.FILE_DOWNLOAD, config={}
+    )
+    with team_scope(team_id=team.pk, canonical=True):
+        batch_export = await BatchExportOnDemand.objects.acreate(team=team, destination=destination, model="events")
+    run = await BatchExportRun.objects.acreate(
+        batch_export_on_demand=batch_export,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed=0,
+    )
+
+    await async_client.aforce_login(user)
+
+    status_response = await async_client.get(
+        f"/api/projects/{team.pk}/file_download_batch_exports/{run.id}",
+    )
+    data = status_response.json()
+    assert data["status"] == "Completed", status_response.json()
+    assert data["files"] == []
+
+
 @pytest.mark.usefixtures("override_file_download_settings")
 @pytest.mark.django_db(transaction=True)
 async def test_file_download_download_fails_when_not_completed(

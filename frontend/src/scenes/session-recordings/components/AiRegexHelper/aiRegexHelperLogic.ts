@@ -1,11 +1,13 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import type { aiRegexHelperLogicType } from './aiRegexHelperLogicType'
+
+const GENERIC_ERROR = 'Failed to generate regex. Try again?'
 
 export const aiRegexHelperLogic = kea<aiRegexHelperLogicType>([
     path(['lib', 'components', 'AiRegexHelper', 'aiRegexHelperLogic']),
@@ -61,19 +63,25 @@ export const aiRegexHelperLogic = kea<aiRegexHelperLogicType>([
             try {
                 const content = await api.recordings.aiRegex(values.input)
 
-                if (content.hasOwnProperty('result') && content.result === 'success') {
+                if (content?.result === 'success' && content.data?.output) {
                     posthog.capture('ai_regex_helper_generate_regex_success')
                     actions.setGeneratedRegex(content.data.output)
-                } else if (content.hasOwnProperty('result') && content.result === 'error') {
+                } else if (content?.result === 'error') {
                     posthog.capture('ai_regex_helper_generate_regex_error')
-                    actions.setError(content.data.output)
+                    actions.setError(content.data?.output || GENERIC_ERROR)
                 } else {
                     posthog.capture('ai_regex_helper_generate_regex_unknown_error')
-                    actions.setError('Failed to generate regex. Try again?')
+                    actions.setError(GENERIC_ERROR)
                 }
-            } catch {
-                posthog.capture('ai_regex_helper_generate_regex_unknown_error')
-                actions.setError('Failed to generate regex. Try again?')
+            } catch (error) {
+                // Surface the server-provided detail (e.g. a DRF ValidationError message) so the user
+                // sees something actionable instead of the same opaque retry banner for every failure.
+                const detail = error instanceof ApiError ? error.detail : null
+                posthog.capture('ai_regex_helper_generate_regex_unknown_error', {
+                    error_status: error instanceof ApiError ? error.status : undefined,
+                    error_detail: detail,
+                })
+                actions.setError(detail || GENERIC_ERROR)
             }
 
             actions.setIsLoading(false)

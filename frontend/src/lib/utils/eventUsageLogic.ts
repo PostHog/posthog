@@ -537,6 +537,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             insightId: number,
             source: DashboardEventSource
         ) => ({ dashboardId, insightId, source }),
+        reportDashboardInsightAnnotationsToggled: (
+            dashboardId: number | undefined,
+            insightId: number,
+            source: DashboardEventSource
+        ) => ({ dashboardId, insightId, source }),
         /** Empty-state AI prompt chips (ai-first empty dashboard only). */
         reportDashboardEmptyAiPromptClicked: (promptLabel: string, dashboardId: number | undefined) => ({
             promptLabel,
@@ -1134,7 +1139,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
 
             let custom_properties_count = 0
             let posthog_properties_count = 0
-            for (const prop of Object.keys(person.properties)) {
+            for (const prop of Object.keys(person.properties ?? {})) {
                 if (PROPERTY_KEYS.includes(prop)) {
                     posthog_properties_count += 1
                 } else {
@@ -1143,9 +1148,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
 
             const properties = {
-                properties_count: Object.keys(person.properties).length,
-                has_email: !!person.properties.email,
-                has_name: !!person.properties.name,
+                properties_count: Object.keys(person.properties ?? {}).length,
+                has_email: !!person.properties?.email,
+                has_name: !!person.properties?.name,
                 custom_properties_count,
                 posthog_properties_count,
             }
@@ -1435,6 +1440,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardInsightLegendToggled: async ({ dashboardId, insightId, source }) => {
             posthog.capture('dashboard insight legend toggled', {
+                dashboard_id: dashboardId,
+                insight_id: insightId,
+                source,
+            })
+        },
+        reportDashboardInsightAnnotationsToggled: async ({ dashboardId, insightId, source }) => {
+            posthog.capture('dashboard insight annotations toggled', {
                 dashboard_id: dashboardId,
                 insight_id: insightId,
                 source,

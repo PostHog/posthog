@@ -44,6 +44,12 @@ class Command(BaseCommand):
             help="Comma-separated team IDs to filter orphans by (uses search attributes if available, falls back to describe)",
         )
         parser.add_argument(
+            "--start-after-schedule-id",
+            default=None,
+            type=str,
+            help="Resume after this schedule ID (exclusive), following the sorted schedule ID ordering used by this command",
+        )
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             default=False,
@@ -87,6 +93,10 @@ class Command(BaseCommand):
         else:
             # Pass team_ids to use search attribute filtering in the listing query
             orphans = await self._find_orphans_from_listing(temporal, team_ids=team_ids)
+
+        start_after_schedule_id = options.get("start_after_schedule_id")
+        if start_after_schedule_id:
+            orphans = {sid for sid in orphans if sid > start_after_schedule_id}
 
         if not orphans:
             logger.info("No orphaned schedules found")

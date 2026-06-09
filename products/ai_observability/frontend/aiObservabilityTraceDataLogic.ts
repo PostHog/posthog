@@ -24,6 +24,7 @@ import type { aiObservabilityTraceDataLogicType } from './aiObservabilityTraceDa
 import { aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { normalizeMessages } from './messageNormalization'
 import {
     SearchOccurrence,
     eventMatchesSearch,
@@ -32,7 +33,7 @@ import {
     findTraceOccurrences,
 } from './searchUtils'
 import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
-import { formatLLMUsage, getEventType, getSessionID, isLLMEvent, normalizeMessages } from './utils'
+import { formatLLMUsage, getEventType, getSessionID, isLLMEvent } from './utils'
 
 export interface TraceDataLogicProps {
     traceId: string

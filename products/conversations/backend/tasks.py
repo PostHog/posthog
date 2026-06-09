@@ -49,6 +49,8 @@ from products.conversations.backend.models.constants import Status
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.slack import (
     get_slack_client,
+    handle_member_joined_channel,
+    handle_member_left_channel,
     handle_support_mention,
     handle_support_message,
     handle_support_reaction,
@@ -129,6 +131,10 @@ def process_supporthog_event(event: dict[str, Any], slack_team_id: str, event_id
             handle_support_mention(event, team, slack_team_id)
         elif event_type == "reaction_added":
             handle_support_reaction(event, team, slack_team_id)
+        elif event_type == "member_joined_channel":
+            handle_member_joined_channel(event, team, slack_team_id)
+        elif event_type == "member_left_channel":
+            handle_member_left_channel(event, team, slack_team_id)
     except Exception as e:
         logger.exception(
             "supporthog_event_handler_failed",

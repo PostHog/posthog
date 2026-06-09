@@ -7,6 +7,7 @@ import {
     LemonButton,
     LemonDialog,
     LemonInput,
+    LemonSelect,
     LemonSwitch,
     LemonTable,
     LemonTag,
@@ -19,6 +20,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
@@ -26,17 +28,29 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { DataWarehouseSyncInterval, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
-import { SourceEditorAction } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
+import {
+    SourceEditorAction,
+    useSourceEditorAccess,
+} from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
-import { StatusTagSetting, SyncFrequencyLabelMap, SyncTypeLabelMap } from 'products/data_warehouse/frontend/utils'
+import {
+    SYNC_FREQUENCY_ORDER,
+    StatusTagSetting,
+    SyncFrequencyLabelMap,
+    SyncTypeLabelMap,
+    allowedSyncFrequencies,
+} from 'products/data_warehouse/frontend/utils'
 
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
+
+const frequencyRank = (frequency: DataWarehouseSyncInterval | null | undefined): number =>
+    frequency ? SYNC_FREQUENCY_ORDER.indexOf(frequency) : -1
 
 export interface SchemasTabProps {
     id: string
@@ -71,12 +85,19 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
         filteredSchemas,
         showEnabledSchemasOnly,
         schemaNameFilter,
+        statusFilter,
+        syncMethodFilter,
+        frequencyFilter,
+        schemaFilterOptions,
         syncingNow,
         refreshingSchemas,
     } = useValues(sourceSettingsLogic)
     const {
         setShowEnabledSchemasOnly,
         setSchemaNameFilter,
+        setStatusFilter,
+        setSyncMethodFilter,
+        setFrequencyFilter,
         syncNow,
         refreshSchemas,
         updateSchema,
@@ -107,6 +128,42 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                         size="small"
                         value={schemaNameFilter}
                         onChange={setSchemaNameFilter}
+                    />
+                    <LemonSelect
+                        size="small"
+                        placeholder="All statuses"
+                        value={statusFilter}
+                        onChange={setStatusFilter}
+                        options={[
+                            { value: null, label: 'All statuses' },
+                            ...schemaFilterOptions.statuses.map((status) => ({ value: status, label: status })),
+                        ]}
+                    />
+                    <LemonSelect
+                        size="small"
+                        placeholder="All sync methods"
+                        value={syncMethodFilter}
+                        onChange={setSyncMethodFilter}
+                        options={[
+                            { value: null, label: 'All sync methods' },
+                            ...schemaFilterOptions.syncMethods.map((method) => ({
+                                value: method === 'none' ? 'none' : method,
+                                label: method === 'none' ? 'Not set up' : SyncTypeLabelMap[method],
+                            })),
+                        ]}
+                    />
+                    <LemonSelect
+                        size="small"
+                        placeholder="All frequencies"
+                        value={frequencyFilter}
+                        onChange={setFrequencyFilter}
+                        options={[
+                            { value: null, label: 'All frequencies' },
+                            ...schemaFilterOptions.frequencies.map((frequency) => ({
+                                value: frequency,
+                                label: SyncFrequencyLabelMap[frequency],
+                            })),
+                        ]}
                     />
                     <span className="text-muted text-sm">{pluralize(filteredSchemas.length, 'schema', 'schemas')}</span>
                 </div>
@@ -140,7 +197,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                                       : undefined
                             }
                         >
-                            Sync now
+                            Sync all enabled schemas
                         </LemonButton>
                     </SourceEditorAction>
                     <SourceEditorAction source={source}>
@@ -227,6 +284,7 @@ function ManagedSchemaTable({
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
     const { setSelectedSchemas } = useActions(sourceSettingsLogic)
+    const { disabledReason: editDisabledReason } = useSourceEditorAccess(source)
     const [initialLoad, setInitialLoad] = useState(true)
 
     useEffect(() => {
@@ -241,10 +299,20 @@ function ManagedSchemaTable({
             loading={initialLoad}
             disableTableWhileLoading={false}
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
+            bulkSelection={{
+                getKey: (schema) => schema.id,
+                isRowSelectable: () => (editDisabledReason ? { disabledReason: editDisabledReason } : true),
+                noun: ['schema', 'schemas'],
+                barClassName: 'mb-2',
+                renderActions: (ctx) => (
+                    <SchemaBulkActions schemas={ctx.selectedRecords} clearSelection={ctx.clearSelection} />
+                ),
+            }}
             columns={[
                 {
                     title: 'Schema',
                     key: 'name',
+                    sorter: (a, b) => (a.label ?? a.name).localeCompare(b.label ?? b.name),
                     render: function RenderName(_, schema) {
                         const name = schema.label ?? schema.name
                         return (
@@ -268,6 +336,7 @@ function ManagedSchemaTable({
                 {
                     title: 'Status',
                     key: 'status',
+                    sorter: (a, b) => (a.status ?? '').localeCompare(b.status ?? ''),
                     render: (_, schema) => {
                         if (!schema.status) {
                             return <span className="text-muted">—</span>
@@ -311,11 +380,15 @@ function ManagedSchemaTable({
                 {
                     title: 'Frequency',
                     key: 'sync_frequency',
+                    sorter: (a, b) => frequencyRank(a.sync_frequency) - frequencyRank(b.sync_frequency),
                     render: (_, schema) => (schema.sync_frequency ? SyncFrequencyLabelMap[schema.sync_frequency] : '—'),
                 },
                 {
                     title: 'Last synced',
                     key: 'last_synced_at',
+                    sorter: (a, b) =>
+                        (a.last_synced_at ? dayjs(a.last_synced_at).valueOf() : 0) -
+                        (b.last_synced_at ? dayjs(b.last_synced_at).valueOf() : 0),
                     render: (_, schema) =>
                         schema.last_synced_at ? (
                             <TZLabel time={schema.last_synced_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
@@ -327,6 +400,7 @@ function ManagedSchemaTable({
                     title: 'Rows synced',
                     key: 'rows_synced',
                     align: 'right',
+                    sorter: (a, b) => (a.table?.row_count ?? 0) - (b.table?.row_count ?? 0),
                     render: (_, schema) => {
                         if (schema.table) {
                             return schema.table.row_count?.toLocaleString() ?? 0
@@ -474,6 +548,119 @@ function ManagedSchemaTable({
                 },
             ]}
         />
+    )
+}
+
+function SchemaBulkActions({
+    schemas,
+    clearSelection,
+}: {
+    schemas: readonly ExternalDataSourceSchema[]
+    clearSelection: () => void
+}): JSX.Element {
+    const { bulkDisable, bulkSetFrequency, bulkSyncNow, bulkResync, bulkDeleteData } = useActions(sourceSettingsLogic)
+
+    // Wrap every action so the selection clears once it's been kicked off.
+    const run = (action: () => void): void => {
+        action()
+        clearSelection()
+    }
+
+    const selected = [...schemas]
+    const count = selected.length
+
+    // Only offer frequencies every selected schema supports. Non-CDC schemas floor at 5min, so a
+    // mixed selection falls back to the non-CDC set (which CDC also supports).
+    const allCdc = selected.length > 0 && selected.every((schema) => schema.sync_type === 'cdc')
+    const frequencyOptions = allowedSyncFrequencies(allCdc ? 'cdc' : 'incremental')
+
+    const onDisable = (): void => {
+        const hasDataLossType = selected.some((schema) => schema.sync_type === 'cdc' || schema.sync_type === 'webhook')
+        if (!hasDataLossType) {
+            run(() => bulkDisable(selected))
+            return
+        }
+        LemonDialog.open({
+            title: `Disable ${pluralize(count, 'schema', 'schemas')}?`,
+            description:
+                'Some selected tables use CDC or webhook sync. Disabling stops consuming changes — re-enabling them later requires a full resync to avoid missing data.',
+            primaryButton: {
+                children: 'Disable',
+                status: 'danger',
+                onClick: () => run(() => bulkDisable(selected)),
+            },
+            secondaryButton: { children: 'Cancel', type: 'tertiary' },
+        })
+    }
+
+    return (
+        <>
+            <LemonButton type="secondary" size="small" onClick={onDisable}>
+                Disable
+            </LemonButton>
+            <LemonMenu
+                items={frequencyOptions.map((interval) => ({
+                    label: SyncFrequencyLabelMap[interval],
+                    onClick: () => run(() => bulkSetFrequency(selected, interval)),
+                }))}
+            >
+                <LemonButton type="secondary" size="small">
+                    Set frequency
+                </LemonButton>
+            </LemonMenu>
+            <LemonButton type="secondary" size="small" onClick={() => run(() => bulkSyncNow(selected))}>
+                Sync now
+            </LemonButton>
+            <More
+                size="small"
+                overlay={
+                    <>
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            fullWidth
+                            status="danger"
+                            onClick={() =>
+                                LemonDialog.open({
+                                    title: `Delete tables and resync ${pluralize(count, 'schema', 'schemas')}?`,
+                                    description:
+                                        'Existing data for the selected tables is deleted and re-imported from scratch. Only recommended if there is a data-quality issue with previously imported data.',
+                                    primaryButton: {
+                                        children: 'Delete and resync',
+                                        status: 'danger',
+                                        onClick: () => run(() => bulkResync(selected)),
+                                    },
+                                    secondaryButton: { children: 'Cancel', type: 'tertiary' },
+                                })
+                            }
+                        >
+                            Delete tables and resync
+                        </LemonButton>
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            fullWidth
+                            status="danger"
+                            onClick={() =>
+                                LemonDialog.open({
+                                    title: `Delete ${pluralize(count, 'table', 'tables')} from PostHog?`,
+                                    description:
+                                        'Removes the synced tables from PostHog. The data in the source is not touched.',
+                                    primaryButton: {
+                                        children: 'Delete from PostHog',
+                                        status: 'danger',
+                                        onClick: () => run(() => bulkDeleteData(selected)),
+                                    },
+                                    secondaryButton: { children: 'Cancel', type: 'tertiary' },
+                                })
+                            }
+                        >
+                            Delete tables from PostHog
+                        </LemonButton>
+                    </>
+                }
+            />
+        </>
     )
 }
 

@@ -44,8 +44,11 @@ export function NotebooksScene(): JSX.Element {
                                             contentType: 'application/json',
                                             multiple: false,
                                         })
-                                            .then((files) => getTextFromFile(files[0]))
-                                            .then((text) => {
+                                            .then(async (files) => {
+                                                if (!files.length) {
+                                                    return
+                                                }
+                                                const text = await getTextFromFile(files[0])
                                                 const data = JSON.parse(text)
                                                 if (data.type !== 'doc') {
                                                     throw new Error('Not a notebook')

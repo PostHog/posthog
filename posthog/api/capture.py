@@ -48,6 +48,7 @@ def capture_internal(
     properties: dict[str, Any],
     sent_at: Optional[datetime | str] = None,
     process_person_profile: bool = False,
+    event_uuid: Optional[str] = None,
 ) -> Response:
     """
     capture_internal submits a single-event capture request payload to the capture-rs backend service.
@@ -64,6 +65,9 @@ def capture_internal(
         sent_at: time the client submitted this event (optional; typically, let capture_internal set this)
         process_person_profile: if TRUE, process the person profile for the event according to the caller's settings.
                                 if FALSE, disable person processing for this event.
+        event_uuid: optional deterministic UUID to assign to the event (default: capture-rs assigns a fresh UUIDv7).
+                    Use this when the caller needs a stable, queryable event UUID — e.g. to link back to the event
+                    from an admin UI. Must be a parseable UUID string.
 
     Returns:
         Response object, the result of POSTing the event payload to the capture-rs backend service.
@@ -81,7 +85,15 @@ def capture_internal(
     )
 
     event_payload = prepare_capture_internal_payload(
-        token, event_name, event_source, distinct_id, timestamp, properties, sent_at, process_person_profile
+        token,
+        event_name,
+        event_source,
+        distinct_id,
+        timestamp,
+        properties,
+        sent_at,
+        process_person_profile,
+        event_uuid,
     )
 
     # determine if this is a recordings or events type, route to correct capture endpoint
@@ -178,6 +190,7 @@ def prepare_capture_internal_payload(
     properties: dict[str, Any],
     sent_at: Optional[datetime | str] = None,
     process_person_profile: bool = False,
+    event_uuid: Optional[str] = None,
 ) -> dict[str, Any]:
     # mark event as internal for observability
     properties["capture_internal"] = True
@@ -214,7 +227,7 @@ def prepare_capture_internal_payload(
     elif isinstance(timestamp, datetime):
         timestamp = timestamp.replace(tzinfo=UTC).isoformat()
 
-    return {
+    payload: dict[str, Any] = {
         "api_key": token,
         "timestamp": timestamp,
         "distinct_id": distinct_id,
@@ -222,3 +235,6 @@ def prepare_capture_internal_payload(
         "event": event_name,
         "properties": properties,
     }
+    if event_uuid:
+        payload["uuid"] = event_uuid
+    return payload

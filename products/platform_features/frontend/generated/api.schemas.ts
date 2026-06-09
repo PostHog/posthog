@@ -80,6 +80,11 @@ export interface OrganizationApi {
     enforce_2fa?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
+    /**
+     * When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.
+     * @nullable
+     */
+    members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count: number
@@ -171,6 +176,11 @@ export interface PatchedOrganizationApi {
     enforce_2fa?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
+    /**
+     * When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.
+     * @nullable
+     */
+    members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count?: number
@@ -314,6 +324,56 @@ export interface PatchedOrganizationMemberApi {
     readonly is_2fa_enabled?: boolean
     readonly has_social_auth?: boolean
     readonly last_login?: string
+}
+
+export interface OrganizationPersonalAPIKeyOwnerApi {
+    /** First name of the key's owner. */
+    readonly first_name: string
+    /** Last name of the key's owner. */
+    readonly last_name: string
+    /** Email address of the key's owner. */
+    readonly email: string
+}
+
+export interface OrganizationPersonalAPIKeyProjectScopeApi {
+    /** Project (team) ID the key is scoped to. */
+    id: number
+    /** Name of the project the key is scoped to. */
+    name: string
+}
+
+export interface OrganizationPersonalAPIKeyAccessScopeApi {
+    /** Breadth of access: 'all' (every project the owner can reach), 'organization' (this whole organization), or 'projects' (specific projects listed under 'projects'). */
+    type: string
+    /** Projects within this organization the key is scoped to, present only when type is 'projects'. */
+    projects?: OrganizationPersonalAPIKeyProjectScopeApi[]
+}
+
+export interface OrganizationPersonalAPIKeyApi {
+    /** The organization member who owns this key. */
+    readonly owner: OrganizationPersonalAPIKeyOwnerApi
+    /** Masked, display-safe hint of the key value (e.g. 'phx_***1234'). Not the secret. The owner sees the same masked value in their own settings, so it can be used to identify a key. */
+    readonly mask_value: string
+    /** API scopes granted to the key, e.g. 'insight:read'. A single '*' means full access. */
+    readonly scopes: readonly string[]
+    /** Where the key's scopes apply within this organization. */
+    readonly access_scope: OrganizationPersonalAPIKeyAccessScopeApi
+    /**
+     * When the key was last used to authenticate, if ever.
+     * @nullable
+     */
+    readonly last_used_at: string | null
+    /** When the key was created. */
+    readonly created_at: string
+}
+
+export interface PaginatedOrganizationPersonalAPIKeyListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationPersonalAPIKeyApi[]
 }
 
 export type RoleApiMembersItem = { [key: string]: unknown }
@@ -801,6 +861,17 @@ export type MembersListParams = {
     search?: string
 }
 
+export type PersonalApiKeysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type RolesListParams = {
     /**
      * Number of results to return per page.
@@ -904,6 +975,7 @@ export type ActivityLogListParams = {
 * `ProductTour` - ProductTour
 * `Ticket` - Ticket
 * `InstanceSetting` - InstanceSetting
+* `SignalScoutConfig` - SignalScoutConfig
  * @minLength 1
  */
     scope?: ActivityLogListScope
@@ -981,6 +1053,7 @@ export const ActivityLogListScope = {
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
+    SignalScoutConfig: 'SignalScoutConfig',
 } as const
 
 /**
@@ -1045,6 +1118,7 @@ export const ActivityLogListScope = {
  * `ProductTour` - ProductTour
  * `Ticket` - Ticket
  * `InstanceSetting` - InstanceSetting
+ * `SignalScoutConfig` - SignalScoutConfig
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1110,6 +1184,7 @@ export const ActivityLogListScopesItem = {
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
+    SignalScoutConfig: 'SignalScoutConfig',
 } as const
 
 export type AdvancedActivityLogsListParams = {
