@@ -92,7 +92,7 @@ After simulation, the team is populated with named artifacts. Agents doing retri
 - **Actions**: "Interacted with file" (upload/download/delete/share), "Visited Marius Tech Tips campaign".
 - **Cohorts**: "Signed-up users" (+ internal test-users cohort wired into `test_account_filters`).
 - **Dashboards**: "🔑 Key metrics" (primary, pinned), "💸 Revenue" (pinned), "🌐 Website".
-- **Insights** include: weekly signups, signups by country (world map), activation funnel (`signed_up` → "Interacted with file" → `upgraded_plan`), new-user retention, active-user lifecycle, weekly file volume, monthly revenue (`paid_bill` SUM `amount_usd`), bills paid, daily unique visitors, most popular pages, homepage→signup funnel, user paths from homepage.
+- **Insights** include: "Weekly signups", "Last month's signups by country" (world map), "Activation" (`signed_up` → "Interacted with file" → `upgraded_plan`), "New user retention", "Active user lifecycle", "Weekly file volume", "Monthly app revenue" (`paid_bill` SUM `amount_usd`), "Bills paid", "Daily unique visitors over time", "Most popular pages", "Homepage view to signup conversion", "User paths starting at homepage".
 - **Endpoints**: `weekly-signups`, `monthly-revenue`, `signups-by-country`, `daily-active-users`.
 - **Property group** "File Stats": `file_size_b` (numeric, required), `file_type`, `file_name`.
 - **Error tracking** issues (with `$exception` events): "Checkout API timeout" (`TimeoutError`), "File preview render failure" (`RenderError`), "Team invite rejected" (`TypeError`).
