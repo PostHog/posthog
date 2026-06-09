@@ -23,10 +23,12 @@ describe('Skills product URLs', () => {
         )
     })
 
-    it('redirects the legacy nested skills URLs to /skills', () => {
-        expect(redirectUrl('/prompt-management/skills')).toBe('/skills')
-        expect(redirectUrl('/prompt-management/skills/:name', { name: 'skill-1' })).toBe('/skills/skill-1')
-        expect(redirectUrl('/llm-analytics/skills')).toBe('/skills')
-        expect(redirectUrl('/llm-analytics/skills/:name', { name: 'skill-1' })).toBe('/skills/skill-1')
+    it.each([
+        ['/prompt-management/skills', {}, '/skills'],
+        ['/prompt-management/skills/:name', { name: 'skill-1' }, '/skills/skill-1'],
+        ['/llm-analytics/skills', {}, '/skills'],
+        ['/llm-analytics/skills/:name', { name: 'skill-1' }, '/skills/skill-1'],
+    ] as [string, RedirectParams, string][])('redirects legacy URL %s to %s', (path, params, expected) => {
+        expect(redirectUrl(path, params)).toBe(expected)
     })
 })
