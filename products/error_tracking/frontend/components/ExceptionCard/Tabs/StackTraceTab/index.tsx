@@ -1,13 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { P, match } from 'ts-pattern'
 
+import { IconCopy } from '@posthog/icons'
+
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { CollapsibleExceptionList } from 'lib/components/Errors/ExceptionList/CollapsibleExceptionList'
 import { LoadingExceptionList } from 'lib/components/Errors/ExceptionList/LoadingExceptionList'
 import { RawExceptionList } from 'lib/components/Errors/ExceptionList/RawExceptionList'
+import { Button } from 'lib/ui/quill'
 import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 
+import { useStacktraceDisplay } from '../../../../hooks/use-stacktrace-display'
 import { ExceptionAttributesPreview } from '../../../ExceptionAttributesPreview'
 import { ReleasePreviewPill } from '../../../ReleasesPreview/ReleasePreviewPill'
 import { exceptionCardLogic } from '../../exceptionCardLogic'
@@ -17,6 +22,21 @@ export interface StackTraceTabProps extends Omit<TabsPrimitiveContentProps, 'chi
     onExplain?: () => void
 
     renderActions?: () => JSX.Element | null
+}
+
+function CopyStackTraceButton(): JSX.Element {
+    const { copyableStacktraceText } = useStacktraceDisplay()
+
+    return (
+        <Button
+            variant="default"
+            size="icon-lg"
+            aria-label="Copy stack trace"
+            onClick={() => copyToClipboard(copyableStacktraceText, 'stack trace')}
+        >
+            <IconCopy className="size-4" />
+        </Button>
+    )
 }
 
 export function StackTraceTab({ className, renderActions, ...props }: StackTraceTabProps): JSX.Element {
@@ -52,6 +72,7 @@ function StacktraceIssueDisplay({ className }: { className?: string }): JSX.Elem
                 {...commonProps}
                 expandedFrameRawIds={expandedFrameRawIds}
                 onFrameExpandedChange={setFrameExpanded}
+                renderExceptionHeaderActions={() => <CopyStackTraceButton />}
             />
         ))
         .otherwise(() => null)

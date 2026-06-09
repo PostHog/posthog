@@ -192,7 +192,7 @@ export function AgentPromptButton({
                     <span className="truncate max-w-64">{buttonLabel}</span>
                 </ButtonPrimitive>
                 <DropdownMenuTrigger asChild>
-                    <ButtonPrimitive iconOnly forceVariant variant="panel">
+                    <ButtonPrimitive iconOnly className="!border-l border-l-border">
                         <MenuOpenIndicator direction="down" className="ml-0" />
                     </ButtonPrimitive>
                 </DropdownMenuTrigger>

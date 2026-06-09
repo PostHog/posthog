@@ -72,3 +72,18 @@ export const SingleAction: Story = {
         storageKey: 'story-agent-single',
     },
 }
+
+export const SizeVariants: Story = {
+    render: (): JSX.Element => (
+        <div className="flex flex-col items-start gap-2">
+            {(['xxs', 'xs', 'sm', 'base', 'lg'] as const).map((size) => (
+                <AgentPromptButton
+                    key={size}
+                    actions={ERROR_ACTIONS}
+                    storageKey={`story-agent-size-${size}`}
+                    size={size}
+                />
+            ))}
+        </div>
+    ),
+}

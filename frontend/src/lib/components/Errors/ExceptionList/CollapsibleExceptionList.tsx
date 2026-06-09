@@ -20,12 +20,14 @@ export function CollapsibleExceptionList({
     className,
     expandedFrameRawIds,
     onFrameExpandedChange,
+    renderExceptionHeaderActions,
 }: {
     showAllFrames: boolean
     setShowAllFrames: (value: boolean) => void
     expandedFrameRawIds: Set<string>
     onFrameExpandedChange: (rawId: string, expanded: boolean) => void
     className?: string
+    renderExceptionHeaderActions?: () => JSX.Element | null
 }): JSX.Element {
     const {
         exceptionList,
@@ -59,6 +61,7 @@ export function CollapsibleExceptionList({
                                     loading={false}
                                     fingerprint={part}
                                     runtime={exceptionAttributes?.runtime}
+                                    renderActions={renderExceptionHeaderActions}
                                 />
                             )}
                             renderFilteredTrace={(frames) => (
