@@ -26,6 +26,7 @@ from posthog.hogql.database.database import (
     build_database_root_node,
     get_data_warehouse_table_name,
 )
+from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     ExpressionField,
@@ -755,6 +756,44 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert db.has_table("whatever_endpoint")
         assert "some_field" in db.get_table("events").fields
         assert "timestamp" in db.get_table("whatever0").fields
+
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
+    def test_build_from_sources_performs_no_io_for_direct_postgres(self, patch_execute):
+        # Direct-query mode builds a DirectPostgresTable, whose hogql_definition reads the source's
+        # job_inputs when no schema option is set on the table. _fetch_sources must hydrate job_inputs in
+        # this mode (defer_job_inputs=False) rather than deferring it, so the build phase stays query-free;
+        # otherwise the deferred field would lazily reload during build. This guards that branch.
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="_accesskey", access_secret="_secret"
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="direct_source",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": "myschema"},
+        )
+        # No direct_postgres_schema in options, so hogql_definition falls back to job_inputs["schema"].
+        DataWarehouseTable.objects.create(
+            name="direct_table",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            external_data_source=source,
+            external_data_source_id=source.id,
+            url_pattern="s3://test/*",
+            columns={"id": {"clickhouse": "Int64", "hogql": "integer"}},
+        )
+
+        sources = Database._fetch_sources(team=self.team, connection_id=str(source.id))
+
+        with self.assertNumQueries(0):
+            db = Database._build_from_sources(sources)
+
+        direct_table = db.get_table("direct_table")
+        assert isinstance(direct_table, DirectPostgresTable)
+        # The schema came from the source's job_inputs, proving that branch ran during the zero-query build.
+        assert direct_table.postgres_schema == "myschema"
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_build_from_sources_raises_when_modifier_table_has_no_backing_row(self, patch_execute):
