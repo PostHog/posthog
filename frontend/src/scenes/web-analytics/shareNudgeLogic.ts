@@ -84,8 +84,15 @@ export const shareNudgeLogic = kea<shareNudgeLogicType>([
             }
 
             cache.disposables.add(() => {
+                // These listeners live on `document`, so an in-flight mouse event can fire during the
+                // teardown window after the logic unmounts — before the listener actually detaches. At
+                // that point the store path is gone and `cache.disposables` is null, so guard on
+                // `isMounted()` before reading any `values.*` and null-check `cache.disposables`.
                 const shouldTrigger = (): boolean =>
-                    values.intentPromptEnabled && !values.sessionDismissed && !values.promptVisible
+                    shareNudgeLogic.isMounted() &&
+                    values.intentPromptEnabled &&
+                    !values.sessionDismissed &&
+                    !values.promptVisible
 
                 const onMouseUp = (): void => {
                     if (!shouldTrigger()) {
@@ -107,7 +114,7 @@ export const shareNudgeLogic = kea<shareNudgeLogicType>([
                 const onMouseMove = (event: MouseEvent): void => {
                     const target = event.target as HTMLElement | null
                     if (!shouldTrigger() || !target?.closest?.(DASHBOARD_SELECTOR)) {
-                        cache.disposables.dispose('shareNudgeHoverDwell')
+                        cache.disposables?.dispose('shareNudgeHoverDwell')
                         return
                     }
                     const x = event.clientX
