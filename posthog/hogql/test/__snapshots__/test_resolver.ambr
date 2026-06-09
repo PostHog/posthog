@@ -13129,6 +13129,7 @@
         type: {
           data_type: "unknown"
           nullable: True
+          unanalyzable: False
         }
       },
       {
@@ -13158,6 +13159,7 @@
           item_type: {
             data_type: "unknown"
             nullable: True
+            unanalyzable: False
           }
           nullable: False
         }

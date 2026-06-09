@@ -63,6 +63,9 @@ class RuntimeType:
     value_type: Optional[RuntimeType] = None
     wrapped_type: Optional[RuntimeType] = None
     source: Optional[str] = None
+    # Mirrors ast.UnknownType.unanalyzable: an unknown that could be any type (poisons unification)
+    # rather than a vacuous unknown from a null literal / empty container (absorbed).
+    unanalyzable: bool = False
 
     def non_nullable(self) -> RuntimeType:
         return dataclasses.replace(self, nullable=False)
@@ -148,6 +151,7 @@ class RuntimeType:
 
 
 UNKNOWN_RUNTIME_TYPE = RuntimeType(family="unknown")
+ANY_RUNTIME_TYPE = RuntimeType(family="unknown", unanalyzable=True)
 STRING_RUNTIME_TYPE = RuntimeType(family="string")
 BOOLEAN_RUNTIME_TYPE = RuntimeType(family="boolean")
 INTEGER_RUNTIME_TYPE = RuntimeType(family="integer", signed=True, bits=64)
@@ -369,7 +373,8 @@ _VECTOR_ARRAY_RESULT_FUNCTIONS = frozenset({"l1normalize", "l2normalize", "linfn
 def runtime_type_from_constant_type(constant_type: ast.ConstantType) -> RuntimeType:
     nullable = constant_type.nullable
     if isinstance(constant_type, ast.UnknownType):
-        return UNKNOWN_RUNTIME_TYPE.with_nullable(nullable)
+        base = ANY_RUNTIME_TYPE if constant_type.unanalyzable else UNKNOWN_RUNTIME_TYPE
+        return base.with_nullable(nullable)
     if isinstance(constant_type, ast.StringJSONType):
         return RuntimeType(family="json", nullable=nullable)
     if isinstance(constant_type, ast.StringArrayType):
@@ -463,7 +468,7 @@ def constant_type_from_runtime_type(runtime_type: RuntimeType) -> ast.ConstantTy
             key_type=constant_type_from_runtime_type(runtime_type.key_type or UNKNOWN_RUNTIME_TYPE),
             value_type=constant_type_from_runtime_type(runtime_type.value_type or UNKNOWN_RUNTIME_TYPE),
         )
-    return ast.UnknownType(nullable=nullable)
+    return ast.UnknownType(nullable=nullable, unanalyzable=runtime_type.unanalyzable)
 
 
 def runtime_type_from_database_field(database_field: DatabaseField) -> RuntimeType:
@@ -713,8 +718,12 @@ def least_common_supertype(types: Sequence[ast.ConstantType], dialect: HogQLDial
 
 
 def least_common_runtime_type(runtime_types: list[RuntimeType], dialect: HogQLDialect = "clickhouse") -> RuntimeType:
-    known_types = [type_ for type_ in runtime_types if type_.family != "unknown"]
     nullable = any(type_.nullable for type_ in runtime_types)
+    # An unanalyzable branch could be any type, so it poisons the result; a vacuous unknown
+    # (null literal / empty container) imposes no constraint and is dropped so a sibling can win.
+    if any(type_.family == "unknown" and type_.unanalyzable for type_ in runtime_types):
+        return ANY_RUNTIME_TYPE.with_nullable(nullable)
+    known_types = [type_ for type_ in runtime_types if type_.family != "unknown"]
     if not known_types:
         return UNKNOWN_RUNTIME_TYPE.with_nullable(nullable)
     if len(known_types) == 1:
@@ -836,15 +845,22 @@ def infer_function_return_type(
     if meta is not None and meta.signatures is not None:
         for sig_arg_types, sig_return_type in meta.signatures:
             if sig_arg_types is None or _compare_legacy_types(arg_types, sig_arg_types, args=args):
+                # A signature that declares an unknown return can't determine the type, so it poisons
+                # unification rather than being absorbed as a vacuous unknown.
+                return_type: ast.ConstantType = (
+                    ast.UnknownType(nullable=sig_return_type.nullable, unanalyzable=True)
+                    if isinstance(sig_return_type, ast.UnknownType)
+                    else dataclasses.replace(sig_return_type)
+                )
                 return FunctionTypeInference(
-                    return_type=dataclasses.replace(sig_return_type),
+                    return_type=return_type,
                     source="legacy_signature",
                     reason=f"{name} matched legacy signature",
                     precise=not isinstance(sig_return_type, ast.UnknownType),
                 )
 
     return FunctionTypeInference(
-        return_type=ast.UnknownType(),
+        return_type=ast.UnknownType(unanalyzable=True),
         source="unknown",
         reason=f"{name} has no matching type signature",
         precise=False,

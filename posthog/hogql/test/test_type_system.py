@@ -148,9 +148,40 @@ class TestHogQLTypeSystem:
         # No known branches collapses to UnknownType (empty input, or all-unknown input).
         assert least_common_supertype([]) == ast.UnknownType()
         assert least_common_supertype([ast.UnknownType(), ast.UnknownType()]) == ast.UnknownType()
-        # A single unknown branch is absorbed: the known type wins, only contributing nullability.
+        # A vacuous unknown branch (null literal / empty container) is absorbed: the known type
+        # wins, only contributing nullability.
         assert least_common_supertype([ast.UnknownType(), ast.IntegerType(nullable=False)]) == ast.IntegerType(
             nullable=True
+        )
+
+    def test_unanalyzable_unknown_poisons_supertype(self) -> None:
+        # An unanalyzable unknown (e.g. an unmapped function) could be any type, so it poisons the
+        # supertype instead of being absorbed by a known sibling.
+        assert least_common_supertype(
+            [ast.UnknownType(unanalyzable=True), ast.IntegerType(nullable=False)]
+        ) == ast.UnknownType(unanalyzable=True)
+        # Poisoning still propagates nullability and survives across a mix of known branches.
+        assert least_common_supertype(
+            [ast.UnknownType(unanalyzable=True), ast.StringType(nullable=False), ast.IntegerType(nullable=True)]
+        ) == ast.UnknownType(unanalyzable=True)
+        # A vacuous unknown does not poison even alongside an unanalyzable-free set.
+        assert least_common_supertype([ast.UnknownType(), ast.UnknownType(unanalyzable=True)]) == ast.UnknownType(
+            unanalyzable=True
+        )
+
+    def test_resolver_poisons_only_unanalyzable_branches(self) -> None:
+        # An unmapped function (throwIf) infers as unanalyzable, poisoning the unifying call's type...
+        for query in ("SELECT ifNull(throwIf(0, 'x'), 1)", "SELECT if(1, throwIf(0, 'x'), 1)"):
+            node = cast(ast.SelectQuery, resolve_types(self._select(query), self.context, dialect="clickhouse"))
+            result = node.select[0].type.resolve_constant_type(self.context)
+            assert result == ast.UnknownType(unanalyzable=True), query
+
+        # ...but a null literal is a known-vacuous branch, so the known arm still wins (the null
+        # branch only contributes nullability).
+        self._assert_first_column_type("SELECT ifNull(NULL, 1)", ast.IntegerType(nullable=True))
+        # ...and an empty array imposes no constraint, so concat keeps the known element type.
+        self._assert_first_column_type(
+            "SELECT arrayConcat([], [1, 2])", ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=True))
         )
 
     def test_comparison_compatibility(self) -> None:
