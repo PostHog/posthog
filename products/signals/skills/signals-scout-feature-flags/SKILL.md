@@ -55,19 +55,29 @@ heavy calls means the dead check is still shipped in code.
 
 ## Quick close-out: are flags even in use?
 
-Read `recent_feature_flags` off `signals-scout-project-profile-get`. If `total_count` is
-0, flags aren't in play here. Write one scratchpad entry:
+Read `recent_feature_flags` off `signals-scout-project-profile-get`. Two caveats before
+shortcutting: `total_count` excludes deleted flags, and `top_events` is only the top 50
+by volume — so confirm the traffic side with one cheap count rather than trusting either
+alone:
 
-- key: `not-in-use:feature-flags:team{team_id}`
-- content: brief note ("checked at {timestamp}, no feature flags on this team")
+```sql
+SELECT count() AS calls
+FROM events
+WHERE event = '$feature_flag_called'
+  AND timestamp >= now() - INTERVAL 7 DAY
+```
 
-Close out empty. Re-running with the same key idempotently refreshes the timestamp.
-
-If flags exist but `$feature_flag_called` is absent from the profile's `top_events`,
-the project likely evaluates flags server-side with local evaluation or has flag-called
-event capture disabled — **traffic analysis is blind here**. Note that once
-(`pattern:feature-flags:no-call-events-team{team_id}`), run only the config-side hygiene
-pass (stale list, dependent-flag sanity), and close out.
+- **Zero roster, zero calls** — flags aren't in play here. Write one scratchpad entry
+  and close out empty (re-running with the same key idempotently refreshes it):
+  - key: `not-in-use:feature-flags:team{team_id}`
+  - content: brief note ("checked at {timestamp}, no feature flags, no call traffic")
+- **Zero roster, calls exist** — every call is to a deleted or never-created key. The
+  whole project is one ghost-flag case: run the ghost pattern only, then close out.
+- **Roster exists, zero calls** — the project likely evaluates flags server-side with
+  local evaluation or has flag-called event capture disabled; **traffic analysis is
+  blind here**. Note that once (`pattern:feature-flags:no-call-events-team{team_id}`),
+  run only the config-side hygiene pass (stale list, dependent-flag sanity), and close
+  out.
 
 ## How a run works
 
@@ -227,6 +237,11 @@ WHERE event = '$feature_flag_called'
 GROUP BY response
 ```
 
+Compare each response's **share within its own window**, never the raw counts — the two
+windows differ by ~13× by construction, so raw counts always look like a huge change.
+Stable example: control at 75% of the 13d window and 74% of the 24h window. Shift
+example: `false` at 5% of responses prior, 60% in the last 24h.
+
 A material shift (e.g. a 25% rollout flag suddenly serving `false` to ~everyone, a
 variant's share collapsing) is signal **only without a matching edit** — check
 `feature-flags-activity-retrieve` first. No edit + shifted responses points at condition
@@ -248,7 +263,9 @@ hot path):
   skip entirely), `feature-flags-dependent-flags-retrieve` for flags gating other flags.
 - From the orientation query: active flags at 0% rollout, or deactivated flags, with
   heavy sustained call volume — the check is dead but still shipped, burning an
-  evaluation on every pageview. Cite the daily call count; that's the cost argument.
+  evaluation on every pageview. Confirm the state via `feature-flag-get-definition`
+  (or `filters` in `system.feature_flags`) — the list response doesn't carry rollout.
+  Cite the daily call count; that's the cost argument.
 - `feature-flags-status-retrieve {id}` gives a human-readable staleness reason for any
   single flag you want to cite precisely.
 
@@ -342,12 +359,16 @@ When in doubt, write a memory entry instead of emitting.
 
 Direct calls (read-only):
 
-- `feature-flag-get-all` — the roster: id, key, name, `active`, `filters` per flag.
-  Filters: `active` (`"true"` / `"false"` / `"STALE"` — server-side staleness),
-  `type` (`boolean` / `multivariant` / `experiment` / `remote_config`), `search`
-  (key or name). Paginate with `limit`/`offset`; start here.
+- `feature-flag-get-all` — roster listing, **trimmed to** `id`, `key`, `name`,
+  `updated_at`, `status` (`ACTIVE` / `INACTIVE` / `STALE` / `DELETED`), `tags` — no
+  `filters`, rollout, or experiment info at list level. Query params: `active`
+  (`"true"` / `"false"` / `"STALE"` — server-side staleness), `type` (`boolean` /
+  `multivariant` / `experiment` / `remote_config`), `search` (key or name),
+  `limit`/`offset`.
 - `feature-flag-get-definition` — full definition for one flag: `filters` (release
-  conditions, variants, rollout), `experiment_set`, `version`, `deleted`.
+  conditions, variants, rollout), `experiment_set`, `version`, `deleted`. **Required
+  before any per-flag judgment** — rollout %, experiment links, and variant config
+  live only here (and in `system.feature_flags.filters`), never in the list response.
 - `feature-flags-status-retrieve` — health status (`active` / `stale` / `deleted` /
   `unknown`) with a human-readable reason; good for citing staleness precisely.
 - `feature-flags-activity-retrieve` — one flag's edit history with diffs; how you date
@@ -370,7 +391,8 @@ Harness-level:
 
 - `signals-scout-project-profile-get` / `signals-scout-scratchpad-search` /
   `signals-scout-runs-list` / `signals-scout-runs-retrieve` — orientation + dedupe.
-- `signals-scout-emit-signal` / `signals-scout-scratchpad-remember` — emit / remember.
+- `signals-scout-emit-signal` / `signals-scout-scratchpad-remember` /
+  `signals-scout-scratchpad-forget` — emit / remember / prune stale memory keys.
 
 ## When to stop
 
