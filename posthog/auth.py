@@ -583,23 +583,22 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
             # a token from authenticating as another user that happens to share
             # the email, and re-validates membership at every request (the user
             # may have been removed from the org after the token was issued).
-            memberships = list(
+            membership = (
                 OrganizationMembership.objects.filter(
                     organization_id=organization_id,
                     user__is_active=True,
                     user__email__iexact=token_email,
-                ).select_related("user", "organization")
+                )
+                .select_related("user", "organization")
+                .first()
             )
-            if not memberships:
+            if not membership:
                 raise AuthenticationFailed(
                     detail="No active PostHog user matches the ID-JAG access token subject for this organization."
                 )
-            if len(memberships) > 1:
-                raise AuthenticationFailed(
-                    detail="ID-JAG access token resolves to multiple users; refusing to authenticate."
-                )
-            user = memberships[0].user
-            organization = memberships[0].organization
+
+            user = membership.user
+            organization = membership.organization
 
             if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
                 raise AuthenticationFailed(detail="ID-JAG (XAA) is not enabled for this organization.")
