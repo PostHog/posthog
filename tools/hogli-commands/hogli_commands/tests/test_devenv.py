@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import os
+import sys
 import shlex
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
 
 import pytest
+from unittest import mock
 
 import yaml
 from hogli_commands.devenv.generator import DevenvConfig, MprocsGenerator, load_devenv_config
@@ -577,6 +581,33 @@ class TestInfoProcess:
         shell = procs["info"]["shell"]
         for product in expected_products:
             assert product in shell
+
+    @parameterized.expand(
+        [
+            ("disabled", {}, "linux", False, "POSTHOG_DEV_SANDBOX=1"),
+            ("enabled_macos", {"POSTHOG_DEV_SANDBOX": "1"}, "darwin", True, r"\033[32mon"),
+            ("enabled_unsupported", {"POSTHOG_DEV_SANDBOX": "1"}, "linux", False, "unsupported"),
+        ]
+    )
+    def test_info_process_shows_sandbox_status(
+        self,
+        _name: str,
+        env: dict[str, str],
+        platform: str,
+        has_sandbox_exec: bool,
+        expected_substring: str,
+    ) -> None:
+        which_result = "/usr/bin/sandbox-exec" if has_sandbox_exec else None
+        with (
+            mock.patch.dict(os.environ, env),
+            mock.patch.object(sys, "platform", platform),
+            mock.patch.object(shutil, "which", return_value=which_result),
+        ):
+            if "POSTHOG_DEV_SANDBOX" not in env:
+                os.environ.pop("POSTHOG_DEV_SANDBOX", None)
+            shell = self._generate_with_intents(["feature_flags"])["info"]["shell"]
+        assert "Sandbox:" in shell
+        assert expected_substring in shell
 
     def test_info_process_includes_process_count(self) -> None:
         """Info process shell includes the active process count."""

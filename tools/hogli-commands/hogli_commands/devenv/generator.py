@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import shlex
+import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -223,8 +225,22 @@ class MprocsGenerator(ConfigGenerator):
         orange = r"\033[38;2;245;78;0m"  # #F54E00
         blue = r"\033[38;2;29;74;255m"  # #1D4AFF
         gray = r"\033[38;5;245m"
+        green = r"\033[32m"
         bold = r"\033[1m"
         reset = r"\033[0m"
+
+        # Reflect the *effective* dependency-sandbox state: opted in via
+        # POSTHOG_DEV_SANDBOX=1 AND on macOS with sandbox-exec (the wrapper no-ops
+        # elsewhere). Mirrors the gate in _add_sandbox_wrapper, so the banner can't
+        # claim isolation the platform won't deliver.
+        sandbox_opted_in = os.getenv("POSTHOG_DEV_SANDBOX") == "1"
+        sandbox_supported = sys.platform == "darwin" and shutil.which("sandbox-exec") is not None
+        if sandbox_opted_in and sandbox_supported:
+            sandbox_status = f"{green}on{reset}"
+        elif sandbox_opted_in:
+            sandbox_status = f"{gray}off — POSTHOG_DEV_SANDBOX set but unsupported on this platform{reset}"
+        else:
+            sandbox_status = f"{gray}off{reset} {gray}(set POSTHOG_DEV_SANDBOX=1 in .env.local){reset}"
 
         news_url = "https://raw.githubusercontent.com/posthog/posthog/master/devenv/news.txt"
         news_local = "devenv/news.txt"
@@ -253,6 +269,7 @@ if [ -n "${{_POSTHOG_OP_RESOLVED:-}}" ]; then
 else
     printf '  {bold}Secrets:{reset}   {gray}local .env files{reset}\\n'
 fi
+printf '  {bold}Sandbox:{reset}   {sandbox_status}\\n'
 echo ''
 printf '  {bold}Log in with:{reset} test@posthog.com - {blue}12345678{reset}\\n'
 printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to your workflow.{reset}\\n'
