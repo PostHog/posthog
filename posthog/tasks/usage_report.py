@@ -12,6 +12,7 @@ from typing import Any, Literal, Optional, TypedDict, Union
 from django.conf import settings
 from django.db import connection
 from django.db.models import Count, F, Q, Sum
+from django.db.models.functions import Coalesce
 
 import requests
 import structlog
@@ -1414,15 +1415,21 @@ def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> li
             finished_at__gte=begin,
             finished_at__lte=end,
             status=BatchExportRun.Status.COMPLETED,
-            batch_export__deleted=False,
         )
+        .filter(Q(batch_export__deleted=False) | Q(batch_export_on_demand__deleted=False))
         .exclude(
             batch_export__destination__type__in=[
                 BatchExportDestination.Destination.HTTP,
                 BatchExportDestination.Destination.WORKFLOWS,
             ]
         )
-        .values(team_id=F("batch_export__team_id"))
+        .exclude(
+            batch_export_on_demand__destination__type__in=[
+                BatchExportDestination.Destination.HTTP,
+                BatchExportDestination.Destination.WORKFLOWS,
+            ]
+        )
+        .values(team_id=Coalesce(F("batch_export__team_id"), F("batch_export_on_demand__team_id")))
         .annotate(total=Sum("records_completed"))
     )
 

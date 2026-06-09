@@ -29,9 +29,7 @@ def __getattr__(name: str) -> Any:
 if TYPE_CHECKING:
     from posthog.api.rest_router import (
         api_not_found as api_not_found,
-        environment_dashboards_router as environment_dashboards_router,
         environments_router as environments_router,
-        legacy_project_dashboards_router as legacy_project_dashboards_router,
         organizations_router as organizations_router,
         projects_router as projects_router,
         register_legacy_dual_route_team_nested_viewset as register_legacy_dual_route_team_nested_viewset,

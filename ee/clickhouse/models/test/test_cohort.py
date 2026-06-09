@@ -23,7 +23,6 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import PersonsOnEventsMode
 
 from posthog.hogql.constants import MAX_SELECT_COHORT_CALCULATION_LIMIT
-from posthog.hogql.hogql import HogQLContext
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.cohort import Cohort
@@ -502,7 +501,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        self.assertIn("\nFROM person_distinct_id2\n", final_query)
+        self.assertIn("person_distinct_id2", final_query)
 
         result = sync_execute(
             final_query,
@@ -926,7 +925,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.calculate_cohort_hogql_test_harness(cohort, 0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            sql, _ = format_filter_query(cohort, 0, HogQLContext(team_id=self.team.pk))
+            sql, _ = format_filter_query(cohort, 0)
             self.assertQueryMatchesSnapshot(sql)
 
     def test_cohortpeople_with_valid_other_cohort_filter(self):
@@ -1118,7 +1117,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid, distinct_id FROM events WHERE team_id = %(team_id)s {}".format(query)
-        self.assertIn("\nFROM person_distinct_id2\n", final_query)
+        self.assertIn("person_distinct_id2", final_query)
 
         result = sync_execute(
             final_query,

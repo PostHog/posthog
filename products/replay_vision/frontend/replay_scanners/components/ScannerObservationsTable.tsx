@@ -17,7 +17,6 @@ import {
     ObservationVerdictValue,
     replayScannerLogic,
 } from '../replayScannerLogic'
-import { ScannerOverview } from './ScannerOverview'
 
 const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
     { value: 'succeeded', label: 'Succeeded' },
@@ -163,6 +162,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     icon={<IconRewindPlay />}
                     to={urls.replaySingle(obs.session_id)}
                     className="whitespace-nowrap"
+                    data-attr="vision-observation-view-recording"
                 >
                     View recording
                 </LemonButton>
@@ -172,7 +172,6 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
 
     return (
         <div className="space-y-4">
-            <ScannerOverview scannerId={scannerId} />
             <div className="flex items-start justify-between gap-4">
                 <p className="text-muted text-sm m-0">
                     Past observations made by this scanner. Each row is one observation.
@@ -225,6 +224,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                             icon={<IconRefresh />}
                             onClick={() => loadObservations()}
                             loading={observationsLoading}
+                            data-attr="vision-observations-refresh"
                         >
                             Refresh
                         </LemonButton>
