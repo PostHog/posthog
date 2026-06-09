@@ -19,6 +19,7 @@ Usage:
 """
 
 from typing import Any
+from uuid import uuid4
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -122,23 +123,28 @@ class Command(BaseCommand):
         created = 0
         for i in range(1, count + 1):
             email = f"ca-seed-{i}@{domain}"
-            user = User.objects.filter(email=email).first()
-            if user is None:
-                user = User.objects.create_and_join(
+            existing = User.objects.filter(email=email).first()
+            # Reuse a prior run's seed user, but never adopt a stranger who happens to hold the
+            # predictable address into the org — if the email is taken by a non-member, mint a
+            # fresh unguessable one instead.
+            if (
+                existing is not None
+                and OrganizationMembership.objects.filter(organization=organization, user=existing).exists()
+            ):
+                pool.append(existing)
+                continue
+            if existing is not None:
+                email = f"ca-seed-{i}-{uuid4().hex[:8]}@{domain}"
+            pool.append(
+                User.objects.create_and_join(
                     organization=organization,
                     email=email,
                     password=None,
                     first_name=f"Account Manager {i}",
                     level=OrganizationMembership.Level.MEMBER,
                 )
-                created += 1
-            else:
-                OrganizationMembership.objects.get_or_create(
-                    organization=organization,
-                    user=user,
-                    defaults={"level": OrganizationMembership.Level.MEMBER},
-                )
-            pool.append(user)
+            )
+            created += 1
         self.stdout.write(f"Ensured pool of {len(pool)} org member user(s) ({created} created).")
         return pool
 
