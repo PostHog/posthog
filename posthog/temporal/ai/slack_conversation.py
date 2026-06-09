@@ -221,9 +221,19 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
 
     is_new_conversation = created
 
-    # Join all Slack messages into a single HumanMessage
+    # Join all Slack messages into a single HumanMessage. The preamble on a new
+    # conversation steers the LLM toward standard Markdown — the reply is fed
+    # through `markdown_to_mrkdwn` before reaching Slack, so emitting Slack
+    # mrkdwn directly (e.g. `*<url|label>*`) tends to produce mangled output
+    # like `*<url*>` when the LLM gets the syntax slightly wrong.
     message_texts = (
-        ["_This conversation is in a Slack thread, using Slack's native Markdown._"] if is_new_conversation else []
+        [
+            "_This conversation is delivered via Slack. Write your responses in standard Markdown — "
+            "links as `[label](url)`, bold as `**text**`. Do not write Slack mrkdwn syntax such as "
+            "`<url|label>` or `*bold*`; the output is converted to Slack formatting automatically._"
+        ]
+        if is_new_conversation
+        else []
     )
     for msg in inputs.messages:
         username = msg.get("user", "Unknown")

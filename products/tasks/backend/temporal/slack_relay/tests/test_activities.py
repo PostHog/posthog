@@ -125,6 +125,11 @@ class TestMarkdownToSlackMrkdwn(unittest.TestCase):
             ("horizontal_rule", "---", "──────────"),
             ("blockquote_preserved", "> quote", "> quote"),
             ("nested_bold_in_dash_list", "- **MIT** is permissive", "• *MIT* is permissive"),
+            (
+                "bold_link",
+                "**[pr-shepherd](https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd)**",
+                "*<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd|pr-shepherd>*",
+            ),
             ("plain_text_unchanged", "Hello world", "Hello world"),
             ("inline_code_preserved", "Use `git commit`", "Use `git commit`"),
         ]
