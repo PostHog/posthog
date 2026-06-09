@@ -200,7 +200,7 @@ class TestTrialModelEnforcement(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("expensive_openai", "o3-pro", "openai"),
+            ("expensive_openai", "gpt-5.4", "openai"),
             ("expensive_anthropic", "claude-opus-4-6", "anthropic"),
         ]
     )
@@ -236,7 +236,7 @@ class TestTrialModelEnforcement(APIBaseTest):
             encrypted_config={"api_key": "sk-test-key"},
             created_by=self.user,
         )
-        payload = self._completion_payload("o3-pro", "openai")
+        payload = self._completion_payload("gpt-5.4", "openai")
         payload["provider_key_id"] = str(byok_key.id)
         response = self.client.post(
             "/api/llm_proxy/completion/",

@@ -13,12 +13,17 @@ const STATIC_GROUP_TYPES: GroupType[] = [
     { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
     { group_type: 'project', group_type_index: 1, name_singular: null, name_plural: null },
 ]
+// Includes query-* (collapsed into the single `query` domain) so the snapshots
+// mirror production, where `tools` is the full set and `queryTools` is the
+// parallel catalog projection.
 const STATIC_TOOLS = [
     { name: 'dashboard-create', category: 'Dashboards' },
     { name: 'dashboard-get', category: 'Dashboards' },
     { name: 'feature-flag-create', category: 'Feature flags' },
     { name: 'feature-flag-get-all', category: 'Feature flags' },
     { name: 'execute-sql', category: 'SQL' },
+    { name: 'query-funnel', category: 'Query wrappers' },
+    { name: 'query-trends', category: 'Query wrappers' },
 ]
 const STATIC_QUERY_TOOLS: QueryToolInfo[] = [
     { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion rate' },

@@ -882,7 +882,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                                                   issue_id: '00000000-0000-0000-0000-000000000000',
                                                   title: 'posthog-python SDK is outdated',
                                                   summary: 'posthog-python is on 7.0.0, latest is 7.14.0',
-                                                  link: '/health/sdk-doctor',
+                                                  link: '/health/sdk-health',
                                                   payload: {
                                                       sdk_name: 'posthog-python',
                                                       latest_version: '7.14.0',

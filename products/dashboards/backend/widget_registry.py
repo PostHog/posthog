@@ -15,7 +15,7 @@ See products/dashboards/CONTRIBUTING.md.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict, cast
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
@@ -25,11 +25,18 @@ from products.dashboards.backend.widgets.error_tracking_list import (
     run_error_tracking_list_widget,
     validate_error_tracking_list_config,
 )
+from products.dashboards.backend.widgets.session_replay_list import (
+    run_session_replay_list_widget,
+    validate_session_replay_list_config,
+)
 
-# Canonical widget types. Must match WIDGET_REGISTRY keys.
-EXPECTED_WIDGET_TYPES = frozenset({"error_tracking_list"})
+# Canonical widget type identifiers. Must match WIDGET_REGISTRY keys.
+ERROR_TRACKING_LIST_WIDGET_TYPE = "error_tracking_list"
+SESSION_REPLAY_LIST_WIDGET_TYPE = "session_replay_list"
 
-DashboardWidgetType = Literal["error_tracking_list"]
+EXPECTED_WIDGET_TYPES = frozenset({ERROR_TRACKING_LIST_WIDGET_TYPE, SESSION_REPLAY_LIST_WIDGET_TYPE})
+
+DashboardWidgetType = Literal["error_tracking_list", "session_replay_list"]
 
 
 class WidgetRegistryEntry(TypedDict):
@@ -41,11 +48,23 @@ class WidgetRegistryEntry(TypedDict):
 
 # Per-type validate_config / query_fn / access control. Keys must match EXPECTED_WIDGET_TYPES.
 WIDGET_REGISTRY: dict[str, WidgetRegistryEntry] = {
-    "error_tracking_list": {
-        "validate_config": validate_error_tracking_list_config,
-        "query_fn": run_error_tracking_list_widget,
+    ERROR_TRACKING_LIST_WIDGET_TYPE: {
+        "validate_config": cast(
+            Callable[[dict[str, Any]], dict[str, Any]],
+            validate_error_tracking_list_config,
+        ),
+        "query_fn": cast(Callable[[Team, dict[str, Any]], dict[str, Any]], run_error_tracking_list_widget),
         "required_scopes": ["error_tracking:read"],
         "required_product_access": "error_tracking",
+    },
+    SESSION_REPLAY_LIST_WIDGET_TYPE: {
+        "validate_config": cast(
+            Callable[[dict[str, Any]], dict[str, Any]],
+            validate_session_replay_list_config,
+        ),
+        "query_fn": cast(Callable[[Team, dict[str, Any]], dict[str, Any]], run_session_replay_list_widget),
+        "required_scopes": ["session_recording:read"],
+        "required_product_access": "session_recording",
     },
 }
 
@@ -54,8 +73,9 @@ def get_widget_registry_entry(widget_type: str) -> WidgetRegistryEntry | None:
     return WIDGET_REGISTRY.get(widget_type)
 
 
-def validate_widget_config(widget_type: str, config: dict[str, Any]) -> dict[str, Any]:
+def validate_widget_config(widget_type: str, config: dict[str, Any], *, team_id: int) -> dict[str, Any]:
     entry = get_widget_registry_entry(widget_type)
     if entry is None:
         raise DRFValidationError({"widget_type": f"Unknown widget type: {widget_type}"})
+    _ = team_id
     return entry["validate_config"](config)

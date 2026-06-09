@@ -136,7 +136,6 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
-    WebTrendsQuery = 'WebTrendsQuery',
     WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
     WebNotableChangesQuery = 'WebNotableChangesQuery',
 
@@ -219,7 +218,6 @@ export type AnyDataNode =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
-    | WebTrendsQuery
     | WebAnalyticsExternalSummaryQuery
     | WebNotableChangesQuery
     | SessionAttributionExplorerQuery
@@ -451,6 +449,7 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    pushDownPredicates?: boolean
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
     inlineCohortCalculation?: 'off' | 'auto' | 'always'
@@ -1481,6 +1480,8 @@ export type TrendsFilter = {
     excludeBoxPlotOutliers?: boolean
     /** @default false */
     hideWeekends?: boolean
+    /** @default true */
+    showAnnotations?: boolean
 }
 
 export type CalendarHeatmapFilter = {
@@ -1512,6 +1513,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'hiddenLegendIndexes',
     'excludeBoxPlotOutliers',
     'hideWeekends',
+    'showAnnotations',
 ])
 
 export interface BoxPlotDatum {
@@ -1678,6 +1680,17 @@ export type FunnelsFilter = {
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
     breakdownSorting?: string
+    /**
+     * Whether to render annotations on the chart. Only applies to historical-trends funnels.
+     * @default true
+     */
+    showAnnotations?: boolean
+    /**
+     * Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent
+     * tail of the trend isn't dragged down by entrants who still have time to convert.
+     * @default false
+     */
+    hideIncompleteConversionWindowPeriods?: boolean
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -2091,6 +2104,8 @@ export interface AnalyticsQueryResponseBase {
     query_status?: QueryStatus
     /** The date range used for the query */
     resolved_date_range?: ResolvedDateRangeResponse
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponse
     /**
      * Warnings about data warehouse sources referenced by the query whose latest sync failed,
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
@@ -2281,19 +2296,26 @@ export interface AccountsQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     limit: integer
     offset: integer
+    /** When `metrics` is set on the query, the aggregated values in the same order. */
+    metricsResults?: (number | null)[]
 }
-
-export type AccountsRoleAssignmentFilter = integer | 'unassigned'
 
 export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     kind: NodeKind.AccountsQuery
     select?: HogQLExpression[]
+    /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
+    metrics?: HogQLExpression[]
     search?: string
     tagNames?: string[]
-    csm?: AccountsRoleAssignmentFilter
-    accountExecutive?: AccountsRoleAssignmentFilter
-    accountOwner?: AccountsRoleAssignmentFilter
+    /** Match accounts whose CSM is any of these user ids (OR semantics). */
+    csm?: integer[]
+    /** Match accounts whose account executive is any of these user ids (OR semantics). */
+    accountExecutive?: integer[]
+    /** Match accounts whose account owner is any of these user ids (OR semantics). */
+    accountOwner?: integer[]
     allRolesUnassigned?: boolean
+    /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
+    filterExpression?: HogQLExpression
     orderBy?: string[]
     limit?: integer
     offset?: integer
@@ -3058,6 +3080,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     /** Field to break down sparkline data by (used only by sparkline endpoint) */
     sparklineBreakdownBy?: LogsSparklineBreakdownBy
     resourceFingerprint?: string
+    /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
+    excludeAttributes?: boolean
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
@@ -3178,6 +3202,8 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     after?: string
     /** Prefetch up to this many spans per trace and include them in results */
     prefetchSpans?: integer
+    /** Omit the per-span `attributes` map from results to keep payloads compact */
+    excludeAttributes?: boolean
 }
 
 export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
@@ -3375,7 +3401,7 @@ export type FileSystemIconType =
     | 'settings'
     | 'health'
     | 'inbox'
-    | 'sdk_doctor'
+    | 'sdk_health'
     | 'pipeline_status'
     | 'llm_evaluations'
     | 'llm_tags'
@@ -3384,7 +3410,6 @@ export type FileSystemIconType =
     | 'llm_prompts'
     | 'llm_clusters'
     | 'exports'
-    | 'deployments'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -3683,11 +3708,16 @@ export interface ExperimentParameters {
     excluded_variants?: string[]
 }
 
-/** Slim exposure config for experiment API payloads. */
+/** Slim exposure config for experiment API payloads. Discriminated by `kind`:
+ *  'ExperimentEventExposureConfig' tracks exposure via a custom event,
+ *  'ActionsNode' tracks exposure via an action. */
 export interface ExperimentApiExposureConfig {
-    kind: NodeKind.ExperimentEventExposureConfig
-    /** Custom exposure event name. */
-    event: string
+    /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
+    kind?: 'ExperimentEventExposureConfig' | 'ActionsNode'
+    /** Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'. */
+    event?: string
+    /** Action ID. Required when kind is 'ActionsNode'. */
+    id?: integer
     /** Event property filters. Pass an empty array if no filters needed. */
     properties: EventPropertyFilter[]
 }
@@ -5291,51 +5321,6 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
 
-export enum WebTrendsMetric {
-    UNIQUE_USERS = 'UniqueUsers',
-    PAGE_VIEWS = 'PageViews',
-    SESSIONS = 'Sessions',
-    BOUNCES = 'Bounces',
-    SESSION_DURATION = 'SessionDuration',
-    TOTAL_SESSIONS = 'TotalSessions',
-}
-
-export interface WebTrendsQuery extends WebAnalyticsQueryBase<WebTrendsQueryResponse> {
-    kind: NodeKind.WebTrendsQuery
-    interval: IntervalType
-    metrics: WebTrendsMetric[]
-    limit?: integer
-    offset?: integer
-}
-
-export interface WebTrendsItem {
-    bucket: string
-    metrics: Partial<Record<WebTrendsMetric, number>>
-}
-
-export interface WebTrendsQueryResponse extends AnalyticsQueryResponseBase {
-    results: WebTrendsItem[]
-    /** Input query string */
-    query?: string
-    /** Executed ClickHouse query */
-    clickhouse?: string
-    /** Returned columns */
-    columns?: any[]
-    /** Types of returned columns */
-    types?: any[]
-    /** Query explanation output */
-    explain?: string[]
-    /** Query metadata output */
-    metadata?: HogQLMetadataResponse
-    hasMore?: boolean
-    limit?: integer
-    offset?: integer
-    samplingRate?: SamplingRate
-    usedPreAggregatedTables?: boolean
-}
-
-export type CachedWebTrendsQueryResponse = CachedQueryResponse<WebTrendsQueryResponse>
-
 export interface WebNotableChangesQuery extends WebAnalyticsQueryBase<WebNotableChangesQueryResponse> {
     kind: NodeKind.WebNotableChangesQuery
     limit?: integer
@@ -5947,6 +5932,7 @@ export const externalDataSources = [
     'RevenueCat',
     'Polar',
     'GoogleAds',
+    'GoogleSearchConsole',
     'MetaAds',
     'Klaviyo',
     'Mailchimp',
@@ -6225,7 +6211,7 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         statsTableName: 'campaign_performance_report',
         tableKeywords: ['campaigns'] as const,
         tableExclusions: ['performance'] as const,
-        defaultSources: ['bing', 'microsoft'] as const,
+        defaultSources: ['bing', 'microsoft', 'msads', 'bing_video'] as const,
         primarySource: 'bing',
         // At ad-group / ad level Bing's data import only ships performance *reports* —
         // no separate entity tables. The report embeds the entity columns, so it
@@ -6371,6 +6357,11 @@ export enum DashboardAutoRefreshInterval {
 /** Subscriptions a free-tier team may create. */
 export enum SubscriptionFreeTierLimit {
     COUNT = 5,
+}
+
+/** Maximum length, in characters, of an AI subscription prompt. */
+export enum SubscriptionAIPromptMaxLength {
+    CHARACTERS = 4000,
 }
 
 export type UsageMetricFormat = 'numeric' | 'currency'
@@ -6582,7 +6573,6 @@ export enum ProductKey {
     CUSTOMER_ANALYTICS = 'customer_analytics',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
-    DEPLOYMENTS = 'deployments',
     EARLY_ACCESS_FEATURES = 'early_access_features',
     ENDPOINTS = 'endpoints',
     ERROR_TRACKING = 'error_tracking',
@@ -6771,6 +6761,7 @@ export enum ProductIntentContext {
     VERCEL_INTEGRATION = 'vercel_integration',
 
     // Endpoints
+    ENDPOINTS_VIEWED = 'endpoints_viewed',
     ENDPOINT_CREATED = 'endpoint_created',
     ENDPOINT_CREATED_FROM_INSIGHT = 'endpoint_created_from_insight',
     ENDPOINT_CREATED_FROM_SQL_EDITOR = 'endpoint_created_from_sql_editor',

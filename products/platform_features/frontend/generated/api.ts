@@ -29,6 +29,7 @@ import type {
     PaginatedCommentListApi,
     PaginatedOrganizationListApi,
     PaginatedOrganizationMemberListApi,
+    PaginatedOrganizationPersonalAPIKeyListApi,
     PaginatedRoleListApi,
     PaginatedRoleMembershipListApi,
     PatchedApprovalPolicyApi,
@@ -37,6 +38,7 @@ import type {
     PatchedOrganizationMemberApi,
     PatchedPinnedSceneTabsApi,
     PatchedRoleApi,
+    PersonalApiKeysListParams,
     PinnedSceneTabsApi,
     PromotedProductIntentApi,
     RoleApi,
@@ -244,6 +246,33 @@ export const membersScopedApiKeysRetrieve = async (
     options?: RequestInit
 ): Promise<OrganizationMemberApi> => {
     return apiMutator<OrganizationMemberApi>(getMembersScopedApiKeysRetrieveUrl(organizationId, userUuid), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPersonalApiKeysListUrl = (organizationId: string, params?: PersonalApiKeysListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/personal_api_keys/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/personal_api_keys/`
+}
+
+export const personalApiKeysList = async (
+    organizationId: string,
+    params?: PersonalApiKeysListParams,
+    options?: RequestInit
+): Promise<PaginatedOrganizationPersonalAPIKeyListApi> => {
+    return apiMutator<PaginatedOrganizationPersonalAPIKeyListApi>(getPersonalApiKeysListUrl(organizationId, params), {
         ...options,
         method: 'GET',
     })

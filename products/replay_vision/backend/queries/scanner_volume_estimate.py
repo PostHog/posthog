@@ -7,6 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
@@ -69,6 +70,7 @@ def estimate_scanner_session_volume(*, team: Team, query: RecordingsQuery) -> Sc
         ),
     )
 
+    tag_queries(team_id=team.id, product=Product.REPLAY_VISION, feature=Feature.QUERY)
     response = execute_hogql_query(
         query=combined_query,
         team=team,

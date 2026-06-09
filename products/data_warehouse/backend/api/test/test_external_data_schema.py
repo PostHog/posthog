@@ -22,7 +22,7 @@ from posthog.api.test.test_user import create_user
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.schedule import describe_schedule
-from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult
+from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult, WebhookSyncResult
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 
@@ -105,7 +105,8 @@ class TestExternalDataSchema(APIBaseTest):
             "append_available": True,
             "cdc_available": None,
             "full_refresh_available": True,
-            "supports_webhooks": False,
+            "supports_webhooks": True,
+            "webhook_only": False,
             "available_columns": [],
             "detected_primary_keys": None,
         }
@@ -214,6 +215,7 @@ class TestExternalDataSchema(APIBaseTest):
             "cdc_available": None,
             "full_refresh_available": True,
             "supports_webhooks": False,
+            "webhook_only": False,
             "available_columns": [
                 {"field": "id", "label": "id", "type": "integer", "nullable": True},
             ],
@@ -284,6 +286,64 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["cdc_available"] is expected_cdc_available
+
+    def test_incremental_fields_matches_schema_by_name(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="C123",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+        )
+
+        # Mimics sources (e.g. Slack) that ignore `names` and return every schema. The first
+        # element is an unrelated table; the endpoint must pick the one matching instance.name.
+        all_schemas = [
+            SourceSchema(name="$channels", supports_incremental=False, supports_append=False, supports_webhooks=False),
+            SourceSchema(name="C123", supports_incremental=False, supports_append=False, supports_webhooks=True),
+        ]
+
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "get_schemas", return_value=all_schemas),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["supports_webhooks"] is True
+
+    def test_incremental_fields_returns_400_when_schema_name_absent(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="C999",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+        )
+
+        other_schemas = [
+            SourceSchema(name="$channels", supports_incremental=False, supports_append=False, supports_webhooks=False),
+        ]
+
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "get_schemas", return_value=other_schemas),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_update_schema_change_sync_type(self):
         source = ExternalDataSource.objects.create(
@@ -440,6 +500,86 @@ class TestExternalDataSchema(APIBaseTest):
         schema.refresh_from_db()
         assert schema.sync_type_config["primary_key_columns"] == ["id"]
 
+    @parameterized.expand(
+        [
+            ("incremental", ExternalDataSchema.SyncType.INCREMENTAL, 400),
+            ("full_refresh", ExternalDataSchema.SyncType.FULL_REFRESH, 400),
+            ("cdc", ExternalDataSchema.SyncType.CDC, 200),
+        ]
+    )
+    def test_update_schema_one_minute_frequency_only_for_cdc(self, _name, sync_type, expected_status):
+        # A 1-minute cadence is CDC-only. The backend must enforce this regardless of caller
+        # (UI, API, or MCP) so non-CDC schemas can't be pushed below the 5-minute floor.
+        is_cdc = sync_type == ExternalDataSchema.SyncType.CDC
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES if is_cdc else ExternalDataSourceType.STRIPE,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=sync_type,
+            sync_type_config={"primary_key_columns": ["id"]} if is_cdc else {},
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.is_cdc_enabled_for_team",
+                return_value=True,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_cdc_extraction_schedule"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_frequency": "1min"},
+            )
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == 400:
+            assert "cdc" in str(response.json()).lower()
+            schema.refresh_from_db()
+            # Rejected before the interval is persisted.
+            assert schema.sync_frequency_interval != timedelta(minutes=1)
+
+    def test_update_schema_one_minute_cannot_survive_switch_away_from_cdc(self):
+        # Closing the gap where a CDC schema on a 1-minute schedule is switched to a non-CDC sync
+        # type without re-sending sync_frequency — the existing 1-minute interval must be rejected.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"primary_key_columns": ["id"]},
+            sync_frequency_interval=timedelta(minutes=1),
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_type": "incremental"},
+        )
+
+        assert response.status_code == 400, response.content
+        assert "cdc" in str(response.json()).lower()
+        schema.refresh_from_db()
+        assert schema.sync_frequency_interval == timedelta(minutes=1)
+        assert schema.sync_type == ExternalDataSchema.SyncType.CDC
+
     def test_update_schema_enable_should_sync_rejects_cdc_without_primary_key(self):
         # Schemas already in CDC mode with an empty primary_key_columns (created before the
         # API gate landed) must not be re-enabled until a PK is added on the source side.
@@ -492,6 +632,12 @@ class TestExternalDataSchema(APIBaseTest):
             table=table,
         )
 
+        mock_hog_fn_result = WebhookHogFunctionCreateResult(
+            hog_function=mock.MagicMock(),
+            webhook_url="https://test.com/webhook",
+            hog_function_created=False,
+        )
+
         with (
             mock.patch(
                 "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
@@ -499,6 +645,10 @@ class TestExternalDataSchema(APIBaseTest):
             mock.patch(
                 "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
                 return_value=True,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.get_or_create_webhook_hog_function",
+                return_value=mock_hog_fn_result,
             ),
         ):
             response = self.client.patch(
@@ -757,6 +907,158 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == 200
         mock_get_or_create.assert_called_once()
         mock_create_webhook.assert_called_once()
+
+    def test_update_schema_to_webhook_existing_function_reconciles_events(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        mock_hog_function = mock.MagicMock()
+        mock_hog_function.id = uuid.uuid4()
+        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
+        # hog_function_created=False → existing webhook, so the reconcile path (not create) runs.
+        mock_hog_fn_result = WebhookHogFunctionCreateResult(
+            hog_function=mock_hog_function,
+            webhook_url="https://test.com/webhook",
+            hog_function_created=False,
+        )
+        mock_webhook_schemas = [
+            SourceSchema(name="Charge", supports_incremental=True, supports_append=True, supports_webhooks=True),
+        ]
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.get_or_create_webhook_hog_function",
+                return_value=mock_hog_fn_result,
+            ),
+            mock.patch.object(
+                StripeSource, "create_webhook", return_value=WebhookCreationResult(success=True)
+            ) as mock_create_webhook,
+            mock.patch.object(
+                StripeSource, "sync_webhook_events", return_value=WebhookSyncResult(success=True)
+            ) as mock_sync_events,
+            mock.patch.object(StripeSource, "get_schemas", return_value=mock_webhook_schemas),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "webhook", "incremental_field": "created", "incremental_field_type": "integer"},
+            )
+
+        assert response.status_code == 200
+        # Existing webhook: reconcile events, never re-create.
+        mock_sync_events.assert_called_once()
+        mock_create_webhook.assert_not_called()
+
+    def test_update_schema_to_webhook_existing_function_reconcile_failure_does_not_block(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        mock_hog_function = mock.MagicMock()
+        mock_hog_function.id = uuid.uuid4()
+        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
+        mock_hog_fn_result = WebhookHogFunctionCreateResult(
+            hog_function=mock_hog_function,
+            webhook_url="https://test.com/webhook",
+            hog_function_created=False,
+        )
+        mock_webhook_schemas = [
+            SourceSchema(name="Charge", supports_incremental=True, supports_append=True, supports_webhooks=True),
+        ]
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.get_or_create_webhook_hog_function",
+                return_value=mock_hog_fn_result,
+            ),
+            mock.patch.object(
+                StripeSource,
+                "sync_webhook_events",
+                return_value=WebhookSyncResult(success=False, error="add Write permission"),
+            ),
+            mock.patch.object(StripeSource, "get_schemas", return_value=mock_webhook_schemas),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "webhook", "incremental_field": "created", "incremental_field_type": "integer"},
+            )
+
+        # Reconcile failure must not hard-fail the schema enable.
+        assert response.status_code == 200
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.WEBHOOK
+
+    def test_update_schema_to_webhook_reconcile_raising_does_not_block(self):
+        # The dangerous case: sync_webhook_events RAISES (bad creds, OAuth expired, network)
+        # before any internal handling. This must never roll back the schema enable.
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        mock_hog_function = mock.MagicMock()
+        mock_hog_function.id = uuid.uuid4()
+        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
+        mock_hog_fn_result = WebhookHogFunctionCreateResult(
+            hog_function=mock_hog_function,
+            webhook_url="https://test.com/webhook",
+            hog_function_created=False,
+        )
+        mock_webhook_schemas = [
+            SourceSchema(name="Charge", supports_incremental=True, supports_append=True, supports_webhooks=True),
+        ]
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.get_or_create_webhook_hog_function",
+                return_value=mock_hog_fn_result,
+            ),
+            mock.patch.object(StripeSource, "sync_webhook_events", side_effect=ValueError("Missing Stripe API key")),
+            mock.patch.object(StripeSource, "get_schemas", return_value=mock_webhook_schemas),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "webhook", "incremental_field": "created", "incremental_field_type": "integer"},
+            )
+
+        assert response.status_code == 200
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.WEBHOOK
 
     def test_update_schema_to_incremental_does_not_trigger_webhook(self):
         source = ExternalDataSource.objects.create(
@@ -1792,3 +2094,49 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
         assert response.json()["supports_column_selection"] is expected
+
+
+class TestExternalDataSchemaRetrieveSource(APIBaseTest):
+    def _create(self, source_type: ExternalDataSourceType = ExternalDataSourceType.STRIPE):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=source_type,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(name="Customers", team=self.team, source=source)
+        return source, schema
+
+    @parameterized.expand(
+        [
+            (ExternalDataSourceType.STRIPE, False),
+            (ExternalDataSourceType.POSTGRES, True),
+        ]
+    )
+    def test_retrieve_includes_source_summary(
+        self, source_type: ExternalDataSourceType, expected_supports_column_selection: bool
+    ):
+        source, schema = self._create(source_type=source_type)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
+        assert response.status_code == 200, response.json()
+        summary = response.json()["source"]
+        assert summary["id"] == str(source.id)
+        assert summary["source_type"] == source_type.value
+        assert summary["supports_column_selection"] is expected_supports_column_selection
+        assert "user_access_level" in summary
+
+    def test_list_omits_source_summary(self):
+        self._create()
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/")
+        assert response.status_code == 200
+        results = response.json()["results"]
+        assert len(results) > 0
+        assert all(item["source"] is None for item in results)
+
+    def test_retrieve_cross_team_is_404(self):
+        other_team = create_team(organization=self.organization)
+        source = ExternalDataSource.objects.create(
+            team=other_team, source_type=ExternalDataSourceType.STRIPE, job_inputs={}
+        )
+        schema = ExternalDataSchema.objects.create(name="Customers", team=other_team, source=source)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
+        assert response.status_code == 404

@@ -87,6 +87,7 @@ import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentL
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { normalizeMessages } from './messageNormalization'
 import { openInPlayground } from './playground/llmPlaygroundPromptsLogic'
 import { ReviewQueuePickerModal } from './reviewQueues/ReviewQueuePickerModal'
 import { reviewQueuesApi } from './reviewQueues/reviewQueuesApi'
@@ -113,7 +114,6 @@ import {
     getTraceTimestamp,
     hasCostBreakdown,
     isLLMEvent,
-    normalizeMessages,
     removeMilliseconds,
     sanitizeTraceUrlSearchParams,
 } from './utils'
@@ -418,17 +418,17 @@ export const scene: SceneExport = {
     logic: aiObservabilityTraceLogic,
 }
 
-export function AIObservabilityTraceScene({ tabId }: { tabId?: string }): JSX.Element {
-    const traceLogic = aiObservabilityTraceLogic({ tabId })
+export function AIObservabilityTraceScene(): JSX.Element {
+    const traceLogic = aiObservabilityTraceLogic()
     const { traceId, query, searchQuery } = useValues(traceLogic)
-    const logicProps = { traceId, query, cachedResults: null, searchQuery, tabId }
+    const logicProps = { traceId, query, cachedResults: null, searchQuery }
     const traceDataLogic = aiObservabilityTraceDataLogic(logicProps)
 
     useAttachedLogic(traceDataLogic, traceLogic)
 
     return (
         <BindLogic logic={llmPersonsLazyLoaderLogic} props={{}}>
-            <BindLogic logic={aiObservabilityTraceLogic} props={{ tabId }}>
+            <BindLogic logic={aiObservabilityTraceLogic} props={{}}>
                 <BindLogic logic={aiObservabilityTraceDataLogic} props={logicProps}>
                     <TraceSceneWrapper />
                 </BindLogic>

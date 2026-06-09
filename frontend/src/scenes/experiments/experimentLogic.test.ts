@@ -11,7 +11,7 @@ import experimentMetricResultsSuccessJson from '~/mocks/fixtures/api/experiments
 import { useMocks } from '~/mocks/jest'
 import { Breakdown, ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { Experiment } from '~/types'
+import { Experiment, MultivariateFlagVariant } from '~/types'
 
 import {
     ExperimentSavedMetric,
@@ -1253,6 +1253,60 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('endExperimentLoading', () => {
+        // The end and ship-variant lifecycle calls both drive the single endExperimentLoading flag.
+        const triggers: { name: string; run: (l: ReturnType<typeof experimentLogic>) => void }[] = [
+            { name: 'endExperiment', run: (l) => l.actions.endExperiment() },
+            {
+                name: 'finishExperiment',
+                run: (l) => l.actions.finishExperiment({ selectedVariantKey: 'test', releaseToEveryone: false }),
+            },
+        ]
+
+        it.each(triggers)('flips the flag on then off around a successful $name', async ({ run }) => {
+            const runningExperiment = {
+                ...experiment,
+                start_date: '2026-03-17T10:00:00Z',
+                status: 'running',
+                conclusion: 'won',
+            } as Experiment
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue({
+                ...runningExperiment,
+                end_date: '2026-03-24T10:00:00Z',
+                status: 'stopped',
+            })
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(runningExperiment)
+
+            await expectLogic(keyed, () => {
+                run(keyed)
+            })
+                // loading flips on before the request and off after it resolves
+                .toDispatchActions(['setEndExperimentLoading', 'setExperiment', 'setEndExperimentLoading'])
+                .toFinishAllListeners()
+                .toMatchValues({ endExperimentLoading: false })
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it.each(triggers)('resets the flag after a failed $name', async ({ run }) => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({ detail: 'boom' })
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                run(logic)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ endExperimentLoading: false })
+
+            createSpy.mockRestore()
+        })
+    })
+
     describe('updateDistribution', () => {
         beforeEach(() => {
             jest.spyOn(api, 'update')
@@ -1663,6 +1717,56 @@ describe('experimentLogic', () => {
             // Re-include test-2 — the new list (computed in the listener) must drop it.
             const next = logic.values.excludedVariants.filter((k) => k !== 'test-2')
             expect(next).toEqual(['test-1'])
+        })
+    })
+
+    describe('variants', () => {
+        const parameterVariants: MultivariateFlagVariant[] = [
+            { key: 'control', rollout_percentage: 50 },
+            { key: 'param-test', rollout_percentage: 50 },
+        ]
+        const flagVariants: MultivariateFlagVariant[] = [
+            { key: 'control', rollout_percentage: 50 },
+            { key: 'flag-test', rollout_percentage: 50 },
+        ]
+
+        it.each<{
+            desc: string
+            parameterVariants?: MultivariateFlagVariant[]
+            flagVariants?: MultivariateFlagVariant[]
+            expected: MultivariateFlagVariant[]
+        }>([
+            {
+                desc: 'prefers parameters.feature_flag_variants when present',
+                parameterVariants,
+                flagVariants,
+                expected: parameterVariants,
+            },
+            {
+                desc: 'falls back to the linked flag variants when parameters.feature_flag_variants is absent',
+                flagVariants,
+                expected: flagVariants,
+            },
+            {
+                desc: 'defaults to [] when neither source has variants',
+                expected: [],
+            },
+        ])('$desc', async (row) => {
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({
+                    ...experiment,
+                    parameters: { ...experiment.parameters, feature_flag_variants: row.parameterVariants },
+                    feature_flag: {
+                        ...experiment.feature_flag,
+                        filters: {
+                            ...experiment.feature_flag?.filters,
+                            multivariate: row.flagVariants ? { variants: row.flagVariants } : undefined,
+                        },
+                    },
+                } as unknown as Experiment)
+            }).toMatchValues({
+                variants: row.expected,
+            })
         })
     })
 })

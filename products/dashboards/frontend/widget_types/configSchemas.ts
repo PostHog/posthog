@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { PropertyOperator } from '~/types'
+
 /** Shared widget config fields inherited by all widget types. */
 export const baseWidgetConfigSchema = z.object({
     filterTestAccounts: z.boolean().optional(),
@@ -54,4 +56,83 @@ const widgetDateRangeObjectSchema = z
 
 export const widgetDateRangeSchema = widgetDateRangeObjectSchema.optional()
 
+/** Shared limit field for list-style dashboard widgets (1–25 rows). */
+export const widgetLimitFieldSchema = z
+    .number({ error: 'Must be an integer between 1 and 25.' })
+    .int('Must be an integer between 1 and 25.')
+    .min(1, 'Must be an integer between 1 and 25.')
+    .max(25, 'Must be an integer between 1 and 25.')
+
+export const widgetOrderDirectionSchema = z.enum(['ASC', 'DESC']).default('DESC')
+
+const errorTrackingWidgetAssigneeSchema = z
+    .object({
+        type: z.enum(['user', 'role']),
+        id: z.union([z.number(), z.string()]),
+    })
+    .nullable()
+    .optional()
+
+/** Persisted filter selection on dashboard widget `config.widgetFilters`. */
+export const widgetFilterEntrySchema = z.object({
+    filterId: z.string(),
+    propertyName: z.string(),
+    optionId: z.string(),
+    value: z.union([z.string(), z.array(z.string()), z.null()]).optional(),
+    operator: z.nativeEnum(PropertyOperator),
+})
+
+export const widgetFiltersSchema = z.record(z.string(), widgetFilterEntrySchema).optional()
+
+export type WidgetFilterConfigEntry = z.infer<typeof widgetFilterEntrySchema>
+export type WidgetFilterConfigRecord = Record<string, WidgetFilterConfigEntry>
+/** Alias used in widget config validation and tile filter bar. */
+export type StoredWidgetFilter = WidgetFilterConfigEntry
+
 // New widget types: add per-type schemas here — CONTRIBUTING.md
+export const errorTrackingWidgetConfigSchema = baseWidgetConfigSchema.extend({
+    limit: widgetLimitFieldSchema.default(10),
+    orderBy: z.enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions']).default('occurrences'),
+    orderDirection: widgetOrderDirectionSchema,
+    status: z.enum(['active', 'resolved', 'suppressed', 'all', 'archived', 'pending_release']).default('active'),
+    dateRange: widgetDateRangeSchema,
+    assignee: errorTrackingWidgetAssigneeSchema,
+    widgetFilters: widgetFiltersSchema,
+})
+
+export type ErrorTrackingWidgetConfig = z.infer<typeof errorTrackingWidgetConfigSchema>
+
+/** Shared form fields for list-style dashboard widget settings modals. */
+export function widgetListFormSchema<TOrderBy extends z.ZodType>(
+    orderBySchema: TOrderBy
+): z.ZodObject<{
+    limit: typeof widgetLimitFieldSchema
+    orderBy: TOrderBy
+    dateFrom: typeof widgetDateFromSchema
+    filterTestAccounts: z.ZodBoolean
+}> {
+    return z.object({
+        limit: widgetLimitFieldSchema,
+        orderBy: orderBySchema,
+        dateFrom: widgetDateFromSchema,
+        filterTestAccounts: z.boolean(),
+    })
+}
+
+/** Form fields edited in the error tracking widget settings modal. */
+export const errorTrackingWidgetFormSchema = widgetListFormSchema(errorTrackingWidgetConfigSchema.shape.orderBy)
+
+export const sessionReplayWidgetConfigSchema = baseWidgetConfigSchema.extend({
+    limit: widgetLimitFieldSchema.default(10),
+    orderBy: z
+        .enum(['start_time', 'activity_score', 'recording_duration', 'duration', 'click_count', 'console_error_count'])
+        .default('start_time'),
+    orderDirection: widgetOrderDirectionSchema,
+    dateRange: widgetDateRangeSchema,
+    widgetFilters: widgetFiltersSchema,
+})
+
+export type SessionReplayWidgetConfig = z.infer<typeof sessionReplayWidgetConfigSchema>
+
+/** Form fields edited in the session replay widget settings modal. */
+export const sessionReplayWidgetFormSchema = widgetListFormSchema(sessionReplayWidgetConfigSchema.shape.orderBy)
