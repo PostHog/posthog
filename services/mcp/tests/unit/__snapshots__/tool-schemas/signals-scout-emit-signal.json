@@ -53,6 +53,7 @@
         "finding_id": {
             "anyOf": [
                 {
+                    "maxLength": 100,
                     "type": "string"
                 },
                 {
