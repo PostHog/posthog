@@ -492,6 +492,7 @@ frontend_unauthenticated_routes = [
     "organization/confirm-creation",
     "login",
     "unsubscribe",
+    "invite-postpone",
     "verify_email",
     r"agentic/account-mismatch",
 ]

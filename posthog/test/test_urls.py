@@ -46,6 +46,10 @@ class TestUrls(APIBaseTest):
         response = self.client.get(f"/login")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+        # The postpone-invite page is reached by an unauthenticated recipient clicking the email link.
+        response = self.client.get("/invite-postpone?token=some-token")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     @parameterized.expand(
         [
             ("no_slash_no_qs", "/sign-up", "/signup"),
