@@ -11,7 +11,7 @@ from llm_gateway.rate_limiting.model_cost_overrides import (
     MODEL_COST_OVERRIDES,
     apply_model_cost_overrides,
 )
-from llm_gateway.rate_limiting.model_cost_service import ModelCostService
+from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
 from llm_gateway.services.model_registry import (
     ModelRegistryService,
     get_available_models,
@@ -27,7 +27,7 @@ PROVIDER_ENV_VARS = [
 
 class TestApplyModelCostOverrides:
     def test_adds_missing_model(self) -> None:
-        cost_map = {"gpt-4": {"litellm_provider": "openai"}}
+        cost_map: dict[str, ModelCost] = {"gpt-4": {"litellm_provider": "openai"}}
         apply_model_cost_overrides(cost_map)
         assert "claude-fable-5" in cost_map
         assert cost_map["claude-fable-5"]["litellm_provider"] == "anthropic"
@@ -36,18 +36,18 @@ class TestApplyModelCostOverrides:
         assert cost_map["claude-fable-5"]["output_cost_per_token"] == 5e-05
 
     def test_does_not_override_existing_upstream_entry(self) -> None:
-        upstream = {"litellm_provider": "anthropic", "max_input_tokens": 1_000_000}
-        cost_map = {"claude-fable-5": upstream}
+        upstream: ModelCost = {"litellm_provider": "anthropic", "max_input_tokens": 1_000_000}
+        cost_map: dict[str, ModelCost] = {"claude-fable-5": upstream}
         apply_model_cost_overrides(cost_map)
         assert cost_map["claude-fable-5"] is upstream
 
     def test_returns_same_object_in_place(self) -> None:
-        cost_map: dict = {}
+        cost_map: dict[str, ModelCost] = {}
         assert apply_model_cost_overrides(cost_map) is cost_map
 
     def test_inserted_entry_is_a_copy(self) -> None:
         # The shared constant must survive callers (and litellm) mutating the map.
-        cost_map: dict = {}
+        cost_map: dict[str, ModelCost] = {}
         apply_model_cost_overrides(cost_map)
         cost_map["claude-fable-5"]["input_cost_per_token"] = 999
         assert MODEL_COST_OVERRIDES["claude-fable-5"]["input_cost_per_token"] == 1e-05
