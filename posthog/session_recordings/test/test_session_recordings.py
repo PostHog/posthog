@@ -1354,6 +1354,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @parameterized.expand(
         [
             (
+                "ch_cannot_schedule_task",
+                CHQueryErrorCannotScheduleTask("Cannot schedule task"),
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "ClickHouse over capacity. Please retry",
+                "CHQueryErrorCannotScheduleTask",
+            ),
+            (
                 "ch_too_many_queries",
                 CHQueryErrorTooManySimultaneousQueries("Too many simultaneous queries"),
                 status.HTTP_503_SERVICE_UNAVAILABLE,

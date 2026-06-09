@@ -1426,6 +1426,8 @@ class SessionRecordingViewSet(
             # Map known failure modes to specific status codes and messages so error
             # tracking can segment them (the client surfaces `error`/`code` verbatim)
             # and callers can distinguish a retryable upstream blip from a real bug.
+            message: str
+            response_status: int
             if isinstance(e, CHQueryErrorCannotScheduleTask | CHQueryErrorTooManySimultaneousQueries):
                 message = "ClickHouse over capacity. Please retry"
                 response_status = status.HTTP_503_SERVICE_UNAVAILABLE
