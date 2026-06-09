@@ -3,13 +3,10 @@ import { actions, afterMount, isBreakpoint, kea, key, listeners, path, props, re
 import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-
-import { NodeKind } from '~/queries/schema/schema-general'
 
 import {
     visionScannersCreate,
@@ -23,10 +20,8 @@ import {
 import type { EstimateResponseApi, ObservationStatsApi, ReplayObservationApi } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import type { replayScannerLogicType } from './replayScannerLogicType'
-import { findScannerTemplate } from './scannerTemplates'
+import { findScannerTemplate, newScanner } from './scannerTemplates'
 import {
-    DEFAULT_MODEL,
-    DEFAULT_PROVIDER,
     ScannerConfig,
     ScannerType,
     ReplayScanner,
@@ -66,41 +61,6 @@ function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
 function omitQuery(scanner: ReplayScanner): Omit<ReplayScanner, 'query'> {
     const { query: _query, ...rest } = scanner
     return rest
-}
-
-function newScanner(templateKey?: string | null): ReplayScanner {
-    const base = {
-        id: 'new',
-        enabled: true,
-        sampling_rate: 1,
-        query: { kind: NodeKind.RecordingsQuery },
-        provider: DEFAULT_PROVIDER,
-        model: DEFAULT_MODEL,
-        emits_signals: false,
-        scanner_version: 1,
-        last_swept_at: dayjs().toISOString(),
-        created_at: dayjs().toISOString(),
-        updated_at: dayjs().toISOString(),
-        created_by: null,
-    } as const
-
-    const template = findScannerTemplate(templateKey ?? undefined)
-    if (template) {
-        return {
-            ...base,
-            name: template.scanner_name,
-            description: template.scanner_description,
-            scanner_type: template.scanner_type,
-            scanner_config: template.scanner_config,
-        } as ReplayScanner
-    }
-    return {
-        ...base,
-        name: '',
-        description: '',
-        scanner_type: 'monitor',
-        scanner_config: { prompt: '' },
-    }
 }
 
 interface ObservationListParams {
