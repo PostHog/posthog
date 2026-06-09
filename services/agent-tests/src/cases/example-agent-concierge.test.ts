@@ -1,13 +1,14 @@
 /**
  * Example bundle wiring check — `services/agent-tests/src/examples/agent-concierge/`.
  *
- * The concierge spec uses the flat `McpRefSchema` shape — one external
- * MCP entry (the local PostHog MCP) with a `tools[]` array carrying
- * inline `requires_approval` + `approval_policy` for destructive tools.
- * `seed.py` no longer strips `mcps[]`, so the bundle deploys end-to-end.
- * This case pins the wiring net (skill paths exist, MCP tools match the
- * authoring MCP catalog, approval gating intact on destructive tools) —
- * drift here means the bundle is broken regardless of platform
+ * The concierge authors + operates other agents entirely through native
+ * `@posthog/agent-applications-*` tools — there is NO external MCP server
+ * in `spec.mcps[]` (removed so a transient MCP outage can't strip the
+ * agent's write path). Destructive native tools (`promote`, `archive`)
+ * carry inline `requires_approval` + `approval_policy` so the platform —
+ * not just the prompt — gates them. This case pins the wiring net (skill
+ * paths exist, no MCP server, native tools resolve, approval gating
+ * intact) — drift here means the bundle is broken regardless of platform
  * readiness, so it's worth catching before review.
  */
 
@@ -16,25 +17,10 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { AgentSpecSchema } from '@posthog/agent-shared'
+import { listNativeTools } from '@posthog/agent-tools'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const BUNDLE_ROOT = resolve(__dirname, '../examples/agent-concierge')
-const AGENT_STACK_YAML = resolve(__dirname, '../../../mcp/definitions/agent_platform.yaml')
-
-type ConciergeMcpToolEntry =
-    | string
-    | {
-          name: string
-          requires_approval?: boolean
-          approval_policy?: { approvers: string[]; ttl_ms?: number }
-      }
-
-interface ConciergeMcpRef {
-    id: string
-    url: string
-    secrets?: string[]
-    tools?: ConciergeMcpToolEntry[]
-}
 
 interface ConciergeSpec {
     model: string
@@ -47,8 +33,10 @@ interface ConciergeSpec {
         args_schema?: Record<string, unknown>
         required?: boolean
         timeout_ms?: number
+        requires_approval?: boolean
+        approval_policy?: { approvers: string[]; ttl_ms?: number }
     }>
-    mcps: ConciergeMcpRef[]
+    mcps: unknown[]
     skills: Array<{ id: string; path: string; description: string }>
     integrations: string[]
     secrets: string[]
@@ -58,10 +46,6 @@ interface ConciergeSpec {
     }
     reasoning?: string
     resume?: { enabled: boolean; max_completed_age_ms: number }
-}
-
-function toolEntryName(entry: ConciergeMcpToolEntry): string {
-    return typeof entry === 'string' ? entry : entry.name
 }
 
 async function loadBundle(): Promise<{ spec: ConciergeSpec; files: Record<string, string> }> {
@@ -74,15 +58,6 @@ async function loadBundle(): Promise<{ spec: ConciergeSpec; files: Record<string
         files[`skills/${sf}`] = await readFile(join(BUNDLE_ROOT, 'skills', sf), 'utf-8')
     }
     return { spec, files }
-}
-
-async function loadAgentPlatformToolIds(): Promise<Set<string>> {
-    // The yaml has shape `tools:\n    foo-bar:\n        operation: ...`.
-    // Pulling the tool keys with a regex is cheaper than adding a yaml dep
-    // for one assertion — the keys are stable, indented exactly 4 spaces.
-    const raw = await readFile(AGENT_STACK_YAML, 'utf-8')
-    const matches = raw.matchAll(/^ {4}([a-z][a-z0-9-]+):$/gm)
-    return new Set(Array.from(matches, (m) => m[1]))
 }
 
 describe('example: agent-concierge bundle', () => {
@@ -105,13 +80,18 @@ describe('example: agent-concierge bundle', () => {
         expect(files['agent.md'].length).toBeGreaterThan(500)
     })
 
-    it('every MCP tool the concierge declares matches the authoring MCP catalog', async () => {
+    it('declares no external MCP server and every native tool resolves in the native catalog', async () => {
         const { spec } = await loadBundle()
-        const catalog = await loadAgentPlatformToolIds()
-        const posthog = spec.mcps.find((m) => m.id === 'posthog')
-        expect(posthog).toBeTruthy()
-        for (const entry of posthog!.tools ?? []) {
-            expect(catalog.has(toolEntryName(entry))).toBe(true)
+        // The concierge authors via native tools only — no MCP server, so a
+        // transient MCP outage can never strip its write path (the bug this
+        // replaced). Every declared native id must exist in the registry, or
+        // freeze/validate would reject the revision.
+        expect(spec.mcps).toHaveLength(0)
+        const catalog = new Set(listNativeTools().map((t) => t.id))
+        const nativeIds = spec.tools.filter((t) => t.kind === 'native').map((t) => t.id!)
+        expect(nativeIds.length).toBeGreaterThan(0)
+        for (const id of nativeIds) {
+            expect(catalog.has(id), `${id} should be a known native tool`).toBe(true)
         }
     })
 
@@ -168,35 +148,25 @@ describe('example: agent-concierge bundle', () => {
         expect(spec.resume?.max_completed_age_ms).toBeGreaterThanOrEqual(7 * 24 * 60 * 60 * 1000)
     })
 
-    it('declares approval policies for destructive MCP tools', async () => {
+    it('gates destructive native tools (promote / archive) with session_principal approval', async () => {
         const { spec } = await loadBundle()
-        // Promote / set-env / destroy are gated at the platform layer, not just
-        // in the prompt. Post-PR-7 the gating lives inline on `tools[]` object
-        // entries with `requires_approval: true` + `approval_policy.approvers`.
-        const posthog = spec.mcps.find((m) => m.id === 'posthog')
-        expect(posthog).toBeTruthy()
-        const gatedNames = new Set(
-            (posthog!.tools ?? [])
-                .filter(
-                    (e): e is Exclude<ConciergeMcpToolEntry, string> =>
-                        typeof e === 'object' && e.requires_approval === true
-                )
-                .map((e) => e.name)
+        // Destructive ops are gated at the platform layer, not just in the
+        // prompt — the gating lives inline on the native `tools[]` entries via
+        // `requires_approval: true` + `approval_policy.approvers`.
+        const gated = new Map(
+            spec.tools.filter((t) => t.kind === 'native' && t.requires_approval === true).map((t) => [t.id!, t])
         )
         for (const required of [
-            'agent-applications-revisions-promote-create',
-            'agent-applications-set-env-create',
-            'agent-applications-destroy',
+            '@posthog/agent-applications-revisions-promote-create',
+            '@posthog/agent-applications-revisions-archive-create',
         ]) {
-            expect(gatedNames.has(required), `${required} should be gated`).toBe(true)
+            expect(gated.has(required), `${required} should be gated`).toBe(true)
         }
         // session_principal — the concierge wires every gated tool to the
-        // session owner via the per-asker fast-path (decision B1 + C1 in the
-        // PR 7 plan).
-        for (const entry of posthog!.tools ?? []) {
-            if (typeof entry === 'object' && entry.requires_approval) {
-                expect(entry.approval_policy?.approvers).toEqual(['session_principal'])
-            }
+        // session owner via the per-asker fast-path, so the user who asked can
+        // approve their own destructive call without a team-admin round-trip.
+        for (const [, t] of gated) {
+            expect(t.approval_policy?.approvers).toEqual(['session_principal'])
         }
     })
 
@@ -221,19 +191,17 @@ describe('example: agent-concierge bundle', () => {
     })
 
     it('the spec parses through AgentSpecSchema — runner accepts it as-is', async () => {
-        // The runner reads `revision.spec` via zod. The concierge spec uses
-        // the flat `McpRefSchema` shape (one `{ id, url, tools[] }` entry
-        // for the local PostHog MCP). This assertion pins that contract so
-        // a future schema tightening doesn't silently re-break the bundle.
+        // The runner reads `revision.spec` via zod. The concierge declares no
+        // MCP server (native-only) and gates its destructive native tools
+        // inline. This assertion pins that contract so a future schema
+        // tightening doesn't silently re-break the bundle.
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
-        expect(parsed.mcps).toHaveLength(1)
-        const posthog = parsed.mcps[0]
-        // Spot-check that the destructive entries arrived as object form
-        // with their approval policy populated.
-        const promote = posthog.tools?.find(
-            (t): t is Exclude<typeof t, string> =>
-                typeof t === 'object' && t.name === 'agent-applications-revisions-promote-create'
+        expect(parsed.mcps).toHaveLength(0)
+        // Spot-check that the destructive native entry kept its approval policy.
+        const promote = parsed.tools.find(
+            (t): t is Extract<typeof t, { kind: 'native' }> =>
+                t.kind === 'native' && t.id === '@posthog/agent-applications-revisions-promote-create'
         )
         expect(promote).not.toBeUndefined()
         expect(promote!.requires_approval).toBe(true)

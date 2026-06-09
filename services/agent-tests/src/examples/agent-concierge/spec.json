@@ -27,6 +27,33 @@
         { "kind": "native", "id": "@posthog/agent-applications-sessions-list" },
         { "kind": "native", "id": "@posthog/agent-applications-sessions-retrieve" },
         { "kind": "native", "id": "@posthog/agent-applications-session-logs" },
+        { "kind": "native", "id": "@posthog/agent-applications-revisions-bundle-retrieve" },
+        { "kind": "native", "id": "@posthog/agent-applications-env-keys-list" },
+        { "kind": "native", "id": "@posthog/agent-applications-env-keys-get" },
+        { "kind": "native", "id": "@posthog/agent-applications-create" },
+        { "kind": "native", "id": "@posthog/agent-applications-partial-update" },
+        { "kind": "native", "id": "@posthog/agent-applications-revisions-create" },
+        { "kind": "native", "id": "@posthog/agent-applications-revisions-new-draft-create" },
+        { "kind": "native", "id": "@posthog/agent-applications-revisions-partial-update" },
+        { "kind": "native", "id": "@posthog/agent-applications-revisions-agent-md-update" },
+        { "kind": "native", "id": "@posthog/agent-applications-revisions-skills-update" },
+        { "kind": "native", "id": "@posthog/agent-applications-revisions-skills-destroy" },
+        { "kind": "native", "id": "@posthog/agent-applications-revisions-tools-update" },
+        { "kind": "native", "id": "@posthog/agent-applications-revisions-tools-destroy" },
+        { "kind": "native", "id": "@posthog/agent-applications-revisions-validate-create" },
+        { "kind": "native", "id": "@posthog/agent-applications-revisions-freeze-create" },
+        {
+            "kind": "native",
+            "id": "@posthog/agent-applications-revisions-promote-create",
+            "requires_approval": true,
+            "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/agent-applications-revisions-archive-create",
+            "requires_approval": true,
+            "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
+        },
         {
             "kind": "client",
             "id": "focus_tab",
@@ -160,107 +187,7 @@
             }
         }
     ],
-    "mcps": [
-        {
-            "id": "posthog",
-            "url": "https://app.posthog.com/api/mcp",
-            "secrets": [],
-            "tools": [
-                "agent-applications-list",
-                "agent-applications-retrieve",
-                "agent-applications-create",
-                "agent-applications-partial-update",
-                {
-                    "name": "agent-applications-destroy",
-                    "requires_approval": true,
-                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
-                },
-                "agent-applications-sessions-list",
-                "agent-applications-sessions-retrieve",
-                "agent-applications-session-logs",
-                "agent-applications-revisions-list",
-                "agent-applications-revisions-retrieve",
-                "agent-applications-revisions-create",
-                "agent-applications-revisions-new-draft-create",
-                "agent-applications-revisions-clone-from-create",
-                "agent-applications-revisions-bundle-retrieve",
-                {
-                    "name": "agent-applications-revisions-bundle-update",
-                    "requires_approval": true,
-                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
-                },
-                "agent-applications-revisions-manifest-retrieve",
-                "agent-applications-revisions-file-retrieve",
-                "agent-applications-revisions-file-update",
-                {
-                    "name": "agent-applications-revisions-file-destroy",
-                    "requires_approval": true,
-                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
-                },
-                "agent-applications-revisions-partial-update",
-                "agent-applications-revisions-validate-create",
-                "agent-applications-revisions-freeze-create",
-                {
-                    "name": "agent-applications-revisions-promote-create",
-                    "requires_approval": true,
-                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
-                },
-                {
-                    "name": "agent-applications-revisions-archive-create",
-                    "requires_approval": true,
-                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
-                },
-                "agent-applications-revisions-system-prompt",
-                "agent-applications-approvals-list",
-                "agent-applications-approvals-retrieve",
-                "agent-applications-approvals-decide",
-                {
-                    "name": "agent-applications-set-env-create",
-                    "requires_approval": true,
-                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
-                },
-                "agent-applications-env-keys-list",
-                "agent-applications-env-keys-get",
-                {
-                    "name": "agent-applications-env-keys-clear",
-                    "requires_approval": true,
-                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
-                },
-                "agent-native-tools-list",
-                "agent-skill-templates-list",
-                "agent-skill-templates-create",
-                "agent-skill-templates-name-retrieve",
-                "agent-skill-templates-name-publish-create",
-                {
-                    "name": "agent-skill-templates-name-archive-create",
-                    "requires_approval": true,
-                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
-                },
-                "agent-skill-templates-name-duplicate-create",
-                "agent-skill-templates-name-versions-list",
-                "agent-skill-templates-name-usages-list",
-                "agent-skill-templates-name-files-create",
-                {
-                    "name": "agent-skill-templates-name-files-destroy",
-                    "requires_approval": true,
-                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
-                },
-                "agent-skill-templates-name-files-rename-create",
-                "agent-custom-tool-templates-list",
-                "agent-custom-tool-templates-create",
-                "agent-custom-tool-templates-name-retrieve",
-                "agent-custom-tool-templates-name-publish-create",
-                {
-                    "name": "agent-custom-tool-templates-name-archive-create",
-                    "requires_approval": true,
-                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
-                },
-                "agent-custom-tool-templates-name-duplicate-create",
-                "agent-custom-tool-templates-name-versions-list",
-                "agent-custom-tool-templates-name-usages-list"
-            ]
-        }
-    ],
+    "mcps": [],
     "skills": [
         {
             "id": "platform-mental-model",
@@ -326,11 +253,6 @@
             "id": "safety-and-boundaries",
             "path": "skills/safety-and-boundaries.md",
             "description": "Hard rules — what the concierge MUST NOT do regardless of user request. Load IMMEDIATELY if a request feels like it crosses into raw-secret handling, unprompted promotion, irreversible deletion, or impersonation of another user."
-        },
-        {
-            "id": "using-the-registry",
-            "path": "skills/using-the-registry.md",
-            "description": "The Tools & Skills registry — shared, versioned skill markdown + custom tool templates that agents pin via `spec.skills[].from_template` / `spec.tools[].from_template`. Load when the user wants to reuse a skill or tool across multiple agents, pin a canonical `@posthog/*` template, edit / publish a new version of an existing template, or audit who's using a template before archiving."
         }
     ],
     "integrations": [],

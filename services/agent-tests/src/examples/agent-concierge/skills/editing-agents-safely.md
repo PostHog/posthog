@@ -53,25 +53,19 @@ sees it.
 
 Choose the right verb:
 
-| Verb                                                        | When                                                   | Reversibility                              |
-| ----------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------ |
-| `agent-applications-revisions-partial-update`               | Change `spec` (model, limits, triggers, tools[], etc.) | Easy — the next partial-update overwrites  |
-| `agent-applications-revisions-file-update`                  | Change one bundle file (`agent.md`, one skill, etc.)   | Easy — re-write                            |
-| `agent-applications-revisions-file-destroy`                 | Delete a bundle file                                   | **Hard** — content gone unless you have it |
-| `agent-applications-revisions-bundle-update` (mode=replace) | Rewrite the whole bundle                               | **Very hard** — wipes everything else      |
-| `agent-applications-revisions-bundle-update` (mode=merge)   | Patch multiple files at once                           | Easy                                       |
+| Verb                                           | When                                                   | Reversibility                              |
+| ---------------------------------------------- | ------------------------------------------------------ | ------------------------------------------ |
+| `agent-applications-revisions-partial-update`  | Change `spec` (model, limits, triggers, tools[], etc.) | Easy — the next partial-update overwrites  |
+| `agent-applications-revisions-agent-md-update` | Overwrite `agent.md` (the system prompt)               | Easy — re-write                            |
+| `agent-applications-revisions-skills-update`   | Upsert one skill (body + companion files)              | Easy — re-write                            |
+| `agent-applications-revisions-skills-destroy`  | Delete one skill                                       | **Hard** — content gone unless you have it |
+| `agent-applications-revisions-tools-update`    | Upsert one custom tool (source + schema)               | Easy — re-write                            |
+| `agent-applications-revisions-tools-destroy`   | Delete one custom tool                                 | **Hard** — content gone unless you have it |
 
-Rule of thumb: **always prefer `file-update` over `bundle-update`.**
-The latter is a sledgehammer. Use it only when you've actually
-restructured most of the bundle.
-
-**If the file is pinned from the registry**, don't edit it inline —
-that change wouldn't propagate to the other agents pinning the same
-template. Read the manifest, look for entries with a `from_template`
-in the matching `spec.skills[]` / `spec.tools[]` entry, and route the
-edit through `agent-skill-templates-name-publish-create` /
-`agent-custom-tool-templates-name-publish-create`. Load
-`skills/using-the-registry` for the full pattern.
+These are all native `@posthog/agent-applications-*` tools — there's
+no bulk bundle-replace verb, which is deliberate: edit the one thing
+that changed (`agent-md-update` / `skills-update` / `tools-update`)
+rather than rewriting the whole bundle.
 
 For each edit, surface to the user:
 
