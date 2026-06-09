@@ -2,8 +2,6 @@ import json
 from dataclasses import dataclass
 from typing import Optional
 
-from django.db import close_old_connections
-
 import structlog
 import temporalio
 from pydantic import BaseModel, Field, model_validator
@@ -116,10 +114,8 @@ class SafetyJudgeOutput:
 
 
 def _store_safety_judgment(team_id: int, report_id: str, result: SafetyJudgeResponse) -> None:
-    # The preceding LLM call can leave the pooled connection idle long enough to be reaped
-    # server-side. Temporal activities have no request cycle to fire close_old_connections, so
-    # discard any dead connection before writing rather than reusing it.
-    close_old_connections()
+    # Runs via database_sync_to_async, which discards connections reaped during the preceding
+    # slow LLM call — Temporal activities have no request cycle to fire close_old_connections.
     SignalReportArtefact.objects.create(
         team_id=team_id,
         report_id=report_id,
