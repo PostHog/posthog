@@ -8,17 +8,17 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { FilterPill } from '../../components/FilterPill'
-import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
+import { ObservationResultSummary, ObservationMetricusTag } from '../../components/ObservationCard'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import {
     OBSERVATIONS_PAGE_SIZE,
-    ObservationStatusValue,
+    ObservationMetricusValue,
     ObservationTriggeredByValue,
     ObservationVerdictValue,
     replayScannerLogic,
 } from '../replayScannerLogic'
 
-const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
+const STATUS_OPTIONS: { value: ObservationMetricusValue; label: string }[] = [
     { value: 'succeeded', label: 'Succeeded' },
     { value: 'failed', label: 'Failed' },
     { value: 'ineligible', label: 'Ineligible' },
@@ -39,6 +39,23 @@ const VERDICT_OPTIONS: { value: ObservationVerdictValue; label: string }[] = [
 
 // Chip color by how many versions behind the live scanner an observation ran: latest → oldest.
 const VERSION_TAG_TYPES: LemonTagType[] = ['success', 'warning', 'caution', 'danger', 'completion']
+
+function Metric({
+    label,
+    value,
+    valueClass,
+}: {
+    label: string
+    value: number | string
+    valueClass?: string
+}): JSX.Element {
+    return (
+        <div className="text-center">
+            <div className={`font-semibold text-lg ${valueClass ?? ''}`}>{value}</div>
+            <div className="text-muted">{label}</div>
+        </div>
+    )
+}
 
 function versionTag(
     obsVersion: number | null | undefined,
@@ -67,20 +84,20 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationsPage,
         observationsTotal,
         observationsSort,
-        observationStatusFilter,
+        observationMetricusFilter,
         observationTriggeredByFilter,
         observationVerdictFilter,
         observationTagFilter,
         hasActiveObservationFilters,
         availableTags,
-        observationStats,
+        observationMetrics,
         scanner,
     } = useValues(logic)
     const {
         loadObservations,
         setObservationsPage,
         setObservationsSort,
-        setObservationStatusFilter,
+        setObservationMetricusFilter,
         setObservationTriggeredByFilter,
         setObservationVerdictFilter,
         setObservationTagFilter,
@@ -104,9 +121,9 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             ),
         },
         {
-            title: 'Status',
+            title: 'Metricus',
             key: 'status',
-            render: (_, obs) => <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />,
+            render: (_, obs) => <ObservationMetricusTag status={obs.status} errorReason={obs.error_reason} />,
         },
         {
             title: 'Result',
@@ -171,103 +188,90 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
     ]
 
     return (
-        <div className="space-y-4">
-            <div className="flex items-start justify-between gap-4">
+        <div className="space-y-2">
+            <div className="flex items-center gap-3">
                 <p className="text-muted text-sm m-0">
                     Past observations made by this scanner. Each row is one observation.
                 </p>
-                <div className="flex items-center gap-4">
-                    {observationStats.total > 0 && (
+                <div className="ml-auto flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                        {(observationMetrics.total > 0 || hasActiveObservationFilters) && (
+                            <>
+                                <FilterPill<ObservationMetricusValue>
+                                    label="Metricus"
+                                    options={STATUS_OPTIONS}
+                                    value={observationMetricusFilter}
+                                    onChange={setObservationMetricusFilter}
+                                />
+                                <FilterPill<ObservationTriggeredByValue>
+                                    label="Triggered by"
+                                    options={TRIGGERED_BY_OPTIONS}
+                                    value={observationTriggeredByFilter}
+                                    onChange={setObservationTriggeredByFilter}
+                                />
+                                {scannerType === 'monitor' && (
+                                    <FilterPill<ObservationVerdictValue>
+                                        label="Verdict"
+                                        options={VERDICT_OPTIONS}
+                                        value={observationVerdictFilter}
+                                        onChange={setObservationVerdictFilter}
+                                    />
+                                )}
+                                {scannerType === 'classifier' && tagFilterOptions.length > 0 && (
+                                    <FilterPill<string>
+                                        label="Tag"
+                                        options={tagFilterOptions}
+                                        value={observationTagFilter}
+                                        onChange={setObservationTagFilter}
+                                    />
+                                )}
+                                {hasActiveObservationFilters && (
+                                    <LemonButton type="tertiary" size="small" onClick={() => clearObservationFilters()}>
+                                        Clear filters
+                                    </LemonButton>
+                                )}
+                            </>
+                        )}
+                        <Tooltip
+                            title={
+                                hasObservationsInFlight
+                                    ? 'Auto-refreshing while observations are in flight'
+                                    : 'Refresh observations'
+                            }
+                        >
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconRefresh />}
+                                onClick={() => loadObservations()}
+                                loading={observationsLoading}
+                                data-attr="vision-observations-refresh"
+                            />
+                        </Tooltip>
+                    </div>
+                    {observationMetrics.total > 0 && (
                         <div className="flex gap-4 text-sm">
-                            <div className="text-center">
-                                <div className="font-semibold text-lg">{observationStats.total}</div>
-                                <div className="text-muted">Total</div>
-                            </div>
-                            {observationStats.successRate !== null && (
-                                <div className="text-center">
-                                    <div className="font-semibold text-lg text-success">
-                                        {observationStats.successRate}%
-                                    </div>
-                                    <div className="text-muted">Success rate</div>
-                                </div>
+                            <Metric label="Total" value={observationMetrics.total} />
+                            {observationMetrics.successRate !== null && (
+                                <Metric
+                                    label="Success rate"
+                                    value={`${observationMetrics.successRate}%`}
+                                    valueClass="text-success"
+                                />
                             )}
-                            {observationStats.failed > 0 && (
-                                <div className="text-center">
-                                    <div className="font-semibold text-lg text-danger">{observationStats.failed}</div>
-                                    <div className="text-muted">Failed</div>
-                                </div>
+                            {observationMetrics.failed > 0 && (
+                                <Metric label="Failed" value={observationMetrics.failed} valueClass="text-danger" />
                             )}
-                            {observationStats.ineligible > 0 && (
-                                <div className="text-center">
-                                    <div className="font-semibold text-lg">{observationStats.ineligible}</div>
-                                    <div className="text-muted">Ineligible</div>
-                                </div>
+                            {observationMetrics.ineligible > 0 && (
+                                <Metric label="Ineligible" value={observationMetrics.ineligible} />
                             )}
-                            {observationStats.inFlight > 0 && (
-                                <div className="text-center">
-                                    <div className="font-semibold text-lg">{observationStats.inFlight}</div>
-                                    <div className="text-muted">In flight</div>
-                                </div>
+                            {observationMetrics.inFlight > 0 && (
+                                <Metric label="In flight" value={observationMetrics.inFlight} />
                             )}
                         </div>
                     )}
-                    <Tooltip
-                        title={
-                            hasObservationsInFlight
-                                ? 'Auto-refreshing while observations are in flight'
-                                : 'Refresh observations'
-                        }
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconRefresh />}
-                            onClick={() => loadObservations()}
-                            loading={observationsLoading}
-                            data-attr="vision-observations-refresh"
-                        >
-                            Refresh
-                        </LemonButton>
-                    </Tooltip>
                 </div>
             </div>
-            {(observationStats.total > 0 || hasActiveObservationFilters) && (
-                <div className="flex flex-wrap items-center gap-2">
-                    <FilterPill<ObservationStatusValue>
-                        label="Status"
-                        options={STATUS_OPTIONS}
-                        value={observationStatusFilter}
-                        onChange={setObservationStatusFilter}
-                    />
-                    <FilterPill<ObservationTriggeredByValue>
-                        label="Triggered by"
-                        options={TRIGGERED_BY_OPTIONS}
-                        value={observationTriggeredByFilter}
-                        onChange={setObservationTriggeredByFilter}
-                    />
-                    {scannerType === 'monitor' && (
-                        <FilterPill<ObservationVerdictValue>
-                            label="Verdict"
-                            options={VERDICT_OPTIONS}
-                            value={observationVerdictFilter}
-                            onChange={setObservationVerdictFilter}
-                        />
-                    )}
-                    {scannerType === 'classifier' && tagFilterOptions.length > 0 && (
-                        <FilterPill<string>
-                            label="Tag"
-                            options={tagFilterOptions}
-                            value={observationTagFilter}
-                            onChange={setObservationTagFilter}
-                        />
-                    )}
-                    {hasActiveObservationFilters && (
-                        <LemonButton type="tertiary" size="small" onClick={() => clearObservationFilters()}>
-                            Clear filters
-                        </LemonButton>
-                    )}
-                </div>
-            )}
             <LemonTable
                 columns={columns}
                 dataSource={observations}
@@ -285,7 +289,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                 onSort={(next) => setObservationsSort(next)}
                 useURLForSorting={false}
                 nouns={['observation', 'observations']}
-                emptyState={
+                emptyMetrice={
                     <div className="p-6 text-center text-muted">
                         {hasActiveObservationFilters
                             ? 'No observations match your filters.'

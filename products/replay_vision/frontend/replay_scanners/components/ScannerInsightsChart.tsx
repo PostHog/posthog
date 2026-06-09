@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { dayjs } from 'lib/dayjs'
 
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
@@ -142,6 +143,22 @@ function chartTitle(scannerType: ScannerType): string {
     return 'Observations over time'
 }
 
+function daysInRange(dateFrom: string | null, dateTo: string | null): number {
+    if (!dateFrom) {
+        return 14
+    }
+    const m = dateFrom.match(/^-(\d+)d$/)
+    if (m) {
+        return parseInt(m[1], 10)
+    }
+    const from = dayjs(dateFrom)
+    if (!from.isValid()) {
+        return 14
+    }
+    const to = dateTo ? dayjs(dateTo) : dayjs()
+    return Math.max(1, to.diff(from, 'day'))
+}
+
 export function ScannerInsightsChart({
     scannerId,
     scannerType,
@@ -149,8 +166,9 @@ export function ScannerInsightsChart({
     scannerId: string
     scannerType: ScannerType
 }): JSX.Element {
-    const { chartDateFrom, chartDateTo } = useValues(replayScannerLogic({ id: scannerId }))
+    const { chartDateFrom, chartDateTo, coverageStats } = useValues(replayScannerLogic({ id: scannerId }))
     const { setChartDateRange } = useActions(replayScannerLogic({ id: scannerId }))
+    const days = daysInRange(chartDateFrom, chartDateTo)
     // `tags.productKey` is required for ClickHouse query tagging; without it the runner aborts.
     const source: TrendsQuery = {
         ...buildQuery(scannerId, scannerType, chartDateFrom, chartDateTo),
@@ -159,7 +177,18 @@ export function ScannerInsightsChart({
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-3">
             <div className="flex items-baseline justify-between gap-2">
-                <span className="text-sm font-medium">{chartTitle(scannerType)}</span>
+                <div>
+                    <div className="text-sm font-medium">{chartTitle(scannerType)}</div>
+                    {coverageStats.totalSessions > 0 && (
+                        <div className="text-xs text-muted tabular-nums mt-0.5">
+                            Scanned <span className="font-semibold text-default">{coverageStats.recentSessions}</span>{' '}
+                            session
+                            {coverageStats.recentSessions === 1 ? '' : 's'} in the last {days} day
+                            {days === 1 ? '' : 's'} ·{' '}
+                            <span className="font-semibold text-default">{coverageStats.totalSessions}</span> total
+                        </div>
+                    )}
+                </div>
                 <DateFilter
                     dateFrom={chartDateFrom}
                     dateTo={chartDateTo}
