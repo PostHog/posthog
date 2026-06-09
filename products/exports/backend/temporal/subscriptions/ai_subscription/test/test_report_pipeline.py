@@ -5,6 +5,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportStageError,
+    QueryStepDiagnostic,
     _arequest_hogql_fix,
     _run_steps,
     generate_ai_report,
@@ -67,12 +68,19 @@ async def test_successful_report_emits_slo_success(
     mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, mock_capture: MagicMock
 ) -> None:
     mock_bep.return_value = _spec(steps=2)
-    mock_run.return_value = (["### s0\n\nok", "### s1\n\nok"], 0)
+    mock_run.return_value = (
+        ["### s0\n\nok", "### s1\n\nok"],
+        0,
+        [
+            QueryStepDiagnostic(description="s0", hogql="SELECT 1", ok=True, error_type=None),
+            QueryStepDiagnostic(description="s1", hogql="SELECT 2", ok=True, error_type=None),
+        ],
+    )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window_days=7)
 
-    assert result == "# Report"
+    assert result.markdown == "# Report"
     props = _slo_completed(mock_capture)
     assert props["operation"] == "ai_subscription_prompt_generation"
     assert props["outcome"] == "success"
@@ -93,12 +101,17 @@ async def test_degraded_report_still_synthesizes(
     mock_run.return_value = (
         ["### s0\n\n_Query failed to run (ExposedHogQLError) — metric not computed, not empty data._"],
         1,
+        [QueryStepDiagnostic(description="s0", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError")],
     )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Weekly report")
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window_days=7)
 
-    assert result == "# Weekly report"
+    assert result.markdown == "# Weekly report"
+    # The failed step's generated HogQL + error type are surfaced for persistence/debugging.
+    assert result.diagnostics == [
+        QueryStepDiagnostic(description="s0", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError")
+    ]
     # A degraded-but-shipped report is an SLO success, tagged so the coverage signal survives.
     props = _slo_completed(mock_capture)
     assert props["outcome"] == "success"
@@ -115,7 +128,11 @@ async def test_synthesis_failure_wrapped_with_stage(
     mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, mock_capture: MagicMock
 ) -> None:
     mock_bep.return_value = _spec(steps=1)
-    mock_run.return_value = (["### s0\n\nok"], 0)
+    mock_run.return_value = (
+        ["### s0\n\nok"],
+        0,
+        [QueryStepDiagnostic(description="s0", hogql="SELECT 1", ok=True, error_type=None)],
+    )
     mock_chat.return_value.invoke.side_effect = RuntimeError("synth boom")
 
     with pytest.raises(AiReportStageError) as exc_info:
@@ -169,9 +186,13 @@ async def test_request_hogql_fix_returns_none_on_wrong_type(mock_chat: MagicMock
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_non_retryable_error_degrades_to_placeholder(mock_executor_cls: MagicMock) -> None:
     mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=RuntimeError("boom"))
-    rendered, failed = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
+    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
     assert failed == 1
     assert "Query failed to run" in rendered[0]
+    # The diagnostic captures the generated HogQL and the failure type for later debugging.
+    assert diagnostics[0].ok is False
+    assert diagnostics[0].error_type == "RuntimeError"
+    assert diagnostics[0].hogql == "SELECT 1"
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
@@ -182,7 +203,7 @@ async def test_run_steps_retries_then_succeeds(mock_executor_cls: MagicMock, moc
         side_effect=[ExposedHogQLError("bad query"), ("formatted table", None)]
     )
     mock_fix.return_value = "SELECT fixed"
-    rendered, failed = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
+    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
     assert failed == 0
     assert "formatted table" in rendered[0]
     mock_fix.assert_awaited_once()
@@ -197,7 +218,7 @@ async def test_run_steps_breaks_early_when_fix_returns_same_query(
     # degrade rather than burn the retry budget on an identical query.
     mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=ExposedHogQLError("bad query"))
     mock_fix.return_value = "SELECT 1"  # identical to QueryPlanStep.hogql in _spec()
-    rendered, failed = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
+    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
     assert failed == 1
     assert "Query failed to run" in rendered[0]
     # Executor ran exactly once (no rerun of the identical fixed query); the fix was requested once.
