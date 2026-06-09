@@ -1,3 +1,4 @@
+import asyncio
 import random
 
 import pytest_asyncio
@@ -24,5 +25,8 @@ async def ateam(aorganization):
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
 
     yield team
-    await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
+    try:
+        await asyncio.wait_for(sync_to_async(delete_batch_exports)(team_ids=[team.pk]), timeout=10.0)
+    except (asyncio.TimeoutError, Exception):
+        pass  # Best-effort cleanup; test DB is reset between runs anyway
     await sync_to_async(team.delete)()
