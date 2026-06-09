@@ -9,33 +9,19 @@ from django.contrib.admin import AdminSite
 from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
 from posthog.admin.admins.oauth_admin import OAuthApplicationAdmin, OAuthApplicationForm
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
-
-
-def _generate_rsa_key() -> str:
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-    return pem.decode("utf-8")
-
-
-_RSA_KEY = _generate_rsa_key()
+from posthog.test.oauth_test_utils import TEST_RSA_PRIVATE_KEY
 
 
 # Creating an RS256 app requires OIDC_RSA_PRIVATE_KEY, which isn't available on fork/external PR CI and
 # can be cleared by other OAuth tests overriding OAUTH2_PROVIDER (django-oauth-toolkit caches its
 # settings). Pin a test key so these tests pass regardless of environment and ordering.
 @override_settings(
-    OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
-    OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
+    OIDC_RSA_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY,
+    OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": TEST_RSA_PRIVATE_KEY},
 )
 class TestOAuthApplicationAdmin(BaseTest):
     def setUp(self):
