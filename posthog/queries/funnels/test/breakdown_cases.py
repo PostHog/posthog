@@ -7,11 +7,12 @@ from typing import Any, Literal, Optional, Union
 from posthog.test.base import APIBaseTest, also_test_with_materialized_columns, snapshot_clickhouse_queries
 
 from posthog.constants import INSIGHT_FUNNELS
-from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 from posthog.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from posthog.test.test_journeys import journeys_for
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 @dataclass(frozen=True)

@@ -50,12 +50,12 @@ from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.models import SimEvent
 from posthog.demo.matrix.randomization import Industry
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Cohort
 from posthog.models.event.util import create_event
 from posthog.models.oauth import OAuthApplication
 from posthog.storage import object_storage
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -290,7 +290,7 @@ class HedgeboxMatrix(Matrix):
             ],
         )
         # Create the standard internal/test users cohort (same as non-demo teams get)
-        from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
+        from products.cohorts.backend.models.cohort import get_or_create_internal_test_users_cohort
 
         test_users_cohort = get_or_create_internal_test_users_cohort(team, initiating_user_email=user.email)
         team.test_account_filters = [

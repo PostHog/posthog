@@ -20,7 +20,7 @@ import { conversationsDestroy } from 'products/conversations/frontend/generated/
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
-import { maxLogic, mergeConversationHistory, mergeConversations } from './maxLogic'
+import { SIDE_PANEL_PANEL_ID, maxLogic, mergeConversationHistory, mergeConversations } from './maxLogic'
 
 // Keep this stored across all projects, only display this once per device
 const AI_LIABILITY_NOTICE_STORAGE_KEY = 'posthog_ai_liability_notice_dismissed'
@@ -190,9 +190,9 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 actions.openSidePanel(SidePanelTab.Max)
             }
             if (conversationId) {
-                let logic = maxLogic.findMounted({ sidePanel: true })
+                let logic = maxLogic.findMounted({ panelId: SIDE_PANEL_PANEL_ID })
                 if (!logic) {
-                    logic = maxLogic({ sidePanel: true })
+                    logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
                     logic.mount() // we're never unmounting this
                 }
                 logic.actions.openConversation(conversationId)

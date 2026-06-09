@@ -294,12 +294,11 @@ class Person(models.Model):
         ``max_splits`` of them). If ``main_distinct_id`` is also None, properties are
         wiped from the original person and the first distinct_id becomes the main.
         """
-        # nosemgrep: no-direct-persons-db-orm
-        original_person = Person.objects.only(
-            "id", "team_id", "uuid", "version"
-        ).get(  # nosemgrep: no-direct-persons-db-orm
-            team_id=self.team_id, pk=self.pk
-        )  # nosemgrep: no-direct-persons-db-orm
+        from posthog.models.person.util import get_person_by_id
+
+        original_person = get_person_by_id(self.team_id, self.pk)
+        if original_person is None:
+            raise ValueError(f"Person not found: person_id={self.pk}, team_id={self.team_id}")
         distinct_ids = original_person.distinct_ids
         original_person_version = original_person.version or 0
 
@@ -331,8 +330,9 @@ class Person(models.Model):
                     distinct_ids_to_process.append(did)
         else:
             if not main_distinct_id:
-                self.properties = {}
-                self.save(update_fields=["properties"])
+                Person.objects.filter(team_id=self.team_id, pk=self.pk).update(  # nosemgrep: no-direct-persons-db-orm
+                    properties={}
+                )
                 main_distinct_id = distinct_ids[0]
 
             if max_splits is not None and len(distinct_ids) > max_splits:

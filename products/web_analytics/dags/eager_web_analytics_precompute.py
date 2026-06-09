@@ -2,7 +2,7 @@
 
 A single Dagster job that pre-warms the lazy precompute cache for the
 Web analytics dashboard's main tile matrix over the trailing 28 days,
-for every team in the hardcoded `EAGER_BASELINE_TEAM_IDS` list.
+for every team in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` setting.
 
 The job is intentionally thin: it enumerates the dashboard's query
 families and dispatches each through `get_query_runner(...).run(...)`.
@@ -20,11 +20,13 @@ cache perpetually warm, so user requests turn into pure reads.
 
 Audience
 --------
-The audience is a hardcoded `EAGER_BASELINE_TEAM_IDS` tuple kept in
-source. To enroll or remove a team, open a PR editing the constant.
-The list intentionally mirrors `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`
-on the runtime read path so warmer and reader stay in sync; do not
-silently let them drift.
+The audience is the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` env-var
+setting (defaults to the Cloud dogfooding team on Cloud, empty elsewhere).
+The runtime read-path gate (`is_precompute_enabled_for_team`) consults the
+*same* setting to bypass the org rollout flag, so warmer and reader read
+one source of truth and cannot drift. Enrolling or removing a team is a
+deploy-time change to the env var (Django + Dagster pods), not
+runtime-overridable.
 
 The job is a no-op on self-hosted instances (`is_cloud()` returns False)
 since the lazy precompute infrastructure is Cloud-only.
@@ -35,6 +37,8 @@ the replay covers the long tail (custom hosts, custom filters, etc.).
 """
 
 import time
+
+from django.conf import settings
 
 import dagster
 import structlog
@@ -51,16 +55,11 @@ from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
 logger = structlog.get_logger(__name__)
 
-
-# Audience: teams that should have the dashboard's main tile matrix
-# perpetually warmed. Keep this in sync with the runtime read-path
-# `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` env var on Django pods —
-# warming a team here that the reader doesn't serve is wasted compute.
-EAGER_BASELINE_TEAM_IDS: tuple[int, ...] = (2,)
 
 # Single warming window: the trailing 28 days. The lazy precompute path
 # stores per-day buckets, so a 28-day warm naturally serves any user
@@ -79,7 +78,15 @@ BASELINE_BREAKDOWNS: tuple[WebStatsBreakdown, ...] = (
     WebStatsBreakdown.SCREEN_NAME,
     WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
     WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
-    WebStatsBreakdown.INITIAL_REFERRING_URL,
+    # INITIAL_REFERRING_URL is deliberately excluded. Unlike its domain
+    # sibling (which reads the aggregated `session.$entry_referring_domain`
+    # column), the full-URL breakdown reads the un-materialized event
+    # property `$session_entry_referrer` — there is no sessions-table column
+    # for the full referrer URL. On high-volume teams that JSONExtract scans
+    # the whole `properties` blob and OOMs the per-day insert, then falls
+    # back to a raw query that times out at 60s. The breakdown sees
+    # negligible real usage, so warming it is pure wasted compute. It stays
+    # available as an on-demand breakdown.
     WebStatsBreakdown.INITIAL_UTM_SOURCE,
     WebStatsBreakdown.INITIAL_UTM_MEDIUM,
     WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
@@ -109,6 +116,11 @@ EAGER_PRECOMPUTE_BASELINE_FAILED = Counter(
     "Total baseline queries that failed during eager web analytics warming, labeled by query kind and exception type.",
     ["query_kind", "error_type"],
 )
+EAGER_PRECOMPUTE_NOT_LAZY_ELIGIBLE = Counter(
+    "web_analytics_eager_precompute_not_lazy_eligible_total",
+    "Teams skipped by the eager warmer because they are not lazy-precompute eligible "
+    "(the gate would route every tile through the raw path).",
+)
 
 
 def _resolve_eager_audience() -> tuple[list[int], str, dict]:
@@ -120,7 +132,7 @@ def _resolve_eager_audience() -> tuple[list[int], str, dict]:
     if not is_cloud():
         return [], "not_cloud", {}
 
-    team_ids = list(EAGER_BASELINE_TEAM_IDS)
+    team_ids = list(settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS)
     diag = {"teams_configured": len(team_ids)}
     if not team_ids:
         return [], "no_teams_configured", diag
@@ -234,7 +246,7 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
 
 @dagster.op
 def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int]:
-    """Run the baseline tile matrix against every team in `EAGER_BASELINE_TEAM_IDS`."""
+    """Run the baseline tile matrix against every team in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` setting."""
     started = time.monotonic()
     team_ids, gate_reason, diagnostics = _resolve_eager_audience()
     diag_str = " ".join(f"{k}={v}" for k, v in diagnostics.items())
@@ -257,6 +269,20 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
         if team is None:
             context.log.warning(f"eager_baseline_warming_team_missing team_id={team_id}")
             logger.warning("eager_baseline_warming_team_missing", team_id=team_id)
+            skipped += 1
+            continue
+
+        # Eligibility pre-check. The audience IS the precompute team list, so a
+        # team reaching here should always be eligible. If it isn't, the gate
+        # and the warmer audience have drifted and every tile would silently
+        # warm via the raw path — skip loudly rather than burn compute on it.
+        if not is_precompute_enabled_for_team(team):
+            EAGER_PRECOMPUTE_NOT_LAZY_ELIGIBLE.inc()
+            context.log.error(
+                f"eager_baseline_warming_not_lazy_eligible team={team_id} — "
+                f"skipping; the lazy gate would route every tile through the raw path"
+            )
+            logger.error("eager_baseline_warming_not_lazy_eligible", team_id=team_id)
             skipped += 1
             continue
 
@@ -294,7 +320,7 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
 @dagster.job(
     description=(
         "Hourly pre-warmer for Web analytics: runs the dashboard's main tile matrix over the last "
-        f"{BASELINE_WINDOW_DAYS} days for every team in `EAGER_BASELINE_TEAM_IDS`. Each query is "
+        f"{BASELINE_WINDOW_DAYS} days for every team in `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`. Each query is "
         "dispatched through its standard runner, which routes through the family's lazy precompute "
         "path — the runner decides what's stale and inserts only what's missing."
     ),
