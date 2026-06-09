@@ -737,17 +737,52 @@ class UserAccessControl:
     # Resource level - checking conditions for the resource type
     # ------------------------------------------------------------
 
+    def _own_resource_access_level(self, resource: APIScopeObject) -> Optional[AccessControlLevel]:
+        """Resource-level access from this resource's OWN rows only (no parent inheritance).
+        Returns None when the resource has no resource-level rows of its own."""
+        filters = self._access_controls_filters_for_resource(resource)
+        access_controls = self._get_access_controls(filters)
+        if not access_controls:
+            return None
+        return max(
+            access_controls,
+            key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
+        ).access_level
+
     def access_level_for_resource(self, resource: APIScopeObject) -> Optional[AccessControlLevel]:
         """
         Access levels are strings - the order of which is determined at run time.
-        We find all relevant access controls and then return the highest value
+        We find all relevant access controls and then return the highest value.
+
+        Inheriting children (e.g. warehouse_table -> warehouse_objects) combine the parent's
+        level with their own resource-level rows: the parent acts as a ceiling (most restrictive
+        wins), so a parent "none" always denies, while a child rule applies when the parent allows.
+        A child with no rules of its own inherits the parent's level unchanged.
         """
 
-        # Check if this resource inherits access from a parent resource
         parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
         if parent_resource:
-            # Use parent resource for access control checks
-            return self.access_level_for_resource(parent_resource)
+            org_membership = self._organization_membership
+            if not org_membership:
+                return None
+            # Org admins always have resource level access
+            if org_membership.level >= OrganizationMembership.Level.ADMIN:
+                return highest_access_level(resource)
+
+            parent_level = self.access_level_for_resource(parent_resource)
+            if not self.access_controls_supported:
+                return parent_level
+
+            child_level = self._own_resource_access_level(resource)
+            if child_level is None:
+                # No child-specific rule: inherit the parent's level unchanged.
+                return parent_level
+            if parent_level is None:
+                return child_level
+
+            # Parent acts as a ceiling: the most restrictive of (parent, child) wins.
+            levels = ordered_access_levels(resource)
+            return min((parent_level, child_level), key=levels.index)
 
         # These are resources which we don't have resource level access controls for
         if resource == "organization" or resource == "project" or resource == "plugin":
@@ -767,31 +802,24 @@ class UserAccessControl:
             # If access controls aren't supported, then return the default access level
             return default_access_level(resource)
 
-        filters = self._access_controls_filters_for_resource(resource)
-        access_controls = self._get_access_controls(filters)
-
-        if not access_controls:
+        own_level = self._own_resource_access_level(resource)
+        if own_level is None:
             return default_access_level(resource)
-
-        return max(
-            access_controls,
-            key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
-        ).access_level
+        return own_level
 
     def has_access_levels_for_resource(self, resource: APIScopeObject) -> bool:
         if not self._team:
             # If there is no team, then there can't be any access controls on this resource
             return False
 
-        # Inheriting children (e.g. warehouse_view -> warehouse_objects) intentionally
-        # bypass their own resource-level rows: only the parent (umbrella) is consulted.
-        # This keeps the AC picker simple — admins configure one umbrella scope instead
-        # of N child scopes — at the cost of ignoring any standalone resource-level row
-        # written against a child. Object-level rows on the child are still honored via
-        # specific_access_level_for_object, which queries the child resource directly.
+        # Inheriting children (e.g. warehouse_table -> warehouse_objects) consult both the parent
+        # umbrella and their own resource-level rows. Object-level rows on the child are handled
+        # separately via specific_access_level_for_object.
         parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
         if parent_resource:
-            return self.has_access_levels_for_resource(parent_resource)
+            return self.has_access_levels_for_resource(parent_resource) or (
+                self._own_resource_access_level(resource) is not None
+            )
 
         filters = self._access_controls_filters_for_resource(resource)
         access_controls = self._get_access_controls(filters)

@@ -151,15 +151,11 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
         self.saved_query.refresh_from_db()
         self.assertEqual(self.saved_query.query, {"kind": "HogQLQuery", "query": "select 1"})
 
-    def test_resource_level_row_on_child_alone_has_no_effect(self):
-        # Contract: warehouse_view inherits from warehouse_objects, so resource-level rows
-        # keyed on warehouse_view (without resource_id) are intentionally bypassed — only
-        # the umbrella warehouse_objects scope counts. The distinguishing assertion is that
-        # creator bypass (resolved via access_level_for_object) still returns "manager" on
-        # the user's own query, even with a child-only `none` row that would otherwise
-        # short-circuit resource access. If has_access_levels_for_resource ever started
-        # honoring child rows it would route through access_level_for_resource and lose
-        # creator bypass, returning the default ("editor") instead.
+    def test_child_resource_none_denies_resource_access(self):
+        # A resource-level "none" on the child warehouse_view is now honored (it used to be
+        # ignored in favor of the warehouse_objects umbrella). It denies at the resource gate just
+        # like a warehouse_objects "none" would — even for the creator, who has no explicit
+        # object-level grant to fall back on (has_any_specific_access_for_resource).
         own_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="own_view",
@@ -171,9 +167,7 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
 
         url = f"/api/environments/{self.team.pk}/warehouse_saved_queries/{own_query.id}/"
         response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # Creator bypass: highest level for warehouse_view is "manager".
-        self.assertEqual(response.json().get("user_access_level"), "manager")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_object_level_access_grants_through_resource_default_none(self):
         # When the project default is 'none' (no resource access), an object-level grant on a

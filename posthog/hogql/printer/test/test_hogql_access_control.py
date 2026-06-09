@@ -314,6 +314,27 @@ class TestWarehouseTableAccessControl(BaseTest):
         assert "allowed_table" not in database._denied_tables
         assert "denied_table" in database._denied_tables
 
+    def test_child_resource_deny_applies_without_parent_rule(self):
+        # A resource-level "none" on the child warehouse_table now denies all warehouse tables,
+        # even with no warehouse_objects rule (child rules apply when the parent doesn't restrict).
+        self._create_ac(resource="warehouse_table", access_level="none")
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert "denied_table" in database._denied_tables
+        assert "allowed_table" in database._denied_tables
+
+    def test_parent_objects_deny_is_ceiling_over_child_grant(self):
+        # Parent acts as a ceiling: a warehouse_objects "none" denies everything, and a more
+        # permissive child warehouse_table grant cannot lift it.
+        self._create_ac(resource="warehouse_objects", access_level="none")
+        self._create_ac(resource="warehouse_table", access_level="viewer")
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert "denied_table" in database._denied_tables
+        assert "allowed_table" in database._denied_tables
+
     def test_org_admin_bypasses_warehouse_acl(self):
         membership = self._membership()
         membership.level = OrganizationMembership.Level.ADMIN
@@ -590,6 +611,24 @@ class TestWarehouseViewAccessControl(BaseTest):
 
         assert "denied_view" in database._denied_tables
         assert "allowed_view" in database._denied_tables
+
+    def test_child_resource_deny_applies_without_parent_rule(self):
+        # A resource-level "none" on warehouse_view denies all views, even with no warehouse_objects rule.
+        self._create_ac(resource="warehouse_view", access_level="none")
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert "denied_view" in database._denied_tables
+        assert "allowed_view" in database._denied_tables
+
+    def test_sibling_child_deny_does_not_affect_views(self):
+        # warehouse_table and warehouse_view are independent children: denying one must not deny the other.
+        self._create_ac(resource="warehouse_table", access_level="none")
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert "denied_view" not in database._denied_tables
+        assert "allowed_view" not in database._denied_tables
 
     def test_no_user_fails_closed_for_warehouse_views(self):
         database = Database.create_for(team=self.team, user=None)
