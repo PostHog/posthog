@@ -38,6 +38,8 @@ services:
                         path /i/v0
                         path /i/v0/
                         path /i/v0/*
+                        path /i/v1/analytics/events
+                        path /i/v1/analytics/events/
                         path /batch
                         path /batch/
                         path /batch/*
