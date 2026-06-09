@@ -80,7 +80,7 @@ class TestConvertTeamConversionGoalsToObjects(BaseTest):
 
         self.assertEqual(len(result), 1)
         goal = result[0]
-        self.assertIsInstance(goal, ConversionGoalFilter3)
+        assert isinstance(goal, ConversionGoalFilter3)
         self.assertEqual(goal.id_field, DATA_WAREHOUSE_NODE_GOAL_WITHOUT_ID_FIELD["distinct_id_field"])
         self.assertEqual(goal.distinct_id_field, DATA_WAREHOUSE_NODE_GOAL_WITHOUT_ID_FIELD["distinct_id_field"])
 
@@ -89,6 +89,6 @@ class TestConvertTeamConversionGoalsToObjects(BaseTest):
 
         self.assertEqual(len(result), 1)
         goal = result[0]
-        self.assertIsInstance(goal, ConversionGoalFilter1)
+        assert isinstance(goal, ConversionGoalFilter1)
         self.assertEqual(goal.event, "signup")
         self.assertFalse(hasattr(goal, "table_name"))
