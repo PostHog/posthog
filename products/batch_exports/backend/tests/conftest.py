@@ -5,6 +5,8 @@ from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team
 
+from products.batch_exports.backend.tests.teardown import adelete_best_effort
+
 
 @pytest_asyncio.fixture
 async def aorganization(db):
@@ -13,7 +15,7 @@ async def aorganization(db):
 
     yield org
 
-    await sync_to_async(org.delete)()
+    await adelete_best_effort(org)
 
 
 @pytest_asyncio.fixture
@@ -23,8 +25,8 @@ async def ateam(aorganization):
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
 
     yield team
-    # Skip Temporal schedule cleanup — team.delete() CASCADE-deletes BatchExport
-    # rows from the DB, and Temporal schedules in CI don't need explicit removal.
-    # Calling delete_batch_exports() here can hang indefinitely because
-    # sync_to_async threads blocked on gRPC cannot be cancelled by asyncio.
-    await sync_to_async(team.delete)()
+    # team.delete() CASCADE-deletes BatchExport rows; Temporal schedules in CI don't
+    # need explicit removal. The cascade can block indefinitely on an uncancellable
+    # backend call (sync_to_async threads blocked on gRPC can't be cancelled by
+    # asyncio), so the delete is time-bounded — see adelete_best_effort.
+    await adelete_best_effort(team)
