@@ -8,6 +8,21 @@ import { toolbarConfigLogic } from './toolbarConfigLogic'
 
 type OAuthTokens = { access_token: string; refresh_token: string; expires_in: number }
 
+/** Error carrying the refresh endpoint's HTTP status so callers can tell apart an expected
+ * token-expiry / re-auth path from a genuine server error. */
+interface TokenRefreshError extends Error {
+    status: number
+}
+
+// 400/401/403 from the refresh endpoint all mean the refresh token is expired, revoked, or
+// otherwise invalid (`invalid_grant`) — an expected re-auth path, not a fault. The backend
+// remaps the internal OAuth server's 401/403 to 400, so all three land here.
+const EXPECTED_AUTH_EXPIRY_STATUSES = new Set([400, 401, 403])
+
+function isExpectedAuthExpiry(error: unknown): boolean {
+    return error instanceof Error && EXPECTED_AUTH_EXPIRY_STATUSES.has((error as TokenRefreshError).status)
+}
+
 let refreshPromise: Promise<OAuthTokens> | null = null
 
 export async function refreshOAuthTokens(
@@ -29,13 +44,20 @@ export async function refreshOAuthTokens(
             })
 
             if (!response.ok) {
-                const err = new Error(`Refresh failed: ${response.status}`)
+                const err: TokenRefreshError = Object.assign(new Error(`Refresh failed: ${response.status}`), {
+                    status: response.status,
+                })
                 toolbarPosthogJS.capture('toolbar token refresh', {
                     status: 'error',
                     http_status: response.status,
                     duration_ms: Math.round(performance.now() - startTime),
                 })
-                captureToolbarException(err, 'token_refresh')
+                // Expected token-expiry statuses are handled gracefully by the caller (re-auth
+                // toast + tokenExpired), so capturing them as exceptions is just noise. Still
+                // capture genuine server errors (5xx) and the metric event above.
+                if (!isExpectedAuthExpiry(err)) {
+                    captureToolbarException(err, 'token_refresh')
+                }
                 throw err
             }
 
@@ -91,7 +113,12 @@ export async function withTokenRefresh(
         return await retryRequest(access)
     } catch (e) {
         toolbarLogger.error('auth', 'Token refresh retry failed', { status: response.status })
-        captureToolbarException(e, 'token_refresh_retry')
+        // Same expected token-expiry path as in refreshOAuthTokens — the re-auth toast below is
+        // the intended outcome, so don't re-capture it as an exception. Network errors and 5xx
+        // (no expected-expiry status on the error) still get captured.
+        if (!isExpectedAuthExpiry(e)) {
+            captureToolbarException(e, 'token_refresh_retry')
+        }
         lemonToast.error('Please re-authenticate to continue using the toolbar.')
         toolbarConfigLogic.actions.tokenExpired()
         return response
