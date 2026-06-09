@@ -64,15 +64,16 @@ function openExperimentPersonsModalForSeries({
         order_type: experimentQuery.metric.funnel_order_type,
     })
 
-    // IMPORTANT: For experiment funnels, the frontend adds an "Experiment exposure" step at index 0
-    // But the backend actors query funnel doesn't include this - it only has the actual metric events
+    // IMPORTANT: For experiment funnels, the frontend adds an "Experiment exposure" step at index 0.
+    // The backend actors query treats exposure as step 0 (returning all exposed actors) and the
+    // actual metric events as steps 1..N, so frontend step indices map directly to backend steps.
     // Frontend: Step 0=Exposure, Step 1=$pageview, Step 2=click
-    // Backend:                  Step 1=$pageview, Step 2=click
-    // So we map frontend step indices to backend step numbers directly (stepIndex = backendStepNo)
+    // Backend:  Step 0=Exposure, Step 1=$pageview, Step 2=click
     const backendStepNo = stepIndex
 
-    // Skip if trying to query the "Experiment exposure" step (stepIndex 0, doesn't exist in backend)
-    if (backendStepNo < 1) {
+    // The exposure step (step 0) only supports conversions ("all exposed actors").
+    // A drop-off "before exposure" is not a meaningful query.
+    if (backendStepNo === 0 && !converted) {
         return
     }
 
