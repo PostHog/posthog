@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconBolt, IconDatabaseBolt } from '@posthog/icons'
@@ -9,12 +10,19 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 export type PreAggregatedBadgeVariant = 'preagg' | 'precomputed'
+export type PreAggregatedBadgePosition = 'top-right' | 'bottom-right'
 
 // FAQ answer explaining what the pre-computed badge means.
 const QUERY_ENGINE_DOCS_URL = 'https://posthog.com/docs/web-analytics/faq#what-does-the-pre-computed-badge-mean'
 
 interface PreAggregatedBadgeProps {
     variant?: PreAggregatedBadgeVariant
+    position?: PreAggregatedBadgePosition
+}
+
+const POSITION_CLASS: Record<PreAggregatedBadgePosition, string> = {
+    'top-right': 'top-2 right-2',
+    'bottom-right': 'bottom-2 right-2',
 }
 
 function PreAggregatedTooltip(): JSX.Element {
@@ -44,19 +52,25 @@ function PrecomputedTooltip(): JSX.Element {
     )
 }
 
-export function PreAggregatedBadge({ variant = 'preagg' }: PreAggregatedBadgeProps = {}): JSX.Element | null {
+export function PreAggregatedBadge({
+    variant = 'preagg',
+    position = 'top-right',
+}: PreAggregatedBadgeProps = {}): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE]) {
+    const isPrecomputed = variant === 'precomputed'
+
+    // The precompute kill switch only governs the pre-computed roll-up indicator. The pre-aggregated
+    // ("new query engine") badge is controlled upstream by its own settings flag and must stay visible.
+    if (isPrecomputed && !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE]) {
         return null
     }
 
-    const isPrecomputed = variant === 'precomputed'
     const Icon = isPrecomputed ? IconDatabaseBolt : IconBolt
     const iconClassName = isPrecomputed ? 'text-muted w-4 h-4' : 'text-warning w-4 h-4'
 
     return (
         <Tooltip interactive title={isPrecomputed ? <PrecomputedTooltip /> : <PreAggregatedTooltip />}>
-            <div className="absolute top-2 right-2 z-10">
+            <div className={clsx('absolute z-10', POSITION_CLASS[position])}>
                 <Icon className={iconClassName} />
             </div>
         </Tooltip>

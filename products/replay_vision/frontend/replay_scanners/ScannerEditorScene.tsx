@@ -13,7 +13,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
-import { BuilderHog2, DetectiveHog } from 'lib/components/hedgehogs'
+import { BuilderHog2, DetectiveHog, XRayHog } from 'lib/components/hedgehogs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -24,6 +24,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
+import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
 import { replayScannerLogic } from './replayScannerLogic'
@@ -38,7 +40,7 @@ export const scene: SceneExport = {
 }
 
 export function ScannerEditorSceneComponent(): JSX.Element {
-    const { scannerId, step, isNew } = useValues(scannerEditorSceneLogic)
+    const { scannerId, step, isNew, visibleSteps } = useValues(scannerEditorSceneLogic)
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
@@ -47,7 +49,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         useValues(scannerLogic)
     const { submitScanner, setSubmitIntent } = useActions(scannerLogic)
 
-    if (scannerLoading || !scanner) {
+    if (step !== 'template' && (scannerLoading || !scanner)) {
         return (
             <SceneContent>
                 <SceneTitleSection name="Loading…" resourceType={{ type: 'replay_vision' }} />
@@ -55,22 +57,31 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         )
     }
 
-    const title = isNew ? scanner.name || 'New scanner' : scanner.name || 'Scanner'
+    const title = isNew ? scanner?.name || 'New scanner' : scanner?.name || 'Scanner'
 
     const stepErrors = showScannerErrors
         ? {
+              template: false,
               configure: !!(scannerValidationErrors?.name || scannerValidationErrors?.scanner_config),
               triggers: scannerValidationErrors?.sampling_rate != null,
           }
-        : { configure: false, triggers: false }
+        : { template: false, configure: false, triggers: false }
 
     const goToStep = (next: ScannerEditorStep): void => {
         if (isScannerSubmitting) {
             return
         }
-        if (SCANNER_EDITOR_STEP_ORDER[next] > SCANNER_EDITOR_STEP_ORDER[step as ScannerEditorStep]) {
+        if (SCANNER_EDITOR_STEP_ORDER[next] > SCANNER_EDITOR_STEP_ORDER[step]) {
+            if (step === 'template') {
+                router.actions.push(urls.replayVisionScannerConfigure(scannerId))
+                return
+            }
             setSubmitIntent('advance')
             submitScanner()
+            return
+        }
+        if (next === 'template') {
+            router.actions.push(urls.replayVisionScannerTemplate(scannerId))
             return
         }
         router.actions.push(
@@ -83,45 +94,76 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     return (
         <SceneContent>
             <div className="flex flex-col items-center pt-16 pb-8">
-                <div className="w-full max-w-4xl px-4 flex flex-col gap-6">
-                    <SceneTitleSection name={title} resourceType={{ type: 'replay_vision' }} />
-                    <ScannerEditorStepper currentStep={step} onStepClick={goToStep} stepErrors={stepErrors} />
-                    <Form logic={replayScannerLogic} props={{ id: scannerId }} formKey="scanner" enableFormOnSubmit>
-                        <div className="bg-bg-light border rounded-lg shadow-sm p-6 flex flex-col gap-6 [&_.Field--error_.input-like]:!border-danger">
-                            <div className="flex items-center gap-3">
-                                {step === 'configure' ? (
-                                    <DetectiveHog className="h-24 w-auto shrink-0" />
-                                ) : (
-                                    <BuilderHog2 className="h-24 w-auto shrink-0" />
-                                )}
-                                <div>
-                                    <div className="text-base font-semibold">
-                                        {step === 'configure' ? 'Configure your scanner' : 'Set up triggers'}
-                                    </div>
-                                    <div className="text-sm text-muted">
-                                        {step === 'configure'
-                                            ? 'What it looks for and how it analyzes recordings.'
-                                            : 'Which recordings it runs against and how often.'}
+                <div className="w-full max-w-5xl px-4 flex flex-col gap-6">
+                    <SceneTitleSection
+                        name={title}
+                        resourceType={{ type: 'replay_vision' }}
+                        actions={<ReplayVisionFeedbackButton />}
+                    />
+                    <ScannerEditorStepper
+                        currentStep={step}
+                        steps={visibleSteps}
+                        onStepClick={goToStep}
+                        stepErrors={stepErrors}
+                    />
+                    {step === 'template' ? (
+                        <>
+                            <div className="text-center space-y-3">
+                                <div className="flex justify-center mb-2">
+                                    <XRayHog className="w-32 h-32" />
+                                </div>
+                                <h1 className="text-2xl font-bold m-0">Choose a scanner template</h1>
+                                <p className="text-base text-secondary max-w-2xl mx-auto m-0">
+                                    Pick a pre-configured template to get started quickly, or create a fully custom
+                                    scanner from scratch.
+                                </p>
+                            </div>
+                            <ScannerTemplatePicker />
+                        </>
+                    ) : (
+                        <Form
+                            logic={replayScannerLogic}
+                            props={{ id: scannerId }}
+                            formKey="scanner"
+                            enableFormOnSubmit
+                            className="max-w-4xl w-full mx-auto"
+                        >
+                            <div className="bg-bg-light border rounded-lg shadow-sm p-6 flex flex-col gap-6 [&_.Field--error_.input-like]:!border-danger">
+                                <div className="flex items-center gap-3">
+                                    {step === 'configure' ? (
+                                        <DetectiveHog className="h-24 w-auto shrink-0" />
+                                    ) : (
+                                        <BuilderHog2 className="h-24 w-auto shrink-0" />
+                                    )}
+                                    <div>
+                                        <div className="text-base font-semibold">
+                                            {step === 'configure' ? 'Configure your scanner' : 'Set up triggers'}
+                                        </div>
+                                        <div className="text-sm text-muted">
+                                            {step === 'configure'
+                                                ? 'What it looks for and how it analyzes recordings.'
+                                                : 'Which recordings it runs against and how often.'}
+                                        </div>
                                     </div>
                                 </div>
+                                {step === 'configure' ? <ConfigureStep /> : <ScannerTriggers scannerId={scannerId} />}
+                                <EditorFooter
+                                    step={step}
+                                    scannerId={scannerId}
+                                    isNew={isNew}
+                                    isSubmitting={isScannerSubmitting}
+                                    onAdvance={() => {
+                                        setSubmitIntent('advance')
+                                        submitScanner()
+                                    }}
+                                    onSave={() => {
+                                        setSubmitIntent('save')
+                                        submitScanner()
+                                    }}
+                                />
                             </div>
-                            {step === 'configure' ? <ConfigureStep /> : <ScannerTriggers scannerId={scannerId} />}
-                            <EditorFooter
-                                step={step}
-                                scannerId={scannerId}
-                                isNew={isNew}
-                                isSubmitting={isScannerSubmitting}
-                                onAdvance={() => {
-                                    setSubmitIntent('advance')
-                                    submitScanner()
-                                }}
-                                onSave={() => {
-                                    setSubmitIntent('save')
-                                    submitScanner()
-                                }}
-                            />
-                        </div>
-                    </Form>
+                        </Form>
+                    )}
                 </div>
             </div>
         </SceneContent>
@@ -152,6 +194,7 @@ function ConfigureStep(): JSX.Element {
             {isTypeSelectable ? (
                 <LemonField name="scanner_type" label="Scanner type" className="items-start">
                     <LemonSelect
+                        data-attr="vision-editor-type-select"
                         value={scanner.scanner_type}
                         onChange={(next) => {
                             if (next === scanner.scanner_type) {
@@ -253,25 +296,42 @@ function EditorFooter({
     onAdvance: () => void
     onSave: () => void
 }): JSX.Element {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     return (
         <div className="flex items-center justify-between">
             {step === 'configure' ? (
                 <>
                     {isNew && (
-                        <LemonButton type="tertiary" to={urls.replayVisionTemplates()}>
+                        <LemonButton type="tertiary" to={urls.replayVisionTemplates()} data-attr="vision-editor-back">
                             Back to templates
                         </LemonButton>
                     )}
-                    <LemonButton type="primary" loading={isSubmitting} onClick={onAdvance} className="ml-auto">
+                    <LemonButton
+                        type="primary"
+                        loading={isSubmitting}
+                        onClick={onAdvance}
+                        className="ml-auto"
+                        data-attr="vision-editor-next"
+                    >
                         Next: triggers
                     </LemonButton>
                 </>
             ) : (
                 <>
-                    <LemonButton type="tertiary" to={urls.replayVisionScannerConfigure(scannerId)}>
+                    <LemonButton
+                        type="tertiary"
+                        to={urls.replayVisionScannerConfigure(scannerId)}
+                        data-attr="vision-editor-back"
+                    >
                         Back
                     </LemonButton>
-                    <LemonButton type="primary" loading={isSubmitting} onClick={onSave}>
+                    <LemonButton
+                        type="primary"
+                        loading={isSubmitting}
+                        onClick={onSave}
+                        data-attr="vision-editor-save"
+                        data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
+                    >
                         {isNew ? 'Create scanner' : 'Save changes'}
                     </LemonButton>
                 </>

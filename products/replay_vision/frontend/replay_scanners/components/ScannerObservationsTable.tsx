@@ -112,9 +112,11 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             title: 'Result',
             key: 'result',
             render: (_, obs) => (
-                <div className="min-w-[18rem] max-w-xl">
-                    <ObservationResultSummary observation={obs} />
-                </div>
+                <Link to={urls.replayVisionObservation(obs.id)} className="block">
+                    <div className="min-w-[18rem] max-w-xl">
+                        <ObservationResultSummary observation={obs} />
+                    </div>
+                </Link>
             ),
             sorter: scannerType === 'scorer' || scannerType === 'monitor' ? true : undefined,
         },
@@ -162,6 +164,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     icon={<IconRewindPlay />}
                     to={urls.replaySingle(obs.session_id)}
                     className="whitespace-nowrap"
+                    data-attr="vision-observation-view-recording"
                 >
                     View recording
                 </LemonButton>
@@ -223,6 +226,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                             icon={<IconRefresh />}
                             onClick={() => loadObservations()}
                             loading={observationsLoading}
+                            data-attr="vision-observations-refresh"
                         >
                             Refresh
                         </LemonButton>

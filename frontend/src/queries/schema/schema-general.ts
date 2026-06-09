@@ -2300,8 +2300,6 @@ export interface AccountsQueryResponse extends AnalyticsQueryResponseBase {
     metricsResults?: (number | null)[]
 }
 
-export type AccountsRoleAssignmentFilter = integer | 'unassigned'
-
 export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     kind: NodeKind.AccountsQuery
     select?: HogQLExpression[]
@@ -2309,9 +2307,12 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     metrics?: HogQLExpression[]
     search?: string
     tagNames?: string[]
-    csm?: AccountsRoleAssignmentFilter
-    accountExecutive?: AccountsRoleAssignmentFilter
-    accountOwner?: AccountsRoleAssignmentFilter
+    /** Match accounts whose CSM is any of these user ids (OR semantics). */
+    csm?: integer[]
+    /** Match accounts whose account executive is any of these user ids (OR semantics). */
+    accountExecutive?: integer[]
+    /** Match accounts whose account owner is any of these user ids (OR semantics). */
+    accountOwner?: integer[]
     allRolesUnassigned?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
@@ -3707,11 +3708,16 @@ export interface ExperimentParameters {
     excluded_variants?: string[]
 }
 
-/** Slim exposure config for experiment API payloads. */
+/** Slim exposure config for experiment API payloads. Discriminated by `kind`:
+ *  'ExperimentEventExposureConfig' tracks exposure via a custom event,
+ *  'ActionsNode' tracks exposure via an action. */
 export interface ExperimentApiExposureConfig {
-    kind: NodeKind.ExperimentEventExposureConfig
-    /** Custom exposure event name. */
-    event: string
+    /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
+    kind?: 'ExperimentEventExposureConfig' | 'ActionsNode'
+    /** Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'. */
+    event?: string
+    /** Action ID. Required when kind is 'ActionsNode'. */
+    id?: integer
     /** Event property filters. Pass an empty array if no filters needed. */
     properties: EventPropertyFilter[]
 }

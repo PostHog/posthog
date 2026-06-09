@@ -16,6 +16,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { QUOTA_WARN_THRESHOLD } from '../utils/quotaProjection'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
@@ -55,29 +56,34 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 description={scanner.description}
                 resourceType={{ type: 'replay_vision' }}
                 actions={
-                    <More
-                        size="small"
-                        overlay={
-                            <LemonButton
-                                status="danger"
-                                fullWidth
-                                onClick={() =>
-                                    LemonDialog.open({
-                                        title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
-                                        description: 'This cannot be undone.',
-                                        primaryButton: {
-                                            children: 'Delete',
-                                            status: 'danger',
-                                            onClick: () => deleteScanner(),
-                                        },
-                                        secondaryButton: { children: 'Cancel' },
-                                    })
-                                }
-                            >
-                                Delete
-                            </LemonButton>
-                        }
-                    />
+                    <>
+                        <ReplayVisionFeedbackButton />
+                        <More
+                            size="small"
+                            overlay={
+                                <LemonButton
+                                    status="danger"
+                                    fullWidth
+                                    onClick={() =>
+                                        LemonDialog.open({
+                                            title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
+                                            description: 'This cannot be undone.',
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                status: 'danger',
+                                                onClick: () => deleteScanner(),
+                                            },
+                                            secondaryButton: { children: 'Cancel' },
+                                        })
+                                    }
+                                    data-attr="vision-scanner-delete"
+                                    data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                                >
+                                    Delete
+                                </LemonButton>
+                            }
+                        />
+                    </>
                 }
             />
 
@@ -91,6 +97,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         key: 'configuration',
                         header: 'Configuration',
                         content: <ScannerConfigReadonly scanner={scanner} />,
+                        dataAttr: 'vision-scanner-config-expand',
                     },
                 ]}
             />
@@ -102,7 +109,8 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                     <LemonButton
                         type="primary"
                         to={urls.replayVisionScannerConfigure(scannerId)}
-                        data-attr="edit-replay-scanner"
+                        data-attr="vision-scanner-edit"
+                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                     >
                         Edit scanner
                     </LemonButton>

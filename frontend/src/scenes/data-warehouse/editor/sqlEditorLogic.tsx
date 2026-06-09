@@ -6,6 +6,7 @@ import {
     beforeUnmount,
     connect,
     kea,
+    key,
     listeners,
     path,
     props,
@@ -27,7 +28,6 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
@@ -395,7 +395,7 @@ function applyUndoableModelEdit(monaco: Monaco | null | undefined, uri: Uri | un
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
     props({ mode: SQLEditorMode.FullScene } as SqlEditorLogicProps),
-    tabAwareScene(),
+    key((props) => props.tabId),
     connect((props: SqlEditorLogicProps) => ({
         values: [
             dataWarehouseViewsLogic,
@@ -2355,8 +2355,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                 } else if (searchParams.open_query) {
-                    // Open query string
-                    actions.createTab(searchParams.open_query)
+                    // kea-router decodes numeric/JSON-shaped URL values to non-strings; coerce so queryInput stays a string
+                    actions.createTab(String(searchParams.open_query))
                     tabAdded = true
                 } else if (
                     hashParams.q &&
@@ -2365,9 +2365,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     !insightShortIdFromUrl &&
                     (values.queryInput === null ||
                         !activeTabMatchesUrlTarget(values.activeTab, {}) ||
-                        values.queryInput !== hashParams.q)
+                        values.queryInput !== String(hashParams.q))
                 ) {
-                    actions.createTab(hashParams.q)
+                    // kea-router decodes numeric/JSON-shaped URL values to non-strings; coerce so queryInput stays a string
+                    actions.createTab(String(hashParams.q))
                     tabAdded = true
                 } else if (values.queryInput === null) {
                     actions.createTab('')
