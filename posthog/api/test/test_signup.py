@@ -637,12 +637,13 @@ class TestSignupAPI(APIBaseTest):
 
         dashboard: Dashboard = Dashboard.objects.first()  # type: ignore
         self.assertEqual(dashboard.team, user.team)
-        self.assertEqual(dashboard.tiles.count(), 6)
+        self.assertEqual(dashboard.tiles.count(), 7)
         self.assertEqual(dashboard.name, "My App Dashboard")
         self.assertEqual(
             dashboard.description,
-            "A starter view of how people use your app: how many visit, whether they come back, "
-            "where traffic comes from, and how they move through your pages.",
+            "How people use your app at a glance — reach, retention, top pages, location, and whether "
+            "visitors take action. Built from automatically captured events, so it works on day one. "
+            "Swap in your own events to make it yours.",
         )
         self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 1)
 

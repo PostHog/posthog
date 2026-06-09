@@ -165,7 +165,7 @@ class TestTeam(BaseTest):
         self.assertIsInstance(team.primary_dashboard, Dashboard)
 
         # Ensure insights are created and linked
-        self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 6)
+        self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 7)
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_team_on_cloud_uses_feature_flag_to_determine_person_on_events(self, mock_feature_enabled):
@@ -272,6 +272,7 @@ class TestTeam(BaseTest):
 
     @parameterized.expand(
         [
+            ("Active users (last 30 days)",),
             ("Daily active users (DAUs)",),
             ("Weekly active users (WAUs)",),
         ]
@@ -294,9 +295,9 @@ class TestTeam(BaseTest):
     @parameterized.expand(
         [
             ("Retention", "RetentionQuery"),
-            ("Growth accounting", "LifecycleQuery"),
-            ("Referring domain (last 14 days)", "TrendsQuery"),
-            ("Pageview funnel, by browser", "FunnelsQuery"),
+            ("Top pages", "TrendsQuery"),
+            ("Users by country", "TrendsQuery"),
+            ("Visit to interaction funnel", "FunnelsQuery"),
         ]
     )
     def test_default_dashboard_pageview_only_tiles(self, tile_name, expected_kind):
