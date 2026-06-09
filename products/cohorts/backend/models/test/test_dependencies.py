@@ -7,9 +7,8 @@ from django.core.cache import cache
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.models import Cohort
-from posthog.models.cohort.cohort import CohortType
-from posthog.models.cohort.dependencies import (
+from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.dependencies import (
     COHORT_BACKFILL_DEBOUNCE_SECONDS,
     COHORT_DEPENDENCY_CACHE_COUNTER,
     DEPENDENCY_CACHE_TIMEOUT,
@@ -539,7 +538,7 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
         ]
     )
     @mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_task")
-    @mock.patch("posthog.models.cohort.dependencies.get_redis_client")
+    @mock.patch("products.cohorts.backend.models.dependencies.get_redis_client")
     def test_trigger_cohort_backfill_redis_set(
         self, _name, redis_set_result, should_schedule, mock_get_redis, mock_task
     ):
@@ -558,7 +557,7 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
             mock_task.apply_async.assert_not_called()
 
     @mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_task")
-    @mock.patch("posthog.models.cohort.dependencies.get_redis_client")
+    @mock.patch("products.cohorts.backend.models.dependencies.get_redis_client")
     def test_trigger_cohort_backfill_handles_task_exception(self, mock_get_redis, mock_task):
         mock_redis = mock.MagicMock()
         mock_redis.set.return_value = True
@@ -573,7 +572,7 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
         mock_redis.delete.assert_called_once_with(f"cohort_backfill_pending:{cohort.pk}")
 
     @mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_task")
-    @mock.patch("posthog.models.cohort.dependencies.get_redis_client")
+    @mock.patch("products.cohorts.backend.models.dependencies.get_redis_client")
     def test_trigger_cohort_backfill_handles_redis_failure(self, mock_get_redis, mock_task):
         mock_get_redis.side_effect = Exception("Redis unavailable")
         cohort = self._create_cohort(name="Test Cohort", cohort_type=CohortType.REALTIME)
@@ -582,7 +581,7 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
         _trigger_cohort_backfill(cohort)
         mock_task.apply_async.assert_not_called()
 
-    @mock.patch("posthog.models.cohort.dependencies._trigger_cohort_backfill")
+    @mock.patch("products.cohorts.backend.models.dependencies._trigger_cohort_backfill")
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_backfill_signal_triggered_for_realtime_cohorts(self, mock_feature_enabled, mock_trigger_backfill):
         """Test that backfill is triggered when a realtime cohort with person properties is saved"""
@@ -639,7 +638,7 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
 
         mock_trigger_backfill.assert_called_once_with(cohort)
 
-    @mock.patch("posthog.models.cohort.dependencies._trigger_cohort_backfill")
+    @mock.patch("products.cohorts.backend.models.dependencies._trigger_cohort_backfill")
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)  # Flag enabled, but cohort type prevents trigger
     def test_backfill_signal_not_triggered_for_non_realtime_cohorts(self, mock_feature_enabled, mock_trigger_backfill):
         """Test that backfill is not triggered for non-realtime cohorts"""
@@ -674,7 +673,7 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
 
         mock_trigger_backfill.assert_not_called()
 
-    @mock.patch("posthog.models.cohort.dependencies._trigger_cohort_backfill")
+    @mock.patch("products.cohorts.backend.models.dependencies._trigger_cohort_backfill")
     @mock.patch(
         "posthoganalytics.feature_enabled", return_value=True
     )  # Flag enabled, but static cohort prevents trigger
@@ -712,7 +711,7 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
 
         mock_trigger_backfill.assert_not_called()
 
-    @mock.patch("posthog.models.cohort.dependencies._trigger_cohort_backfill")
+    @mock.patch("products.cohorts.backend.models.dependencies._trigger_cohort_backfill")
     @mock.patch(
         "posthoganalytics.feature_enabled", return_value=True
     )  # Flag enabled, but no person properties prevents trigger
@@ -747,7 +746,7 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
 
         mock_trigger_backfill.assert_not_called()
 
-    @mock.patch("posthog.models.cohort.dependencies._trigger_cohort_backfill")
+    @mock.patch("products.cohorts.backend.models.dependencies._trigger_cohort_backfill")
     @mock.patch(
         "posthoganalytics.feature_enabled", return_value=True
     )  # Flag enabled, but recalculation save prevents trigger
@@ -787,7 +786,7 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
 
         mock_trigger_backfill.assert_not_called()
 
-    @mock.patch("posthog.models.cohort.dependencies._trigger_cohort_backfill")
+    @mock.patch("products.cohorts.backend.models.dependencies._trigger_cohort_backfill")
     @mock.patch("posthoganalytics.feature_enabled", return_value=False)
     def test_backfill_signal_not_triggered_when_feature_flag_disabled(
         self, mock_feature_enabled, mock_trigger_backfill
@@ -855,7 +854,7 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
         # Verify backfill was not triggered due to disabled feature flag
         mock_trigger_backfill.assert_not_called()
 
-    @mock.patch("posthog.models.cohort.dependencies._trigger_cohort_backfill")
+    @mock.patch("products.cohorts.backend.models.dependencies._trigger_cohort_backfill")
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_backfill_signal_not_triggered_when_person_properties_unchanged(
         self, mock_feature_enabled, mock_trigger_backfill

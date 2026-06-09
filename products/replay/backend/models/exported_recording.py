@@ -31,10 +31,11 @@ class ExportedRecording(UUIDModel):
 
     class Meta:
         ordering = ["-created_at"]
+        db_table = "posthog_exportedrecording"
 
     @property
     def is_expired(self) -> bool:
         return self.created_at < timezone.now() - timedelta(days=7)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"ExportedRecording({self.session_id}, {self.status})"

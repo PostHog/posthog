@@ -118,7 +118,7 @@ def is_cohort_recalculation_only_save(kwargs: dict) -> bool:
 class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.CharField(max_length=1000, blank=True)
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     deleted = models.BooleanField(default=False)
     filters = models.JSONField(
         null=True,
@@ -184,12 +184,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         }""",
     )
     query = models.JSONField(null=True, blank=True)
-    people = models.ManyToManyField("Person", through="CohortPeople")  # type: models.ManyToManyField
+    people = models.ManyToManyField("posthog.Person", through="CohortPeople")  # type: models.ManyToManyField
     version = models.IntegerField(blank=True, null=True)
     pending_version = models.IntegerField(blank=True, null=True)
     count = models.IntegerField(blank=True, null=True)
 
-    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, blank=True, null=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now, blank=True, null=True)
 
     is_calculating = models.BooleanField(default=False)
@@ -236,6 +236,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # Backs `name__icontains` search (the cohort picker's server-side search).
             GinIndex(fields=["name"], name="cohort_name_trgm_idx", opclasses=["gin_trgm_ops"]),
         ]
+        db_table = "posthog_cohort"
 
     def __str__(self):
         return self.name or "Untitled cohort"
@@ -351,7 +352,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         )
 
     def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
-        from posthog.models.cohort.util import recalculate_cohortpeople
+        from products.cohorts.backend.models.util import recalculate_cohortpeople
 
         logger.info(
             "cohort_calculation_started",
@@ -556,8 +557,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         Returns:
             Number of batches processed.
         """
-        from posthog.models.cohort.util import count_cohort_members, insert_static_cohort
         from posthog.personhog_client.gate import use_personhog
+
+        from products.cohorts.backend.models.util import count_cohort_members, insert_static_cohort
 
         current_batch_index = -1
         processing_error = None
@@ -669,9 +671,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         person_static_cohort table's ORDER BY includes a per-row UUID,
         preventing ReplacingMergeTree from deduplicating repeated inserts.
         """
-        from posthog.models.cohort.util import insert_static_cohort
         from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
         from posthog.models.person.util import get_persons_by_uuids
+
+        from products.cohorts.backend.models.util import insert_static_cohort
 
         persons = get_persons_by_uuids(team_id, batch)
         if not persons:
@@ -687,7 +690,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             if new_uuids:
                 insert_static_cohort(new_uuids, self.pk, team_id=team_id)
 
-        from posthog.models.cohort.util import insert_cohort_members
+        from products.cohorts.backend.models.util import insert_cohort_members
 
         insert_cohort_members(team_id, self.pk, person_ids, self.version, _skip_ownership_check=True)
 
@@ -727,7 +730,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         Raises:
             Exception: If removal fails due to database errors.
         """
-        from posthog.models.cohort.util import (
+        from products.cohorts.backend.models.util import (
             delete_cohort_member,
             get_static_cohort_size,
             is_person_in_cohort,
@@ -956,18 +959,19 @@ def get_or_create_internal_test_users_cohort(
 class CohortPeople(models.Model):
     id = models.BigAutoField(primary_key=True)
     cohort = models.ForeignKey("Cohort", on_delete=models.DO_NOTHING, db_constraint=False)
-    person = models.ForeignKey("Person", on_delete=models.DO_NOTHING, db_constraint=False)
+    person = models.ForeignKey("posthog.Person", on_delete=models.DO_NOTHING, db_constraint=False)
     version = models.IntegerField(blank=True, null=True)
 
     class Meta:
         # migrations managed via rust/persons_migrations
         managed = False
         indexes = [models.Index(fields=["cohort_id", "person_id"])]
+        db_table = "posthog_cohortpeople"
 
 
 @receiver(post_delete, sender=CohortPeople)
 def cohort_people_changed(sender, instance: "CohortPeople", **kwargs):
-    from posthog.models.cohort.util import get_static_cohort_size
+    from products.cohorts.backend.models.util import get_static_cohort_size
 
     try:
         cohort_id = instance.cohort_id
