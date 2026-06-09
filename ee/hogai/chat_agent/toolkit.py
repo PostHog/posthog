@@ -25,6 +25,7 @@ from ee.hogai.tools import (
     CreateNotebookTool,
     ListDataTool,
     ManageMemoriesTool,
+    ReadBusinessKnowledgeTool,
     ReadDataTool,
     ReadTaxonomyTool,
     SearchTool,
@@ -133,6 +134,24 @@ class ChatAgentToolkitManager(AgentToolkitManager):
         for tool in contextual_tools:
             if tool.get_name() not in initialized_tool_names:
                 available_tools.append(tool)
+
+        # Add the business-knowledge drill-down tool only when BK is available.
+        # Reuse the SearchTool's already-resolved readiness (flag + READY sources)
+        # and hand it to the read tool via `is_ready` so BK teams don't pay a
+        # second flag/DB lookup — for non-BK teams we never instantiate it at all.
+        # The read tool is available exactly when search exposed business knowledge.
+        search_tool = next((t for t in available_tools if isinstance(t, SearchTool)), None)
+        if search_tool is not None and search_tool.has_business_knowledge:
+            bk_read_tool = await ReadBusinessKnowledgeTool.create_tool_class(
+                team=self._team,
+                user=self._user,
+                state=state,
+                config=config,
+                context_manager=self._context_manager,
+                is_ready=True,
+            )
+            if bk_read_tool.get_name() not in initialized_tool_names:
+                available_tools.append(bk_read_tool)
 
         # Add MCP server tool if user has installations and flag is enabled
         if has_mcp_servers_feature_flag(self._team, self._user):

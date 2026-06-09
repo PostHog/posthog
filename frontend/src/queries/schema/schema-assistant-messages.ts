@@ -469,6 +469,7 @@ export type AssistantTool =
     | 'analyze_survey_responses'
     | 'read_taxonomy'
     | 'search'
+    | 'read_business_knowledge'
     | 'read_data'
     | 'todo_write'
     | 'filter_revenue_analytics'

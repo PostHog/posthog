@@ -39,6 +39,54 @@ class TestChatAgentWebSearchToolInclusion(BaseTest):
                 self.assertEqual(len(web_search_tools), 0)
 
 
+class TestChatAgentBusinessKnowledgeReadToolInclusion(BaseTest):
+    @parameterized.expand(
+        [
+            # (search_saw_bk, should_include)
+            # Read tool inclusion mirrors the SearchTool's resolved readiness — no
+            # second flag/DB lookup — so search's snapshot fully decides it.
+            ("search_no_bk", False, False),
+            ("search_bk_ready", True, True),
+        ]
+    )
+    @patch("ee.hogai.core.agent_modes.toolkit.AgentToolkitManager.get_tools", new_callable=AsyncMock)
+    async def test_read_tool_included_only_when_search_exposed_bk(
+        self, _name, search_saw_bk, should_include, mock_get_tools
+    ):
+        from ee.hogai.chat_agent.toolkit import ChatAgentToolkitManager
+        from ee.hogai.tools.search import SearchTool
+        from ee.hogai.utils.types.base import AssistantState
+
+        # Build the SearchTool through its public resolution path (no private
+        # poking) so its readiness snapshot reflects these flags.
+        with (
+            patch("ee.hogai.tools.search.has_business_knowledge_feature_flag", return_value=search_saw_bk),
+            patch("ee.hogai.tools.search.has_ready_sources", return_value=search_saw_bk),
+        ):
+            search_tool = await SearchTool.create_tool_class(
+                team=self.team, user=self.user, context_manager=MagicMock()
+            )
+        self.assertEqual(search_tool.has_business_knowledge, search_saw_bk)
+        mock_get_tools.return_value = [search_tool]
+
+        # Flip readiness to the OPPOSITE while the manager builds tools: the read
+        # tool must trust the SearchTool snapshot and NOT re-resolve, so these
+        # patches should have no effect on the outcome.
+        with (
+            patch("ee.hogai.chat_agent.toolkit.get_llm_gateway_variant", return_value="control"),
+            patch("ee.hogai.chat_agent.toolkit.has_mcp_servers_feature_flag", return_value=False),
+            patch("ee.hogai.tools.search.has_business_knowledge_feature_flag", return_value=not search_saw_bk),
+            patch("ee.hogai.tools.search.has_ready_sources", return_value=not search_saw_bk),
+        ):
+            manager = ChatAgentToolkitManager(team=self.team, user=self.user, context_manager=MagicMock())
+            tools = await manager.get_tools(AssistantState(messages=[]), RunnableConfig(configurable={}))
+
+        read_tools = [
+            t for t in tools if not isinstance(t, dict) and getattr(t, "name", None) == "read_business_knowledge"
+        ]
+        self.assertEqual(len(read_tools), 1 if should_include else 0)
+
+
 class TestChatAgentGatewayRouting(BaseTest):
     @parameterized.expand(
         [

@@ -762,6 +762,7 @@ class AssistantTool(StrEnum):
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
     READ_TAXONOMY = "read_taxonomy"
     SEARCH = "search"
+    READ_BUSINESS_KNOWLEDGE = "read_business_knowledge"
     READ_DATA = "read_data"
     TODO_WRITE = "todo_write"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"

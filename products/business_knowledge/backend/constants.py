@@ -17,7 +17,6 @@ MAX_TEXT_SIZE_BYTES = 1_000_000
 CHUNK_TARGET_CHARS = 1200
 CHUNK_HARD_MAX_CHARS = 1600
 
-# --- Stage 2a: URL fetch tunables ---
 # Hard cap on remote response bodies. Above this we abort mid-stream rather
 # than ever materializing the full payload — protects memory and makes a
 # zip-bomb attempt cheap to reject.
@@ -36,7 +35,6 @@ URL_MAX_REDIRECTS = 5
 URL_BOT_NAME = "PostHog-BusinessKnowledge"
 URL_USER_AGENT = f"{URL_BOT_NAME}/1.0 (+https://posthog.com)"
 
-# --- Stage 2b: crawl tunables ---
 # Discover step cap — sitemap / same-origin BFS stops emitting after this
 # many candidate URLs (BEFORE glob filtering). Purely defensive: a pathological
 # sitemap.xml can list 100k URLs.
@@ -55,7 +53,6 @@ CRAWL_HARD_MAX_DEPTH = 5
 # cross-worker rate limiting is Stage 5 Temporal work.
 PER_HOST_CONCURRENCY = 2
 
-# --- Stage 3: file upload tunables ---
 # Hard cap on uploaded file size (compressed). Above this the serializer
 # rejects immediately — the file never hits the parser.
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024
@@ -64,7 +61,6 @@ MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024
 # knowledge document while keeping per-request memory bounded.
 MAX_FILE_DECOMPRESSED_BYTES = 100 * 1024 * 1024
 
-# --- Stage 5: safety classifier tunables ---
 # The classifier is a security boundary: the span it inspects MUST equal the
 # span that becomes searchable, otherwise an attacker can hide a prompt-
 # injection payload past the inspected region and still have it indexed and
@@ -113,7 +109,6 @@ PENDING_EMBEDDING_SCAN_CAP = 50
 RECONCILE_EMBEDDING_SCAN_CAP = 50
 RECONCILE_EMBEDDING_GRACE = datetime.timedelta(hours=2)
 
-# --- Hybrid retrieval tunables (PR2 read path) ---
 # cosineDistance threshold: vectors above this are discarded BEFORE re-joining
 # Postgres. text-embedding-3-small typically returns 0.2–0.5 for related content
 # and 0.7+ for unrelated. Start strict; loosen with data.
@@ -138,3 +133,11 @@ BK_RRF_SCORE_FLOOR = 0.015
 # Timeout (seconds) for the async embedding call on the query path. If the
 # embedding service is slow, FTS alone fires (graceful degradation).
 BK_QUERY_EMBEDDING_TIMEOUT = 5.0
+
+# Default and hard-max neighbour radius for `get_document_window` (the drill-down
+# read path). The agent picks a hit from search and reads a wider contiguous span
+# of one document. Default is deliberately wider than search's fixed +/-1 window;
+# the hard cap bounds how much one document the agent can pull in a single read
+# (chunks are <= CHUNK_HARD_MAX_CHARS, so radius=15 => up to 31 chunks ~= 50k chars).
+BK_DRILLDOWN_DEFAULT_RADIUS = 5
+BK_DRILLDOWN_MAX_RADIUS = 15

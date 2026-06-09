@@ -30,6 +30,8 @@ from posthog.security.url_validation import is_url_allowed
 
 from . import crawl, discover, file_parse, html_parse, url_fetch
 from .constants import (
+    BK_DRILLDOWN_DEFAULT_RADIUS,
+    BK_DRILLDOWN_MAX_RADIUS,
     BK_EMBEDDING_DOCUMENT_TYPE,
     BK_EMBEDDING_MODEL,
     BK_EMBEDDING_PRODUCT,
@@ -1759,6 +1761,72 @@ def search_knowledge(
             content=c.content,
         )
         for c in ordered
+    ]
+
+
+@with_team_scope(canonical=True)
+def get_document_window(
+    team_id: int,
+    document_id: UUID,
+    center_ordinal: int,
+    *,
+    radius: int = BK_DRILLDOWN_DEFAULT_RADIUS,
+) -> list[KnowledgeSearchResult]:
+    """
+    Agentic drill-down read: return a wider contiguous chunk span of ONE document.
+
+    Pure Postgres ordinal-range read (no embedding / ClickHouse). Returns the
+    chunks of ``document_id`` whose ordinal is within ``radius`` of
+    ``center_ordinal``, ordered by ordinal.
+
+    It reuses the EXACT same safety re-join filters as ``search_knowledge``
+    (``team_id``, ``source.status=READY``, ``tombstoned_at IS NULL``,
+    ``safety_verdict=SAFE``) so drill-down can never surface anything that search
+    could not — a now-UNSAFE/tombstoned/cross-team document simply yields an empty
+    list, never an IDOR.
+    """
+    radius = max(0, min(radius, BK_DRILLDOWN_MAX_RADIUS))
+    low = center_ordinal - radius
+    high = center_ordinal + radius
+
+    chunks = (
+        KnowledgeChunk.objects.filter(
+            team_id=team_id,
+            document_id=document_id,
+            ordinal__gte=low,
+            ordinal__lte=high,
+            source__status=SourceStatus.READY,
+            document__tombstoned_at__isnull=True,
+            document__safety_verdict=SafetyVerdict.SAFE,
+        )
+        .select_related("source", "document")
+        .only(
+            "id",
+            "source_id",
+            "document_id",
+            "heading_path",
+            "ordinal",
+            "content",
+            "source__name",
+            "source__source_type",
+            "document__title",
+        )
+        .order_by("ordinal")
+    )
+
+    return [
+        KnowledgeSearchResult(
+            chunk_id=c.id,
+            source_id=c.source_id,
+            source_name=c.source.name,
+            source_type=c.source.source_type,
+            document_id=c.document_id,
+            document_title=c.document.title,
+            heading_path=c.heading_path,
+            ordinal=c.ordinal,
+            content=c.content,
+        )
+        for c in chunks
     ]
 
 

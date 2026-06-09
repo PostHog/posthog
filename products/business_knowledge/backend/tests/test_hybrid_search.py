@@ -8,11 +8,17 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models import Team
 from posthog.models.scoping import team_scope
 
 from products.business_knowledge.backend import logic
-from products.business_knowledge.backend.constants import BK_RRF_SCORE_FLOOR
-from products.business_knowledge.backend.logic import _rrf_fuse, _SemanticCandidate, search_knowledge
+from products.business_knowledge.backend.constants import BK_DRILLDOWN_MAX_RADIUS, BK_RRF_SCORE_FLOOR
+from products.business_knowledge.backend.logic import (
+    _rrf_fuse,
+    _SemanticCandidate,
+    get_document_window,
+    search_knowledge,
+)
 from products.business_knowledge.backend.models import (
     KnowledgeChunk,
     KnowledgeDocument,
@@ -225,3 +231,85 @@ class TestHybridSearch(BaseTest):
         )
         # Should still find results via FTS
         assert len(results) >= 1
+
+
+class TestDocumentWindow(BaseTest):
+    """Tests for the agentic drill-down read primitive (`get_document_window`)."""
+
+    def _multi_chunk_source(self, n: int = 6, name: str = "doc") -> tuple[KnowledgeSource, UUID, list[int]]:
+        # Each paragraph is padded past CHUNK_TARGET_CHARS so the chunker keeps
+        # them as separate ordinals (0..n-1) within a single document.
+        paragraphs = [f"MARKER{i} " + ("filler word " * 120) for i in range(n)]
+        source = logic.create_text_source(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            name=name,
+            text="\n\n".join(paragraphs),
+        )
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeDocument.objects.filter(source_id=source.id).update(safety_verdict=SafetyVerdict.SAFE)
+            document_id = KnowledgeDocument.objects.filter(source_id=source.id).values_list("id", flat=True)[0]
+            ordinals = list(
+                KnowledgeChunk.objects.filter(source_id=source.id).order_by("ordinal").values_list("ordinal", flat=True)
+            )
+        return source, document_id, ordinals
+
+    def test_returns_contiguous_span_around_center(self) -> None:
+        _source, document_id, ordinals = self._multi_chunk_source(n=6)
+        assert len(ordinals) >= 5  # chunker produced multiple chunks
+
+        results = get_document_window(self.team.id, document_id, center_ordinal=2, radius=1)
+        returned = sorted(r.ordinal for r in results)
+        assert returned == [1, 2, 3]
+        # span is wider than search's fixed +/-1 when radius is larger
+        wider = get_document_window(self.team.id, document_id, center_ordinal=2, radius=2)
+        assert sorted(r.ordinal for r in wider) == [0, 1, 2, 3, 4]
+
+    def test_radius_clamped_to_max(self) -> None:
+        _source, document_id, ordinals = self._multi_chunk_source(n=6)
+        # An absurd radius can't pull more than the document has, and never errors.
+        results = get_document_window(self.team.id, document_id, center_ordinal=0, radius=10_000)
+        assert len(results) == len(ordinals)
+        assert max(r.ordinal for r in results) == max(ordinals)
+
+    def test_edges_do_not_wrap_or_error(self) -> None:
+        _source, document_id, _ordinals = self._multi_chunk_source(n=4)
+        results = get_document_window(self.team.id, document_id, center_ordinal=0, radius=2)
+        assert sorted(r.ordinal for r in results) == [0, 1, 2]
+
+    @parameterized.expand(
+        [
+            (
+                "unsafe_verdict",
+                lambda s: KnowledgeDocument.objects.filter(source_id=s.id).update(safety_verdict=SafetyVerdict.UNSAFE),
+            ),
+            (
+                "tombstoned",
+                lambda s: KnowledgeDocument.objects.filter(source_id=s.id).update(tombstoned_at=timezone.now()),
+            ),
+            (
+                "source_not_ready",
+                lambda s: KnowledgeSource.objects.filter(id=s.id).update(status=SourceStatus.PROCESSING),
+            ),
+        ]
+    )
+    def test_ineligible_document_returns_empty(self, _name: str, mark_ineligible) -> None:  # noqa: ANN001
+        source, document_id, _ordinals = self._multi_chunk_source(n=4)
+        with team_scope(self.team.id, canonical=True):
+            mark_ineligible(source)
+
+        results = get_document_window(self.team.id, document_id, center_ordinal=1, radius=2)
+        assert results == []
+
+    def test_cross_team_document_returns_empty(self) -> None:
+        # The document belongs to self.team; reading it under another team's id
+        # must yield nothing (team_id re-join holds — no IDOR).
+        _source, document_id, _ordinals = self._multi_chunk_source(n=4)
+        other_team = Team.objects.create(organization=self.organization, name="other")
+
+        results = get_document_window(other_team.id, document_id, center_ordinal=1, radius=BK_DRILLDOWN_MAX_RADIUS)
+        assert results == []
+
+    def test_unknown_document_returns_empty(self) -> None:
+        results = get_document_window(self.team.id, uuid.uuid4(), center_ordinal=0, radius=3)
+        assert results == []
