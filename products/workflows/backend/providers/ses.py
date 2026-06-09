@@ -240,9 +240,6 @@ class SESProvider:
         else:
             overall = "pending"
 
-        # Bind verification to the requesting team's SES tenant. SES identity
-        # attributes are account-global; only report success when this team's
-        # tenant is associated with the identity.
         if overall == "success":
             expected_tenant = self._tenant_name_for_team(team_id)
             if expected_tenant not in self._list_identity_tenants(domain):

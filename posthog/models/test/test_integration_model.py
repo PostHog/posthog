@@ -2174,9 +2174,6 @@ class TestEmailIntegrationDomainValidation(BaseTest):
 
 class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
     def _build_ses_provider(self, tenants_for_domain: dict[str, list[str]] | None = None) -> SESProvider:
-        # SESProvider.__init__ constructs real boto3 clients from SES_* settings; patch
-        # boto3.client so construction is safe without AWS creds, then override each
-        # client attribute with a configured MagicMock below.
         patcher = patch("products.workflows.backend.providers.ses.boto3.client")
         patcher.start()
         self.addCleanup(patcher.stop)
