@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -173,6 +174,7 @@ class TestOrganizationInvite(BaseTest):
         # Verify the invite has been deleted
         self.assertFalse(OrganizationInvite.objects.filter(target_email="no_access@posthog.com").exists())
 
+    @freeze_time("2025-01-01")
     def test_is_expired_uses_created_at_when_no_expires_at(self):
         invite = OrganizationInvite.objects.create(organization=self.organization)
         self.assertFalse(invite.is_expired())
@@ -183,6 +185,7 @@ class TestOrganizationInvite(BaseTest):
         invite.refresh_from_db()
         self.assertTrue(invite.is_expired())
 
+    @freeze_time("2025-01-01")
     def test_expires_at_overrides_created_at_based_expiry(self):
         # Old invite (would be expired by created_at) but with a future expires_at is still valid.
         invite = OrganizationInvite.objects.create(organization=self.organization)
@@ -201,12 +204,11 @@ class TestOrganizationInvite(BaseTest):
         invite.refresh_from_db()
         self.assertTrue(invite.is_expired())
 
+    @freeze_time("2025-01-01")
     def test_effective_expires_at(self):
         invite = OrganizationInvite.objects.create(organization=self.organization)
         # Defaults to created_at + INVITE_DAYS_VALIDITY when expires_at is unset.
-        self.assertEqual(
-            invite.effective_expires_at(), invite.created_at + timedelta(days=INVITE_DAYS_VALIDITY)
-        )
+        self.assertEqual(invite.effective_expires_at(), invite.created_at + timedelta(days=INVITE_DAYS_VALIDITY))
         # Honors expires_at when set.
         explicit = timezone.now() + timedelta(days=5)
         invite.expires_at = explicit

@@ -100,7 +100,7 @@ class InvitePostponeView(APIView):
     """
 
     permission_classes = (permissions.AllowAny,)
-    authentication_classes: list = []
+    authentication_classes = []
 
     @extend_schema(
         operation_id="invite_postpone_retrieve",
@@ -160,6 +160,9 @@ class InvitePostponeView(APIView):
         # Extend validity so the rescheduled email's accept link is still good when it lands.
         new_expiry = send_at + timedelta(days=INVITE_DAYS_VALIDITY)
         # Bypass save()/activity logging: this is an unauthenticated, system-level write with no user.
+        # invite was resolved from the signed token (the authorization), so pk=invite.pk targets only
+        # that already-authorized invite, not arbitrary user input.
+        # nosemgrep: idor-taint-user-input-to-org-model
         OrganizationInvite.objects.filter(pk=invite.pk).update(
             scheduled_send_at=send_at,
             expires_at=new_expiry,

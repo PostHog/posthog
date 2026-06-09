@@ -94,7 +94,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].html_body
 
     def test_send_invite_includes_postpone_url(self, MockEmailMessage: MagicMock) -> None:
-        mock_email_messages(MockEmailMessage)
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin_postpone@posthog.com")
         invite = OrganizationInvite.objects.create(
@@ -105,6 +105,32 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         template_context = MockEmailMessage.call_args.kwargs["template_context"]
         assert "/invite-postpone?token=" in template_context["postpone_url"]
+
+        # The local invite.html template must render the same postpone CTA Customer.io shows in
+        # production, so a dev can preview it from tasks/test/__emails__/invite/ without Customer.io.
+        html = mocked_email_messages[0].html_body
+        assert "/invite-postpone?token=" in html
+        assert "I'll do this later" in html
+
+    @freeze_time("2026-06-03 12:00:00")
+    def test_send_invite_postpone_resend_renders_identical_template(self, MockEmailMessage: MagicMock) -> None:
+        """A postponed re-send reuses the invite template and context, so the recipient can postpone again."""
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin_resend@posthog.com")
+        invite = OrganizationInvite.objects.create(
+            organization=org, created_by=user, target_email="resend@posthog.com"
+        )
+
+        send_invite(invite.id)
+        OrganizationInvite.objects.filter(id=invite.id).update(postpone_count=1)
+        send_invite(invite.id)
+
+        first_html, resend_html = mocked_email_messages[0].html_body, mocked_email_messages[1].html_body
+        assert mocked_email_messages[0].template_name == mocked_email_messages[1].template_name == "invite"
+        # Same template + same context data means the re-send carries the postpone CTA again.
+        assert "I'll do this later" in resend_html
+        assert first_html == resend_html
 
     @parameterized.expand(
         [
@@ -1890,6 +1916,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(rendered_error) <= 255
 
 
+@freeze_time("2025-01-01")
 class TestSendScheduledInvites(APIBaseTest):
     @patch("posthog.tasks.email.send_invite")
     def test_dispatches_due_invites_and_clears_schedule(self, mock_send_invite: MagicMock) -> None:

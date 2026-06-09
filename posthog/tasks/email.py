@@ -348,6 +348,11 @@ def send_invite(invite_id: str) -> None:
 SCHEDULED_INVITE_BATCH_SIZE = 1000
 
 
+def _dispatch_postponed_invites(invite_ids: list[str]) -> None:
+    for invite_id in invite_ids:
+        send_invite.apply_async(kwargs={"invite_id": invite_id})
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_scheduled_invites() -> None:
@@ -359,6 +364,7 @@ def send_scheduled_invites() -> None:
     MessagingRecord idempotency guard doesn't skip it), and on_commit dispatch keeps the send
     from firing if the transaction rolls back.
     """
+    due_invite_ids: list[str] = []
     with transaction.atomic():
         due_invites = (
             OrganizationInvite.objects.select_for_update(skip_locked=True)
@@ -370,8 +376,10 @@ def send_scheduled_invites() -> None:
                 postpone_count=F("postpone_count") + 1,
                 scheduled_send_at=None,
             )
-            invite_id = str(invite.pk)
-            transaction.on_commit(lambda iid=invite_id: send_invite.apply_async(kwargs={"invite_id": iid}))
+            due_invite_ids.append(str(invite.pk))
+        # Dispatch only after the bumped counts / cleared schedules commit, so a rollback can't
+        # leave an email enqueued for an invite we didn't actually update.
+        transaction.on_commit(lambda: _dispatch_postponed_invites(due_invite_ids))
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

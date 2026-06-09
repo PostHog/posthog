@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
@@ -16,6 +17,7 @@ def _token_for(invite_id: object, expiry: timedelta = timedelta(days=3)) -> str:
     return encode_jwt({"invite_id": str(invite_id)}, expiry_delta=expiry, audience=PosthogJwtAudience.INVITE_POSTPONE)
 
 
+@freeze_time("2025-01-01")
 class TestInvitePostponeAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -63,13 +65,14 @@ class TestInvitePostponeAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("past", lambda: timezone.now() - timedelta(hours=1)),
-            ("beyond_horizon", lambda: timezone.now() + timedelta(days=MAX_POSTPONE_HORIZON_DAYS + 1)),
+            ("past", timedelta(hours=-1)),
+            ("beyond_horizon", timedelta(days=MAX_POSTPONE_HORIZON_DAYS + 1)),
         ]
     )
-    def test_post_rejects_out_of_bounds_send_at(self, _name: str, make_send_at) -> None:
+    def test_post_rejects_out_of_bounds_send_at(self, _name: str, offset: timedelta) -> None:
+        send_at = timezone.now() + offset
         response = self.client.post(
-            "/api/invite_postpone", {"token": _token_for(self.invite.id), "send_at": make_send_at().isoformat()}
+            "/api/invite_postpone", {"token": _token_for(self.invite.id), "send_at": send_at.isoformat()}
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
