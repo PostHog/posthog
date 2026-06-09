@@ -75,24 +75,19 @@ describe('recordingsQueryToUniversalFilters', () => {
     })
 
     describe('single-dimension pass-through', () => {
-        it('events', () => {
-            expect(innerValues(rq({ events: [EVENT] }))).toEqual([EVENT])
+        it.each<[string, Partial<RecordingsQuery>, any[]]>([
+            ['events', { events: [EVENT] }, [EVENT]],
+            ['actions', { actions: [ACTION] }, [ACTION]],
+            ['properties', { properties: [PERSON_PROP] }, [PERSON_PROP]],
+            ['console_log_filters', { console_log_filters: [CONSOLE_LOG] }, [CONSOLE_LOG]],
+            ['comment_text', { comment_text: COMMENT_TEXT }, [COMMENT_TEXT]],
+        ])('passes %s through unchanged', (_name, partial, expected) => {
+            expect(innerValues(rq(partial))).toEqual(expected)
         })
+
         it('hidden events filter (the classifier regression case)', () => {
             const events = [{ id: 'taxonomic filter add filter clicked', type: 'events' }]
             expect(innerValues(rq({ events }))).toEqual(events)
-        })
-        it('actions', () => {
-            expect(innerValues(rq({ actions: [ACTION] }))).toEqual([ACTION])
-        })
-        it('properties', () => {
-            expect(innerValues(rq({ properties: [PERSON_PROP] }))).toEqual([PERSON_PROP])
-        })
-        it('console_log_filters', () => {
-            expect(innerValues(rq({ console_log_filters: [CONSOLE_LOG] }))).toEqual([CONSOLE_LOG])
-        })
-        it('comment_text', () => {
-            expect(innerValues(rq({ comment_text: COMMENT_TEXT }))).toEqual([COMMENT_TEXT])
         })
     })
 
