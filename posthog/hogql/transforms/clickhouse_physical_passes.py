@@ -268,22 +268,19 @@ def _augment_table_type(
     return None
 
 
-def _synthetic_column_field(
-    field_type: ast.FieldType, column_name: str, *, is_nullable: bool, unqualified: bool = False
-) -> ast.Field | None:
+def _synthetic_column_field(field_type: ast.FieldType, column_name: str, *, is_nullable: bool) -> ast.Field | None:
     """A typed Field for a physical ClickHouse column that isn't a HogQL schema field.
 
     Mat/dmat/property-group columns live on the table physically but aren't in the HogQL schema, so a plain Field won't
     resolve. Synthesize a DatabaseField on a copy of the table and point a fresh FieldType at it, preserving any alias
-    wrapper so the printed table prefix (`events.` / `e.`) is unchanged. On the within_non_hogql_query path `unqualified`
-    is set so the printer drops the prefix — the lightweight-DELETE mutation analyzer rejects qualified column names.
+    wrapper so the printed table prefix (`events.` / `e.`) is unchanged.
     """
     table_type = _augment_table_type(field_type.table_type, column_name, is_nullable=is_nullable)
     if table_type is None:
         return None
     return ast.Field(
         chain=[column_name],
-        type=ast.FieldType(name=column_name, table_type=table_type, unqualified=unqualified or None),
+        type=ast.FieldType(name=column_name, table_type=table_type),
     )
 
 
@@ -294,13 +291,12 @@ def _materialized_head_expr(
     *,
     is_single: bool,
     materialization_mode: MaterializationMode | None,
-    unqualified: bool = False,
 ) -> ast.Expr | None:
     """The chain[0] value read for a materialized source — mirrors the branches in BasePrinter.visit_property_type."""
     if source.kind == "property_group":
         # `has(g, k) ? g[k] : null` — guard the map read so a missing key returns NULL, not the '' map default.
-        has_field = _synthetic_column_field(field_type, source.column, is_nullable=True, unqualified=unqualified)
-        get_field = _synthetic_column_field(field_type, source.column, is_nullable=True, unqualified=unqualified)
+        has_field = _synthetic_column_field(field_type, source.column, is_nullable=True)
+        get_field = _synthetic_column_field(field_type, source.column, is_nullable=True)
         if has_field is None or get_field is None:
             return None
         return ast.Call(
@@ -312,9 +308,7 @@ def _materialized_head_expr(
             ],
         )
 
-    column_field = _synthetic_column_field(
-        field_type, source.column, is_nullable=source.is_nullable, unqualified=unqualified
-    )
+    column_field = _synthetic_column_field(field_type, source.column, is_nullable=source.is_nullable)
     if column_field is None:
         return None
 
@@ -359,7 +353,6 @@ def _substitute_value_read(node: ast.JSONFieldAccess, context: HogQLContext) -> 
         first_key,
         is_single=not deeper_keys,
         materialization_mode=context.modifiers.materializationMode,
-        unqualified=context.within_non_hogql_query,
     )
     if head is None:
         return None
@@ -429,8 +422,6 @@ class _OptimizableProperty:
     field_type: ast.FieldType
     key: str
     source: MaterializedPropertySource
-    # Set on the within_non_hogql_query (lightweight-DELETE) path so the synthetic column fields below print unqualified.
-    unqualified: bool = False
 
 
 def _group_map_field(prop: _OptimizableProperty) -> ast.Field:
@@ -440,9 +431,7 @@ def _group_map_field(prop: _OptimizableProperty) -> ast.Field:
     non-nullable keeps the printer from ifNull-wrapping `equals(g[k], v)` (which would defeat the values bloom-filter
     index).
     """
-    field = _synthetic_column_field(
-        prop.field_type, prop.source.column, is_nullable=False, unqualified=prop.unqualified
-    )
+    field = _synthetic_column_field(prop.field_type, prop.source.column, is_nullable=False)
     assert field is not None  # the source was resolved from this same field_type
     return field
 
@@ -469,16 +458,14 @@ def _bare_mat_column(prop: _OptimizableProperty) -> ast.Field:
     Nullable; nullability is handled explicitly by the optimizer (an `isNotNull(col)` guard or an `ifNull(...)` around the
     whole result), exactly as the printer's string-built optimized forms do.
     """
-    field = _synthetic_column_field(
-        prop.field_type, prop.source.column, is_nullable=False, unqualified=prop.unqualified
-    )
+    field = _synthetic_column_field(prop.field_type, prop.source.column, is_nullable=False)
     assert field is not None
     return field
 
 
 def _is_not_null(prop: _OptimizableProperty) -> ast.Call:
     """`isNotNull(col)` over a nullable view of the column — result-equivalent to the printer's `col IS NOT NULL`."""
-    field = _synthetic_column_field(prop.field_type, prop.source.column, is_nullable=True, unqualified=prop.unqualified)
+    field = _synthetic_column_field(prop.field_type, prop.source.column, is_nullable=True)
     assert field is not None
     return _call("isNotNull", [field])
 
@@ -653,7 +640,6 @@ class ClickHousePhysicalPasses(CloningVisitor):
             field_type=field_type,
             key=property_name,
             source=source,
-            unqualified=self.context.within_non_hogql_query,
         )
 
     def _materialized_property_for_op(self, expr: ast.Expr) -> _OptimizableProperty | None:
@@ -669,7 +655,6 @@ class ClickHousePhysicalPasses(CloningVisitor):
             field_type=field_type,
             key=property_name,
             source=source,
-            unqualified=self.context.within_non_hogql_query,
         )
 
     def _property_group_property(self, expr: ast.Expr) -> _OptimizableProperty | None:
@@ -687,7 +672,6 @@ class ClickHousePhysicalPasses(CloningVisitor):
             field_type=field_type,
             key=property_name,
             source=source,
-            unqualified=self.context.within_non_hogql_query,
         )
 
     @staticmethod
@@ -726,7 +710,6 @@ class ClickHousePhysicalPasses(CloningVisitor):
                     field_type=field_type,
                     key=key,
                     source=source,
-                    unqualified=self.context.within_non_hogql_query,
                 )
             )
 

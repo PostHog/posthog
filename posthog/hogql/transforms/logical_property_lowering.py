@@ -19,7 +19,6 @@ preserving):
   still `JSONDropKeys`-wraps in `visit_field_type`, so the restricted value collapses to `''` exactly as on master.
 """
 
-from dataclasses import replace
 from typing import cast
 
 from posthog.hogql import ast
@@ -82,13 +81,6 @@ class LogicalPropertyLowering(CloningVisitor):
         keys: list[str | int] = [str(chain[0])]
         keys.extend(link if isinstance(link, int) else str(link) for link in chain[1:])
 
-        # On the within_non_hogql_query (lightweight-DELETE) path the raw blob column must also print unqualified — the
-        # mutation analyzer rejects `sharded_events.properties` just as it rejects qualified mat columns. Mark the blob
-        # field's type so the printer drops the prefix when this access stays a JSON-blob read (no materialized backing).
-        blob_field_type = (
-            replace(base_field_type, unqualified=True) if self.context.within_non_hogql_query else base_field_type
-        )
-
         # The node carries its *value* type (the raw JSON-extract result, a nullable String), NOT the original
         # `PropertyType`. Carrying the `PropertyType` would make the node mean "this is still a property access" (the
         # ambient-meaning smell) — and would route a lowered comparison operand back into the printer's property-decision
@@ -97,17 +89,12 @@ class LogicalPropertyLowering(CloningVisitor):
         # nullable String keeps the printer's comparison `ifNull(...)` wrapping identical to the `PropertyType` it
         # replaced (`_is_type_nullable` returns True for both).
         return ast.JSONFieldAccess(
-            expr=ast.Field(chain=[blob_field_type.name], type=blob_field_type),
+            expr=ast.Field(chain=[base_field_type.name], type=base_field_type),
             keys=keys,
             type=ast.StringType(nullable=True),
         )
 
 
 def lower_property_access(node: _T_AST, context: HogQLContext) -> _T_AST:
-    """Lower JSON-blob property reads to `JSONFieldAccess`, including the within-non-HogQL (lightweight-DELETE) path.
-
-    On that path the lowered reads carry `unqualified=True` on their source field (and the ClickHouse physical pass marks
-    the synthetic materialized-column fields the same way), so the printer drops the table prefix the lightweight-DELETE
-    mutation analyzer rejects.
-    """
+    """Lower JSON-blob property reads to `JSONFieldAccess`, including the within-non-HogQL (lightweight-DELETE) path."""
     return cast(_T_AST, LogicalPropertyLowering(context).visit(node))

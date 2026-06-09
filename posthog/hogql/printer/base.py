@@ -1148,6 +1148,7 @@ class BasePrinter(Visitor[str]):
         return self._print_identifier(type.name)
 
     def visit_field_type(self, type: ast.FieldType):
+        name_resolution_ambiguous = False
         try:
             last_select = self._last_select()
             type_with_name_in_scope = (
@@ -1156,7 +1157,9 @@ class BasePrinter(Visitor[str]):
                 else None
             )
         except ResolutionError:
+            # The name resolves to more than one source: it genuinely needs a table prefix to disambiguate.
             type_with_name_in_scope = None
+            name_resolution_ambiguous = True
 
         if (
             isinstance(type.table_type, ast.TableType)
@@ -1203,11 +1206,16 @@ class BasePrinter(Visitor[str]):
                     if not isinstance(resolved_field, DatabaseField):
                         raise QueryError(f"Can't resolve field {type.name}")
                     field_sql = self._print_identifier(resolved_field.name)
-                if self.context.within_non_hogql_query and (type.unqualified or type_with_name_in_scope == type):
-                    # Do not prepend table name in non-hogql context. We don't know what it actually is. `unqualified`
-                    # is set on the synthetic physical-column fields the lowering passes build for this path, where the
-                    # in-scope lookup can't find them but the lightweight-DELETE mutation analyzer still requires bare
-                    # column references.
+                if (
+                    self.context.within_non_hogql_query
+                    and not name_resolution_ambiguous
+                    and (type_with_name_in_scope is None or type_with_name_in_scope == type)
+                ):
+                    # Print the column bare. A non-HogQL fragment (lightweight-DELETE predicate, legacy insight) splices
+                    # into a single-base-table context whose mutation analyzer rejects table-qualified names. We can drop
+                    # the prefix whenever the bare name is unambiguous: it resolves to *this* field, or to nothing at all
+                    # (e.g. a materialized column the physical pass synthesized, which isn't in the HogQL scope). We keep
+                    # the prefix only when the name resolves to a *different* field (shadowing) or is ambiguous.
                     return field_sql
                 field_sql = f"{self.visit(type.table_type)}.{field_sql}"
 

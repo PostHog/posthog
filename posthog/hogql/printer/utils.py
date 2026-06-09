@@ -201,8 +201,8 @@ def prepare_ast_for_printing(
         # a `JSONFieldAccess` — a plain "read these keys from this blob", no decision about how. (2) The physical passes
         # then pick the source: each `JSONFieldAccess` backed by a materialized / skip-index / property-group column is
         # rewritten to read that column; the rest survive and print as the raw JSON extract. The within_non_hogql_query
-        # (lightweight-DELETE) path runs through here too: lowering + the physical pass mark their column fields
-        # `unqualified` so the printer drops the table prefix the mutation analyzer rejects.
+        # (lightweight-DELETE) path runs through here too; the printer renders every column bare there (the single-table
+        # mutation analyzer rejects table prefixes), so no extra marking is needed.
         with context.timings.measure("lower_property_access"):
             node = lower_property_access(node, context)
         with context.timings.measure("clickhouse_physical_passes"):
