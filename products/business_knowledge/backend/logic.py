@@ -1616,6 +1616,16 @@ def _rrf_fuse(
     return [cid for cid, _score in fused]
 
 
+def _safe_chunks_qs(team_id: int) -> QuerySet[KnowledgeChunk]:
+    """Base queryset for searchable/readable chunks: team-scoped + all safety gates."""
+    return KnowledgeChunk.objects.filter(
+        team_id=team_id,
+        source__status=SourceStatus.READY,
+        document__tombstoned_at__isnull=True,
+        document__safety_verdict=SafetyVerdict.SAFE,
+    )
+
+
 @dataclass(frozen=True)
 class KnowledgeSearchResult:
     """A single chunk returned by a knowledge search, with source context."""
@@ -1660,13 +1670,8 @@ def search_knowledge(
         processed = processed.replace(" & ", " | ")
         search_query = SearchQuery(processed, config="english", search_type="raw")
         fts_anchors = list(
-            KnowledgeChunk.objects.filter(
-                team_id=team_id,
-                source__status=SourceStatus.READY,
-                document__tombstoned_at__isnull=True,
-                document__safety_verdict=SafetyVerdict.SAFE,
-                content_search_vector=search_query,
-            )
+            _safe_chunks_qs(team_id)
+            .filter(content_search_vector=search_query)
             .annotate(rank=SearchRank(F("content_search_vector"), search_query))
             .only("id", "document_id", "ordinal", "char_count")
             .order_by("-rank", "char_count", "id")[:limit]
@@ -1690,13 +1695,7 @@ def search_knowledge(
         # re-join against Postgres with all safety filters and trim after.
         fetch_limit = limit * BK_SEMANTIC_OVERFETCH
         anchor_chunks = list(
-            KnowledgeChunk.objects.filter(
-                id__in=fused_ids[:fetch_limit],
-                team_id=team_id,
-                source__status=SourceStatus.READY,
-                document__tombstoned_at__isnull=True,
-                document__safety_verdict=SafetyVerdict.SAFE,
-            ).only("id", "document_id", "ordinal")
+            _safe_chunks_qs(team_id).filter(id__in=fused_ids[:fetch_limit]).only("id", "document_id", "ordinal")
         )
         if not anchor_chunks:
             return []
@@ -1725,13 +1724,8 @@ def search_knowledge(
     )
 
     chunks = (
-        KnowledgeChunk.objects.filter(
-            window_filter,
-            team_id=team_id,
-            source__status=SourceStatus.READY,
-            document__tombstoned_at__isnull=True,
-            document__safety_verdict=SafetyVerdict.SAFE,
-        )
+        _safe_chunks_qs(team_id)
+        .filter(window_filter)
         .select_related("source", "document")
         .only(
             "id",
@@ -1789,15 +1783,8 @@ def get_document_window(
     high = center_ordinal + radius
 
     chunks = (
-        KnowledgeChunk.objects.filter(
-            document_id=document_id,
-            team_id=team_id,
-            ordinal__gte=low,
-            ordinal__lte=high,
-            source__status=SourceStatus.READY,
-            document__tombstoned_at__isnull=True,
-            document__safety_verdict=SafetyVerdict.SAFE,
-        )
+        _safe_chunks_qs(team_id)
+        .filter(document_id=document_id, ordinal__gte=low, ordinal__lte=high)
         .select_related("source", "document")
         .only(
             "id",

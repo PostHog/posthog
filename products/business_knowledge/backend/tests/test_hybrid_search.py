@@ -270,13 +270,20 @@ class TestDocumentWindow(BaseTest):
             KnowledgeChunk.objects.bulk_create(chunks)
         return source, doc
 
-    def test_returns_contiguous_span(self) -> None:
-        _source, doc = self._create_source_with_chunks(10)
+    @parameterized.expand(
+        [
+            ("contiguous_span", 10, 5, 2, [3, 4, 5, 6, 7]),
+            ("radius_zero", 5, 2, 0, [2]),
+            ("edge_no_wrap", 5, 0, 3, [0, 1, 2, 3]),
+            ("negative_center_clamped_to_zero", 5, -3, 2, [0, 1, 2]),
+        ]
+    )
+    def test_ordinal_window(self, _name: str, num_chunks: int, center: int, radius: int, expected: list[int]) -> None:
+        _source, doc = self._create_source_with_chunks(num_chunks)
 
-        results = get_document_window(self.team.id, doc.id, center_ordinal=5, radius=2)
+        results = get_document_window(self.team.id, doc.id, center_ordinal=center, radius=radius)
 
-        ordinals = [r.ordinal for r in results]
-        assert ordinals == [3, 4, 5, 6, 7]
+        assert [r.ordinal for r in results] == expected
 
     def test_radius_clamped_to_max(self) -> None:
         _source, doc = self._create_source_with_chunks(40)
@@ -288,23 +295,6 @@ class TestDocumentWindow(BaseTest):
         high = 20 + BK_DRILLDOWN_MAX_RADIUS
         assert all(low <= o <= high for o in ordinals)
         assert len(ordinals) <= 2 * BK_DRILLDOWN_MAX_RADIUS + 1
-
-    def test_radius_zero_returns_single_chunk(self) -> None:
-        _source, doc = self._create_source_with_chunks(5)
-
-        results = get_document_window(self.team.id, doc.id, center_ordinal=2, radius=0)
-
-        assert len(results) == 1
-        assert results[0].ordinal == 2
-
-    def test_edge_does_not_wrap(self) -> None:
-        _source, doc = self._create_source_with_chunks(5)
-
-        results = get_document_window(self.team.id, doc.id, center_ordinal=0, radius=3)
-
-        ordinals = [r.ordinal for r in results]
-        assert ordinals[0] == 0
-        assert all(o >= 0 for o in ordinals)
 
     @parameterized.expand(
         [
