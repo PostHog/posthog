@@ -120,8 +120,6 @@ def detect_schema_clear_transition(
     incoming_job_inputs: dict[str, Any],
 ) -> str | None:
     """Return the old schema if this PATCH clears a multi-schema SQL source's `job_inputs.schema`."""
-    if not is_multi_schema_capable_sql_source(source_type):
-        return None
     if "schema" not in incoming_job_inputs:
         return None
     incoming = incoming_job_inputs.get("schema")
@@ -129,6 +127,9 @@ def detect_schema_clear_transition(
         return None
     existing = existing_job_inputs.get("schema")
     if not (isinstance(existing, str) and existing.strip()):
+        return None
+    # Cheap dict/string checks first; only pay the registry/config capability lookup on a real clear.
+    if not is_multi_schema_capable_sql_source(source_type):
         return None
     return existing.strip()
 

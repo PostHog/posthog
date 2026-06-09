@@ -1788,7 +1788,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     source_schemas=schemas,
                     team_id=self.team_id,
                 )
-            elif is_multi_schema_capable_sql_source(instance.source_type) and source_namespace_is_blank(instance):
+            elif source_namespace_is_blank(instance) and is_multi_schema_capable_sql_source(instance.source_type):
                 name_substitutions = apply_sql_warehouse_refresh_migration(source=instance, team_id=self.team_id)
 
             if name_substitutions:
