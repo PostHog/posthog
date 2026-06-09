@@ -63,7 +63,8 @@ scout: `source_product: query_runs` (the SQL/insight-query reads), `entity_id` =
 `short_id`; add `signals_scout` entries to cite a prior run/finding. Put the bucket value,
 the baseline median, the z-score, and the time window in the summaries. Add one
 `source_product: notebook` entry whose `entity_id` is the notebook `short_id` and whose
-summary is the notebook URL (see below) — that is the durable artifact the human opens.
+summary is a brief description of the write-up followed by the notebook URL (see below) —
+that is the durable artifact the human opens.
 
 ## The notebook write-up
 
@@ -92,11 +93,13 @@ Lead with the same hook the inbox sees, then the evidence the 3–6 sentences ca
 
 1. **Summary** — the quantified hook (bucket value vs baseline, robust z, severity), one or
    two sentences. Same claim as the description, so the notebook stands alone.
-2. **The chart** — embed the anomalous series so the spike/drop is visible. Embed the saved
-   insight directly with a `SavedInsightNode` (it already carries the right query + display);
-   for a SQL-fallback series that isn't a saved insight, chart it with a `DataVisualizationNode`
-   wrapping the same HogQL you scored with. Widen the window (e.g. `-63d`) so the baseline and
-   the break are both on screen.
+2. **The chart** — embed the anomalous series so the spike/drop is visible, and make sure the
+   window is wide enough (e.g. `-63d`) that the baseline _and_ the break are both on screen. A
+   `SavedInsightNode` renders the insight's own saved date range and carries no date override —
+   so use it only when that saved range already shows the baseline; if the insight is saved to a
+   short window (often `-7d`), embed an inline widened `DataVisualizationNode` (or
+   `InsightVizNode`) for the scored window instead, so the write-up keeps the very evidence it
+   exists to preserve.
 3. **Baseline & method** — the seasonality-matched baseline (median + MAD per bucket), the
    z-score, which detector(s) `alert-simulate` fired, and that the partial bucket was excluded.
    This is the math that doesn't fit the inbox hook.
@@ -109,8 +112,9 @@ Lead with the same hook the inbox sees, then the evidence the 3–6 sentences ca
 Charts are `{type: "ph-query", attrs: {nodeId: "<unique>", query: <query>}}` nodes inside
 `content`. `query` is one of:
 
-- **Embed the anomalous saved insight** (the common case here) —
-  `{kind: "SavedInsightNode", shortId: "<short_id>"}`.
+- **Embed the anomalous saved insight** —
+  `{kind: "SavedInsightNode", shortId: "<short_id>"}`. Renders the insight's _saved_ date range
+  (no override); fine when that range shows the baseline, otherwise prefer a widened node below.
 - **Chart a SQL-fallback series** —
   `{kind: "DataVisualizationNode", source: {kind: "HogQLQuery", query: "SELECT ..."}, display: "ActionsLineGraph"}`.
   Do **not** wrap a `HogQLQuery` in an `InsightVizNode`.
@@ -164,12 +168,20 @@ For a SQL-fallback chart, swap the `ph-query` query for
 ### Wire it into the emit
 
 - **Description** — add a closing clause: "Full write-up with charts: `<notebook-url>`."
-- **Evidence** — one `{source_product: notebook, entity_id: <short_id>, summary: <url>}` entry.
+- **Evidence** — one `{source_product: notebook, entity_id: <short_id>, summary: <brief description + url>}` entry.
 - **dedupe_keys** — optionally add `notebook:<short_id>` so the artifact is traceable from the
   signal's `extra`.
 
-Skipping the notebook is only acceptable if `notebooks-create` fails — then emit anyway (the
-finding still matters) and note the missing artifact in the description.
+**Clean up if the emit doesn't land.** `signals-scout-emit-signal` is preflight-gated — on a
+dry-run config (`emit=False`), un-approved AI processing, or a disabled source it returns a
+`skipped_reason` and writes **no** signal. The notebook, gated only by `notebook:write`, has
+already been created — so an orphaned user-facing artifact would leak into the project,
+breaking the dry-run/source-disabled contract. **If the emit result is skipped (not emitted),
+delete the just-created notebook with `notebooks-destroy`.** Only a notebook attached to a real
+emitted signal should survive the run.
+
+Skipping notebook _creation_ is only acceptable if `notebooks-create` fails — then emit anyway
+(the finding still matters) and note the missing artifact in the description.
 
 ## Dedupe keys
 

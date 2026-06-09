@@ -18,7 +18,8 @@ compatibility: >
   emit-signal) plus dashboard/insight tools (insights-trending-retrieve, insight-get,
   insight-query, dashboards-get-all, dashboard-get, dashboard-insights-run, insights-list),
   alert-simulate (the anomaly-detection simulator — primary scorer for saved insights),
-  notebooks-create (the durable write-up that backs each emitted finding),
+  notebooks-create / notebooks-destroy (the durable write-up that backs each emitted
+  finding, removed if the emit is preflight-skipped),
   execute-sql, read-data-schema, inbox-reports-list.
 metadata:
   owner_team: signals
@@ -214,6 +215,9 @@ Write (user-facing, gated on `notebook:write`):
   emitting and reference its URL from the signal. Layout + embedded-chart recipe (embed the
   anomalous insight with a `SavedInsightNode`; chart a SQL-fallback series with a
   `DataVisualizationNode`) is in [`references/emit-contract.md`](references/emit-contract.md).
+- `notebooks-destroy` — clean up the write-up if the emit is preflight-skipped (dry-run /
+  gated / source disabled) so a non-emitting run leaves no orphan artifact. See
+  [`references/emit-contract.md`](references/emit-contract.md).
 
 Harness-level: `signals-scout-project-profile-get`, `signals-scout-scratchpad-search`,
 `signals-scout-runs-list`, `signals-scout-runs-retrieve` (orientation + dedupe);
