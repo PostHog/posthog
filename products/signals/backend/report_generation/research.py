@@ -100,6 +100,14 @@ class PriorityAssessment(BaseModel):
         ),
     )
     priority: Priority = Field(description="Priority (P0-P4)")
+    dollar_value: float | None = Field(
+        default=None,
+        description=(
+            "Estimated real dollar value of merging the fix/change this report leads to, in USD. "
+            "Trace the causal path from merging to business outcomes and quantify it. "
+            "None when the value cannot be reasonably estimated from the available data."
+        ),
+    )
 
     @field_validator("explanation")
     @classmethod
@@ -450,6 +458,15 @@ def build_priority_prompt(
 {previous_priority_context}
 
 Base your priority on **evidence from your research** — quantified user impact, error frequency, or scope of affected code paths — not just the signal descriptions.
+
+## Dollar value estimation
+
+Also estimate the **real dollar value** (in USD) of merging the fix or change this report leads to. This is a best-effort economic estimate, not a priority proxy — a low-priority change can be high-value and vice versa.
+
+- **Trace the causal path** from merging the change to business outcomes. Be explicit with yourself about each link: merge → behavior change → user/revenue/cost outcome. Only count value you can actually justify from the evidence; if a link is speculative, discount it heavily.
+- **Quantify from the data you gathered** — affected user counts, conversion or retention deltas, error frequency, request volume, revenue per user, or engineering time saved. Convert these into dollars using the most defensible figures available; state your assumptions in the explanation.
+- **Factor in value over time.** Some fixes deliver a one-off gain; others compound or recur (e.g. an ongoing error suppressed every day, a conversion lift that persists). Reason about an appropriate horizon and apply **decay** where the value erodes (the issue would likely be fixed another way, traffic shifts, the feature is deprecated). Prefer a present-value-style estimate over a naive perpetual sum.
+- If the available data does not support a defensible estimate, set `dollar_value` to `null` rather than guessing wildly. Briefly note in the explanation how you arrived at the figure (or why you couldn't).
 
 Respond with a JSON object matching this schema:
 

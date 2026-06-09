@@ -303,6 +303,7 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
         assert priority_content == {
             "priority": "P1",
             "explanation": "The regression affects a core onboarding flow and should be addressed quickly.",
+            "dollar_value": None,
         }
 
         repo_selection_content = json.loads(artefacts[2].content)
