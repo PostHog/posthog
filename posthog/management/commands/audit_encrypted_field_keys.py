@@ -72,7 +72,9 @@ def _legacy_fernet() -> MultiFernet | None:
 
 def _leaves(value: object) -> list[str]:
     # An EncryptedJSONField stores a token per leaf; scalar / JSON-string fields store a single token.
-    # psycopg already parses jsonb columns into native dicts/lists/strings.
+    # Callers must hand jsonb columns over as already-parsed dicts/lists (see Command._coerce_raw) —
+    # Django's psycopg setup returns jsonb as a JSON *string* from a raw cursor, which would otherwise
+    # be misread here as one opaque leaf.
     if isinstance(value, str):
         return [value]
     if isinstance(value, dict):
@@ -189,11 +191,16 @@ class Command(BaseCommand):
         quote = connection.ops.quote_name
         table, column, pk_column = model._meta.db_table, model_field.column, model._meta.pk.column
 
+        # Only EncryptedJSONField is a jsonb column (per-leaf tokens); every other encrypted field is a
+        # text column holding a single token. A raw cursor returns jsonb as a JSON string under Django's
+        # psycopg config, so those rows need parsing before their leaves can be classified individually.
+        is_json_column = model_field.get_internal_type() == "JSONField"
+
         cursor = connection.cursor()
         try:
             for pk, raw in self._iter_rows(cursor, quote, table, column, pk_column, options):
                 report.scanned += 1
-                bucket = classify(raw, salt_only, legacy)
+                bucket = classify(self._coerce_raw(raw, is_json_column), salt_only, legacy)
                 report.counts[bucket] += 1
                 if bucket in (LEGACY, PLAINTEXT, UNREADABLE):
                     pks = report.samples.setdefault(bucket, [])
@@ -204,6 +211,18 @@ class Command(BaseCommand):
         finally:
             cursor.close()
         return report
+
+    @staticmethod
+    def _coerce_raw(raw: object, is_json_column: bool) -> object:
+        # A raw cursor hands jsonb back as a JSON string (Django parses jsonb itself in JSONField),
+        # so decode it into the dict/list whose leaves carry the per-leaf tokens. NULL stays None.
+        # The isinstance guard keeps this correct if a backend ever returns jsonb already parsed.
+        if is_json_column and isinstance(raw, str):
+            try:
+                return json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                return raw
+        return raw
 
     def _iter_rows(self, cursor, quote, table, column, pk_column, options):
         batch_size, limit = options["batch_size"], options["limit"]
