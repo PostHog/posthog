@@ -37,6 +37,7 @@ from products.posthog_ai.backend.models.assistant import AgentArtifact
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
+from ee.hogai.context.account import AccountContext
 from ee.hogai.context.activity_log.context import ActivityLogContext
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
@@ -54,11 +55,13 @@ from ee.hogai.tools.read_data.prompts import (
     BILLING_INSUFFICIENT_ACCESS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
     INSIGHT_NOT_FOUND_PROMPT,
+    READ_DATA_ACCOUNT_PROMPT,
     READ_DATA_ACTIVITY_LOG_PROMPT,
     READ_DATA_BILLING_PROMPT,
     READ_DATA_PROMPT,
     READ_DATA_WAREHOUSE_SCHEMA_PROMPT,
 )
+from ee.hogai.utils.feature_flags import has_customer_analytics_mode_feature_flag
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantState, NodePath
@@ -149,6 +152,14 @@ class ReadExperiment(BaseModel):
     feature_flag_key: str | None = Field(default=None, description="The key of the experiment's feature flag.")
 
 
+class ReadAccount(BaseModel):
+    """Retrieves a customer account by its UUID or external id, including roles, tags, external-system ids, and saved notes."""
+
+    kind: Literal["account"] = "account"
+    account_id: str | None = Field(default=None, description="The UUID of the account.")
+    external_id: str | None = Field(default=None, description="The external id of the account.")
+
+
 class ReadActivityLog(BaseModel):
     """Retrieves recent activity log entries showing who changed what and when in this project."""
 
@@ -201,6 +212,7 @@ ReadDataQuery = (
     | ReadSurvey
     | ReadFeatureFlag
     | ReadExperiment
+    | ReadAccount
     | ReadActivityLog
     | ReadLLMTrace
 )
@@ -251,6 +263,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if has_audit_logs_access:
             prompt_vars["activity_log_prompt"] = READ_DATA_ACTIVITY_LOG_PROMPT
             kinds.append(ReadActivityLog)
+
+        if has_customer_analytics_mode_feature_flag(team, user):
+            prompt_vars["account_prompt"] = READ_DATA_ACCOUNT_PROMPT
+            kinds.append(ReadAccount)
 
         base_kinds: tuple[type[BaseModel], ...] = (
             ReadDataWarehouseSchema,
@@ -325,6 +341,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await self._read_feature_flag(schema.id, schema.key), None
             case ReadExperiment() as schema:
                 return await self._read_experiment(schema.id, schema.feature_flag_key), None
+            case ReadAccount() as schema:
+                if not has_customer_analytics_mode_feature_flag(self._team, self._user):
+                    raise MaxToolFatalError("Account data is not available for this project.")
+                return await self._read_account(schema.account_id, schema.external_id), None
             case ReadActivityLog() as schema:
                 if not await self._context_manager.check_has_audit_logs_access():
                     raise MaxToolFatalError(ACTIVITY_LOG_INSUFFICIENT_ACCESS_PROMPT)
@@ -641,6 +661,23 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
         return await context.format_experiment(experiment)
+
+    async def _read_account(self, account_id: str | None, external_id: str | None) -> str:
+        if account_id is None and external_id is None:
+            raise MaxToolRetryableError("You must provide either 'account_id' or 'external_id' to read an account.")
+
+        context = AccountContext(
+            team=self._team,
+            account_id=account_id,
+            external_id=external_id,
+        )
+
+        account = await context.aget_account()
+        if account is None:
+            raise MaxToolRetryableError(context.get_not_found_message())
+
+        await self.check_object_access(account, "viewer", resource="account", action="read")
+        return await context.format_account(account)
 
     async def _read_activity_log(
         self,

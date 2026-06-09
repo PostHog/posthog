@@ -155,7 +155,7 @@ async def maybe_autostart_implementation_task(
 
     team = await Team.objects.select_related("organization").aget(id=team_id)
     team_config = await SignalTeamConfig.objects.filter(team_id=team_id).afirst()
-    team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P0
+    team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P2
 
     task_user = await database_sync_to_async(_resolve_autostart_assignee, thread_sensitive=False)(
         team_id, priority.priority, reviewers_content, team_default_priority

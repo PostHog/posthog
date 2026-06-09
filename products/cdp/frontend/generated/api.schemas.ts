@@ -91,13 +91,13 @@ export interface PaginatedHogFunctionTemplateListApi {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -146,11 +146,11 @@ export interface UserBasicApi {
 
 /**
  * * `0` - 0
- * `1` - 1
- * `2` - 2
- * `3` - 3
- * `11` - 11
- * `12` - 12
+ * * `1` - 1
+ * * `2` - 2
+ * * `3` - 3
+ * * `11` - 11
+ * * `12` - 12
  */
 export type HogFunctionStatusStateEnumApi =
     (typeof HogFunctionStatusStateEnumApi)[keyof typeof HogFunctionStatusStateEnumApi]
@@ -201,7 +201,7 @@ export interface PaginatedHogFunctionMinimalListApi {
 
 /**
  * * `hog` - hog
- * `liquid` - liquid
+ * * `liquid` - liquid
  */
 export type HogFunctionTemplatingEnumApi =
     (typeof HogFunctionTemplatingEnumApi)[keyof typeof HogFunctionTemplatingEnumApi]
@@ -226,12 +226,12 @@ export type HogFunctionApiInputs = { [key: string]: InputsItemApi }
 
 /**
  * * `destination` - Destination
- * `site_destination` - Site Destination
- * `internal_destination` - Internal Destination
- * `source_webhook` - Source Webhook
- * `warehouse_source_webhook` - Warehouse Source Webhook
- * `site_app` - Site App
- * `transformation` - Transformation
+ * * `site_destination` - Site Destination
+ * * `internal_destination` - Internal Destination
+ * * `source_webhook` - Source Webhook
+ * * `warehouse_source_webhook` - Warehouse Source Webhook
+ * * `site_app` - Site App
+ * * `transformation` - Transformation
  */
 export type HogFunctionTypeEnumApi = (typeof HogFunctionTypeEnumApi)[keyof typeof HogFunctionTypeEnumApi]
 
@@ -247,19 +247,19 @@ export const HogFunctionTypeEnumApi = {
 
 /**
  * * `string` - string
- * `number` - number
- * `boolean` - boolean
- * `dictionary` - dictionary
- * `choice` - choice
- * `json` - json
- * `integration` - integration
- * `integration_field` - integration_field
- * `email` - email
- * `native_email` - native_email
- * `posthog_assignee` - posthog_assignee
- * `posthog_ticket_tags` - posthog_ticket_tags
- * `posthog_business_hours` - posthog_business_hours
- * `non_failure_status_codes` - non_failure_status_codes
+ * * `number` - number
+ * * `boolean` - boolean
+ * * `dictionary` - dictionary
+ * * `choice` - choice
+ * * `json` - json
+ * * `integration` - integration
+ * * `integration_field` - integration_field
+ * * `email` - email
+ * * `native_email` - native_email
+ * * `posthog_assignee` - posthog_assignee
+ * * `posthog_ticket_tags` - posthog_ticket_tags
+ * * `posthog_business_hours` - posthog_business_hours
+ * * `non_failure_status_codes` - non_failure_status_codes
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
 
@@ -303,8 +303,8 @@ export interface InputsSchemaItemApi {
 
 /**
  * * `events` - events
- * `person-updates` - person-updates
- * `data-warehouse-table` - data-warehouse-table
+ * * `person-updates` - person-updates
+ * * `data-warehouse-table` - data-warehouse-table
  */
 export type HogFunctionFiltersSourceEnumApi =
     (typeof HogFunctionFiltersSourceEnumApi)[keyof typeof HogFunctionFiltersSourceEnumApi]
@@ -365,14 +365,14 @@ export interface MappingsApi {
 export interface HogFunctionApi {
     readonly id: string
     /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
-
-  * `destination` - Destination
-  * `site_destination` - Site Destination
-  * `internal_destination` - Internal Destination
-  * `source_webhook` - Source Webhook
-  * `warehouse_source_webhook` - Warehouse Source Webhook
-  * `site_app` - Site App
-  * `transformation` - Transformation */
+     *
+     * * `destination` - Destination
+     * * `site_destination` - Site Destination
+     * * `internal_destination` - Internal Destination
+     * * `source_webhook` - Source Webhook
+     * * `warehouse_source_webhook` - Warehouse Source Webhook
+     * * `site_app` - Site App
+     * * `transformation` - Transformation */
     type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.
@@ -440,14 +440,14 @@ export type PatchedHogFunctionApiInputs = { [key: string]: InputsItemApi }
 export interface PatchedHogFunctionApi {
     readonly id?: string
     /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
-
-  * `destination` - Destination
-  * `site_destination` - Site Destination
-  * `internal_destination` - Internal Destination
-  * `source_webhook` - Source Webhook
-  * `warehouse_source_webhook` - Warehouse Source Webhook
-  * `site_app` - Site App
-  * `transformation` - Transformation */
+     *
+     * * `destination` - Destination
+     * * `site_destination` - Site Destination
+     * * `internal_destination` - Internal Destination
+     * * `source_webhook` - Source Webhook
+     * * `warehouse_source_webhook` - Warehouse Source Webhook
+     * * `site_app` - Site App
+     * * `transformation` - Transformation */
     type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.
@@ -565,8 +565,8 @@ export interface PatchedHogFunctionRearrangeApi {
 
 /**
  * * `SYSTEM` - SYSTEM
- * `PLUGIN` - PLUGIN
- * `CONSOLE` - CONSOLE
+ * * `PLUGIN` - PLUGIN
+ * * `CONSOLE` - CONSOLE
  */
 export type PluginLogEntrySourceEnumApi = (typeof PluginLogEntrySourceEnumApi)[keyof typeof PluginLogEntrySourceEnumApi]
 
@@ -578,10 +578,10 @@ export const PluginLogEntrySourceEnumApi = {
 
 /**
  * * `DEBUG` - DEBUG
- * `LOG` - LOG
- * `INFO` - INFO
- * `WARN` - WARN
- * `ERROR` - ERROR
+ * * `LOG` - LOG
+ * * `INFO` - INFO
+ * * `WARN` - WARN
+ * * `ERROR` - ERROR
  */
 export type PluginLogEntryTypeEnumApi = (typeof PluginLogEntryTypeEnumApi)[keyof typeof PluginLogEntryTypeEnumApi]
 
@@ -701,12 +701,12 @@ export type HogFunctionsMetricsRetrieveParams = {
      */
     before?: string
     /**
- * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
-
-* `name` - name
-* `kind` - kind
- * @minLength 1
- */
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+     *
+     * * `name` - name
+     * * `kind` - kind
+     * @minLength 1
+     */
     breakdown_by?: HogFunctionsMetricsRetrieveBreakdownBy
     /**
      * Filter metrics to a specific execution instance.
@@ -714,13 +714,13 @@ export type HogFunctionsMetricsRetrieveParams = {
      */
     instance_id?: string
     /**
- * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
-
-* `hour` - hour
-* `day` - day
-* `week` - week
- * @minLength 1
- */
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+     *
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * @minLength 1
+     */
     interval?: HogFunctionsMetricsRetrieveInterval
     /**
      * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
@@ -763,12 +763,12 @@ export type HogFunctionsMetricsTotalsRetrieveParams = {
      */
     before?: string
     /**
- * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
-
-* `name` - name
-* `kind` - kind
- * @minLength 1
- */
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+     *
+     * * `name` - name
+     * * `kind` - kind
+     * @minLength 1
+     */
     breakdown_by?: HogFunctionsMetricsTotalsRetrieveBreakdownBy
     /**
      * Filter metrics to a specific execution instance.
@@ -776,13 +776,13 @@ export type HogFunctionsMetricsTotalsRetrieveParams = {
      */
     instance_id?: string
     /**
- * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
-
-* `hour` - hour
-* `day` - day
-* `week` - week
- * @minLength 1
- */
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+     *
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * @minLength 1
+     */
     interval?: HogFunctionsMetricsTotalsRetrieveInterval
     /**
      * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
