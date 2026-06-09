@@ -181,7 +181,12 @@ def _update_oauth_on_save(
 
 
 def _clear_pak_on_delete(sender: type[PersonalAPIKey], instance: PersonalAPIKey, **kwargs: Any) -> None:
-    if not settings.AI_GATEWAY_REDIS_URL or not credential_has_gateway_scope(instance):
+    # Match the save path's old-or-new check: clear if the credential is eligible now
+    # or was at load, so an in-memory scope change before delete still drops the blob
+    # promptly instead of waiting out the TTL.
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return
+    if not (credential_has_gateway_scope(instance) or instance.__dict__.get(_LOADED_ELIGIBLE_ATTR)):
         return
     cache_hash = _pak_hash(instance)
     if cache_hash:
@@ -189,7 +194,9 @@ def _clear_pak_on_delete(sender: type[PersonalAPIKey], instance: PersonalAPIKey,
 
 
 def _clear_oauth_on_delete(sender: type[OAuthAccessToken], instance: OAuthAccessToken, **kwargs: Any) -> None:
-    if not settings.AI_GATEWAY_REDIS_URL or not credential_has_gateway_scope(instance):
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return
+    if not (credential_has_gateway_scope(instance) or instance.__dict__.get(_LOADED_ELIGIBLE_ATTR)):
         return
     cache_hash = _oauth_hash(instance)
     if cache_hash:
@@ -231,6 +238,21 @@ def _snapshot_oauth_application(sender: type[OAuthApplication], instance: OAuthA
         instance.__dict__[_LOADED_APP_GATEWAY_ATTR] = instance.gateway_id
 
 
+def _capture_old_app_gateway_if_deferred(
+    sender: type[OAuthApplication], instance: OAuthApplication, **kwargs: Any
+) -> None:
+    # Fallback for an app loaded with `gateway` deferred (post_init skipped the
+    # snapshot): re-read the old gateway before the UPDATE so a rebind still
+    # reprojects. No-op (no query) on the common full-load path.
+    if not settings.AI_GATEWAY_REDIS_URL or _LOADED_APP_GATEWAY_ATTR in instance.__dict__:
+        return
+    if not instance.pk or instance._state.adding:
+        return
+    row = OAuthApplication.objects.filter(pk=instance.pk).values("gateway_id").first()
+    if row is not None:
+        instance.__dict__[_LOADED_APP_GATEWAY_ATTR] = row["gateway_id"]
+
+
 def _reproject_oauth_application_on_save(
     sender: type[OAuthApplication], instance: OAuthApplication, created: bool, **kwargs: Any
 ) -> None:
@@ -255,6 +277,16 @@ def _snapshot_team(sender: type[Team], instance: Team, **kwargs: Any) -> None:
         instance.__dict__[_LOADED_TEAM_API_TOKEN_ATTR] = instance.api_token
 
 
+def _capture_old_team_token_if_deferred(sender: type[Team], instance: Team, **kwargs: Any) -> None:
+    if not settings.AI_GATEWAY_REDIS_URL or _LOADED_TEAM_API_TOKEN_ATTR in instance.__dict__:
+        return
+    if not instance.pk or instance._state.adding:
+        return
+    row = Team.objects.filter(pk=instance.pk).values("api_token").first()
+    if row is not None:
+        instance.__dict__[_LOADED_TEAM_API_TOKEN_ATTR] = row["api_token"]
+
+
 def _reproject_team_on_api_token_change(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
     # project_token in the blob is the team's api_token; a rotation leaves every
     # gateway credential blob on this team's gateways carrying the stale token.
@@ -274,6 +306,18 @@ def _snapshot_membership(sender: type[OrganizationMembership], instance: Organiz
         return
     if "level" not in instance.get_deferred_fields():
         instance.__dict__[_LOADED_MEMBERSHIP_LEVEL_ATTR] = instance.level
+
+
+def _capture_old_membership_level_if_deferred(
+    sender: type[OrganizationMembership], instance: OrganizationMembership, **kwargs: Any
+) -> None:
+    if not settings.AI_GATEWAY_REDIS_URL or _LOADED_MEMBERSHIP_LEVEL_ATTR in instance.__dict__:
+        return
+    if not instance.pk or instance._state.adding:
+        return
+    row = OrganizationMembership.objects.filter(pk=instance.pk).values("level").first()
+    if row is not None:
+        instance.__dict__[_LOADED_MEMBERSHIP_LEVEL_ATTR] = row["level"]
 
 
 def _reproject_on_membership_save(
@@ -298,6 +342,16 @@ def _snapshot_gateway(sender: type[Gateway], instance: Gateway, **kwargs: Any) -
         return
     if "slug" not in instance.get_deferred_fields():
         instance.__dict__[_LOADED_GATEWAY_SLUG_ATTR] = instance.slug
+
+
+def _capture_old_gateway_slug_if_deferred(sender: type[Gateway], instance: Gateway, **kwargs: Any) -> None:
+    if not settings.AI_GATEWAY_REDIS_URL or _LOADED_GATEWAY_SLUG_ATTR in instance.__dict__:
+        return
+    if not instance.pk or instance._state.adding:
+        return
+    row = Gateway.all_teams.filter(pk=instance.pk).values("slug").first()
+    if row is not None:
+        instance.__dict__[_LOADED_GATEWAY_SLUG_ATTR] = row["slug"]
 
 
 def _reproject_gateway_on_save(sender: type[Gateway], instance: Gateway, created: bool, **kwargs: Any) -> None:
@@ -383,19 +437,23 @@ def connect_signal_handlers() -> None:
     pre_delete.connect(_clear_oauth_on_delete, sender=OAuthAccessToken)
 
     post_init.connect(_snapshot_oauth_application, sender=OAuthApplication)
+    pre_save.connect(_capture_old_app_gateway_if_deferred, sender=OAuthApplication)
     post_save.connect(_reproject_oauth_application_on_save, sender=OAuthApplication)
 
     post_init.connect(_snapshot_team, sender=Team)
+    pre_save.connect(_capture_old_team_token_if_deferred, sender=Team)
     post_save.connect(_reproject_team_on_api_token_change, sender=Team)
 
     post_init.connect(_snapshot_user, sender=User)
     post_save.connect(_reproject_user_on_save, sender=User)
 
     post_init.connect(_snapshot_membership, sender=OrganizationMembership)
+    pre_save.connect(_capture_old_membership_level_if_deferred, sender=OrganizationMembership)
     post_save.connect(_reproject_on_membership_save, sender=OrganizationMembership)
     post_delete.connect(_reproject_on_membership_delete, sender=OrganizationMembership)
 
     post_init.connect(_snapshot_gateway, sender=Gateway)
+    pre_save.connect(_capture_old_gateway_slug_if_deferred, sender=Gateway)
     post_save.connect(_reproject_gateway_on_save, sender=Gateway)
     pre_delete.connect(_clear_gateway_on_delete, sender=Gateway)
 

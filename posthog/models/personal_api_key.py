@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, Optional
 
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.db.models import Q, QuerySet
 from django.utils import timezone
@@ -59,6 +60,14 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
         null=True,
         blank=True,
     )
+
+    class Meta:
+        indexes = [
+            # `scopes` is filtered with the array `@>` operator (scopes__contains) on
+            # the gateway-credential refresh and scope-based auth; GIN makes it an
+            # index scan instead of a seq scan.
+            GinIndex(fields=["scopes"], name="personalapikey_scopes_gin"),
+        ]
 
 
 def find_personal_api_key(token: str) -> tuple[PersonalAPIKey, str] | None:

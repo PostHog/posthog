@@ -143,13 +143,15 @@ class TestGatewayCredentialWireShape(GatewayCredentialTestMixin):
 
     @parameterized.expand(["Posthog_Code", "slack app", "wizard/v2", "", "_leading"])
     def test_malformed_gateway_slug_fails_closed(self, slug: str):
-        # Gateway.save() rejects these, so force one into the DB via update() to
-        # exercise the projection's backstop: a slug the gateway can't route (or
+        # Gateway.save() and the DB CheckConstraint both reject these, so a malformed
+        # slug can't reach the DB. Hand the projection an in-memory gateway with a bad
+        # slug to exercise its backstop directly: a slug the gateway can't route (or
         # that escapes its cache-key path) must not be projected.
         pak, _ = self._make_pak([GATEWAY_SCOPE])
-        Gateway.all_teams.filter(pk=self.gateway.pk).update(slug=slug)
-        fresh = PersonalAPIKey.objects.get(pk=pak.pk)  # reload so gateway.slug isn't cached
-        project_gateway_credential(fresh)
+        fresh = PersonalAPIKey.objects.get(pk=pak.pk)
+        bad_gateway = Gateway(team=self.team, slug=slug)
+        with patch("posthog.storage.gateway_credential_cache._gateway_for_credential", return_value=bad_gateway):
+            project_gateway_credential(fresh)
         self.assertIsNone(self._read_blob(credential_hash(fresh)))
 
     def test_unbound_credential_fails_closed(self):

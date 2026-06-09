@@ -40,6 +40,7 @@ fixed lifecycle would outlive it, resurrecting a stale blob on a cold Redis.
 
 import os
 import re
+from collections.abc import Callable
 from typing import Any
 
 from django.conf import settings
@@ -94,6 +95,30 @@ GATEWAY_CREDENTIAL_FIELDS = [
 Credential = PersonalAPIKey | OAuthAccessToken
 
 
+class _RefreshMemo:
+    """Per-run memo for the batch refresh: the authorization checks in
+    _policy_for_credential are per (org, user) and (team, user), but a refresh
+    re-projects every credential — many sharing a user/team. Caching them collapses
+    O(credentials) round trips into O(distinct users). Single-credential callers
+    pass no memo, so their behavior is unchanged."""
+
+    def __init__(self) -> None:
+        self._memberships: dict[tuple[Any, Any], Any] = {}
+        self._access: dict[tuple[Any, Any], bool] = {}
+
+    def membership(self, organization_id: Any, user_id: Any, load: Callable[[], Any]) -> Any:
+        key = (organization_id, user_id)
+        if key not in self._memberships:
+            self._memberships[key] = load()
+        return self._memberships[key]
+
+    def access(self, team_id: Any, user_id: Any, load: Callable[[], bool]) -> bool:
+        key = (team_id, user_id)
+        if key not in self._access:
+            self._access[key] = load()
+        return self._access[key]
+
+
 def credential_hash(credential: Credential) -> str | None:
     """The sha256$<hex> cache-key hash for a credential.
 
@@ -143,7 +168,9 @@ def _ttl_for_credential(credential: Credential) -> float:
     return GATEWAY_CREDENTIAL_PAK_CACHE_TTL
 
 
-def _policy_for_credential(credential: Credential) -> dict[str, Any] | HyperCacheStoreMissing:
+def _policy_for_credential(
+    credential: Credential, memo: "_RefreshMemo | None" = None
+) -> dict[str, Any] | HyperCacheStoreMissing:
     """Project a credential into the wire blob, or signal a clear.
 
     The bound gateway is the source of truth for the billed team (not the user's
@@ -198,11 +225,14 @@ def _policy_for_credential(credential: Credential) -> dict[str, Any] | HyperCach
     # The gateway authenticates from the cached blob alone, so every authorization
     # input it can't see is enforced here (and re-checked by the hourly refresh).
     # scoped_organizations is a static ceiling that doesn't track these changing.
-    membership = (
-        OrganizationMembership.objects.select_related("organization")
-        .filter(organization_id=team.organization_id, user_id=user.id)
-        .first()
-    )
+    def _load_membership() -> Any:
+        return (
+            OrganizationMembership.objects.select_related("organization")
+            .filter(organization_id=team.organization_id, user_id=user.id)
+            .first()
+        )
+
+    membership = memo.membership(team.organization_id, user.id, _load_membership) if memo else _load_membership()
     if membership is None:
         return HyperCacheStoreMissing()
 
@@ -221,8 +251,13 @@ def _policy_for_credential(credential: Credential) -> dict[str, Any] | HyperCach
     # touching org membership. check_access_level_for_object default-allows for org
     # admins, creators, and orgs without the access-control feature, so this only
     # fails closed on an explicit RBAC revocation.
-    user_access_control = UserAccessControl(user=user, team=team)
-    if not user_access_control.check_access_level_for_object(team, required_level=_PROJECT_READ_ACCESS_LEVEL):
+    def _load_access() -> bool:
+        return UserAccessControl(user=user, team=team).check_access_level_for_object(
+            team, required_level=_PROJECT_READ_ACCESS_LEVEL
+        )
+
+    has_access = memo.access(team_id, user.id, _load_access) if memo else _load_access()
+    if not has_access:
         return HyperCacheStoreMissing()
 
     return {
@@ -284,13 +319,13 @@ gateway_credential_hypercache = HyperCache(
 )
 
 
-def project_gateway_credential(credential: Credential) -> None:
+def project_gateway_credential(credential: Credential, memo: "_RefreshMemo | None" = None) -> None:
     """Write (or clear) the credential's policy blob from current DB state."""
     cache_hash = credential_hash(credential)
     if not cache_hash:
         return
 
-    policy = _policy_for_credential(credential)
+    policy = _policy_for_credential(credential, memo)
     if isinstance(policy, HyperCacheStoreMissing):
         gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
         return
@@ -319,17 +354,18 @@ def refresh_all_gateway_credentials() -> int:
     reversed through a team pool the way the team-centric refresh does. Keeps
     entries warm; signal handlers and the per-OAuth-token TTL handle removal.
 
-    select_related pulls each credential's bound gateway and team in one query, but
-    the authorization checks in _policy_for_credential (org membership, personal-key
-    restriction, project access control) each issue their own query — intentionally
-    O(n) in the credential count, bounded because llm_gateway:read is admin-granted.
-    The org personal-key setting change propagates through this hourly pass plus the
-    PAK TTL rather than a per-input signal (access-control changes have their own
-    reproject signal). Streamed via .iterator() so the
-    working set stays flat. scope is a space-separated TextField; whitespace-bounded
-    so the literal doesn't substring-match a longer scope.
+    select_related pulls each credential's bound gateway and team in one query; the
+    per-credential authorization checks (org membership, personal-key restriction,
+    project access control) are memoized by (org, user) / (team, user) across the run
+    so the refresh does O(distinct users) lookups, not O(credentials). The org
+    personal-key setting change propagates through this hourly pass plus the PAK TTL
+    rather than a per-input signal (access-control changes have their own reproject
+    signal). Streamed via .iterator() so the working set stays flat. scope is a
+    space-separated TextField; whitespace-bounded so the literal doesn't substring-match
+    a longer scope.
     """
     now = timezone.now()
+    memo = _RefreshMemo()
     querysets = (
         PersonalAPIKey.objects.select_related("user", "gateway__team").filter(
             scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE], user__is_active=True
@@ -345,7 +381,7 @@ def refresh_all_gateway_credentials() -> int:
     count = 0
     for queryset in querysets:
         for credential in queryset.iterator(chunk_size=1000):
-            project_gateway_credential(credential)
+            project_gateway_credential(credential, memo)
             count += 1
 
     return count
