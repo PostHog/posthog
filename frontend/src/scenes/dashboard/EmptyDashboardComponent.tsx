@@ -7,6 +7,7 @@ import { LemonTag, Spinner } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { GraphsHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
@@ -23,7 +24,6 @@ import {
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 import { dashboardLogic } from './dashboardLogic'
-import { dashboardWidgetsFeaturePreviewUrl } from './dashboardWidgetsFeaturePreview'
 import { EmptyDashboardAiStarterPrompts } from './emptyDashboardAiStarterPrompts'
 
 const DASHBOARD_DOCS_URL = 'https://posthog.com/docs/product-analytics/dashboards'
@@ -91,7 +91,7 @@ function DashboardEmptyActions({
                                               onClick={
                                                   dashboardWidgetsEnabled
                                                       ? onAddWidget
-                                                      : () => push(dashboardWidgetsFeaturePreviewUrl())
+                                                      : () => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))
                                               }
                                               data-attr={
                                                   dashboardWidgetsEnabled

@@ -8,13 +8,13 @@ import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import { dashboardLogic } from './dashboardLogic'
-import { dashboardWidgetsFeaturePreviewUrl } from './dashboardWidgetsFeaturePreview'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 jest.mock('./emptyDashboardAiStarterPrompts', () => ({
@@ -96,7 +96,7 @@ describe('EmptyDashboardComponent', () => {
         await openGetStartedDropdown()
         await userEvent.click(screen.getByText('Add widget'))
 
-        expect(pushSpy).toHaveBeenCalledWith(dashboardWidgetsFeaturePreviewUrl())
+        expect(pushSpy).toHaveBeenCalledWith(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))
         expect(logic.values.addWidgetModalOpen).toBe(false)
 
         pushSpy.mockRestore()

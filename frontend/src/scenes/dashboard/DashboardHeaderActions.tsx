@@ -6,6 +6,7 @@ import { IconGridMasonry, IconPlusSmall, IconShare } from '@posthog/icons'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -18,7 +19,6 @@ import { AccessControlLevel, AccessControlResourceType, DashboardMode } from '~/
 
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
-import { dashboardWidgetsFeaturePreviewUrl } from './dashboardWidgetsFeaturePreview'
 
 export function DashboardAddTileButton(): JSX.Element | null {
     const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
@@ -82,7 +82,7 @@ export function DashboardAddTileButton(): JSX.Element | null {
                             : {
                                   label: 'Widget',
                                   tag: 'beta' as const,
-                                  onClick: () => push(dashboardWidgetsFeaturePreviewUrl()),
+                                  onClick: () => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS)),
                                   'data-attr': 'dashboard-add-widget-preview',
                               },
                     ]}
