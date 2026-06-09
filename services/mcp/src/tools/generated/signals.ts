@@ -35,6 +35,74 @@ import {
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const InboxReportArtefactsCreateSchema = SignalsReportArtefactsCreateParams.omit({ project_id: true }).extend(
+    SignalsReportArtefactsCreateBody.shape
+)
+
+const inboxReportArtefactsCreate = (): ToolBase<
+    typeof InboxReportArtefactsCreateSchema,
+    WithPostHogUrl<Schemas.SignalReportArtefactWriteResponse>
+> => ({
+    name: 'inbox-report-artefacts-create',
+    schema: InboxReportArtefactsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxReportArtefactsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.artefact_type !== undefined) {
+            body['artefact_type'] = params.artefact_type
+        }
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        const result = await context.api.request<Schemas.SignalReportArtefactWriteResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/artefacts/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${result.report_id}`)
+    },
+})
+
+const InboxReportArtefactsDeleteSchema = SignalsReportArtefactsDestroyParams.omit({ project_id: true })
+
+const inboxReportArtefactsDelete = (): ToolBase<typeof InboxReportArtefactsDeleteSchema, unknown> => ({
+    name: 'inbox-report-artefacts-delete',
+    schema: InboxReportArtefactsDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxReportArtefactsDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/artefacts/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const InboxReportArtefactsUpdateSchema = SignalsReportArtefactsPartialUpdateParams.omit({ project_id: true }).extend(
+    SignalsReportArtefactsPartialUpdateBody.shape
+)
+
+const inboxReportArtefactsUpdate = (): ToolBase<
+    typeof InboxReportArtefactsUpdateSchema,
+    Schemas.SignalReportArtefactWriteResponse
+> => ({
+    name: 'inbox-report-artefacts-update',
+    schema: InboxReportArtefactsUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxReportArtefactsUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        const result = await context.api.request<Schemas.SignalReportArtefactWriteResponse>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/artefacts/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
 const InboxReportsListSchema = SignalsReportsListQueryParams
 
 const inboxReportsList = (): ToolBase<
@@ -136,74 +204,6 @@ const inboxReportsSetState = (): ToolBase<typeof InboxReportsSetStateSchema, Wit
             body,
         })
         return await withPostHogUrl(context, result, `/inbox/${result.id}`)
-    },
-})
-
-const InboxReportArtefactsCreateSchema = SignalsReportArtefactsCreateParams.omit({ project_id: true }).extend(
-    SignalsReportArtefactsCreateBody.shape
-)
-
-const inboxReportArtefactsCreate = (): ToolBase<
-    typeof InboxReportArtefactsCreateSchema,
-    WithPostHogUrl<Schemas.SignalReportArtefactWriteResponse>
-> => ({
-    name: 'inbox-report-artefacts-create',
-    schema: InboxReportArtefactsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof InboxReportArtefactsCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.artefact_type !== undefined) {
-            body['artefact_type'] = params.artefact_type
-        }
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
-        const result = await context.api.request<Schemas.SignalReportArtefactWriteResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/artefacts/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/inbox/${result.report_id}`)
-    },
-})
-
-const InboxReportArtefactsUpdateSchema = SignalsReportArtefactsPartialUpdateParams.omit({ project_id: true }).extend(
-    SignalsReportArtefactsPartialUpdateBody.shape
-)
-
-const inboxReportArtefactsUpdate = (): ToolBase<
-    typeof InboxReportArtefactsUpdateSchema,
-    Schemas.SignalReportArtefactWriteResponse
-> => ({
-    name: 'inbox-report-artefacts-update',
-    schema: InboxReportArtefactsUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof InboxReportArtefactsUpdateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
-        const result = await context.api.request<Schemas.SignalReportArtefactWriteResponse>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/artefacts/${encodeURIComponent(String(params.id))}/`,
-            body,
-        })
-        return result
-    },
-})
-
-const InboxReportArtefactsDeleteSchema = SignalsReportArtefactsDestroyParams.omit({ project_id: true })
-
-const inboxReportArtefactsDelete = (): ToolBase<typeof InboxReportArtefactsDeleteSchema, unknown> => ({
-    name: 'inbox-report-artefacts-delete',
-    schema: InboxReportArtefactsDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof InboxReportArtefactsDeleteSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'DELETE',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/artefacts/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
     },
 })
 
@@ -641,12 +641,12 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'inbox-report-artefacts-create': inboxReportArtefactsCreate,
+    'inbox-report-artefacts-delete': inboxReportArtefactsDelete,
+    'inbox-report-artefacts-update': inboxReportArtefactsUpdate,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-set-state': inboxReportsSetState,
-    'inbox-report-artefacts-create': inboxReportArtefactsCreate,
-    'inbox-report-artefacts-update': inboxReportArtefactsUpdate,
-    'inbox-report-artefacts-delete': inboxReportArtefactsDelete,
     'inbox-source-configs-create': inboxSourceConfigsCreate,
     'inbox-source-configs-list': inboxSourceConfigsList,
     'inbox-source-configs-partial-update': inboxSourceConfigsPartialUpdate,
