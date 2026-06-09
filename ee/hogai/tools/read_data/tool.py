@@ -49,7 +49,7 @@ from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.context.survey import SurveyContext
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
-from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.read_billing_tool.tool import ReadBillingTool
 from ee.hogai.tools.read_data.prompts import (
     ACTIVITY_LOG_INSUFFICIENT_ACCESS_PROMPT,
@@ -772,6 +772,12 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         return "\n".join(parts)
 
     async def _read_business_knowledge_document(self, document_id: str, around_ordinal: int, radius: int) -> str:
+        has_access = await database_sync_to_async(
+            self.user_access_control.check_access_level_for_resource, thread_sensitive=False
+        )("business_knowledge", "viewer")
+        if not has_access:
+            raise MaxToolAccessDeniedError("business_knowledge", "viewer", action="read")
+
         try:
             doc_uuid = UUID(document_id)
         except ValueError:
