@@ -1347,7 +1347,10 @@ class GoogleAdsIntegration:
             capture_exception(
                 Exception(f"GoogleAdsIntegration: Failed to list ads conversion actions: {response.text}")
             )
-            raise Exception("There was an internal error")
+            raise ValidationError(
+                "Could not load conversion actions from Google Ads. "
+                "Please try again, and reconnect this integration if the problem persists."
+            )
 
         return response.json()
 
@@ -1385,7 +1388,10 @@ class GoogleAdsIntegration:
 
         if response.status_code != 200:
             capture_exception(Exception(f"GoogleAdsIntegration: Failed to list accessible accounts: {response.text}"))
-            raise Exception("There was an internal error")
+            raise ValidationError(
+                "Could not load accessible accounts from Google Ads. "
+                "Please try again, and reconnect this integration if the problem persists."
+            )
 
         accessible_accounts = response.json()
         all_accounts: list[dict[str, str]] = []

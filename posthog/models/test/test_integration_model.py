@@ -32,6 +32,7 @@ from posthog.models.integration import (
     GitHubIntegration,
     GitHubIntegrationError,
     GitHubRateLimitError,
+    GoogleAdsIntegration,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     Integration,
@@ -2374,3 +2375,33 @@ class TestPostgreSQLIntegrationModel(BaseTest):
         assert "password" not in integration.config
 
         assert integration.sensitive_config["password"] == "super-secret"
+
+
+class TestGoogleAdsIntegration(BaseTest):
+    def create_google_ads_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="google-ads",
+            config={"refreshed_at": int(time.time()), "expires_in": 3600},
+            sensitive_config={"access_token": "ACCESS", "refresh_token": "REFRESH"},
+        )
+
+    @parameterized.expand([("server_error", 500), ("bad_gateway", 502), ("unprocessable", 422)])
+    @patch("posthog.models.integration.requests.request")
+    def test_list_accessible_accounts_raises_validation_error_on_non_200(self, _name, status_code, mock_request):
+        mock_request.return_value = MagicMock(status_code=status_code, text="upstream failure")
+
+        integration = GoogleAdsIntegration(self.create_google_ads_integration())
+
+        with self.assertRaises(ValidationError):
+            integration.list_google_ads_accessible_accounts()
+
+    @parameterized.expand([("server_error", 500), ("bad_gateway", 502), ("unprocessable", 422)])
+    @patch("posthog.models.integration.requests.request")
+    def test_list_conversion_actions_raises_validation_error_on_non_200(self, _name, status_code, mock_request):
+        mock_request.return_value = MagicMock(status_code=status_code, text="upstream failure")
+
+        integration = GoogleAdsIntegration(self.create_google_ads_integration())
+
+        with self.assertRaises(ValidationError):
+            integration.list_google_ads_conversion_actions("1234567890")

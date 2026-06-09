@@ -1,5 +1,7 @@
-import { actions, kea, key, path, props } from 'kea'
+import { actions, kea, key, listeners, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
@@ -43,5 +45,13 @@ export const googleAdsIntegrationLogic = kea<googleAdsIntegrationLogicType>([
                 },
             },
         ],
+    })),
+    listeners(() => ({
+        loadGoogleAdsConversionActionsFailure: ({ error }) => {
+            lemonToast.error(error || 'Failed to load Google Ads conversion actions. Please try again.')
+        },
+        loadGoogleAdsAccessibleAccountsFailure: ({ error }) => {
+            lemonToast.error(error || 'Failed to load Google Ads accounts. Please try again.')
+        },
     })),
 ])
