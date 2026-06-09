@@ -10,6 +10,10 @@ export const humanizeBatchExportName = (service: BatchExportService['type']): st
             return 'PostHog HTTP'
         case 'AzureBlob':
             return 'Azure Blob Storage'
+        case 'AwsS3':
+            return 'AWS S3'
+        case 'S3Compatible':
+            return 'S3-compatible'
         default:
             return service
     }

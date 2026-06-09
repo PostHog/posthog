@@ -1,11 +1,15 @@
-import { S3FamilyFields, S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS, S3_REGION_OPTIONS, validateBucketName } from './common'
+import {
+    AWS_ONLY_REGION_OPTIONS,
+    S3FamilyFields,
+    S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS,
+    validateBucketName,
+} from './common'
 import type { DestinationDefinition } from './types'
 
-// Legacy `S3` destination, kept for batch exports created before the AwsS3 / S3Compatible split and
-// hidden from the picker. It shows every S3-family field so any not-yet-reclassified row keeps working.
-// TODO: cleanup once all batch exports have been migrated to AwsS3 or S3Compatible
-export const s3Definition: DestinationDefinition = {
-    type: 'S3',
+// AWS S3 — the first-class destination for buckets hosted on AWS. No endpoint or virtual-style
+// addressing (those are derived from the AWS region); encryption + KMS are AWS-specific so they stay.
+export const awsS3Definition: DestinationDefinition = {
+    type: 'AwsS3',
     defaults: () => ({
         file_format: 'Parquet',
         compression: 'zstd',
@@ -23,17 +27,17 @@ export const s3Definition: DestinationDefinition = {
     }),
     eventTableExtraFields: S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS,
     eventTableOverrides: { includeGenericPersonFields: false },
-    Fields: function S3Fields({ isNew, formValues, configurationChanged }) {
+    Fields: function AwsS3Fields({ isNew, formValues, configurationChanged }) {
         return (
             <S3FamilyFields
                 isNew={isNew}
                 formValues={formValues}
                 configurationChanged={configurationChanged}
-                regionOptions={S3_REGION_OPTIONS}
+                regionOptions={AWS_ONLY_REGION_OPTIONS}
                 awsBranded
                 showEncryption
-                showEndpointUrl
-                showVirtualStyleAddressing
+                showEndpointUrl={false}
+                showVirtualStyleAddressing={false}
             />
         )
     },

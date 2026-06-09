@@ -142,9 +142,18 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                 const httpEnabled =
                     featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTHOG_HTTP] || user?.is_impersonated || user?.is_staff
 
-                const services = BATCH_EXPORT_SERVICE_NAMES.filter((service) =>
-                    httpEnabled ? true : service !== ('HTTP' as const)
-                )
+                const services = BATCH_EXPORT_SERVICE_NAMES.filter((service) => {
+                    // Legacy alias — superseded in the picker by AwsS3 + S3Compatible. Kept in the
+                    // service list so existing 'S3' rows still load and render.
+                    if (service === 'S3') {
+                        return false
+                    }
+                    // HTTP is only for Cloud-to-Cloud migrations; gated behind a flag / staff.
+                    if (service === 'HTTP') {
+                        return httpEnabled
+                    }
+                    return true
+                })
 
                 return services.map(
                     (service): HogFunctionTemplateType => ({
