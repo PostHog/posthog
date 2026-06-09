@@ -89,6 +89,9 @@ tools:
                 - unread_team_count
                 - created_at
                 - updated_at
+    conversations-tickets-related-list:
+        operation: conversations_tickets_related_list
+        enabled: false
     conversations-tickets-retrieve:
         operation: conversations_tickets_retrieve
         enabled: true
