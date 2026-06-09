@@ -133,19 +133,15 @@ describe('InsightDisplayConfig', () => {
             expect(screen.getByText('Y-axis scale')).toBeInTheDocument()
         })
 
-        it('shows the multiple Y-axes toggle on line charts', async () => {
-            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
-            await openOptionsMenu()
+        it.each([ChartDisplayType.ActionsLineGraph, undefined])(
+            'shows the multiple Y-axes toggle for display %s (line/default)',
+            async (display) => {
+                setupAndRender(makeTrendsQuery(display))
+                await openOptionsMenu()
 
-            expect(getDisplaySectionItems()).toContain('Show multiple Y-axes')
-        })
-
-        it('shows the multiple Y-axes toggle on the default (no display) line chart', async () => {
-            setupAndRender(makeTrendsQuery())
-            await openOptionsMenu()
-
-            expect(getDisplaySectionItems()).toContain('Show multiple Y-axes')
-        })
+                expect(getDisplaySectionItems()).toContain('Show multiple Y-axes')
+            }
+        )
 
         it('removes axis label option count after clearing a committed label', async () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS], {
