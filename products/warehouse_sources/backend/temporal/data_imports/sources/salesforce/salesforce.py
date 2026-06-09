@@ -562,19 +562,18 @@ def salesforce_source(
     resumable_source_manager: ResumableSourceManager[SalesforceResumeConfig],
     should_use_incremental_field: bool = False,
 ):
-    auth = SalesforceAuth(
-        refresh_token=refresh_token,
-        access_token=access_token,
-        instance_url=instance_url,
-    )
-
-    definitions = list_custom_object_definitions(
-        instance_url=instance_url,
-        access_token=auth.token,
-        endpoint="/services/data/v61.0/sobjects",
-    )
-
     if endpoint not in ENDPOINTS:
+        auth = SalesforceAuth(
+            refresh_token=refresh_token,
+            access_token=access_token,
+            instance_url=instance_url,
+        )
+
+        definitions = list_custom_object_definitions(
+            instance_url=instance_url,
+            access_token=auth.token,
+            endpoint="/services/data/v61.0/sobjects",
+        )
         match = next((d for d in definitions if d.get("name") == endpoint), None)
         if match is None:
             raise ValueError(
