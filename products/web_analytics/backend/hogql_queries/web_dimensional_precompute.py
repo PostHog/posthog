@@ -25,6 +25,7 @@ Parity with v2 is intentional, with two deliberate deviations:
 from datetime import datetime
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr
 
 from posthog.models.team import Team
@@ -46,6 +47,18 @@ DIMENSIONAL_TTL_SECONDS: dict[str, int] = {
     "2d": 24 * 60 * 60,
     "default": 90 * 24 * 60 * 60,
 }
+
+# Extra memory headroom for the dimensional INSERTs, mirroring v2's preagg ETL
+# (`web_preaggregated_utils.py`: 140 GiB / 70 GiB external group-by) but ~half,
+# since the dimensional path runs one INSERT per team PER DAY rather than v2's
+# single per-team full-history REPLACE PARTITION. `max_bytes_before_external_group_by`
+# spills the GROUP BY to disk before the ceiling, which is what avoids OOM on the
+# highest-volume teams. Built from HogQLGlobalSettings so the override goes through
+# the same typed ClickHouse-settings model as the rest of the query path.
+DIMENSIONAL_INSERT_SETTINGS: dict = HogQLGlobalSettings(
+    max_memory_usage=70 * 1024**3,
+    max_bytes_before_external_group_by=35 * 1024**3,
+).model_dump(include={"max_memory_usage", "max_bytes_before_external_group_by"})
 
 
 # Per-session row, then aggregated into hourly buckets. `host`/`device_type`/
@@ -316,6 +329,7 @@ def ensure_web_stats_dimensional_precomputed(
         table=LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED,
         placeholders=_base_placeholders(),
         query_type="web_stats_dimensional_insert",
+        insert_settings=DIMENSIONAL_INSERT_SETTINGS,
     )
 
 
@@ -333,4 +347,5 @@ def ensure_web_bounces_dimensional_precomputed(
         table=LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED,
         placeholders=_base_placeholders(),
         query_type="web_bounces_dimensional_insert",
+        insert_settings=DIMENSIONAL_INSERT_SETTINGS,
     )

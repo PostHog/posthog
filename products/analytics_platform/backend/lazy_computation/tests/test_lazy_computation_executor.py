@@ -919,6 +919,26 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
         assert job.status == PreaggregationJob.Status.READY
         assert job.team == self.team
 
+    def test_insert_settings_are_merged_over_defaults(self):
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"
+        ) as mock_exec:
+            ensure_precomputed(
+                team=self.team,
+                insert_query=self.MANUAL_INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                insert_settings={"max_memory_usage": 12345, "max_bytes_before_external_group_by": 678},
+            )
+
+        insert_calls = [c for c in mock_exec.call_args_list if "settings" in c.kwargs]
+        assert insert_calls, "expected the INSERT to pass ClickHouse settings"
+        settings = insert_calls[-1].kwargs["settings"]
+        assert settings["max_memory_usage"] == 12345
+        assert settings["max_bytes_before_external_group_by"] == 678
+        # the shared insert defaults are still applied alongside the override
+        assert "max_execution_time" in settings
+
     def test_reuses_existing_jobs(self):
         # First call
         first_result = ensure_precomputed(

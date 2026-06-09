@@ -1000,6 +1000,7 @@ def ensure_precomputed(
     placeholders: dict[str, ast.Expr] | None = None,
     sentinel_placeholders: set[str] | None = None,
     query_type: str | None = None,
+    insert_settings: dict | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1038,6 +1039,9 @@ def ensure_precomputed(
                       for hashing. Use this for placeholders whose values change between
                       requests (e.g. datetime.now()) but shouldn't invalidate the cache.
                       The real values are still used at INSERT time.
+        insert_settings: Optional ClickHouse settings merged over the shared INSERT
+                      defaults for this path only (e.g. a higher max_memory_usage for
+                      heavy per-team backfills). Does not affect other callers.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -1114,7 +1118,9 @@ def ensure_precomputed(
             sync_execute(
                 insert_sql,
                 values,
-                settings=_get_insert_settings(t.id),
+                # Per-call overrides (e.g. a higher memory ceiling for heavy
+                # per-team-per-day backfills) layer on top of the shared defaults.
+                settings={**_get_insert_settings(t.id), **(insert_settings or {})},
             )
 
     ttl_schedule = parse_ttl_schedule(ttl_seconds, team.timezone)
