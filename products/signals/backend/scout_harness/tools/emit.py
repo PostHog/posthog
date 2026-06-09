@@ -47,9 +47,15 @@ SOURCE_TYPE = SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE.value
 # circuit breaker.
 MAX_EVIDENCE_ENTRIES = 20
 
+# Scouts don't reason about weight. Every finding that clears the confidence emit-gate
+# promotes on its first signal — weight is the pipeline's promotion knob, not a scout
+# judgment. Pinned to 1.0 so a fresh report's `total_weight` meets `WEIGHT_THRESHOLD`
+# (default 1.0) immediately. See products/signals/backend/scout_harness/CLAUDE.md.
+SCOUT_SIGNAL_WEIGHT = 1.0
+
 
 class InvalidEmitError(ValueError):
-    """The agent tried to emit with an invalid shape (empty description, bad weight, etc)."""
+    """The agent tried to emit with an invalid shape (empty description, bad confidence, etc)."""
 
 
 @dataclass(frozen=True)
@@ -87,7 +93,6 @@ async def emit_finding(
     team: Team,
     run: SignalScoutRun,
     description: str,
-    weight: float,
     confidence: float,
     evidence: list[EvidenceEntry],
     hypothesis: str | None = None,
@@ -103,7 +108,7 @@ async def emit_finding(
     Same (non-idempotent) emit behavior as `emit_finding_sync`.
     """
     _assert_team_owns_run(team, run)
-    _validate_inputs(description, weight, confidence, evidence)
+    _validate_inputs(description, confidence, evidence)
     finding_id = finding_id or _new_finding_id()
     extra = _build_extra(
         run_id=str(run.id),
@@ -125,7 +130,6 @@ async def emit_finding(
         finding_id=finding_id,
         skill_name=run.skill_name,
         skill_version=run.skill_version,
-        weight=weight,
         confidence=confidence,
         severity=severity,
         evidence_count=len(evidence),
@@ -151,7 +155,7 @@ async def emit_finding(
         source_type=SOURCE_TYPE,
         source_id=source_id,
         description=description,
-        weight=weight,
+        weight=SCOUT_SIGNAL_WEIGHT,
         extra=extra,
     )
     await database_sync_to_async(_record_emit, thread_sensitive=False)(run_id=run.id, finding_id=finding_id)
@@ -167,7 +171,6 @@ def emit_finding_sync(
     team: Team,
     run: SignalScoutRun,
     description: str,
-    weight: float,
     confidence: float,
     evidence: list[EvidenceEntry],
     hypothesis: str | None = None,
@@ -185,7 +188,7 @@ def emit_finding_sync(
     from asgiref.sync import async_to_sync
 
     _assert_team_owns_run(team, run)
-    _validate_inputs(description, weight, confidence, evidence)
+    _validate_inputs(description, confidence, evidence)
     finding_id = finding_id or _new_finding_id()
     extra = _build_extra(
         run_id=str(run.id),
@@ -207,7 +210,6 @@ def emit_finding_sync(
         finding_id=finding_id,
         skill_name=run.skill_name,
         skill_version=run.skill_version,
-        weight=weight,
         confidence=confidence,
         severity=severity,
         evidence_count=len(evidence),
@@ -232,7 +234,7 @@ def emit_finding_sync(
         source_type=SOURCE_TYPE,
         source_id=source_id,
         description=description,
-        weight=weight,
+        weight=SCOUT_SIGNAL_WEIGHT,
         extra=extra,
     )
     _record_emit(run_id=run.id, finding_id=finding_id)
@@ -262,14 +264,11 @@ def _assert_team_owns_run(team: Team, run: SignalScoutRun) -> None:
 
 def _validate_inputs(
     description: str,
-    weight: float,
     confidence: float,
     evidence: list[EvidenceEntry],
 ) -> None:
     if not description or not description.strip():
         raise InvalidEmitError("description must not be empty")
-    if not 0.0 <= weight <= 1.0:
-        raise InvalidEmitError(f"weight must be in [0.0, 1.0], got {weight}")
     if not 0.0 <= confidence <= 1.0:
         raise InvalidEmitError(f"confidence must be in [0.0, 1.0], got {confidence}")
     if len(evidence) > MAX_EVIDENCE_ENTRIES:
@@ -355,7 +354,6 @@ def _log_extra(
     finding_id: str,
     skill_name: str,
     skill_version: int,
-    weight: float,
     confidence: float,
     severity: str | None,
     evidence_count: int,
@@ -368,7 +366,6 @@ def _log_extra(
         "finding_id": finding_id,
         "skill_name": skill_name,
         "skill_version": skill_version,
-        "weight": weight,
         "confidence": confidence,
         "severity": severity,
         "evidence_count": evidence_count,
