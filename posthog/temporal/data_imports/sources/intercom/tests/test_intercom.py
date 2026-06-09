@@ -314,6 +314,18 @@ class TestSubstreamGenerators:
         assert [s["id"] for s in segments] == ["s2"]
         assert segments[0]["company_id"] == "co2"
 
+    def test_company_segments_reraises_non_404(self):
+        mock_session = mock.MagicMock()
+        mock_session.post.side_effect = [
+            _make_response({"data": [{"id": "co1"}], "pages": {}}),
+        ]
+        mock_session.get.side_effect = [
+            _make_response(None, status_code=500, text="Server Error"),
+        ]
+
+        with pytest.raises(HTTPError):
+            list(_company_segments_generator(mock_session))
+
     def test_company_segments_injects_company_id(self):
         mock_session = mock.MagicMock()
         mock_session.post.side_effect = [
