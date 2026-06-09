@@ -23,6 +23,9 @@ vite_port_listeners() {
     elif command -v fuser >/dev/null 2>&1; then
         fuser "$VITE_PORT/tcp" 2>/dev/null
     fi
+    # lsof/fuser exit nonzero when nothing matches; force success so the caller's
+    # `pids=$(...)` doesn't abort the script under `set -e` when the port is free.
+    return 0
 }
 
 # Vite isn't configured with strictPort, so if a stale process from a previous
