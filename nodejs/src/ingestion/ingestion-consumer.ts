@@ -47,6 +47,10 @@ import { TeamManager } from '~/utils/team-manager'
 import { AiEventSubpipelineFactory } from './common/ai-subpipeline.contract'
 import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
 import { IngestionConsumerConfig } from './config'
+import {
+    FeatureFlagCalledDedupService,
+    createFeatureFlagCalledDedupService,
+} from './utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
 import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redirect-service'
@@ -111,6 +115,7 @@ export class IngestionConsumer {
     public hogTransformer: HogTransformer
     private overflowRedirectService?: OverflowRedirectService
     private overflowLaneTTLRefreshService?: OverflowRedirectService
+    private featureFlagCalledDedupService?: FeatureFlagCalledDedupService
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
@@ -187,6 +192,8 @@ export class IngestionConsumer {
                 redisRepository: overflowRedisRepository,
             })
         }
+
+        this.featureFlagCalledDedupService = createFeatureFlagCalledDedupService(this.deps.redisPool, this.config)
 
         this.hogTransformer = deps.hogTransformer
 
@@ -286,6 +293,7 @@ export class IngestionConsumer {
             promiseScheduler: this.promiseScheduler,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
+            featureFlagCalledDedupService: this.featureFlagCalledDedupService,
             teamManager: this.deps.teamManager,
             cookielessManager: this.deps.cookielessManager,
             groupTypeManager: this.deps.groupTypeManager,
