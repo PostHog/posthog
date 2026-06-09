@@ -109,9 +109,9 @@ async def test_degraded_report_still_synthesizes(
 
     assert result.markdown == "# Weekly report"
     # The failed step's generated HogQL + error type are surfaced for persistence/debugging.
-    assert result.diagnostics == [
-        QueryStepDiagnostic(description="s0", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError")
-    ]
+    assert result.diagnostics == (
+        QueryStepDiagnostic(description="s0", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError"),
+    )
     # A degraded-but-shipped report is an SLO success, tagged so the coverage signal survives.
     props = _slo_completed(mock_capture)
     assert props["outcome"] == "success"
@@ -207,6 +207,9 @@ async def test_run_steps_retries_then_succeeds(mock_executor_cls: MagicMock, moc
     assert failed == 0
     assert "formatted table" in rendered[0]
     mock_fix.assert_awaited_once()
+    # The diagnostic tracks the fixed query (current_hogql), not the original SELECT 1.
+    assert diagnostics[0].ok is True
+    assert diagnostics[0].hogql == "SELECT fixed"
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)

@@ -52,12 +52,12 @@ async def test_persist_ai_report_writes_markdown_and_query_diagnostics(team, use
         delivery.id,
         AiReportResult(
             markdown="# Weekly report",
-            diagnostics=[
+            diagnostics=(
                 QueryStepDiagnostic(description="adoption", hogql="SELECT count()", ok=True, error_type=None),
                 QueryStepDiagnostic(
                     description="reliability", hogql="SELECT bad", ok=False, error_type="ResolutionError"
                 ),
-            ],
+            ),
         ),
     )
 

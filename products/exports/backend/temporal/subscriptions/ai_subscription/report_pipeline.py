@@ -97,7 +97,7 @@ class QueryStepDiagnostic:
 @dataclass(frozen=True)
 class AiReportResult:
     markdown: str
-    diagnostics: list[QueryStepDiagnostic]
+    diagnostics: tuple[QueryStepDiagnostic, ...]
 
 
 async def generate_ai_report(
@@ -149,7 +149,7 @@ async def generate_ai_report(
                 failed_steps=failed_count,
                 total_steps=total_steps,
             )
-        return AiReportResult(markdown=report, diagnostics=diagnostics)
+        return AiReportResult(markdown=report, diagnostics=tuple(diagnostics))
 
 
 async def _plan(
