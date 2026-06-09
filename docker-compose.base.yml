@@ -237,7 +237,10 @@ services:
         # any/any. Identity-based auth (-s3.config) was tried first but triggers known
         # SeaweedFS SigV4 signature failures and presigned-URL regressions; see
         # seaweedfs/seaweedfs #6635 and discussion #3976.
-        image: chrislusf/seaweedfs:4.03
+        # Pin >= 4.05: that's the first release that persists Content-Encoding metadata
+        # (4.03/4.04 silently drop it, breaking gzipped objects that rely on the header
+        # round-tripping). 4.29 is the newest release that's been out at least two weeks.
+        image: chrislusf/seaweedfs:4.29
         restart: on-failure
         entrypoint:
             - /bin/sh
@@ -772,8 +775,9 @@ services:
             - '/var/run/docker.sock:/var/run/docker.sock'
 
     seaweedfs:
-        # Default open-access mode; see the `objectstorage` service above for rationale.
-        image: chrislusf/seaweedfs:4.03
+        # Default open-access mode; see the `objectstorage` service above for rationale
+        # (including the >= 4.05 Content-Encoding pin).
+        image: chrislusf/seaweedfs:4.29
         entrypoint:
             - /bin/sh
             - -c
