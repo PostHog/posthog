@@ -786,86 +786,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.2
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."last_calculation_duration_ms",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."last_backfill_person_properties_at",
-         "posthog_cohort"."last_realtime_cohort_calculation_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."kind",
-         "posthog_cohort"."cohort_type",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_cohort"."id" = 99999
-         AND "posthog_team"."project_id" = 99999)
-  LIMIT 21
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.3
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."last_calculation_duration_ms",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."last_backfill_person_properties_at",
-         "posthog_cohort"."last_realtime_cohort_calculation_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."kind",
-         "posthog_cohort"."cohort_type",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_team"."project_id" = 99999)
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.4
-  '''
-  SELECT 1 AS "a"
-  FROM "posthog_cohort"
-  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
-  WHERE (("posthog_cohort"."team_id" =
-            (SELECT U0."parent_team_id" AS "parent_team_id"
-             FROM "posthog_team" U0
-             WHERE U0."id" = 99999
-             LIMIT 1)
-          OR ("posthog_team"."parent_team_id" IS NULL
-              AND "posthog_cohort"."team_id" = 99999))
-         AND "posthog_cohort"."id" = 99999)
-  LIMIT 1
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.5
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.10
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -972,7 +893,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.6
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.11
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -997,7 +918,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.7
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.12
   '''
   SELECT "posthog_filesystemshortcut"."id",
          "posthog_filesystemshortcut"."team_id",
@@ -1018,6 +939,177 @@
          AND NOT ("posthog_filesystemshortcut"."path" = 'some cohort'
                   AND "posthog_filesystemshortcut"."href" = '__skipped__'
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.2
+  '''
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."last_calculation_duration_ms",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
+         "posthog_cohort"."last_realtime_cohort_calculation_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
+         "posthog_cohort"."cohort_type",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE ("posthog_cohort"."id" = 99999
+         AND "posthog_team"."project_id" = 99999)
+  LIMIT 21
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.3
+  '''
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."query",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."last_calculation_duration_ms",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
+         "posthog_cohort"."last_realtime_cohort_calculation_at",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
+         "posthog_cohort"."cohort_type",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_team"."project_id" = 99999)
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.4
+  '''
+  SELECT 1 AS "a"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_cohort"."team_id" =
+            (SELECT U0."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_cohort"."team_id" = 99999))
+         AND "posthog_cohort"."id" = 99999)
+  LIMIT 1
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.5
+  '''
+  SELECT "posthog_cohort"."id" AS "id"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_cohort"."team_id" =
+            (SELECT U0."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_cohort"."team_id" = 99999))
+         AND "posthog_cohort"."id" IN (1,
+                                       2,
+                                       3,
+                                       4,
+                                       5 /* ... */))
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.6
+  '''
+  SELECT "posthog_cohort"."id" AS "id"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_cohort"."team_id" =
+            (SELECT U0."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_cohort"."team_id" = 99999))
+         AND "posthog_cohort"."id" IN (1,
+                                       2,
+                                       3,
+                                       4,
+                                       5 /* ... */))
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.7
+  '''
+  SELECT "posthog_cohort"."id" AS "id"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_cohort"."team_id" =
+            (SELECT U0."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_cohort"."team_id" = 99999))
+         AND "posthog_cohort"."id" IN (1,
+                                       2,
+                                       3,
+                                       4,
+                                       5 /* ... */))
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.8
+  '''
+  SELECT "posthog_cohort"."id" AS "id"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_cohort"."team_id" =
+            (SELECT U0."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_cohort"."team_id" = 99999))
+         AND "posthog_cohort"."id" IN (1,
+                                       2,
+                                       3,
+                                       4,
+                                       5 /* ... */))
+  '''
+# ---
+# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.9
+  '''
+  SELECT 1 AS "a"
+  FROM "posthog_cohort"
+  INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_cohort"."team_id" =
+            (SELECT U0."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_cohort"."team_id" = 99999))
+         AND "posthog_cohort"."id" = 99999)
+  LIMIT 1
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment

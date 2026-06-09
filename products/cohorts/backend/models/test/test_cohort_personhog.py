@@ -424,6 +424,7 @@ class TestPropertyToQStaticCohortShortCircuit(PersonhogTestMixin, BaseTest):
         )
 
         assert q == Q(pk__isnull=True)
+        self._assert_personhog_called("check_cohort_membership")
 
     def test_isolates_cohort_by_team_id(self):
         """A cohort owned by a different team (even within the same project)

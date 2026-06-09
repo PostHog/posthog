@@ -133,6 +133,7 @@ class FeatureFlagMatcher:
         group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
         skip_database_flags: bool = False,
         cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
+        person_id: Optional[int] = None,
     ):
         if group_property_value_overrides is None:
             group_property_value_overrides = {}
@@ -152,6 +153,10 @@ class FeatureFlagMatcher:
         self.property_value_overrides = property_value_overrides
         self.group_property_value_overrides = group_property_value_overrides
         self.skip_database_flags = skip_database_flags
+        # When the caller already knows the person's primary key (e.g. batch cohort
+        # generation iterating Person rows), static-cohort conditions resolve via a
+        # direct membership check instead of fetching the full cohort member list.
+        self.person_id = person_id
 
         if cohorts_cache is None:
             self.cohorts_cache = {}
@@ -450,6 +455,9 @@ class FeatureFlagMatcher:
                             override_property_values=target_properties,
                             cohorts_cache=self.cohorts_cache,
                             using_database=READ_ONLY_DATABASE_FOR_PERSONS,
+                            # person_id only applies to person-aggregated flags; group
+                            # conditions are evaluated against the group query.
+                            person_id=self.person_id if feature_flag.aggregation_group_type_index is None else None,
                         )
 
                         # TRICKY: Due to property overrides for cohorts, we sometimes shortcircuit the condition check.

@@ -348,10 +348,11 @@ def property_to_Q(
         if cohort.is_static:
             resolved_team_id = team_id if team_id is not None else cohort.team_id
 
-            # When a concrete person is in scope, short-circuit the Exists subquery
-            # with a direct membership check — routes through personhog when enabled,
-            # falling back to the persons-DB ORM otherwise. Mirrors the override
-            # short-circuit below (returning Q(pk__isnull=False|True)).
+            # When a concrete person is in scope, check membership directly instead of
+            # materializing the full member list; routes through personhog when enabled,
+            # falling back to the persons-DB ORM otherwise. Returns a match-all/match-none
+            # Q like the override short-circuit below.
+            # Assumes the queryset is already scoped to this person_id.
             if person_id is not None:
                 from products.cohorts.backend.models.util import is_person_in_cohort
 
@@ -359,10 +360,9 @@ def property_to_Q(
                     return Q(pk__isnull=False)
                 return Q(pk__isnull=True)
 
-            # List all member IDs and filter with Q(id__in=…) — routes through
-            # personhog when the gate is on, falling back to the CohortPeople
-            # table otherwise. This avoids the Exists(CohortPeople) subquery so
-            # the persons DB is not required on the personhog path.
+            # List member IDs and filter with Q(id__in=…); routes through personhog when
+            # enabled, falling back to the CohortPeople table otherwise. Listing IDs keeps
+            # the persons DB off the critical path when personhog is on.
             from products.cohorts.backend.models.util import list_cohort_member_ids
 
             member_ids = list_cohort_member_ids(team_id=resolved_team_id, cohort_id=cohort_id)

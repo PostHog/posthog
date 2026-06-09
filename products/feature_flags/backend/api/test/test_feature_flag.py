@@ -7854,8 +7854,12 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(32):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(42):
             # forced to evaluate flags by going to db, because cohorts need db query to evaluate
+            # Static cohort membership routes through personhog-backed helpers instead of an
+            # embedded Exists(CohortPeople) subquery: the prefilter fetches the member list once
+            # (ownership check + member list), then each matched person gets a direct membership
+            # check (ownership scoping + single-row lookup).
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
 
         cohort.refresh_from_db()

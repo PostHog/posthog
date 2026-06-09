@@ -1692,7 +1692,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         queryset = (
             Person.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
             .filter(team_id=team_id)
-            .filter(property_group_to_Q(team_id, flag_property_group, cohorts_cache=cohorts_cache))
+            .filter(property_group_to_Q(project_id, flag_property_group, cohorts_cache=cohorts_cache))
             .order_by("id")
         )
         # get batchsize number of people at a time
@@ -1757,6 +1757,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
                         },
                         group_property_value_overrides={},
                         cohorts_cache=cohorts_cache,
+                        person_id=person.id,
                     ).get_match(feature_flag)
                     if match.match:
                         uuids_to_add_to_cohort.append(str(person.uuid))
