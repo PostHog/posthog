@@ -847,3 +847,12 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
     int(team_id)
     for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]
+
+# Teams whose web analytics reads are served from the dimensional precompute
+# tables instead of v2. Strictly additive: defaults to empty so v2 stays the
+# reader for every team until one is explicitly enrolled here (a deploy-time
+# env-var change), and the runner falls back to v2 whenever a team has no READY
+# dimensional data for the requested window.
+WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS: list[int] = [
+    int(team_id) for team_id in get_list(get_from_env("WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS", ""))
+]

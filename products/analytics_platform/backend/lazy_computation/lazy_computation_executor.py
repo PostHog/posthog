@@ -1078,22 +1078,10 @@ def ensure_precomputed(
                 "so real values are available at INSERT time."
             )
 
-    # Parse the query template with sentinel placeholders for stable hashing.
-    # time_window_min/max are always sentinelized (managed by the executor).
-    # Callers can opt additional placeholders into sentinelization via sentinel_placeholders.
-    caller_sentinels: dict[str, ast.Expr] = {
-        name: ast.Constant(value=f"__{name.upper()}__") for name in (sentinel_placeholders or set())
-    }
-    hash_placeholders: dict[str, ast.Expr] = {
-        **base_placeholders,
-        "time_window_min": ast.Constant(value="__TIME_WINDOW_MIN__"),
-        "time_window_max": ast.Constant(value="__TIME_WINDOW_MAX__"),
-        **caller_sentinels,
-    }
-    parsed_for_hash = _resolve_insert_query(insert_query, hash_placeholders)
-
-    query_info = QueryInfo(
-        query=parsed_for_hash,
+    query_info = _build_query_info_for_hash(
+        insert_query=insert_query,
+        base_placeholders=base_placeholders,
+        sentinel_placeholders=sentinel_placeholders,
         table=table,
         timezone=team.timezone,
     )
@@ -1120,6 +1108,65 @@ def ensure_precomputed(
     ttl_schedule = parse_ttl_schedule(ttl_seconds, team.timezone)
     executor = LazyComputationExecutor(ttl_schedule=ttl_schedule)
     return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
+
+
+def _build_query_info_for_hash(
+    insert_query: str | ast.SelectQuery,
+    base_placeholders: dict[str, ast.Expr],
+    sentinel_placeholders: set[str] | None,
+    table: LazyComputationTable,
+    timezone: str,
+) -> QueryInfo:
+    """Build the QueryInfo whose `compute_query_hash` identifies a precompute.
+
+    time_window_min/max are always sentinelized (managed by the executor); callers
+    can opt additional placeholders into sentinelization via sentinel_placeholders.
+    Shared by `ensure_precomputed` (writer) and `get_ready_job_ids` (reader) so both
+    derive the same query_hash for the same precompute definition.
+    """
+    caller_sentinels: dict[str, ast.Expr] = {
+        name: ast.Constant(value=f"__{name.upper()}__") for name in (sentinel_placeholders or set())
+    }
+    hash_placeholders: dict[str, ast.Expr] = {
+        **base_placeholders,
+        "time_window_min": ast.Constant(value="__TIME_WINDOW_MIN__"),
+        "time_window_max": ast.Constant(value="__TIME_WINDOW_MAX__"),
+        **caller_sentinels,
+    }
+    parsed_for_hash = _resolve_insert_query(insert_query, hash_placeholders)
+    return QueryInfo(query=parsed_for_hash, table=table, timezone=timezone)
+
+
+def get_ready_job_ids(
+    team: Team,
+    insert_query: str | ast.SelectQuery,
+    time_range_start: datetime,
+    time_range_end: datetime,
+    table: LazyComputationTable,
+    placeholders: dict[str, ast.Expr] | None = None,
+    sentinel_placeholders: set[str] | None = None,
+) -> list[uuid.UUID]:
+    """Resolve the READY job_ids covering [start, end) for data populated by
+    `ensure_precomputed` with the same (insert_query, placeholders, table).
+
+    Read-only: it never triggers computation — callers that only want to READ a
+    pre-populated table (e.g. the scheduled dimensional precompute) filter their
+    SELECT to `job_id IN (returned ids)`. Returns [] when nothing is ready, so the
+    caller can fall back to its non-precomputed path. The (insert_query, placeholders,
+    sentinel_placeholders, table) must exactly match the writer's so the query_hash
+    lines up.
+    """
+    query_info = _build_query_info_for_hash(
+        insert_query=insert_query,
+        base_placeholders=placeholders or {},
+        sentinel_placeholders=sentinel_placeholders,
+        table=table,
+        timezone=team.timezone,
+    )
+    query_hash = compute_query_hash(query_info)
+    existing = find_existing_jobs(team, query_hash, time_range_start, time_range_end)
+    ready = filter_overlapping_jobs([j for j in existing if j.status == PreaggregationJob.Status.READY])
+    return [j.id for j in ready]
 
 
 def _resolve_insert_query(insert_query: str | ast.SelectQuery, placeholders: dict[str, ast.Expr]) -> ast.SelectQuery:

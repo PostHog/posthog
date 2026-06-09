@@ -2545,6 +2545,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             "logs_kafka_metrics",
             "web_pre_aggregated_stats",
             "web_pre_aggregated_bounces",
+            "web_stats_dimensional_preaggregated",
+            "web_bounces_dimensional_preaggregated",
             "preaggregation_results",
             "experiment_exposures_preaggregated",
             "experiment_metric_events_preaggregated",
