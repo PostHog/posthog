@@ -360,6 +360,17 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Reading data schema...'
         },
     },
+    read_business_knowledge: {
+        name: 'Read business knowledge',
+        description: 'Read a wider span of a business knowledge document already located via search',
+        icon: <IconBook />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Read business knowledge'
+            }
+            return 'Reading business knowledge...'
+        },
+    },
     read_data: {
         name: 'Read data',
         description: 'Read data, such as your data warehouse schema and billed usage statistics',
