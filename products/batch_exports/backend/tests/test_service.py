@@ -1,3 +1,5 @@
+# DIAGNOSTIC (do not merge): touch to trigger the batch-exports product shard so the
+# instrumented per-test timeout can dump the intermittent teardown hang's stack.
 import uuid
 import datetime as dt
 

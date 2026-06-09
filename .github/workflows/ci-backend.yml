@@ -586,12 +586,39 @@ jobs:
               env:
                   # --reuse-db: keep the test database between sequential product runs to avoid
                   # ClickHouse drop/create race conditions with ReplicatedMergeTree ZK metadata.
+                  # DIAGNOSTIC (do not merge): --timeout with the DEFAULT func_only=false arms the
+                  # clock around setup+call+teardown, so the intermittent batch-exports teardown
+                  # hang is interrupted and signal dumps the blocked worker's stack. Safe here
+                  # because this runs as a PR (schema-prime keeps django_db_setup fast); it would
+                  # false-kill cold-cache migrations on master, so it must NOT ship as-is.
                   # On master, also collect timing data for pytest-split sharding.
+                  MATRIX_GROUP: ${{ matrix.group }}
                   PYTEST_ADDOPTS: >-
                       --reuse-db
+                      --timeout=180 --timeout-method=signal
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations --durations-path ../../.test_durations' || '' }}
-              run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
+              run: |
+                  # DIAGNOSTIC (do not merge): the batch-exports teardown hang is intermittent
+                  # (~1 in 7 runs), so loop its ~2-min non-temporal suite to make one CI run very
+                  # likely to catch it. The per-test signal timeout (env above) dumps the blocked
+                  # worker's stack when it fires. Other matrix groups run unchanged.
+                  if [[ "$MATRIX_GROUP" == *batch-exports* ]]; then
+                      echo "DIAGNOSTIC: warm-up pass (generous timeout) so a cold-cache migration in DB setup can't trip the timed loop"
+                      PYTEST_ADDOPTS="--reuse-db --timeout=900 --timeout-method=signal" \
+                          pnpm turbo run backend:test --filter=@posthog/products-batch-exports --concurrency=1 --output-logs=full --force --log-order=stream || echo "DIAGNOSTIC warm-up exited non-zero (possible hang dump above)"
+                      deadline=$(( $(date +%s) + 1200 ))
+                      iter=0
+                      while [ "$(date +%s)" -lt "$deadline" ]; do
+                          iter=$((iter + 1))
+                          echo "::group::DIAGNOSTIC batch-exports iteration $iter ($(date -u +%H:%M:%S)Z)"
+                          pnpm turbo run backend:test --filter=@posthog/products-batch-exports --concurrency=1 --output-logs=full --force --log-order=stream || echo "DIAGNOSTIC iteration $iter exited non-zero (possible hang dump above)"
+                          echo "::endgroup::"
+                      done
+                      echo "DIAGNOSTIC complete: $iter timed iterations after warm-up"
+                  else
+                      pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
+                  fi
 
             - name: Upload timing data
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
