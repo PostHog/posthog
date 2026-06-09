@@ -42,14 +42,19 @@ class TestFetchFeaturesSqlShape:
     def test_surfaces_distinct_id_and_min_first_timestamp(self) -> None:
         sql = fetch_features_sql()
         assert "any(distinct_id) AS distinct_id" in sql
-        assert "min(min_first_timestamp) AS min_first_timestamp" in sql
+        assert "min(min_first_timestamp) AS started_at" in sql
         assert "e.distinct_id," in sql
-        assert "e.min_first_timestamp," in sql
+        assert "e.started_at AS min_first_timestamp," in sql
 
-    def test_eligible_sessions_lookback_reuses_select_alias_in_having(self) -> None:
+    def test_eligible_sessions_has_raw_row_prefilter_and_exact_having_cut(self) -> None:
         sql = fetch_features_sql()
-        assert "AND min_first_timestamp >= now() - toIntervalDay(%(lookback_days)s)" in sql
-        assert "AND min(min_first_timestamp) >= now() - toIntervalDay(%(lookback_days)s)" not in sql
+        assert "AND min_first_timestamp >= now() - toIntervalDay(%(lookback_days)s + 1)" in sql
+        assert "AND started_at >= now() - toIntervalDay(%(lookback_days)s)" in sql
+
+    def test_count_unscored_has_raw_row_prefilter(self) -> None:
+        sql = count_unscored_sql()
+        assert "AND min_first_timestamp >= now() - toIntervalDay(%(lookback_days)s + 1)" in sql
+        assert "AND min(min_first_timestamp) >= now() - toIntervalDay(%(lookback_days)s)" in sql
 
     def test_count_unscored_includes_lookback_and_chunking(self) -> None:
         sql = count_unscored_sql()

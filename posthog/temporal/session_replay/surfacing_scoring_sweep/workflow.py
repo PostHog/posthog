@@ -82,9 +82,11 @@ class ScoreSessionsBatchWorkflow(PostHogWorkflow):
             start_to_close_timeout=SCORE_CHUNK_ACTIVITY_TIMEOUT,
             heartbeat_timeout=SCORE_CHUNK_HEARTBEAT_TIMEOUT,
             retry_policy=RetryPolicy(
-                # Two attempts: the second is the next 5-min tick's natural retry.
-                # Higher attempts bleed into the next tick's wall-time budget.
-                maximum_attempts=2,
+                # Single attempt: a retry after a 4-min activity timeout cannot
+                # fit inside the 4m30s workflow budget, so it would be killed
+                # mid-flight by workflow expiry anyway. Failed chunks stay NULL
+                # in CH and the next 5-min tick is the natural retry.
+                maximum_attempts=1,
                 non_retryable_error_types=["FeatureValidationError", "ScoreRangeError", "ModelNotConfiguredError"],
             ),
         )

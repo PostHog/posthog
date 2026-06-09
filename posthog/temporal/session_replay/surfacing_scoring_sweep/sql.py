@@ -258,12 +258,21 @@ WITH eligible_sessions AS (
         team_id,
         session_id,
         any(distinct_id) AS distinct_id,
-        min(min_first_timestamp) AS min_first_timestamp
+        -- Aliased away from the raw column name: CH expands a same-named
+        -- SELECT alias into WHERE, which would turn the raw-row prefilter
+        -- below into an illegal aggregate-in-WHERE.
+        min(min_first_timestamp) AS started_at
     FROM {replay_events_table}
+    -- Raw-row prefilter with a +1 day buffer so the scan prunes on the
+    -- min_first_timestamp ordering key instead of aggregating the whole
+    -- table. The exact lookback cut stays in HAVING on the aggregated min;
+    -- the buffer keeps the HAVING result identical for any session whose
+    -- rows span less than a day.
     WHERE cityHash64(session_id) %% %(of_chunks)s = %(chunk_id)s
+      AND min_first_timestamp >= now() - toIntervalDay(%(lookback_days)s + 1)
     GROUP BY team_id, session_id
     HAVING max(surfacing_score) IS NULL
-      AND min_first_timestamp >= now() - toIntervalDay(%(lookback_days)s)
+      AND started_at >= now() - toIntervalDay(%(lookback_days)s)
     -- ORDER BY makes LIMIT deterministic across the two CTE evaluations
     -- (CH inlines CTEs as subqueries — without a stable order, the GLOBAL IN
     -- subquery and the final FROM could pick different subsets and the
@@ -281,7 +290,7 @@ SELECT
     e.team_id,
     e.session_id,
     e.distinct_id,
-    e.min_first_timestamp,
+    e.started_at AS min_first_timestamp,
     rf.event_rate,
     rf.click_rate,
     rf.keypress_rate,
@@ -362,7 +371,9 @@ SELECT count()
 FROM (
     SELECT session_id
     FROM {replay_events_table}
+    -- Same raw-row prefilter as fetch_features_sql — see comment there.
     WHERE cityHash64(session_id) %% %(of_chunks)s = 0
+      AND min_first_timestamp >= now() - toIntervalDay(%(lookback_days)s + 1)
     GROUP BY team_id, session_id
     HAVING max(surfacing_score) IS NULL
       AND min(min_first_timestamp) >= now() - toIntervalDay(%(lookback_days)s)

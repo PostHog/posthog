@@ -45,6 +45,7 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.temporal.session_replay.surfacing_scoring_sweep import sql as surfacing_scoring_sweep_sql
 from posthog.temporal.session_replay.surfacing_scoring_sweep.constants import (
+    CH_FEATURE_QUERY_MAX_MEMORY_BYTES,
     CH_FEATURE_QUERY_TIMEOUT_S,
     DEFAULT_OF_CHUNKS,
     KAFKA_PRODUCE_FLUSH_TIMEOUT_S,
@@ -78,7 +79,10 @@ def _count_unscored_in_one_bucket(lookback_days: int, of_chunks: int) -> int:
         sync_execute(
             surfacing_scoring_sweep_sql.count_unscored_sql(),
             {"lookback_days": lookback_days, "of_chunks": of_chunks},
-            settings={"max_execution_time": CH_FEATURE_QUERY_TIMEOUT_S},
+            settings={
+                "max_execution_time": CH_FEATURE_QUERY_TIMEOUT_S,
+                "max_memory_usage": CH_FEATURE_QUERY_MAX_MEMORY_BYTES,
+            },
         ),
     )
     return int(rows[0][0]) if rows else 0
@@ -128,7 +132,10 @@ def _fetch_features_dataframe(spec: ChunkSpec) -> pd.DataFrame:
                 "chunk_id": spec.chunk_id,
                 "chunk_size": spec.chunk_size,
             },
-            settings={"max_execution_time": CH_FEATURE_QUERY_TIMEOUT_S},
+            settings={
+                "max_execution_time": CH_FEATURE_QUERY_TIMEOUT_S,
+                "max_memory_usage": CH_FEATURE_QUERY_MAX_MEMORY_BYTES,
+            },
             with_column_types=True,
         ),
     )

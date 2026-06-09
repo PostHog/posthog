@@ -38,6 +38,11 @@ SCORE_LOOKBACK_DAYS = 7
 # runaway scan can't eat the whole activity timeout.
 CH_FEATURE_QUERY_TIMEOUT_S = 60
 
+# Server-side memory ceiling for the sweep queries. A background job must
+# never compete with interactive queries for cluster memory — better to fail
+# the chunk (it retries next tick) than to OOM a shard.
+CH_FEATURE_QUERY_MAX_MEMORY_BYTES = 10 * 1024 * 1024 * 1024  # 10 GiB
+
 # librdkafka flush budget after producing a chunk. Kafka writeback is async —
 # `produce()` enqueues, `flush()` blocks until every message has been ack'd by
 # the broker. 30s leaves headroom for a one-replica-down hiccup without busting
