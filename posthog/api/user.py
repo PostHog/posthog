@@ -662,14 +662,30 @@ class UserSerializer(serializers.ModelSerializer):
             and is_email_available()
         ):
             new_email = validated_data["email"]
+            current_domain = OrganizationDomain.objects.get_verified_for_email_address(instance.email)
+            new_domain = OrganizationDomain.objects.get_verified_for_email_address(new_email)
+            # Moving between two verified domains owned by the same org is a domain migration, not an
+            # SSO bypass — the org controls both, so we let it through even when SSO is enforced.
+            is_same_org_migration = (
+                current_domain is not None
+                and new_domain is not None
+                and current_domain.organization_id == new_domain.organization_id
+            )
+
             # Block bypass: a user on an SSO-enforced domain can't move off of it.
-            if OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email):
+            if (
+                OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email)
+                and not is_same_org_migration
+            ):
                 raise serializers.ValidationError(
                     "You can't change your email because SSO is enforced on your current email's domain.",
                     code="sso_enforced_current_email",
                 )
             # Block lockout: moving to an SSO-enforced domain blocks password reset and login.
-            if OrganizationDomain.objects.get_sso_enforcement_for_email_address(new_email):
+            if (
+                OrganizationDomain.objects.get_sso_enforcement_for_email_address(new_email)
+                and not is_same_org_migration
+            ):
                 raise serializers.ValidationError(
                     "You can't change your email to a domain where SSO is enforced.",
                     code="sso_enforced_new_email",
