@@ -43,6 +43,13 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
 - `signals-scout-logs/` — anomaly watcher for logs (rate / level / pattern shifts).
 - `signals-scout-error-tracking/` — anomaly watcher for error tracking
   (issue spikes, regressions, suppression-rule churn).
+- `signals-scout-feature-flags/` — state-vs-traffic watcher for feature flags. Audits
+  the wiring between the flag UI and the code: evaluation cliffs on healthy flags,
+  ghost flags (code calling deleted keys), response-distribution shifts with no
+  matching flag edit, plus a bundled flag-debt hygiene pass (stale / dead-check
+  flags). Its discriminator is the flag's configured state against the
+  `$feature_flag_called` stream; experiment-linked flags are the experiments
+  scout's territory.
 - `signals-scout-revenue-analytics/` — anomaly watcher for revenue
   (MRR / churn / segment shifts).
 - `signals-scout-surveys/` — anomaly watcher for surveys
