@@ -277,6 +277,29 @@ class OAuthApplication(AbstractApplication):
     def clean(self):
         super().clean()
 
+        if self.optional_scopes:
+            if self.is_cimd_client:
+                # CIMD metadata refresh rewrites `scopes` from partner-hosted JSON; with a
+                # split active that would let the partner unilaterally grow the locked,
+                # force-granted required set.
+                raise ValidationError({"optional_scopes": "CIMD applications cannot declare optional scopes."})
+            if not self.scopes:
+                raise ValidationError(
+                    {"optional_scopes": "Declaring optional scopes requires a non-empty required set in `scopes`."}
+                )
+            for field, values in (("scopes", self.scopes), ("optional_scopes", self.optional_scopes)):
+                non_resource = [scope for scope in values if ":" not in scope]
+                if non_resource:
+                    # `*` or identity scopes in a required set either brick /authorize
+                    # (explicit ceilings reject `*`) or 400 every consent the client
+                    # didn't request them on, with no UI recourse.
+                    raise ValidationError(
+                        {
+                            field: f"With optional scopes declared, every entry must be a resource scope "
+                            f"(object:action); invalid: {', '.join(non_resource)}"
+                        }
+                    )
+
         for uri in self.redirect_uris.split(" "):
             if not uri:
                 continue

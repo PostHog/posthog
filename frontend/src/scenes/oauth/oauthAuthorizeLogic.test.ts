@@ -115,10 +115,25 @@ describe('oauthAuthorizeLogic', () => {
         expect(row).toMatchObject({ required: true, granted: true })
     })
 
-    it('grants required scopes the client did not request', () => {
+    it('renders a locked row for required scopes the client did not request and grants them', () => {
         logic.actions.setScopes(['openid', 'insight:read'])
         withRequiredScopes(['feature_flag:read'])
-        expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:read', 'feature_flag:read'])
+        const row = logic.values.scopeRows.find((r) => r.key === 'feature_flag')
+        expect(row).toMatchObject({ required: true, granted: true })
+        expect(logic.values.effectiveScopes).toEqual(
+            expect.arrayContaining(['openid', 'insight:read', 'feature_flag:read'])
+        )
+        expect(logic.values.effectiveScopes).toHaveLength(3)
+    })
+
+    it('renders the write level when a required write upgrades a requested read', () => {
+        logic.actions.setScopes(['openid', 'feature_flag:read'])
+        withRequiredScopes(['feature_flag:write'])
+        const row = logic.values.scopeRows.find((r) => r.key === 'feature_flag')
+        expect(row).toMatchObject({ required: true, granted: true })
+        expect(row?.description).toContain('Write')
+        expect(logic.values.effectiveScopes).toContain('feature_flag:write')
+        expect(logic.values.effectiveScopes).not.toContain('feature_flag:read')
     })
 
     it('resets read-only mode and denied scopes when scopes are reloaded', () => {

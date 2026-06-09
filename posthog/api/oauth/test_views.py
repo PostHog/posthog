@@ -2669,35 +2669,48 @@ class TestOAuthAPI(APIBaseTest):
         self.confidential_application.optional_scopes = optional
         self.confidential_application.save()
 
-    def test_authorize_accepts_optional_scope_beyond_required_set(self):
-        # The ceiling is scopes + optional_scopes, so requesting both passes.
+    @parameterized.expand(
+        [
+            ("grants_required_plus_optional", "experiment:read dashboard:read", status.HTTP_200_OK),
+            ("allows_dropping_optional", "experiment:read", status.HTTP_200_OK),
+            ("rejects_missing_required", "dashboard:read", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_authorize_post_with_scope_split(self, _name, granted_scope, expected_status):
         self._set_scope_split(["experiment:read"], ["dashboard:read"])
-        response = self._authorize_post("experiment:read dashboard:read")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("code=", response.json()["redirect_to"])
-
-    def test_authorize_post_rejects_grant_missing_required_scope(self):
-        self._set_scope_split(["experiment:read"], ["dashboard:read"])
-        response = self._authorize_post("dashboard:read")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        body = response.json()
-        self.assertEqual(body["error"], "invalid_scope")
-        self.assertIn("experiment:read", body["error_description"])
-
-    def test_authorize_post_allows_dropping_optional_scope(self):
-        self._set_scope_split(["experiment:read"], ["dashboard:read"])
-        response = self._authorize_post("experiment:read")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("code=", response.json()["redirect_to"])
+        response = self._authorize_post(granted_scope)
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_200_OK:
+            self.assertIn("code=", response.json()["redirect_to"])
+        else:
+            body = response.json()
+            self.assertEqual(body["error"], "invalid_scope")
+            self.assertIn("experiment:read", body["error_description"])
 
     def test_scopes_stay_a_pure_ceiling_without_optional_scopes(self):
-        # Without declared optional_scopes nothing is required, so granting a
-        # subset of the ceiling still succeeds.
         self._set_ceiling("experiment:read", "dashboard:read")
         self.assertEqual(self.confidential_application.required_scopes, [])
         response = self._authorize_post("dashboard:read")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("code=", response.json()["redirect_to"])
+
+    def test_auto_approval_skipped_when_request_omits_required_scope(self):
+        # An existing token covering the (optional-only) request must not auto-approve
+        # below the required floor; the consent screen handles granting the full set.
+        self._set_scope_split(["experiment:read"], ["dashboard:read"])
+        OAuthAccessToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token="at_auto_approval_optional_only",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="dashboard:read",
+            scoped_teams=[self.team.id],
+            scoped_organizations=None,
+        )
+        with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")) as mock_render:
+            response = self.client.get(f"{self.base_authorization_url}&scope=dashboard:read&approval_prompt=auto")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_render.assert_called_once()
 
     def test_authorize_get_passes_required_scopes_to_consent_page(self):
         self._set_scope_split(["experiment:read"], ["dashboard:read"])

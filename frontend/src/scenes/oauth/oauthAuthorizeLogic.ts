@@ -451,54 +451,75 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                     .filter(Boolean) as string[],
         ],
         hasWriteScopes: [
-            (s) => [s.scopes],
-            (scopes: string[]): boolean =>
-                getMinimumEquivalentScopes(scopes).some((scope) => scope.endsWith(':write') || scope === '*'),
+            (s) => [s.consentResourceScopes],
+            (consentResourceScopes: string[]): boolean =>
+                consentResourceScopes.some((scope) => scope.endsWith(':write') || scope === '*'),
         ],
         requiredScopeLevels: [
             (s) => [s.oauthApplication],
             (oauthApplication: OAuthApplicationPublicMetadata | null): Map<string, RequiredLevel> =>
                 requiredLevelsFromScopes(oauthApplication?.required_scopes ?? []),
         ],
+        // Requested plus required resource scopes, collapsed to the highest action per
+        // object. Both the rows and the grant derive from this one set, so the consent
+        // screen always displays exactly what authorizing will grant — required scopes
+        // the client didn't request get a visible (locked) row, never a silent grant.
+        consentResourceScopes: [
+            (s) => [s.scopes, s.oauthApplication],
+            (scopes: string[], oauthApplication: OAuthApplicationPublicMetadata | null): string[] => {
+                const required = (oauthApplication?.required_scopes ?? []).filter(
+                    (scope) => scope.includes(':') || scope === '*'
+                )
+                return getMinimumEquivalentScopes([...scopes, ...required]).filter(
+                    (scope) => scope.includes(':') || scope === '*'
+                )
+            },
+        ],
         scopeRows: [
-            (s) => [s.scopes, s.deniedScopeObjects, s.readOnlyMode, s.requiredScopeLevels],
+            (s) => [s.consentResourceScopes, s.deniedScopeObjects, s.readOnlyMode, s.requiredScopeLevels],
             (
-                scopes: string[],
+                consentResourceScopes: string[],
                 deniedScopeObjects: string[],
                 readOnlyMode: boolean,
                 requiredScopeLevels: Map<string, RequiredLevel>
             ): { key: string; description: string; granted: boolean; required: boolean }[] => {
                 const denied = new Set(deniedScopeObjects)
-                return getMinimumEquivalentScopes(scopes)
-                    .filter((scope) => scope.includes(':') || scope === '*')
-                    .map((scope) => {
-                        const key = scopeObjectKey(scope)
-                        const requiredLevel = requiredScopeLevels.get(key)
-                        const required = requiredLevel !== undefined
-                        // Read-only never downgrades below a required write level.
-                        const downgrade = readOnlyMode && requiredLevel !== 'write'
-                        if (scope === '*') {
-                            return {
-                                key: '*',
-                                description: downgrade ? WILDCARD_READ_DESCRIPTION : (getScopeDescription('*') ?? '*'),
-                                granted: required || !denied.has('*'),
-                                required,
-                            }
-                        }
-                        const effective = downgrade ? toReadOnlyScope(scope) : scope
+                return consentResourceScopes.map((scope) => {
+                    const key = scopeObjectKey(scope)
+                    const requiredLevel = requiredScopeLevels.get(key)
+                    const required = requiredLevel !== undefined
+                    // Read-only never downgrades below a required write level.
+                    const downgrade = readOnlyMode && requiredLevel !== 'write'
+                    if (scope === '*') {
                         return {
-                            key,
-                            description: getScopeDescription(effective) ?? effective,
-                            granted: required || !denied.has(key),
+                            key: '*',
+                            description: downgrade ? WILDCARD_READ_DESCRIPTION : (getScopeDescription('*') ?? '*'),
+                            granted: required || !denied.has('*'),
                             required,
                         }
-                    })
+                    }
+                    const effective = downgrade ? toReadOnlyScope(scope) : scope
+                    return {
+                        key,
+                        description: getScopeDescription(effective) ?? effective,
+                        granted: required || !denied.has(key),
+                        required,
+                    }
+                })
             },
         ],
         effectiveScopes: [
-            (s) => [s.scopes, s.deniedScopeObjects, s.readOnlyMode, s.requiredScopeLevels, s.oauthApplication],
+            (s) => [
+                s.scopes,
+                s.consentResourceScopes,
+                s.deniedScopeObjects,
+                s.readOnlyMode,
+                s.requiredScopeLevels,
+                s.oauthApplication,
+            ],
             (
                 scopes: string[],
+                consentResourceScopes: string[],
                 deniedScopeObjects: string[],
                 readOnlyMode: boolean,
                 requiredScopeLevels: Map<string, RequiredLevel>,
@@ -506,22 +527,20 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             ): string[] => {
                 const denied = new Set(deniedScopeObjects)
                 const identity = scopes.filter((scope) => IDENTITY_SCOPES.includes(scope))
-                const resources = getMinimumEquivalentScopes(scopes)
-                    .filter((scope) => scope.includes(':') || scope === '*')
-                    .flatMap((scope) => {
-                        const key = scopeObjectKey(scope)
-                        const requiredLevel = requiredScopeLevels.get(key)
-                        if (requiredLevel === undefined && denied.has(key)) {
-                            return []
-                        }
-                        const downgrade = readOnlyMode && requiredLevel !== 'write'
-                        if (scope === '*') {
-                            return downgrade ? wildcardReadScopes() : ['*']
-                        }
-                        return [downgrade ? toReadOnlyScope(scope) : scope]
-                    })
-                // The app's required set is granted even if the client requested a subset of it;
-                // the server rejects grants missing required scopes, so don't let one through.
+                const resources = consentResourceScopes.flatMap((scope) => {
+                    const key = scopeObjectKey(scope)
+                    const requiredLevel = requiredScopeLevels.get(key)
+                    if (requiredLevel === undefined && denied.has(key)) {
+                        return []
+                    }
+                    const downgrade = readOnlyMode && requiredLevel !== 'write'
+                    if (scope === '*') {
+                        return downgrade ? wildcardReadScopes() : ['*']
+                    }
+                    return [downgrade ? toReadOnlyScope(scope) : scope]
+                })
+                // Also grant the required strings verbatim: collapsing read+write pairs above
+                // could otherwise drop a literal entry the server's set-difference check expects.
                 const required = (oauthApplication?.required_scopes ?? []).filter(
                     (scope) => scope.includes(':') || scope === '*'
                 )

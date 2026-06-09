@@ -419,8 +419,8 @@ class OAuthValidator(OAuth2Validator):
 
         DOT's refresh grant copies the prior access token's scopes verbatim and never
         re-runs `validate_scopes`, so a token minted before a ceiling was tightened would
-        keep refreshing into the old, broader set. Intersecting with `application.scopes`
-        means a narrowed app drops the removed scopes on the next refresh.
+        keep refreshing into the old, broader set. Intersecting with the app's
+        `ceiling_scopes` means a narrowed app drops the removed scopes on the next refresh.
 
         Always-allowed scopes (OIDC, introspection) pass through, mirroring
         `validate_scopes`. Resolution when the app has a ceiling:
@@ -432,7 +432,9 @@ class OAuthValidator(OAuth2Validator):
           re-authorizes and gets a token within the current ceiling, rather than
           silently keeping out-of-ceiling access.
 
-        An empty `application.scopes` (no ceiling) is a no-op.
+        An empty `ceiling_scopes` (no ceiling) is a no-op. Refresh never enforces the
+        required floor — a token consented below a later-declared required set keeps
+        its narrower scopes rather than silently widening on refresh.
         """
         original = super().get_original_scopes(refresh_token, request, *args, **kwargs)
         # DOT's base returns the stored scope as a space-delimited string; oauthlib
@@ -836,8 +838,13 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 
-        # Check for auto-approval
-        if request.query_params.get("approval_prompt", oauth2_settings.REQUEST_APPROVAL_PROMPT) == "auto":
+        # Check for auto-approval. Skipped when the request omits a required scope:
+        # auto-approving would mint a grant below the app's required floor, so fall
+        # through to the consent screen, which displays and grants the full required set.
+        required_resource_scopes = {scope for scope in application.required_scopes if ":" in scope}
+        if request.query_params.get(
+            "approval_prompt", oauth2_settings.REQUEST_APPROVAL_PROMPT
+        ) == "auto" and required_resource_scopes <= set(scope_str.split()):
             try:
                 tokens = OAuthAccessToken.objects.filter(
                     user=request.user, application=application, expires__gt=timezone.now()
@@ -911,7 +918,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         if serializer.validated_data["allow"]:
             # Required scopes can't be deselected at consent. Compare against the same
             # read-only downgrade applied to the grant, so impersonation doesn't 400.
-            required = set(application.required_scopes)
+            # Filtered to resource scopes to mirror the consent UI, which only renders
+            # and force-includes `object:action` rows (identity scopes always pass).
+            required = {scope for scope in application.required_scopes if ":" in scope}
             if is_read_only_impersonation(request):
                 required = set(downgrade_scopes_to_read_only(" ".join(sorted(required))).split())
             missing_required = required - set(scopes.split())

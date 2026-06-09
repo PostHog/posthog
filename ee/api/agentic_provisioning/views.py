@@ -1426,7 +1426,7 @@ def _maybe_create_provisioned_pat(
     """
     if not app or not app.provisioning_issues_personal_api_key:
         return None
-    if not app.scopes:
+    if not app.ceiling_scopes:
         _capture_provisioning_event("pat_mint", "skipped_unseeded_ceiling", partner=app, team_id=team.id)
         return None
     try:
@@ -1441,7 +1441,7 @@ def _maybe_create_provisioned_pat(
             label=label,
             secure_value=hash_key_value(api_key_value),
             mask_value=mask_key_value(api_key_value),
-            scopes=list(app.scopes),
+            scopes=app.ceiling_scopes,
             scoped_teams=[team.id],
             scoped_organizations=[str(team.organization_id)],
         )
