@@ -552,7 +552,7 @@ export function SceneName({
                         <ButtonPrimitive
                             className={cn(
                                 buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
-                                'flex text-left [&_.LemonIcon]:size-4 focus-visible:z-50'
+                                'flex text-left [&_.LemonIcon]:size-4 focus-visible:z-50 cursor-text'
                             )}
                             onClick={() => {
                                 if (!isGeneratingMetadata) {
