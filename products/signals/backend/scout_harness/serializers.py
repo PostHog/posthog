@@ -265,11 +265,6 @@ class EmitFindingRequestSerializer(serializers.Serializer):
         max_length=MAX_FINDING_DESCRIPTION_LENGTH,
         help_text="Canonical evidence-bundle prose. Becomes the signal's `description`.",
     )
-    weight = serializers.FloatField(
-        min_value=0.0,
-        max_value=1.0,
-        help_text="Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.",
-    )
     confidence = serializers.FloatField(
         min_value=0.0,
         max_value=1.0,

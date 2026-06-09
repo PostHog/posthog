@@ -344,9 +344,6 @@ const signalsScoutEmitSignal = (): ToolBase<typeof SignalsScoutEmitSignalSchema,
         if (params.description !== undefined) {
             body['description'] = params.description
         }
-        if (params.weight !== undefined) {
-            body['weight'] = params.weight
-        }
         if (params.confidence !== undefined) {
             body['confidence'] = params.confidence
         }
