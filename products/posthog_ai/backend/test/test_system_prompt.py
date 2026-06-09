@@ -3,8 +3,6 @@ from typing import Any
 import pytest
 from posthog.test.base import APIBaseTest
 
-from asgiref.sync import async_to_sync
-
 from products.posthog_ai.backend.system_prompt import build_posthog_ai_system_prompt
 
 
@@ -13,7 +11,7 @@ class TestPostHogAISystemPrompt(APIBaseTest):
     snapshot: Any
 
     def _build(self, **kwargs: Any) -> str:
-        return async_to_sync(build_posthog_ai_system_prompt)(self.team, self.user, **kwargs)
+        return build_posthog_ai_system_prompt(self.team, self.user, **kwargs)
 
     def test_composed_prompt_baseline(self):
         prompt = self._build()

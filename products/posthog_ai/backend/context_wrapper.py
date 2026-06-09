@@ -6,7 +6,7 @@ only here, in Python — the frontend never builds it.
 """
 
 from collections.abc import Iterable
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, get_args
 
 # Allowed attachment types — 01_CONTEXT § 1.
 AttachedContextType = Literal[
@@ -20,18 +20,7 @@ AttachedContextType = Literal[
     "text",
 ]
 
-ALLOWED_TYPES: frozenset[str] = frozenset(
-    {
-        "dashboard",
-        "insight",
-        "event",
-        "action",
-        "error_tracking_issue",
-        "evaluation",
-        "notebook",
-        "text",
-    }
-)
+ALLOWED_TYPES: frozenset[str] = frozenset(get_args(AttachedContextType))
 
 # Caps — 01_CONTEXT § 4.4.
 MAX_ATTACHED_ITEMS = 32

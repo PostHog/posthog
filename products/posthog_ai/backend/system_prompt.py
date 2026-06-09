@@ -42,7 +42,7 @@ CAPABILITIES_BY_DOMAIN_PROMPT = """
 """.strip()
 
 
-async def build_posthog_ai_system_prompt(
+def build_posthog_ai_system_prompt(
     team: Team,
     user: User,
     *,

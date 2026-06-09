@@ -3,7 +3,6 @@ from typing import cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from ee.models.assistant import Conversation
 from rest_framework import exceptions
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
@@ -11,6 +10,7 @@ from rest_framework.test import APIRequestFactory
 
 from products.posthog_ai.backend.context_wrapper import MAX_ATTACHED_ITEMS, MAX_TEXT_LENGTH
 from products.posthog_ai.backend.message_routing import handle_sandbox_message
+from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.models import Task, TaskRun
 
 ROUTING = "products.posthog_ai.backend.message_routing"

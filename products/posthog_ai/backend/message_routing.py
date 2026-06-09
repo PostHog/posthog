@@ -14,8 +14,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django.db import transaction
 
-import structlog
-from asgiref.sync import async_to_sync
 from rest_framework import exceptions, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -37,9 +35,7 @@ from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
 if TYPE_CHECKING:
-    from ee.models.assistant import Conversation
-
-logger = structlog.get_logger(__name__)
+    from products.posthog_ai.backend.models.assistant import Conversation
 
 # Entity types whose id must be an integer (vs short_id / UUID strings).
 _INTEGER_ID_TYPES: frozenset[str] = frozenset({"dashboard", "action"})
@@ -90,7 +86,7 @@ def _handle_first_message(
     deduped = prune_repeated_entity_refs(attached_context, prior=[])
     wrapped = wrap_user_message(content, deduped)
 
-    system_prompt = async_to_sync(build_posthog_ai_system_prompt)(team, user)
+    system_prompt = build_posthog_ai_system_prompt(team, user)
 
     task = Task.create_and_run(
         team=team,
@@ -121,10 +117,12 @@ def _handle_first_message(
             "pending_user_message": wrapped,
         }
     )
-    task_run.state = run_state
-    task_run.save(update_fields=["state"])
-
+    # Persist the enriched run state and conversation linkage together: a half-write
+    # would orphan the run (enriched state, but conversation.task still NULL) and the
+    # next retry would look like a fresh first message.
     with transaction.atomic():
+        task_run.state = run_state
+        task_run.save(update_fields=["state"])
         conversation.task = task
         conversation.save(update_fields=["task", "updated_at"])
 
@@ -197,6 +195,8 @@ def _validate_attached_context(raw: Any) -> list[AttachedContext]:
         entity: AttachedContext = {"type": item_type, "id": item_id}
         name = item.get("name")
         if isinstance(name, str) and name:
+            if len(name) > MAX_TEXT_LENGTH:
+                raise exceptions.ValidationError(f"`name` cannot exceed {MAX_TEXT_LENGTH} characters.")
             entity["name"] = name
         validated.append(entity)
 
@@ -211,4 +211,6 @@ def _validate_entity_id(item_type: str, item_id: Any) -> str | int:
 
     if not isinstance(item_id, str) or not item_id:
         raise exceptions.ValidationError(f"`{item_type}` id must be a non-empty string.")
+    if len(item_id) > MAX_TEXT_LENGTH:
+        raise exceptions.ValidationError(f"`{item_type}` id cannot exceed {MAX_TEXT_LENGTH} characters.")
     return item_id
