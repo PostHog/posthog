@@ -20,7 +20,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
     let logic: ReturnType<typeof hogFlowEditorNotificationTestLogic.build>
     let workflowLogicInstance: ReturnType<typeof workflowLogic.build>
 
-    beforeEach(() => {
+    beforeEach(async () => {
         localStorage.clear()
         sessionStorage.clear()
 
@@ -50,6 +50,11 @@ describe('hogFlowEditorNotificationTestLogic', () => {
 
         logic = hogFlowEditorNotificationTestLogic({ id: 'test-workflow-id' })
         logic.mount()
+
+        // Drain the afterMount-triggered loadSamplePersons to prevent it from racing with test bodies
+        await expectLogic(logic)
+            .toDispatchActions(['loadSamplePersons', 'loadSamplePersonsSuccess'])
+            .toFinishAllListeners()
     })
 
     describe('setSampleGlobals reducer', () => {
