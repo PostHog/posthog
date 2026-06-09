@@ -43,6 +43,17 @@ OLD_SHARDED_MV = "sharded_query_log_archive_mv"  # main cluster local MV (0196)
 OLD_DIST_MV = "dist_query_log_archive_mv"  # endpoints MV (0196)
 
 operations = [
+    # ---------- 0. Move the previous-generation data table aside ----------
+    # A pre-0273 sharded_query_log_archive (old schema, no log_comment column) exists on the
+    # main cluster. It must be renamed BEFORE creating the new table, otherwise the CREATE IF
+    # NOT EXISTS below is skipped and the new MV fails (no log_comment in the target). This is
+    # also the cleanup rename for the main cluster (the data table now lives only on OPS); the
+    # ClickHouse team drops the *_legacy table later. RENAME ... IF EXISTS is a no-op on OPS,
+    # which never had this table.
+    run_sql_with_exceptions(
+        f"RENAME TABLE IF EXISTS {SHARDED_QUERY_LOG_ARCHIVE_TABLE} TO sharded_query_log_archive_legacy",
+        node_roles=[NodeRole.DATA],
+    ),
     # ---------- 1. New JSON-backed data table on OPS only ----------
     run_sql_with_exceptions(
         SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
@@ -95,9 +106,4 @@ operations = [
         )
         for role in READ_ROLES
     ],
-    # ---------- 7. Rename the old populated main-cluster data table aside for CH-team cleanup ----------
-    run_sql_with_exceptions(
-        f"RENAME TABLE IF EXISTS {SHARDED_QUERY_LOG_ARCHIVE_TABLE} TO sharded_query_log_archive_legacy",
-        node_roles=[NodeRole.DATA],
-    ),
 ]
