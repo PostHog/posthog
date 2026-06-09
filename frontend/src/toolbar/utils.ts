@@ -344,7 +344,8 @@ export function getAllClickTargets(
 
     // loop through all elements and getComputedStyle
     const pointerElements = allElements.filter((el) => {
-        if (CLICK_TARGETS.indexOf(el.tagName.toLowerCase()) >= 0) {
+        const tagName = el.tagName?.toLowerCase()
+        if (tagName && CLICK_TARGETS.indexOf(tagName) >= 0) {
             return false
         }
         const compStyles = window.getComputedStyle(el)
@@ -429,7 +430,7 @@ export function getElementForStep(step: ActionStepForm, allElements?: HTMLElemen
         const textToSearch = step.text.toString().trim()
         elements = elements.filter(
             (e) =>
-                TAGS_TO_IGNORE.indexOf(e.tagName.toLowerCase()) === -1 &&
+                TAGS_TO_IGNORE.indexOf(e.tagName?.toLowerCase() ?? '') === -1 &&
                 e.innerText?.trim() === textToSearch &&
                 (e.matches(CLICK_TARGET_SELECTOR) || hasCursorPointer(e))
         )

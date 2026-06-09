@@ -51,7 +51,7 @@ function createFingerprint(element: HTMLElement): ElementFingerprint {
     }
 
     return {
-        tagName: element.tagName.toLowerCase(),
+        tagName: element.tagName?.toLowerCase() ?? '',
         id: element.id || null,
         classes: new Set(Array.from(element.classList)),
         dataAttrs,

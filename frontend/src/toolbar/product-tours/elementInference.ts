@@ -115,7 +115,8 @@ function getAncestorSelectors(element: HTMLElement, config: InferenceConfig): Ar
     let parent = getParent(element)
 
     while (parent && parent.tagName !== 'BODY') {
-        if (TAGS_TO_IGNORE.includes(parent.tagName.toLowerCase())) {
+        const parentTag = parent.tagName?.toLowerCase()
+        if (parentTag && TAGS_TO_IGNORE.includes(parentTag)) {
             parent = getParent(parent)
             continue
         }
@@ -155,7 +156,7 @@ function getElementText(element: HTMLElement): string | null {
 
 function elementMatchesText(element: HTMLElement, text: string): boolean {
     const elementText = getElementText(element)
-    return elementText?.toLowerCase() === text.toLowerCase()
+    return elementText?.toLowerCase() === text?.toLowerCase()
 }
 
 // generator to query elements, filtering by text and visibility
@@ -215,7 +216,9 @@ export function inferSelector(
         const notextMap = new Map<number, Array<{ css: string; offset: number }>>()
         const textMap = new Map<number, Array<{ css: string; offset: number }>>()
 
-        const ownSelectors = [element.tagName.toLowerCase(), ...getOwnSelectors(element, config)]
+        const ownSelectors = [element.tagName?.toLowerCase(), ...getOwnSelectors(element, config)].filter(
+            (selector): selector is string => !!selector
+        )
         const ancestorSelectors = getAncestorSelectors(element, config)
 
         const visibilityCache = new WeakMap<HTMLElement, boolean>()

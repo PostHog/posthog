@@ -193,6 +193,25 @@ describe('domElementIndex', () => {
             }
         })
 
+        it('does not throw when a scanned node has no tagName', () => {
+            const { container, cleanup } = createTestDOM('<div id="real"></div>')
+            try {
+                // querySelectorAllDeep / shadow-dom traversal can surface nodes that
+                // are not real elements (no tagName) — indexing must not crash on them
+                const nodeWithoutTagName = {
+                    id: '',
+                    classList: [],
+                    attributes: [],
+                    getAttribute: () => null,
+                } as unknown as HTMLElement
+                const pageElements = [...getAllElements(container), nodeWithoutTagName]
+
+                expect(() => buildDOMIndex(pageElements)).not.toThrow()
+            } finally {
+                cleanup()
+            }
+        })
+
         it('stores fingerprints with correct nth-child and nth-of-type', () => {
             const { container, cleanup } = createTestDOM(
                 '<ul><li></li><li id="target"></li><span></span><li></li></ul>'
