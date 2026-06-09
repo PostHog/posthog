@@ -668,7 +668,46 @@ export interface AssistantFunnelsGroupNode {
     custom_name?: string
 }
 
-export type AssistantFunnelsNode = AssistantFunnelsEventsNode | AssistantFunnelsActionsNode | AssistantFunnelsGroupNode
+/**
+ * A funnel step that reads its "events" from a data warehouse table instead of from captured events.
+ * Use this when the sequence lives in warehouse data (e.g. invoices, subscriptions, orders) rather than
+ * in events. Each step points at a table and tells the funnel which column to treat as the timestamp and
+ * which column identifies the actor moving through the funnel. Filter a step down to a stage with a HogQL
+ * property filter over the table's columns (e.g. `classification = 'paid'`).
+ */
+export interface AssistantFunnelsDataWarehouseNode extends AssistantFunnelNodeShared {
+    kind: NodeKind.FunnelsDataWarehouseNode
+    /**
+     * Name of the data warehouse table this step reads from.
+     */
+    id: string
+    /**
+     * Name of the data warehouse table this step reads from.
+     */
+    table_name: string
+    /**
+     * Column that uniquely identifies each row in the table (e.g. `id`).
+     */
+    id_field: string
+    /**
+     * Column to treat as the event timestamp, used to order steps within the conversion window.
+     */
+    timestamp_field: string
+    /**
+     * Column used as the actor the funnel tracks across steps (e.g. `customer_id`, `organization_id`).
+     */
+    aggregation_target_field: string
+    /**
+     * Optional custom name for the step.
+     */
+    custom_name?: string
+}
+
+export type AssistantFunnelsNode =
+    | AssistantFunnelsEventsNode
+    | AssistantFunnelsActionsNode
+    | AssistantFunnelsGroupNode
+    | AssistantFunnelsDataWarehouseNode
 
 /**
  * Exclustion steps for funnels. The "from" and "to" steps must not exceed the funnel's series length.
