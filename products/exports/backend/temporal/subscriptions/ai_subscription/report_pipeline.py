@@ -9,7 +9,7 @@ import structlog
 
 from posthog.schema import AssistantHogQLQuery
 
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
@@ -255,8 +255,13 @@ async def _run_steps(
                 )
                 fixed = await _arequest_hogql_fix(
                     original_hogql=current_hogql,
-                    # don't forward internal error text to the LLM — it can echo cluster URLs/table names
-                    error_message=str(exc) if isinstance(exc, ExposedHogQLError) else type(exc).__name__,
+                    # Forward the message for exposed errors and ResolutionError — the latter only names the
+                    # field/property the planner itself referenced (e.g. "Unable to resolve field 'operaton'"),
+                    # which is exactly what the fixer needs and carries no cluster internals. Other internal
+                    # errors (parsing/impossible-AST) stay type-only — they can echo cluster URLs/table names.
+                    error_message=(
+                        str(exc) if isinstance(exc, (ExposedHogQLError, ResolutionError)) else type(exc).__name__
+                    ),
                     step_description=safe_description,
                     team=team,
                     user=user,
