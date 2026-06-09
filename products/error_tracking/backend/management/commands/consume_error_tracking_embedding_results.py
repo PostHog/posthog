@@ -54,6 +54,20 @@ def _string_value(data: Mapping[str, object], key: str) -> str | None:
     return None
 
 
+def _float_option(options: Mapping[str, object], key: str) -> float:
+    value = options[key]
+    if isinstance(value, str | int | float):
+        return float(value)
+    raise TypeError(f"{key} must be a number")
+
+
+def _int_option(options: Mapping[str, object], key: str) -> int:
+    value = options[key]
+    if isinstance(value, str | int):
+        return int(value)
+    raise TypeError(f"{key} must be an integer")
+
+
 def _success_model_names(results: object) -> list[str]:
     if not isinstance(results, list):
         return []
@@ -71,9 +85,10 @@ def _success_model_names(results: object) -> list[str]:
 
 
 def fingerprint_embedding_result_inputs_from_message(value: bytes) -> FingerprintEmbeddingResultInputs | None:
-    data = json.loads(value)
-    if not isinstance(data, dict):
+    loaded_data = json.loads(value)
+    if not isinstance(loaded_data, dict):
         return None
+    data: Mapping[str, object] = loaded_data
     if data.get("product") != "error_tracking" or data.get("document_type") != "fingerprint":
         return None
 
@@ -96,6 +111,9 @@ def fingerprint_embedding_result_inputs_from_message(value: bytes) -> Fingerprin
         invalid_fields.append("results")
     if invalid_fields:
         raise ValueError(f"Invalid error tracking fingerprint embedding result message: {', '.join(invalid_fields)}")
+
+    if not isinstance(team_id, int) or fingerprint is None or rendering is None or timestamp is None:
+        raise AssertionError("validated embedding result fields were unexpectedly invalid")
 
     return FingerprintEmbeddingResultInputs(
         team_id=team_id,
@@ -166,12 +184,12 @@ class Command(BaseCommand):
     def handle(self, *args: object, **options: object) -> None:
         topic = str(options["topic"])
         consumer_group = str(options["consumer_group"])
-        poll_timeout = float(options["poll_timeout"])
+        poll_timeout = _float_option(options, "poll_timeout")
         max_messages = options["max_messages"]
         if max_messages is not None and not isinstance(max_messages, int):
             raise TypeError("max_messages must be an integer")
-        health_port = int(options["health_port"])
-        health_timeout = float(options["health_timeout"])
+        health_port = _int_option(options, "health_port")
+        health_timeout = _float_option(options, "health_timeout")
 
         health_state = HealthState(timeout_seconds=health_timeout)
         start_health_server(port=health_port, health_state=health_state)
@@ -262,7 +280,8 @@ class Command(BaseCommand):
     ) -> None:
         error = message.error()
         if error is not None:
-            if error.code() == KafkaError._PARTITION_EOF:
+            partition_eof_code = getattr(KafkaError, "_PARTITION_EOF", None)
+            if partition_eof_code is not None and error.code() == partition_eof_code:
                 return
             raise KafkaException(error)
 
