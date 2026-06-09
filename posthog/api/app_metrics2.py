@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
 from drf_spectacular.utils import extend_schema
@@ -127,8 +127,10 @@ def fetch_app_metrics_trends(
     clickhouse_kwargs["team_id"] = team_id
     clickhouse_kwargs["app_source"] = app_source
     clickhouse_kwargs["app_source_id"] = app_source_id
-    clickhouse_kwargs["after"] = after.strftime("%Y-%m-%dT%H:%M:%S")
-    clickhouse_kwargs["before"] = before.strftime("%Y-%m-%dT%H:%M:%S")
+    # Convert to UTC before formatting — the naive string is read as UTC by toDateTime64, so a
+    # team-timezone-aware bound would otherwise shift the window by the team's offset.
+    clickhouse_kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
+    clickhouse_kwargs["before"] = before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
     clickhouse_kwargs["instance_id"] = instance_id
     clickhouse_kwargs["name"] = name
     clickhouse_kwargs["kind"] = kind
@@ -205,12 +207,14 @@ def fetch_app_metric_totals(
     name = name or []
     kind = kind or []
 
+    # Convert to UTC before formatting — the naive string is read as UTC by toDateTime64, so a
+    # team-timezone-aware bound would otherwise shift the window by the team's offset.
     clickhouse_kwargs: dict[str, Any] = {
         "team_id": team_id,
         "app_source": app_source,
         "app_source_id": app_source_id,
-        "after": after.strftime("%Y-%m-%dT%H:%M:%S") if after else None,
-        "before": before.strftime("%Y-%m-%dT%H:%M:%S") if before else None,
+        "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if after else None,
+        "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if before else None,
     }
 
     clickhouse_query = f"""
