@@ -809,11 +809,22 @@ function parseExpressionValue(raw: string): unknown {
 }
 
 function serializeComponentProps(props: NotebookComponentProps): string {
-    const serialized = Object.entries(props)
+    const serialized = getOrderedComponentPropEntries(props)
         .filter(([, value]) => value !== undefined)
-        .map(([key, value]) => ` ${key}=${serializePropValue(value)}`)
+        .map(([key, value]) => (value === true ? ` ${key}` : ` ${key}=${serializePropValue(value)}`))
         .join('')
     return serialized
+}
+
+function getOrderedComponentPropEntries(props: NotebookComponentProps): [string, NotebookPropValue][] {
+    const entries = Object.entries(props)
+    const orderedKeys = ['view', 'edit']
+    return [
+        ...orderedKeys.flatMap((key): [string, NotebookPropValue][] =>
+            Object.prototype.hasOwnProperty.call(props, key) ? [[key, props[key]]] : []
+        ),
+        ...entries.filter(([key]) => !orderedKeys.includes(key)),
+    ]
 }
 
 function serializePropValue(value: NotebookPropValue): string {

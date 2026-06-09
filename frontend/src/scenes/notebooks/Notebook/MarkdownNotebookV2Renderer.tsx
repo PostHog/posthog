@@ -844,9 +844,10 @@ function getNodeAttributes(
     nodeType: NotebookNodeType | undefined,
     forceEditing: boolean
 ): NotebookNodeAttributes<any> {
+    const attributeProps = getNodeAttributeProps(props)
     const attributes = {
         ...getDefaultProps(options),
-        ...props,
+        ...attributeProps,
         nodeId: typeof props.nodeId === 'string' ? props.nodeId : fallbackNodeId,
     } as NotebookNodeAttributes<any>
 
@@ -855,6 +856,15 @@ function getNodeAttributes(
     }
 
     return attributes
+}
+
+function getNodeAttributeProps(props: NotebookComponentProps): NotebookComponentProps {
+    return Object.entries(props).reduce<NotebookComponentProps>((attributeProps, [key, value]) => {
+        if (key !== 'view' && key !== 'edit') {
+            attributeProps[key] = value
+        }
+        return attributeProps
+    }, {})
 }
 
 function getDefaultProps(options: CreatePostHogWidgetNodeOptions<any> | null): NotebookComponentProps {

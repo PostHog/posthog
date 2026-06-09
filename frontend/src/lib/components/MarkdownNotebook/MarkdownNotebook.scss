@@ -690,12 +690,16 @@ h3.MarkdownNotebook__text-block--heading {
 }
 
 .MarkdownNotebook__code-block {
+    box-sizing: border-box;
+    width: calc(100% - var(--markdown-notebook-content-offset));
+    min-width: 0;
     min-height: 3rem;
     padding: 0.875rem 1rem;
-    font: var(--font-mono);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
     line-height: 1.55;
     color: var(--color-text-primary);
-    word-break: break-word;
+    overflow-wrap: anywhere;
     white-space: pre-wrap;
     background: var(--color-bg-surface-secondary);
     border: 1px solid var(--color-border-primary);

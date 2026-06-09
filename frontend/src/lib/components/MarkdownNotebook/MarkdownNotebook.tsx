@@ -287,6 +287,42 @@ function createDefaultAIChatId(): string {
     return makeEmptyParagraph('ai-chat').id
 }
 
+function getComponentPanelVisibility(
+    node: NotebookComponentBlockNode,
+    fallbackPanels: ComponentPanelVisibility
+): ComponentPanelVisibility {
+    return {
+        view: typeof node.props.view === 'boolean' ? node.props.view : fallbackPanels.view,
+        edit: typeof node.props.edit === 'boolean' ? node.props.edit : fallbackPanels.edit,
+    }
+}
+
+function shouldPersistComponentPanelProps(
+    node: NotebookComponentBlockNode,
+    definition: NotebookComponentDefinition | null | undefined
+): boolean {
+    return node.tagName !== 'Prompt' && !definition?.hideModeActions
+}
+
+function withPersistedComponentPanelProps(
+    node: NotebookComponentBlockNode,
+    definition: NotebookComponentDefinition | null | undefined,
+    panels: ComponentPanelVisibility
+): NotebookComponentBlockNode {
+    if (!shouldPersistComponentPanelProps(node, definition)) {
+        return node
+    }
+
+    return {
+        ...node,
+        props: {
+            ...node.props,
+            view: panels.view,
+            edit: panels.edit,
+        },
+    }
+}
+
 export function MarkdownNotebook({
     value,
     onChange,
@@ -318,7 +354,6 @@ export function MarkdownNotebook({
     const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null)
     const [activeBoundaryIndex, setActiveBoundaryIndex] = useState<number | null>(null)
     const [focusedRowIndex, setFocusedRowIndex] = useState<number | null>(null)
-    const [componentPanels, setComponentPanels] = useState<Record<string, ComponentPanelVisibility>>({})
     const [selectedComponentNodeIds, setSelectedComponentNodeIds] = useState<Set<string>>(() => new Set())
     const [isDebugOpen, setIsDebugOpen] = useState(false)
     const [debugMarkdown, setDebugMarkdown] = useState(() => serializeMarkdownNotebook(document))
@@ -1020,14 +1055,16 @@ export function MarkdownNotebook({
 
     const replaceNodeWithInsertedComponent = useCallback(
         (nodeId: string, nextNode: NotebookComponentBlockNode): void => {
-            setComponentPanels((currentPanels) => ({
-                ...currentPanels,
-                [nextNode.id]: INSERTED_COMPONENT_PANEL_VISIBILITY,
-            }))
+            const definition = getMarkdownNotebookComponentDefinition(mergedRegistry, nextNode.tagName)
+            const insertedNode = withPersistedComponentPanelProps(
+                nextNode,
+                definition,
+                INSERTED_COMPONENT_PANEL_VISIBILITY
+            )
             focusNodeRef.current = nextNode.id
-            replaceNode(nodeId, nextNode)
+            replaceNode(nodeId, insertedNode)
         },
-        [replaceNode]
+        [mergedRegistry, replaceNode]
     )
 
     const replaceNodeWithNodes = useCallback(
@@ -1235,14 +1272,29 @@ export function MarkdownNotebook({
             return
         }
 
-        setComponentPanels((currentPanels) => {
-            const nextPanels = { ...currentPanels }
-            insertedComponentNodeIds.forEach((nodeId) => {
-                nextPanels[nodeId] = INSERTED_COMPONENT_PANEL_VISIBILITY
-            })
-            return nextPanels
+        const insertedComponentNodeIdSet = new Set(insertedComponentNodeIds)
+        const nextNodes = document.nodes.map((node) => {
+            if (node.type !== 'component' || !insertedComponentNodeIdSet.has(node.id)) {
+                return node
+            }
+
+            const definition = getMarkdownNotebookComponentDefinition(mergedRegistry, node.tagName)
+            return withPersistedComponentPanelProps(node, definition, INSERTED_COMPONENT_PANEL_VISIBILITY)
         })
-    }, [document.nodes, mode])
+        if (areNotebookDocumentsEqual(document, { ...document, nodes: nextNodes })) {
+            return
+        }
+
+        commitDocument(
+            {
+                ...document,
+                nodes: nextNodes,
+            },
+            {
+                addToHistory: false,
+            }
+        )
+    }, [commitDocument, document, mergedRegistry, mode])
 
     const updateFloatingToolbarFromSelection = useCallback((): void => {
         clearFloatingToolbarRevealTimeout()
@@ -2542,6 +2594,16 @@ export function MarkdownNotebook({
             return
         }
 
+        if (inlineEditableElement.classList.contains('MarkdownNotebook__code-block')) {
+            updateNode(nodeId, (currentNode) => {
+                if (currentNode.type !== 'code') {
+                    return currentNode
+                }
+                return { ...currentNode, text: inlineEditableElement.textContent ?? '' }
+            })
+            return
+        }
+
         const nextChildren = htmlElementToInlineNodes(inlineEditableElement)
         if (inlineEditableElement.classList.contains('MarkdownNotebook__text-block')) {
             const nodes = documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current]
@@ -2769,11 +2831,19 @@ export function MarkdownNotebook({
     const submitActiveRootInsertMenu = (canvasElement: HTMLElement): boolean => {
         const inlineEditableElement = getInlineEditableElementForSelection(window.getSelection(), canvasElement)
         const nodeId = inlineEditableElement?.dataset.markdownNotebookNodeId
-        if (!nodeId || insertMenu?.nodeId !== nodeId) {
+        if (!nodeId) {
             return false
         }
 
         const inputText = inlineEditableElement.textContent ?? ''
+        if (inlineEditableElement.classList.contains('MarkdownNotebook__text-block--ai-prompt')) {
+            return submitAIPromptForNode(nodeId, inputText)
+        }
+
+        if (insertMenu?.nodeId !== nodeId) {
+            return false
+        }
+
         if (insertMenu.mode === 'ai') {
             return submitAIPromptForNode(nodeId, inputText)
         }
@@ -2946,6 +3016,14 @@ export function MarkdownNotebook({
                             const insertMenuMode = isInsertMenuOpen ? (insertMenu.mode ?? 'tools') : null
                             const isToolInsertMenuOpen = isInsertMenuOpen && insertMenuMode === 'tools'
                             const isAIPromptOpen = isPromptComponentNode(node)
+                            const componentDefinition =
+                                node.type === 'component'
+                                    ? getMarkdownNotebookComponentDefinition(mergedRegistry, node.tagName)
+                                    : undefined
+                            const nodeComponentPanels =
+                                node.type === 'component'
+                                    ? getComponentPanelVisibility(node, DEFAULT_COMPONENT_PANEL_VISIBILITY)
+                                    : DEFAULT_COMPONENT_PANEL_VISIBILITY
                             const shouldShowInlineInsertMenuButton =
                                 !isTitleRow &&
                                 (isBlankInsertMenuButtonRow(node) || (isToolInsertMenuOpen && isTextBlockNode(node)))
@@ -2980,20 +3058,27 @@ export function MarkdownNotebook({
                                                       ? placeholder
                                                       : undefined,
                                             registry: mergedRegistry,
-                                            componentPanels:
-                                                componentPanels[node.id] ?? DEFAULT_COMPONENT_PANEL_VISIBILITY,
+                                            componentPanels: nodeComponentPanels,
                                             isSelected: selectedComponentNodeIds.has(node.id),
                                             toggleComponentPanel: (panel) =>
-                                                setComponentPanels((current) => {
-                                                    const currentPanels =
-                                                        current[node.id] ?? DEFAULT_COMPONENT_PANEL_VISIBILITY
-                                                    return {
-                                                        ...current,
-                                                        [node.id]: {
-                                                            ...currentPanels,
-                                                            [panel]: !currentPanels[panel],
-                                                        },
+                                                updateNode(node.id, (currentNode) => {
+                                                    if (currentNode.type !== 'component') {
+                                                        return currentNode
                                                     }
+
+                                                    const currentPanels = getComponentPanelVisibility(
+                                                        currentNode,
+                                                        DEFAULT_COMPONENT_PANEL_VISIBILITY
+                                                    )
+                                                    const nextPanels = {
+                                                        ...currentPanels,
+                                                        [panel]: !currentPanels[panel],
+                                                    }
+                                                    return withPersistedComponentPanelProps(
+                                                        currentNode,
+                                                        componentDefinition,
+                                                        nextPanels
+                                                    )
                                                 }),
                                             setBlockRef: (element) => {
                                                 blockRefs.current[node.id] = element

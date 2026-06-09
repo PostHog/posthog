@@ -106,6 +106,18 @@ Object and array props serialize with JSX-like expression syntax:
 <Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />
 ```
 
+Boolean `true` props serialize as bare JSX props.
+Boolean `false` props stay explicit:
+
+```md
+<RevenueCard view edit disabled={false} metric="arr" />
+```
+
+`view` and `edit` are reserved props used by the notebook shell to persist which panels are open.
+Components with visible mode actions should allow these props to round-trip.
+Components with `hideModeActions` do not persist them.
+`Prompt` is a special AI input tag and should not use `view` or `edit`.
+
 ## Adding a standalone component
 
 Use a standalone component when the block does not need the legacy notebook node runtime.

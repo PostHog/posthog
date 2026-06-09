@@ -407,6 +407,24 @@ continued line
         expect(serializeMarkdownNotebook(parseMarkdownNotebook(canonicalMarkdown))).toEqual(canonicalMarkdown)
     })
 
+    it('serializes true boolean component props as bare JSX props', () => {
+        const markdown = `<Query query={{"kind":"DataTableNode"}} view={true} edit={true} disabled={false} />`
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes[0]).toMatchObject({
+            type: 'component',
+            tagName: 'Query',
+            props: {
+                view: true,
+                edit: true,
+                disabled: false,
+            },
+        })
+        expect(serializeMarkdownNotebook(document)).toEqual(
+            `<Query view edit query={{"kind":"DataTableNode"}} disabled={false} />`
+        )
+    })
+
     it('round-trips markdown tables', () => {
         const markdown = `| Name | Count | Ratio |
 | :--- | ---: | :---: |
@@ -938,7 +956,7 @@ Repeated block`),
 
         const savedMarkdown = onChange.mock.calls[onChange.mock.calls.length - 1][0]
         expect(savedMarkdown).toEqual(
-            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Embed src="https://posthog.com" title="PostHog" />`
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Embed view edit src="https://posthog.com" title="PostHog" />`
         )
 
         const renderCountBeforeRemoteSave = renderComponent.mock.calls.length
@@ -1296,7 +1314,9 @@ Repeated block`),
         expect(revenueButton).toBeInstanceOf(HTMLButtonElement)
         fireEvent.click(revenueButton as HTMLButtonElement)
 
-        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<RevenueCard metric="arr" />`)
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<RevenueCard view edit metric="arr" />`
+        )
         expect(container.querySelector('[data-testid="revenue-card"]')?.textContent).toEqual('arr')
     })
 
@@ -1821,6 +1841,41 @@ Third paragraph`,
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Chat id="${TEST_AI_CHAT_ID}" />`)
     })
 
+    it('submits a persisted Ask AI prompt when Enter is dispatched from the root editable surface', () => {
+        const onAskAI = jest.fn()
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="we" />`,
+                onAskAI,
+                onChange,
+                createAIChatId: () => TEST_AI_CHAT_ID,
+            })
+        )
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const promptBlock = container.querySelector('.MarkdownNotebook__text-block--ai-prompt') as HTMLElement
+
+        promptBlock.textContent = 'What happened here?'
+        act(() => {
+            const range = document.createRange()
+            range.selectNodeContents(promptBlock)
+            range.collapse(false)
+            const selection = window.getSelection()
+            selection?.removeAllRanges()
+            selection?.addRange(range)
+        })
+        fireEvent.input(canvas)
+        fireEvent.keyDown(canvas, { key: 'Enter' })
+
+        expect(onAskAI).toHaveBeenCalledWith(
+            expect.objectContaining({
+                chatId: TEST_AI_CHAT_ID,
+                query: 'What happened here?',
+            })
+        )
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Chat id="${TEST_AI_CHAT_ID}" />`)
+    })
+
     it('turns an Ask AI prompt back into regular text when backspacing at the start', () => {
         const onAskAI = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onAskAI }))
@@ -1898,6 +1953,21 @@ Third paragraph`,
 
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n\`\`\`
 console.log(1)
+\`\`\``)
+
+        codeBlock.textContent = 'console.log(2)'
+        act(() => {
+            const range = document.createRange()
+            range.selectNodeContents(codeBlock)
+            range.collapse(false)
+            const selection = window.getSelection()
+            selection?.removeAllRanges()
+            selection?.addRange(range)
+        })
+        fireEvent.input(container.querySelector('.MarkdownNotebook__canvas') as HTMLElement)
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n\`\`\`
+console.log(2)
 \`\`\``)
     })
 
@@ -3542,7 +3612,9 @@ Closing`
 
             expect(components).toHaveLength(2)
             expect(clipboard.readText).toHaveBeenCalled()
-            expect(onChange).toHaveBeenLastCalledWith(`# \n\n${markdown}\n\n${markdown}`)
+            expect(onChange).toHaveBeenLastCalledWith(
+                `# \n\n${markdown}\n\n<Query view edit query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
+            )
             expect(document.activeElement).toEqual(components[1])
         } finally {
             Object.defineProperty(navigator, 'clipboard', {
@@ -3559,6 +3631,11 @@ Closing`
 <Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />
 
 Tail with **bold** text`
+        const persistedPastedMarkdown = `# Pasted heading
+
+<Query view edit query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />
+
+Tail with **bold** text`
         const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
         const textBlock = getBodyTextBlock(container)
 
@@ -3571,7 +3648,7 @@ Tail with **bold** text`
         expect(getEditableTextBlocks(container)[1].textContent).toEqual('Pasted heading')
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeInstanceOf(HTMLElement)
         expect(container.querySelector('p.MarkdownNotebook__text-block')?.textContent).toEqual('Tail with bold text')
-        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${pastedMarkdown}`)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${persistedPastedMarkdown}`)
     })
 
     it('pastes inline markdown into the active text block', () => {
@@ -4501,7 +4578,8 @@ After component`,
 
     it('toggles component edit and view panels independently with edit above view', () => {
         const markdown = `<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
-        const { container } = render(createElement(MarkdownNotebook, { value: markdown }))
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: markdown, onChange }))
         const shell = container.querySelector('.MarkdownNotebook__component-shell')
         const modeButtons = Array.from(
             container.querySelectorAll('.MarkdownNotebook__component-mode-actions button')
@@ -4525,11 +4603,17 @@ After component`,
         expect(stackedPanels).toHaveLength(2)
         expect(stackedPanels[0].querySelector('.MarkdownNotebook__component-edit')).toBeInstanceOf(HTMLElement)
         expect(stackedPanels[1].querySelector('.MarkdownNotebook__component-preview')).toBeInstanceOf(HTMLElement)
+        expect(onChange).toHaveBeenLastCalledWith(
+            `# \n\n<Query view edit query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
+        )
 
         fireEvent.click(modeButtons[1])
 
         expect(container.querySelector('.MarkdownNotebook__component-preview')).toBeNull()
         expect(container.querySelector('.MarkdownNotebook__component-edit')).toBeInstanceOf(HTMLElement)
+        expect(onChange).toHaveBeenLastCalledWith(
+            `# \n\n<Query view={false} edit query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
+        )
     })
 
     it('hides component mode actions when requested by the component definition', () => {
