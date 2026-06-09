@@ -8,6 +8,24 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 import redis
 from redis import asyncio as aioredis
+from redis.backoff import ExponentialBackoff
+from redis.exceptions import ConnectionError as RedisConnectionError, TimeoutError as RedisTimeoutError
+from redis.retry import Retry
+
+# Connection-level resilience: retry a handful of times with exponential backoff on
+# transient connection/timeout errors (e.g. a momentary DNS or ElastiCache blip), and
+# periodically health-check idle connections so stale sockets are recycled rather than
+# surfacing as errors on the next command.
+_REDIS_RETRY_ON_ERROR = [RedisConnectionError, RedisTimeoutError]
+_REDIS_HEALTH_CHECK_INTERVAL_SECONDS = 30
+
+
+def _resilient_redis_kwargs() -> Dict[str, Any]:
+    return {
+        "retry": Retry(ExponentialBackoff(cap=1.0, base=0.05), retries=3),
+        "retry_on_error": _REDIS_RETRY_ON_ERROR,
+        "health_check_interval": _REDIS_HEALTH_CHECK_INTERVAL_SECONDS,
+    }
 
 
 _client_map: Dict[str, Any] = {}
@@ -28,7 +46,7 @@ def get_client(redis_url: Optional[str] = None) -> redis.Redis:
 
             client: Any = fakeredis.FakeRedis()
         elif redis_url:
-            client = redis.from_url(redis_url, db=0)
+            client = redis.from_url(redis_url, db=0, **_resilient_redis_kwargs())
         else:
             client = None
 
@@ -126,7 +144,7 @@ def get_async_client(redis_url: Optional[str] = None):
         # Get (or create) the Redis instance for redis_url
         client = pool_map.get(redis_url)
         if client is None:
-            client = aioredis.from_url(redis_url, db=0)
+            client = aioredis.from_url(redis_url, db=0, **_resilient_redis_kwargs())
             pool_map[redis_url] = client
 
         return client

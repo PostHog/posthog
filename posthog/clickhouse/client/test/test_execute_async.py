@@ -73,6 +73,18 @@ class TestQueryStatusManager(SimpleTestCase):
         self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(True), self.query_status)
 
+    def test_has_results_returns_true_when_results_stored(self):
+        self.manager.store_query_status(self.query_status)
+        self.assertTrue(self.manager.has_results())
+
+    def test_has_results_returns_false_when_no_results(self):
+        self.assertFalse(self.manager.has_results())
+
+    def test_has_results_degrades_to_false_on_redis_failure(self):
+        # A transient Redis failure must not propagate out of the enqueue path — treat as a cache miss.
+        with patch.object(self.manager.redis_client, "exists", side_effect=ConnectionError("boom")):
+            self.assertFalse(self.manager.has_results())
+
     def test_update_clickhouse_query_progresses(self):
         self.manager.store_query_status(self.query_status)
 

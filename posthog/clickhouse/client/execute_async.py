@@ -118,7 +118,13 @@ class QueryStatusManager:
         self.redis_client.set(self.heartbeat_key, "1", ex=self.HEARTBEAT_TTL_SECONDS)
 
     def has_results(self) -> bool:
-        return self.redis_client.exists(self.results_key) == 1
+        try:
+            return self.redis_client.exists(self.results_key) == 1
+        except Exception:
+            # A transient Redis failure (e.g. a momentary DNS/ElastiCache blip) shouldn't
+            # break query enqueueing. Treat it as a cache miss and fall through to calculation.
+            logger.warning("Failed to check for existing query results", query_id=self.query_id, team_id=self.team_id)
+            return False
 
     def get_clickhouse_progresses(self) -> Optional[ClickhouseQueryProgress]:
         try:
