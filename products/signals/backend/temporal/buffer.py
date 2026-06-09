@@ -186,7 +186,13 @@ class BufferSignalsWorkflow:
                 *[
                     workflow.execute_activity(
                         safety_filter_activity,
-                        SafetyFilterInput(team_id=s.team_id, description=s.description),
+                        SafetyFilterInput(
+                            team_id=s.team_id,
+                            description=s.description,
+                            source_product=s.source_product,
+                            source_type=s.source_type,
+                            source_id=s.source_id,
+                        ),
                         start_to_close_timeout=timedelta(minutes=5),
                         retry_policy=RetryPolicy(maximum_attempts=3),
                     )

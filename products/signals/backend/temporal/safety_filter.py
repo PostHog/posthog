@@ -3,9 +3,12 @@ from dataclasses import dataclass
 from typing import Optional
 
 import structlog
+import posthoganalytics
 from pydantic import BaseModel, Field, model_validator
 from temporalio import activity
 
+from posthog.event_usage import groups
+from posthog.models import Team
 from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.temporal.llm import EmptyLLMResponseError, call_llm
@@ -105,6 +108,11 @@ class SafetyFilterInput:
     # Optional with a default for deploy-time backward compatibility: a batch scheduled before this
     # field existed must still deserialize on a new worker; missing => gateway key owner's team.
     team_id: int | None = None
+    # Source identity, carried through purely so the blocked-signal lifecycle event can attribute
+    # which signal was dropped. Optional for the same backward-compatibility reason as team_id.
+    source_product: str | None = None
+    source_type: str | None = None
+    source_id: str | None = None
 
 
 @dataclass
@@ -135,6 +143,30 @@ async def safety_filter(team_id: int | None, description: str) -> SafetyFilterJu
         )
 
 
+async def _capture_signal_blocked_event(input: SafetyFilterInput, result: SafetyFilterJudgeResponse) -> None:
+    """Emit a lifecycle event so blocked signals are trackable alongside the existing log line."""
+    if input.team_id is None:
+        return
+    try:
+        team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+        posthoganalytics.capture(
+            event="signal_blocked_by_safety_filter",
+            distinct_id=str(team.uuid),
+            properties={
+                "threat_type": result.threat_type,
+                "explanation": result.explanation,
+                "source_product": input.source_product,
+                "source_type": input.source_type,
+                "source_id": input.source_id,
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception as e:
+        # Swallow the exception, to avoid breaking the flow over a failed analytics event
+        posthoganalytics.capture_exception(e)
+        logger.exception("Failed to capture signal_blocked_by_safety_filter event", team_id=input.team_id)
+
+
 @activity.defn
 @scoped_temporal()
 async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
@@ -144,6 +176,9 @@ async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput
     except Exception:
         logger.exception("Failed to run safety filter")
         raise
+
+    if not result.safe:
+        await _capture_signal_blocked_event(input, result)
 
     return SafetyFilterOutput(
         safe=result.safe,
