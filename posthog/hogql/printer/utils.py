@@ -184,10 +184,6 @@ def prepare_ast_for_printing(
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
 
-        if events_pushdown_enabled(context.modifiers):
-            with context.timings.measure("events_predicate_pushdown"):
-                node = apply_events_predicate_pushdown(node, context)
-
         with context.timings.measure("swap_properties"):
             node = PropertySwapper(
                 timezone=context.property_swapper.timezone,
@@ -207,6 +203,15 @@ def prepare_ast_for_printing(
         # mutation analyzer rejects table prefixes), so no extra marking is needed.
         with context.timings.measure("lower_property_access"):
             node = lower_property_access(node, context)
+
+        # Events predicate pushdown runs on the lowered AST (between lowering and property resolution), so it matches the
+        # dialect-neutral JSONFieldAccess form and reuses the resolution pass's column resolvers to decide which physical
+        # column the pre-filtering subquery must expose. Property resolution then runs once over the rewritten tree,
+        # substituting materialized columns in both the subquery body and the outer references uniformly.
+        if events_pushdown_enabled(context.modifiers):
+            with context.timings.measure("events_predicate_pushdown"):
+                node = apply_events_predicate_pushdown(node, context)
+
         with context.timings.measure("clickhouse_property_resolution"):
             node = clickhouse_property_resolution(node, context)
 

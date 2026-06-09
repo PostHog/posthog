@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -33,12 +33,12 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.transforms.events_predicate_pushdown import (
-    EventsFieldCollector,
     EventsPredicatePushdownTransform,
-    LazyTypeDetector,
+    EventsSubexprHoister,
     _printer_top_level_select_ids,
 )
-from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+from posthog.hogql.transforms.logical_property_lowering import lower_property_access
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Cohort, MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
@@ -105,11 +105,11 @@ class TestEventsPredicatePushdownTransform(BaseTest):
 
     def test_unexpected_internal_error_degrades_to_flat_query(self):
         # Pushdown is a pure optimization: an unexpected raise inside the rewrite must leave the query intact
-        # (run flat), never break it. Force a raise in _build_typed_subquery (called before any mutation) and
+        # (run flat), never break it. Force a raise in _build_subquery (called before any mutation) and
         # assert the printed SQL matches the un-pushed flat form.
         select = "SELECT event, session.$session_duration FROM events WHERE timestamp >= '2024-01-01' LIMIT 10"
         flat = self._print_select(select, modifiers=HogQLQueryModifiers(pushDownPredicates=False))
-        with patch.object(EventsPredicatePushdownTransform, "_build_typed_subquery", side_effect=RuntimeError("boom")):
+        with patch.object(EventsPredicatePushdownTransform, "_build_subquery", side_effect=RuntimeError("boom")):
             guarded = self._print_select(select, modifiers=HogQLQueryModifiers(pushDownPredicates=True))
         assert guarded == flat, f"expected flat fallback on internal error:\nflat={flat}\nguarded={guarded}"
         assert ") AS events LEFT JOIN" not in guarded, f"the events scan must not be wrapped on fallback:\n{guarded}"
@@ -762,193 +762,73 @@ class TestEventsPredicatePushdownTransformUnit:
         assert aliases == set()
 
 
-class TestLazyTypeDetector(BaseTest):
-    """Tests for LazyTypeDetector using real HogQL queries.
-
-    A LazyJoinType / LazyTableType in the AST means lazy join resolution hasn't completed, so predicate
-    pushdown should be skipped.
-    """
+class TestEventsSubexprHoister(BaseTest):
+    """The hoister rewrites an events query's outer leaves into references to the pre-filtering subquery, recording
+    which columns / property values the subquery must project. It runs on the lowered AST (property value reads are
+    `JSONFieldAccess`); a lazy-join or other non-events reference is simply left in the outer query."""
 
     def setUp(self):
         super().setUp()
         self.database = Database.create_for(team=self.team)
         self.context = HogQLContext(team_id=self.team.pk, database=self.database, enable_select_queries=True)
 
-    def _resolve_query(self, query: str) -> ast.SelectQuery:
-        """Parse and resolve types for a query (without lazy table resolution)."""
-        parsed = parse_select(query)
-        resolved = resolve_types(parsed, self.context, dialect="clickhouse")
-        assert isinstance(resolved, ast.SelectQuery)
-        return resolved
-
-    def test_detects_lazy_join_from_session_field(self):
-        """Query accessing session.$session_duration has LazyJoinType before lazy resolution."""
-        # session is a LazyJoin on events, so resolve_types produces a LazyJoinType
-        node = self._resolve_query("SELECT session.$session_duration FROM events")
-
-        detector = LazyTypeDetector()
-        detector.visit(node)
-
-        assert detector.found_lazy_type is True
-
-    def test_detects_lazy_join_from_person_field(self):
-        """Query accessing person.id has LazyJoinType before lazy resolution."""
-        node = self._resolve_query("SELECT person.id FROM events")
-
-        detector = LazyTypeDetector()
-        detector.visit(node)
-
-        assert detector.found_lazy_type is True
-
-    def test_no_lazy_type_for_direct_events_columns(self):
-        """Query with only direct events columns has no lazy types."""
-        node = self._resolve_query("SELECT event, timestamp, distinct_id FROM events")
-
-        detector = LazyTypeDetector()
-        detector.visit(node)
-
-        assert detector.found_lazy_type is False
-
-    def test_no_lazy_type_after_lazy_table_resolution(self):
-        """After resolve_lazy_tables, there should be no lazy types in the main query fields."""
-        resolved = self._resolve_query(
-            "SELECT event, session.$session_duration FROM events WHERE timestamp > '2024-01-01'"
+    def _run(self, query: str) -> tuple[EventsSubexprHoister, list[ast.Expr], ast.SelectQueryAliasType]:
+        resolved = resolve_types(parse_select(query), self.context, dialect="clickhouse")
+        lowered = lower_property_access(resolved, self.context)
+        assert isinstance(lowered, ast.SelectQuery) and lowered.select_from is not None
+        from_type = lowered.select_from.type
+        assert isinstance(from_type, (ast.TableType, ast.TableAliasType))
+        subquery_ref = ast.SelectQueryAliasType(
+            alias="events", select_query_type=ast.SelectQueryType(columns={}, tables={})
         )
-        resolve_lazy_tables(resolved, "clickhouse", [], self.context)
+        hoister = EventsSubexprHoister(from_type, subquery_ref, self.context)
+        rewritten = [cast(ast.Expr, hoister.visit(item)) for item in lowered.select]
+        return hoister, rewritten, subquery_ref
 
-        # Check only the SELECT fields (not the joined subqueries which may have their own structure)
-        detector = LazyTypeDetector()
-        for field in resolved.select:
-            detector.visit(field)
+    @staticmethod
+    def _references_subquery(node: ast.Expr, subquery_ref: ast.SelectQueryAliasType) -> bool:
+        found = False
 
-        assert detector.found_lazy_type is False
+        class _Finder(TraversingVisitor):
+            def visit_field(self, n: ast.Field) -> None:
+                nonlocal found
+                if isinstance(n.type, ast.FieldType) and n.type.table_type is subquery_ref:
+                    found = True
+                super().visit_field(n)
 
+        _Finder().visit(node)
+        return found
 
-class TestEventsFieldCollector(BaseTest):
-    """Tests for EventsFieldCollector using real HogQL queries.
+    def test_direct_columns_are_projected(self):
+        hoister, _, _ = self._run("SELECT event, timestamp FROM events WHERE distinct_id = 'u1'")
+        assert {"event", "timestamp"} <= set(hoister.projections)
+        assert hoister.blocked is False
 
-    EventsFieldCollector collects the events database columns a query needs and detects non-direct fields
-    (PropertyType, LazyJoinType) that prevent safe pushdown.
-    """
+    def test_direct_column_is_projected_under_its_database_name(self):
+        # A direct column is hoisted under its database name and the outer occurrence reads the subquery column;
+        # the printer resolves its nullability through the subquery column type, so it stays a usable join key.
+        hoister, rewritten, subquery_ref = self._run("SELECT event FROM events")
+        assert "event" in hoister.projections
+        assert self._references_subquery(rewritten[0], subquery_ref) is True
 
-    def setUp(self):
-        super().setUp()
-        self.database = Database.create_for(team=self.team)
-        self.context = HogQLContext(team_id=self.team.pk, database=self.database, enable_select_queries=True)
+    def test_property_is_projected_under_its_dunder_name(self):
+        hoister, _, _ = self._run("SELECT properties.$browser FROM events")
+        assert "$browser" in hoister.projections
+        assert hoister.blocked is False
 
-    def _resolve_query(self, query: str) -> tuple[ast.SelectQuery, ast.TableType | ast.TableAliasType]:
-        """Parse, resolve types, and return query with events table type."""
-        parsed = parse_select(query)
-        resolved = resolve_types(parsed, self.context, dialect="clickhouse")
-        assert isinstance(resolved, ast.SelectQuery)
-        assert resolved.select_from is not None
-        events_table_type = resolved.select_from.type
-        assert isinstance(events_table_type, (ast.TableType, ast.TableAliasType))
-        return resolved, events_table_type
+    def test_nested_property_uses_dunder_joined_name(self):
+        hoister, _, _ = self._run("SELECT properties.a.b FROM events")
+        assert "a__b" in hoister.projections
 
-    def test_collects_direct_database_columns(self):
-        """Direct events columns like event, timestamp are collected."""
-        node, events_table_type = self._resolve_query("SELECT event, timestamp FROM events WHERE distinct_id = 'user1'")
+    def test_property_reference_is_rewritten_to_subquery(self):
+        # The outer occurrence of a property read becomes a reference to the subquery column the physical pass fills.
+        _, rewritten, subquery_ref = self._run("SELECT properties.$browser FROM events")
+        assert self._references_subquery(rewritten[0], subquery_ref) is True
 
-        collector = EventsFieldCollector(events_table_type, self.context)
-        collector.visit(node)
-
-        assert "event" in collector.collected_fields
-        assert "timestamp" in collector.collected_fields
-        assert "distinct_id" in collector.collected_fields
-        assert collector.has_non_direct_fields is False
-
-    def test_property_access_collects_base_column(self):
-        # Accessing properties.$browser collects the base `properties` column so the property filter
-        # can be pushed and re-typed to the inner events table, rather than flagging it as non-direct.
-        node, events_table_type = self._resolve_query("SELECT properties.$browser FROM events")
-
-        collector = EventsFieldCollector(events_table_type, self.context)
-        collector.visit(node)
-
-        assert "properties" in collector.collected_fields
-        assert collector.has_non_direct_fields is False
-
-    def test_lazy_join_field_triggers_non_direct_flag(self):
-        """Accessing session.$session_duration (lazy join) triggers has_non_direct_fields."""
-        node, events_table_type = self._resolve_query("SELECT session.$session_duration FROM events")
-
-        collector = EventsFieldCollector(events_table_type, self.context)
-        collector.visit(node)
-
-        assert collector.has_non_direct_fields is True
-
-    def test_session_id_from_events_is_direct_column(self):
-        """$session_id on events is a direct column (not a property access)."""
-        node, events_table_type = self._resolve_query("SELECT `$session_id` FROM events")
-
-        collector = EventsFieldCollector(events_table_type, self.context)
-        collector.visit(node)
-
-        # $session_id is a direct column on events table
-        assert "$session_id" in collector.collected_fields
-        assert collector.has_non_direct_fields is False
-
-    def test_poe_properties_collected_as_person_properties(self):
-        """poe.properties (VirtualTable) resolves to database column person_properties."""
-        node, events_table_type = self._resolve_query("SELECT poe.properties FROM events")
-
-        collector = EventsFieldCollector(events_table_type, self.context)
-        collector.visit(node)
-
-        assert "person_properties" in collector.collected_fields
-        assert collector.has_non_direct_fields is False
-
-    def test_poe_id_collected_as_person_id(self):
-        """poe.id (VirtualTable) resolves to database column person_id."""
-        node, events_table_type = self._resolve_query("SELECT poe.id FROM events")
-
-        collector = EventsFieldCollector(events_table_type, self.context)
-        collector.visit(node)
-
-        assert "person_id" in collector.collected_fields
-        assert collector.has_non_direct_fields is False
-
-    def test_poe_created_at_collected_as_person_created_at(self):
-        """poe.created_at (VirtualTable) resolves to database column person_created_at."""
-        node, events_table_type = self._resolve_query("SELECT poe.created_at FROM events")
-
-        collector = EventsFieldCollector(events_table_type, self.context)
-        collector.visit(node)
-
-        assert "person_created_at" in collector.collected_fields
-        assert collector.has_non_direct_fields is False
-
-    def test_poe_field_type_has_virtual_table_type(self):
-        """Collected poe field has VirtualTableType as its table_type."""
-        node, events_table_type = self._resolve_query("SELECT poe.properties FROM events")
-
-        collector = EventsFieldCollector(events_table_type, self.context)
-        collector.visit(node)
-
-        field_type = collector.collected_fields["person_properties"]
-        assert isinstance(field_type.table_type, ast.VirtualTableType)
-
-    def test_poe_mixed_with_direct_columns(self):
-        """VirtualTable fields and direct columns are both collected."""
-        node, events_table_type = self._resolve_query("SELECT event, poe.id, timestamp FROM events")
-
-        collector = EventsFieldCollector(events_table_type, self.context)
-        collector.visit(node)
-
-        assert "event" in collector.collected_fields
-        assert "person_id" in collector.collected_fields
-        assert "timestamp" in collector.collected_fields
-        assert collector.has_non_direct_fields is False
-
-    def test_poe_revenue_analytics_lazy_join_triggers_non_direct(self):
-        """poe.revenue_analytics is a LazyJoin inside VirtualTable, so it triggers the non-direct flag."""
-        node, events_table_type = self._resolve_query("SELECT poe.revenue_analytics.revenue FROM events")
-
-        collector = EventsFieldCollector(events_table_type, self.context)
-        collector.visit(node)
-
-        assert collector.has_non_direct_fields is True
+    def test_joined_table_field_is_not_projected(self):
+        # session.* is a lazy join, never the target events table; the hoister leaves it for the outer query.
+        hoister, _, _ = self._run("SELECT event FROM events")
+        assert "session_duration" not in hoister.projections and "$session_duration" not in hoister.projections
 
 
 class TestSavedQueryWithLazyJoins(BaseTest):
@@ -1733,6 +1613,24 @@ class TestEventsPredicatePushdownMaterializedExecution(_PushdownExecutionTestBas
                 f"materialized property over-projected the blob:\n{printed}"
             )
             self._assert_equivalent(select, expected_rows=3)
+
+    def test_exec_materialized_property_as_join_key_exposes_mat_column(self):
+        # A materialized property used as the events-side join key. The key expression stays in the ON (a subquery
+        # column would read as nullable and break join-key detection), so the physical pass rewrites the ON's
+        # property to `events.mat_tier`, which the subquery must expose — without it the ON references `mat_tier`
+        # against a subquery alias that lacks it (Unknown identifier). This asserts the exposure on the printed SQL;
+        # end-to-end execution of a property join key is covered by test_query.test_join_with_property_materialized.
+        with materialized("events", "tier") as mat_col:
+            self._create_data()
+            select = (
+                "SELECT events.event AS ae, p.id FROM events "
+                "LEFT JOIN persons p ON p.properties.tier = events.properties.tier "
+                "WHERE events.timestamp >= '2024-01-01' AND events.timestamp < '2024-01-08' LIMIT 50"
+            )
+            subquery = self._events_subquery(self._print_pushdown_sql(select))
+            assert mat_col.name in subquery, (
+                f"expected the materialized column exposed for the property join key:\n{subquery}"
+            )
 
     def test_exec_materialized_property_in_order_by_declines(self):
         # A materialized property in ORDER BY: any ORDER BY blocks the inner LIMIT, so the pushdown declines
