@@ -28,7 +28,7 @@ class TestSeedCustomerAnalyticsAccounts(BaseTest):
         return out.getvalue()
 
     def _accounts(self) -> dict[str, Account]:
-        return {a.external_id: a for a in Account.objects.for_team(self.team.pk)}
+        return {a.external_id: a for a in Account.objects.for_team(self.team.pk) if a.external_id is not None}
 
     def _pool_emails(self) -> set[str]:
         return set(

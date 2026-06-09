@@ -104,7 +104,7 @@ class Command(BaseCommand):
             .order_by("group_key")
             .values_list("group_key", "group_properties")
         ]
-        return rows[:limit] if limit else rows
+        return rows[:limit] if limit is not None else rows
 
     def _set_config(self, team: Team) -> None:
         # Point customer analytics at the group type we seed from, so the accounts list and the
@@ -163,7 +163,7 @@ class Command(BaseCommand):
                         name=props.get("name") or group_key,
                         external_id=group_key,
                         created_by=creator,
-                        properties=self._account_roles(assignments, index, group_key),
+                        _properties=self._account_roles(assignments, index, group_key).model_dump(mode="json"),
                     )
                     created += 1
                 accounts.append(account)
