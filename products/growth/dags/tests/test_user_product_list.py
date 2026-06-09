@@ -1,13 +1,20 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 import dagster
 from dagster import build_op_context
 
 from posthog.models import Organization, Team, User
 from posthog.models.file_system.user_product_list import UserProductList
 
-from products.growth.dags.user_product_list import populate_user_product_list, populate_user_product_list_job
+from products.event_definitions.backend.models.event_definition import EventDefinition
+from products.growth.dags.user_product_list import (
+    populate_user_product_list,
+    populate_user_product_list_job,
+    sync_product_data_for_team_op,
+)
 
 
 def create_mock_s3_resource():
@@ -836,3 +843,46 @@ class TestPopulateUserProductListJob:
 
             assert allowed_entry.count() == 1
             assert disallowed_entry.count() == 0
+
+
+class TestSyncProductDataForTeamOp:
+    @pytest.mark.django_db
+    def test_seeds_users_when_team_has_recent_data(self):
+        org = Organization.objects.create(name="Data Org")
+        team = Team.objects.create(organization=org, name="Data Team")
+        user = User.objects.create(email="data@example.com", first_name="Data", allow_sidebar_suggestions=True)
+        user.join(organization=org)
+        EventDefinition.objects.create(team=team, name="$pageview", last_seen_at=timezone.now())
+
+        context = build_op_context()
+        results = sync_product_data_for_team_op(context, team_ids=[team.id])
+
+        assert len(results) == 1
+        assert results[0].status == "success"
+        assert results[0].products_created == 1
+
+        entry = UserProductList.objects.get(user=user, team=team, product_path="Web analytics")
+        assert entry.enabled is True
+        assert entry.reason == UserProductList.Reason.HAS_PRODUCT_DATA
+
+    @pytest.mark.django_db
+    def test_no_op_when_team_has_no_data(self):
+        org = Organization.objects.create(name="No Data Org")
+        team = Team.objects.create(organization=org, name="No Data Team")
+        user = User.objects.create(email="nodata@example.com", first_name="NoData", allow_sidebar_suggestions=True)
+        user.join(organization=org)
+
+        context = build_op_context()
+        results = sync_product_data_for_team_op(context, team_ids=[team.id])
+
+        assert results[0].status == "success"
+        assert results[0].products_created == 0
+        assert not UserProductList.objects.filter(user=user, team=team).exists()
+
+    @pytest.mark.django_db
+    def test_reports_failed_status_for_missing_team(self):
+        context = build_op_context()
+        results = sync_product_data_for_team_op(context, team_ids=[999999999])
+
+        assert results[0].status == "failed"
+        assert results[0].products_created == 0
