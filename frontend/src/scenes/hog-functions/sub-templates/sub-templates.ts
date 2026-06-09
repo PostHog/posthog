@@ -975,12 +975,12 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/insights/{event.properties.insight_id}',
+                                    url: '{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing',
                                     text: { text: 'View Insight', type: 'plain_text' },
                                     type: 'button',
                                 },
                                 {
-                                    url: '{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}',
+                                    url: '{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}&utm_source=alert&utm_campaign=alert_check_firing',
                                     text: { text: 'View Alert', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -1032,7 +1032,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/logs?{event.properties.logs_url_params}',
+                                    url: '{project.url}/logs?{event.properties.logs_url_params}&utm_source=alert&utm_campaign=logs_alert',
                                     text: { text: 'View logs', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -1084,7 +1084,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/logs?{event.properties.logs_url_params}',
+                                    url: '{project.url}/logs?{event.properties.logs_url_params}&utm_source=alert&utm_campaign=logs_alert',
                                     text: { text: 'View logs', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -1136,7 +1136,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/logs?alertId={event.properties.alert_id}',
+                                    url: '{project.url}/logs?alertId={event.properties.alert_id}&utm_source=alert&utm_campaign=logs_alert',
                                     text: { text: 'View alert', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -1223,7 +1223,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/logs?alertId={event.properties.alert_id}',
+                                    url: '{project.url}/logs?alertId={event.properties.alert_id}&utm_source=alert&utm_campaign=logs_alert',
                                     text: { text: 'View alert', type: 'plain_text' },
                                     type: 'button',
                                 },
