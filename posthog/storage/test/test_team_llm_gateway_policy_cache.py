@@ -141,7 +141,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
     def test_enqueue_failure_records_counter_and_does_not_propagate(
         self, mock_delay, mock_settings, mock_counter, mock_transaction
     ):
-        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_settings.TEST = True
         mock_transaction.on_commit.side_effect = lambda fn: fn()
         mock_delay.side_effect = Exception("broker down")
