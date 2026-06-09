@@ -1,7 +1,7 @@
 import { Code, ConnectError } from '@connectrpc/connect'
 
 import { logger } from '../../utils/logger'
-import { grpcErrorType, personhogRetriesTotal } from './metrics'
+import { grpcErrorType, personhogRetriesTotal, personhogTerminalErrorsTotal } from './metrics'
 
 const RETRYABLE_CODES = new Set([
     Code.Unavailable,
@@ -23,10 +23,16 @@ function sleep(ms: number): Promise<void> {
 /**
  * Retry a function with exponential backoff on transient gRPC errors.
  * Non-transient errors are thrown immediately.
+ *
+ * Emits `personhog_retries_total` on each retried attempt and
+ * `personhog_terminal_errors_total` when retries are exhausted or the
+ * error is non-retryable — both tagged with method + client + error_type
+ * so they align with `personhog_errors_total` from timedGrpc.
  */
 export async function withRetry<T>(
-    label: string,
     fn: () => Promise<T>,
+    client: string,
+    method: string,
     maxRetries: number = 2,
     initialDelayMs: number = 50
 ): Promise<T> {
@@ -37,13 +43,14 @@ export async function withRetry<T>(
         } catch (error) {
             lastError = error
             if (!isRetryable(error) || attempt === maxRetries) {
-                logger.error(`[PersonHog] gRPC call failed in ${label}`, {
+                personhogTerminalErrorsTotal.inc({ method, client, error_type: grpcErrorType(error) })
+                logger.error(`[${client}/${method}] gRPC call failed`, {
                     error: String(error),
                 })
                 throw error
             }
-            personhogRetriesTotal.inc({ source: label, error_type: grpcErrorType(error) })
-            logger.warn(`[${label}] Retryable gRPC error, retrying`, {
+            personhogRetriesTotal.inc({ method, client, error_type: grpcErrorType(error) })
+            logger.warn(`[${client}/${method}] Retryable gRPC error, retrying`, {
                 attempt: attempt + 1,
                 maxRetries,
                 error: String(error),

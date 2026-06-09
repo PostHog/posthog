@@ -800,6 +800,7 @@ class AssistantTool(StrEnum):
     ARCHIVE_LLM_SKILL = "archive_llm_skill"
     DIAGNOSE_PROXY = "diagnose_proxy"
     WEB_ANALYTICS_DOCTOR = "web_analytics_doctor"
+    ASSESS_HEATMAP = "assess_heatmap"
     MARKETING_DIAGNOSE_SETUP = "marketing_diagnose_setup"
     MARKETING_EXPLAIN_CONVERSION_GOAL = "marketing_explain_conversion_goal"
     MARKETING_LIST_CONVERSION_GOALS = "marketing_list_conversion_goals"
@@ -22810,10 +22811,19 @@ class AccountsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    accountExecutive: str | int | None = None
-    accountOwner: str | int | None = None
+    accountExecutive: list[int] | None = Field(
+        default=None,
+        description=("Match accounts whose account executive is any of these user ids (OR semantics)."),
+    )
+    accountOwner: list[int] | None = Field(
+        default=None,
+        description=("Match accounts whose account owner is any of these user ids (OR semantics)."),
+    )
     allRolesUnassigned: bool | None = None
-    csm: str | int | None = None
+    csm: list[int] | None = Field(
+        default=None,
+        description="Match accounts whose CSM is any of these user ids (OR semantics).",
+    )
     filterExpression: str | None = Field(
         default=None,
         description=(

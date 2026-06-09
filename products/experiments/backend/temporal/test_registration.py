@@ -1,4 +1,5 @@
 from products.experiments.backend.temporal import ACTIVITIES, WORKFLOWS
+from products.experiments.backend.temporal.recalculation_workflow import ExperimentMetricsRecalculationWorkflow
 
 
 def test_activities_registered():
@@ -10,6 +11,5 @@ def test_activities_registered():
     }
 
 
-def test_workflows_empty_until_workflow_added():
-    # The workflow is added in the next PR; until then the package exposes no workflows.
-    assert WORKFLOWS == []
+def test_workflow_registered():
+    assert WORKFLOWS == [ExperimentMetricsRecalculationWorkflow]
