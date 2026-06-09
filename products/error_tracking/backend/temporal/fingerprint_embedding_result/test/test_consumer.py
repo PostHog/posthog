@@ -8,7 +8,7 @@ from django.test import override_settings
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from products.error_tracking.backend.management.commands.consume_error_tracking_embedding_results import (
+from products.error_tracking.backend.management.commands.et_consume_embeddings import (
     Command,
     FingerprintEmbeddingResultOutcome,
     fingerprint_embedding_result_inputs_from_message,
