@@ -270,7 +270,8 @@ export interface ExperimentApiExposureConfigApi {
     event?: string | null
     /** Action ID. Required when kind is 'ActionsNode'. */
     id?: number | null
-    kind: Kind1Api
+    /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
+    kind?: Kind1Api | null
     /** Event property filters. Pass an empty array if no filters needed. */
     properties: EventPropertyFilterApi[]
 }

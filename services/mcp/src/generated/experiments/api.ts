@@ -335,7 +335,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                     .union([zod.number(), zod.null()])
                                     .optional()
                                     .describe("Action ID. Required when kind is 'ActionsNode'."),
-                                kind: zod.enum(['ExperimentEventExposureConfig', 'ActionsNode']),
+                                kind: zod
+                                    .union([zod.enum(['ExperimentEventExposureConfig', 'ActionsNode']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
+                                    ),
                                 properties: zod
                                     .array(
                                         zod.object({
@@ -2626,7 +2631,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                     .union([zod.number(), zod.null()])
                                     .optional()
                                     .describe("Action ID. Required when kind is 'ActionsNode'."),
-                                kind: zod.enum(['ExperimentEventExposureConfig', 'ActionsNode']),
+                                kind: zod
+                                    .union([zod.enum(['ExperimentEventExposureConfig', 'ActionsNode']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
+                                    ),
                                 properties: zod
                                     .array(
                                         zod.object({
@@ -4951,7 +4961,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                     .union([zod.number(), zod.null()])
                                     .optional()
                                     .describe("Action ID. Required when kind is 'ActionsNode'."),
-                                kind: zod.enum(['ExperimentEventExposureConfig', 'ActionsNode']),
+                                kind: zod
+                                    .union([zod.enum(['ExperimentEventExposureConfig', 'ActionsNode']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
+                                    ),
                                 properties: zod
                                     .array(
                                         zod.object({

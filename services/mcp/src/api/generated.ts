@@ -16825,7 +16825,8 @@ export namespace Schemas {
       event?: string | null;
       /** Action ID. Required when kind is 'ActionsNode'. */
       id?: number | null;
-      kind: Kind1;
+      /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
+      kind?: Kind1 | null;
       /** Event property filters. Pass an empty array if no filters needed. */
       properties: EventPropertyFilter[];
     }

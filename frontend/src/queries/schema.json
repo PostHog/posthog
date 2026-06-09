@@ -18409,6 +18409,7 @@
                     "description": "Action ID. Required when kind is 'ActionsNode'."
                 },
                 "kind": {
+                    "description": "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure.",
                     "enum": ["ExperimentEventExposureConfig", "ActionsNode"],
                     "type": "string"
                 },
@@ -18420,7 +18421,7 @@
                     "type": "array"
                 }
             },
-            "required": ["kind", "properties"],
+            "required": ["properties"],
             "type": "object"
         },
         "ExperimentApiExposureCriteria": {

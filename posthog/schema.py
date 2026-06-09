@@ -7167,7 +7167,12 @@ class ExperimentApiExposureConfig(BaseModel):
         description=("Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."),
     )
     id: int | None = Field(default=None, description="Action ID. Required when kind is 'ActionsNode'.")
-    kind: Kind1
+    kind: Kind1 | None = Field(
+        default=None,
+        description=(
+            "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
+        ),
+    )
     properties: list[EventPropertyFilter] = Field(
         ...,
         description="Event property filters. Pass an empty array if no filters needed.",

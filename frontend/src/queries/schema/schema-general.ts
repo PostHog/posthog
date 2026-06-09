@@ -3711,7 +3711,8 @@ export interface ExperimentParameters {
  *  'ExperimentEventExposureConfig' tracks exposure via a custom event,
  *  'ActionsNode' tracks exposure via an action. */
 export interface ExperimentApiExposureConfig {
-    kind: 'ExperimentEventExposureConfig' | 'ActionsNode'
+    /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
+    kind?: 'ExperimentEventExposureConfig' | 'ActionsNode'
     /** Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'. */
     event?: string
     /** Action ID. Required when kind is 'ActionsNode'. */
