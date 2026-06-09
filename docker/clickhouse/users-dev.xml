@@ -23,6 +23,16 @@
             <allow_nondeterministic_mutations>1</allow_nondeterministic_mutations>
 
             <compatibility>26.3</compatibility>
+            <!-- Keep inserts synchronous. Production configures async inserts explicitly
+                 (currently off), and tests rely on per-row inserts being visible as soon
+                 as the insert returns; the 26.3 compatibility default would turn them on. -->
+            <async_insert>0</async_insert>
+            <!-- 26.3 enables rewriting `col = ''` / `col != ''` into emptiness checks that
+                 skip DEFAULT-expression evaluation on parts written before the column was
+                 added. Materialized property columns rely on that evaluation for
+                 is_set / is_not_set filters on rows older than their backfill window, so
+                 pin the rewrite off until ClickHouse honors DEFAULTs there. -->
+            <optimize_empty_string_comparisons>0</optimize_empty_string_comparisons>
             <distributed_product_mode>global</distributed_product_mode>
             <enable_parallel_replicas>0</enable_parallel_replicas>
             <max_parallel_replicas>1</max_parallel_replicas>
