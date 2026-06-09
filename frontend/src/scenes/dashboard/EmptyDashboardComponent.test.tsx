@@ -89,15 +89,6 @@ describe('EmptyDashboardComponent', () => {
         await userEvent.click(document.querySelector('[data-attr="dashboard-add-dropdown"]')!)
     }
 
-    it('shows feature preview upsell when dashboard widgets flag is disabled', async () => {
-        const { logic } = renderEmptyState()
-
-        expect(screen.getByText(/Dashboard widgets are in beta/)).toBeInTheDocument()
-        expect(screen.getAllByRole('button', { name: 'Enable in feature previews' }).length).toBeGreaterThan(0)
-
-        logic.unmount()
-    })
-
     it('routes Add widget preview to feature previews when flag is disabled', async () => {
         const pushSpy = jest.spyOn(router.actions, 'push')
         const { logic } = renderEmptyState()

@@ -24,7 +24,6 @@ import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardWidgetsFeaturePreviewUrl } from './dashboardWidgetsFeaturePreview'
-import { DashboardWidgetsFeaturePreviewBanner } from './DashboardWidgetsFeaturePreviewBanner'
 import { EmptyDashboardAiStarterPrompts } from './emptyDashboardAiStarterPrompts'
 
 const DASHBOARD_DOCS_URL = 'https://posthog.com/docs/product-analytics/dashboards'
@@ -125,7 +124,6 @@ function DashboardEmptyActions({
 
     return (
         <div className="flex flex-col gap-4 w-full max-w-full">
-            {!dashboardWidgetsEnabled && canEdit ? <DashboardWidgetsFeaturePreviewBanner /> : null}
             <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 @min-[48rem]/main-content:justify-start">
                 {addInsightButton}
             </div>
