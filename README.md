@@ -1,3 +1,4 @@
+<!-- Run tests with: hogli test <file_or_directory> (e.g. hogli test path/to/test.py::TestClass::test_method) -->
 <p align="center">
   <img alt="posthoglogo" src="https://user-images.githubusercontent.com/65415371/205059737-c8a4f836-4889-4654-902e-f302b187b6a0.png">
 </p>
