@@ -35,12 +35,14 @@ class TestLLMGatewayPolicyProjection(BaseTest):
         )
         self.assertEqual(
             set(LLM_GATEWAY_POLICY_FIELDS),
-            {"id", "api_token", "llm_gateway_revoked_at"},
+            {"id", "api_token", "llm_gateway_enabled_at", "llm_gateway_revoked_at"},
         )
 
     def test_populated_team_round_trips_through_json(self):
+        enabled_at = datetime(2026, 5, 29, 20, 46, 30, tzinfo=UTC)
         revoked_at = datetime(2026, 5, 20, 12, 34, 56, tzinfo=UTC)
 
+        self.team.llm_gateway_enabled_at = enabled_at
         self.team.llm_gateway_revoked_at = revoked_at
         self.team.save()
 
@@ -48,22 +50,25 @@ class TestLLMGatewayPolicyProjection(BaseTest):
 
         self.assertEqual(policy["id"], self.team.id)
         self.assertEqual(policy["api_token"], self.team.api_token)
-        # Datetime must be ISO8601 so the Go service can parse it from JSON.
+        # Datetimes must be ISO8601 so the Go service can parse them from JSON.
+        self.assertEqual(policy["llm_gateway_enabled_at"], enabled_at.isoformat())
         self.assertEqual(policy["llm_gateway_revoked_at"], revoked_at.isoformat())
 
         rehydrated = json.loads(json.dumps(policy))
         self.assertEqual(rehydrated, policy)
 
-    def test_unset_team_serializes_to_null_revoked_at(self):
+    def test_unset_team_serializes_to_null_enabled_and_revoked(self):
         """
-        A team that has never been revoked projects a null revoked_at, not a
-        default, so the schema migration needs no backfill. The gateway treats
-        null as active.
+        A team that has never been enrolled or revoked projects null for both,
+        so the schema migration needs no backfill. The gateway reads null
+        enabled_at as not enrolled (default-deny) and null revoked_at as not
+        revoked.
         """
         policy = _serialize_team_to_llm_gateway_policy(self.team)
 
         self.assertEqual(policy["id"], self.team.id)
         self.assertEqual(policy["api_token"], self.team.api_token)
+        self.assertIsNone(policy["llm_gateway_enabled_at"])
         self.assertIsNone(policy["llm_gateway_revoked_at"])
 
 
@@ -75,6 +80,7 @@ class TestLLMGatewayPolicyCacheOps(BaseTest):
         mock_payload: dict[str, Any] = {
             "id": self.team.id,
             "api_token": self.team.api_token,
+            "llm_gateway_enabled_at": None,
             "llm_gateway_revoked_at": None,
         }
         mock_hypercache.get_from_cache.return_value = mock_payload
@@ -110,7 +116,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
     def test_team_save_enqueues_update(self, mock_delay, mock_settings, mock_transaction):
-        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()
 
         self.team.llm_gateway_revoked_at = datetime(2026, 5, 20, 12, 0, 0, tzinfo=UTC)
@@ -120,8 +126,8 @@ class TestLLMGatewayPolicySignals(BaseTest):
 
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
-    def test_team_save_noop_without_flags_redis_url(self, mock_delay, mock_settings):
-        mock_settings.FLAGS_REDIS_URL = None
+    def test_team_save_noop_without_ai_gateway_redis_url(self, mock_delay, mock_settings):
+        mock_settings.AI_GATEWAY_REDIS_URL = None
 
         self.team.llm_gateway_revoked_at = datetime(2026, 5, 20, 12, 0, 0, tzinfo=UTC)
         self.team.save()
@@ -131,7 +137,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
     def test_team_delete_clears_cache(self, mock_clear, mock_settings):
-        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_settings.TEST = True
 
         team = Team.objects.create(organization=self.organization, name="Doomed")
@@ -149,7 +155,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
         Otherwise a holder of the rotated token keeps hitting the gateway via
         the stale cached policy until the 7-day TTL expires.
         """
-        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_settings.TEST = True
         mock_transaction.on_commit.side_effect = lambda fn: fn()
 
@@ -165,9 +171,10 @@ class TestLLMGatewayPolicySignals(BaseTest):
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
     def test_unrelated_save_does_not_clear_cache(self, mock_delay, mock_clear, mock_settings, mock_transaction):
-        """A save that touches neither api_token nor llm_gateway_revoked_at must
-        not invalidate the cache; the async task still refreshes the blob."""
-        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        """A save that touches no tracked field (api_token, llm_gateway_enabled_at,
+        llm_gateway_revoked_at) must not invalidate the cache; the async task still
+        refreshes the blob."""
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_settings.TEST = True
         mock_transaction.on_commit.side_effect = lambda fn: fn()
 
@@ -191,11 +198,34 @@ class TestLLMGatewayPolicySignals(BaseTest):
         for the full cache TTL and a holder of the token keeps hitting the
         gateway as if the team were active.
         """
-        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_settings.TEST = True
         mock_transaction.on_commit.side_effect = lambda fn: fn()
 
         self.team.llm_gateway_revoked_at = datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC)
+        self.team.save()
+
+        mock_delay.assert_called_with(self.team.id)
+        mock_clear.assert_called_once_with(self.team, kinds=["redis"])
+
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    def test_setting_enabled_at_clears_current_token_cache_on_commit(
+        self, mock_delay, mock_clear, mock_settings, mock_transaction
+    ):
+        """
+        Setting llm_gateway_enabled_at must invalidate synchronously for the
+        same reason as the revoke path: until the async task runs, the
+        gateway would keep treating the team as not-enrolled and 401 every
+        request even after admin flips them on.
+        """
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_settings.TEST = True
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        self.team.llm_gateway_enabled_at = datetime(2026, 5, 29, 20, 46, 30, tzinfo=UTC)
         self.team.save()
 
         mock_delay.assert_called_with(self.team.id)
@@ -213,7 +243,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
         B. post_save re-snapshots the saved token so the second save compares
         against B, instead of clearing A twice and leaking B for the full cache TTL.
         """
-        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_settings.TEST = True
         mock_transaction.on_commit.side_effect = lambda fn: fn()
 
@@ -241,7 +271,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
         snapshot to avoid a lazy load; the pre_save fallback captures the old
         value from the DB before the UPDATE runs.
         """
-        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_settings.TEST = True
         mock_transaction.on_commit.side_effect = lambda fn: fn()
 
@@ -252,3 +282,75 @@ class TestLLMGatewayPolicySignals(BaseTest):
 
         mock_delay.assert_called_with(self.team.id)
         mock_clear.assert_called_once_with(old_token, kinds=["redis"])
+
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    def test_simultaneous_enable_and_revoke_clears_cache_once(
+        self, mock_delay, mock_clear, mock_settings, mock_transaction
+    ):
+        """
+        Flipping both llm_gateway_enabled_at and llm_gateway_revoked_at in one
+        save must invalidate exactly once. The handler ORs the two change
+        signals; a future refactor that fires clear per field would double the
+        Redis traffic on every admin enable-after-revoke.
+        """
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_settings.TEST = True
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        self.team.llm_gateway_enabled_at = datetime(2026, 5, 29, 20, 46, 30, tzinfo=UTC)
+        self.team.llm_gateway_revoked_at = datetime(2026, 5, 30, 12, 0, 0, tzinfo=UTC)
+        self.team.save()
+
+        mock_delay.assert_called_with(self.team.id)
+        mock_clear.assert_called_once_with(self.team, kinds=["redis"])
+
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    def test_deferred_enabled_at_load_still_clears_cache_on_flip(
+        self, mock_delay, mock_clear, mock_settings, mock_transaction
+    ):
+        """
+        A Team fetched with llm_gateway_enabled_at deferred and then flipped
+        on must still invalidate the cache. post_init skips the snapshot to
+        avoid a lazy load; the pre_save fallback captures the old value from
+        the DB before the UPDATE runs.
+        """
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_settings.TEST = True
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        partial = Team.objects.only("id", "name").get(pk=self.team.pk)
+        partial.llm_gateway_enabled_at = datetime(2026, 5, 29, 20, 46, 30, tzinfo=UTC)
+        partial.save()
+
+        mock_delay.assert_called_with(self.team.id)
+        mock_clear.assert_called_once_with(partial, kinds=["redis"])
+
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    def test_chained_enabled_at_flips_invalidate_each_save(
+        self, mock_delay, mock_clear, mock_settings, mock_transaction
+    ):
+        """
+        Two consecutive enabled_at writes on the same kept-alive instance must
+        invalidate twice. post_save re-snapshots the saved value so the second
+        save compares against t1 instead of seeing "unchanged" and skipping.
+        """
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_settings.TEST = True
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        self.team.llm_gateway_enabled_at = datetime(2026, 5, 29, 12, 0, 0, tzinfo=UTC)
+        self.team.save()
+
+        self.team.llm_gateway_enabled_at = datetime(2026, 5, 30, 12, 0, 0, tzinfo=UTC)
+        self.team.save()
+
+        self.assertEqual(mock_clear.call_count, 2)

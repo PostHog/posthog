@@ -11,6 +11,25 @@ The best way to optimize a HogQL query is to **start with the ClickHouse SQL it 
 
 This skill assumes you already know how to write HogQL. For writing new ClickHouse-backed queries from scratch, use `/writing-clickhouse-queries` first. For migration mechanics, use `/clickhouse-migrations`.
 
+## Optimizing every query a team owns
+
+Sometimes the job isn't one slow query — it's "optimize all the ClickHouse/HogQL queries owned by team X." Before diving into individual queries, build the full inventory first, or you'll optimize a subset and miss the rest.
+
+**Find the team's code via `.github/CODEOWNERS` and `.github/CODEOWNERS-soft`.** Grep both for the team's handle (e.g. `@PostHog/team-surveys`) to get every path the team owns. `CODEOWNERS-soft` in particular carries the product-area ownership most teams rely on.
+
+**The ownership paths drift out of date — verify each one exists before trusting it.** Products move (e.g. into `products/<name>/`), files get renamed, directories get restructured, but `CODEOWNERS-soft` often lags. After extracting the owned paths, check each actually exists on disk; for any that don't, find where the code moved (the product likely relocated under `products/`) and **flag the stale entries to the operator** so they can fix `CODEOWNERS-soft` — don't silently substitute and move on. A stale path you skip is a query you never optimized.
+
+**Search both backend AND frontend — owned paths include both.** A team's ownership almost always spans `frontend/src/...` as well as backend Python. The majority of ClickHouse/HogQL queries are written in Python (query runners, `execute_hogql_query`, raw `sync_execute`), **but not all of them** — plenty of products still build HogQL client-side in kea logics / React / TypeScript and POST it to the `/query` endpoint. If you only search backend paths and backend idioms, you'll miss these entirely (this is a real, recurring miss). When scoping a team, either search every owned path — frontend included — with both backend and frontend query idioms, or tell the operator up front that you're covering backend only and ask whether they want frontend too. Don't let an unstated "queries live in the backend" assumption narrow the search silently.
+
+Frontend HogQL doesn't look like the backend patterns in Step 0. Grep the team's `frontend/` paths for these too:
+
+- `api.queryHogQL(...)`, `HogQLQueryString`, the `` hogql`...` `` tagged template
+- `NodeKind.HogQLQuery` / `kind: 'HogQLQuery'` objects with a `query:` string
+- structured query nodes that compile to ClickHouse: `DataTableNode`, `EventsQuery`, `TrendsQuery`/`InsightVizNode`, and `PropertyFilterType.HogQL` expressions inside them
+- string literals with `SELECT ... FROM events`, or product-specific markers (event names like `'survey sent'`, property keys like `$survey_id`)
+
+The same logical query is sometimes implemented **twice** — once in a backend query runner / endpoint and once as frontend-built HogQL (often a stalled frontend→backend migration). Treat both copies as in-scope, and note the duplication: a printer- or function-level fix on the backend won't reach a hand-built frontend string emitting the same SQL.
+
 ## Step 0: confirm you're at the right layer
 
 Before walking through the workflow, check that the slow query in front of you actually goes to ClickHouse via HogQL. The fastest way is to look at how the query is built:
@@ -26,7 +45,14 @@ If the file you were pointed at is a coordinator, orchestrator, Celery task, Tem
 
 **If the slow query turns out to be raw ClickHouse SQL embedded in production code** (Python f-strings, string SQL passed to `sync_execute`, `client.execute`, `client.read_query`, etc., not the output of the HogQL printer), flag this to the user up front, then continue with the optimization. HogQL queries get materialized-column substitution, property-group dispatch, lazy joins, team-id guards, and a pile of other optimizations automatically through the printer; raw SQL has to reimplement each of those or live without them. The structural fix is usually to express the query in HogQL and let the printer handle these consistently, but that's a larger change; walk through the rest of this skill normally so the user has both options (local fix now, HogQL move later, or both).
 
-For `INSERT` statements specifically, HogQL has no `INSERT` statement (intentional design choice), so the envelope has to be hand-built. The recommended pattern is to construct the `SELECT` in HogQL, print it, and concatenate it into `INSERT INTO <table> <printed_select>`. The read half still gets materialization, lazy joins, team-id guards, and everything else the printer does; only the `INSERT` wrapper is a hand-built string. ClickHouse migrations and one-shot operational scripts are reasonable exceptions where raw SQL is fine end-to-end.
+**Single-team vs multi-team is the deciding factor for whether raw SQL is even excusable.** `execute_hogql_query` is team-scoped — it always runs against exactly one team and injects the `team_id` guard for you. So:
+
+- **A raw query scoped to one team should almost always be HogQL.** If the SQL has (or should have) a `team_id = X` filter and reads a single team's data, there is no reason it's hand-written — it's leaving materialized-column substitution, lazy joins, and the team-id guard on the table. Treat raw single-team `sync_execute` as a smell in its own right and recommend the HogQL move, not just a local tweak. The clearest tell is a query that hand-rolls a materialized-column lookup (e.g. calling `get_materialized_column_for_property(...)` with a `JSONExtract` fallback) — that is the printer's job, reimplemented by hand because the query never goes through it.
+- **A query that legitimately spans multiple teams is exempt.** Cross-team / global jobs — periodic enrichment, billing rollups, "find every team where X" scans with no `team_id` filter or a `team_id IN (...)` over many teams — can't go through `execute_hogql_query`, since it scopes to a single team. These are a reasonable place for raw `sync_execute`. Don't push them toward HogQL; just optimize the raw SQL in place (materialized columns, sort-key prefix, etc.). When such a query does its own materialized-column lookup, that's expected, not a smell.
+
+So when you find raw SQL, first ask "is this one team or many?" One team → recommend HogQL. Many teams → keep it raw and optimize the SQL directly.
+
+**`INSERT` is not an escape hatch from HogQL — the single-team rule still applies to the read half.** HogQL has no `INSERT` statement (intentional design choice), so only the envelope has to be hand-built. The recommended pattern is to construct the `SELECT` in HogQL, print it, and concatenate it into `INSERT INTO <table> <printed_select>`. The read half still gets materialization, lazy joins, team-id guards, and everything else the printer does; only the `INSERT` wrapper is a hand-built string. So a single-team `INSERT ... SELECT` whose `SELECT` is a hand-written string (raw column lists, `JSONExtract` over `properties`, a manual `team_id` filter) is the same smell as any other single-team raw query: flag it, and recommend moving the `SELECT` half to a HogQL-printed query while keeping the `INSERT INTO <table>` wrapper raw. The fact that the surrounding statement is an `INSERT` does not make the read exempt. The only genuinely raw-SQL-fine cases are: `INSERT ... VALUES` of explicit rows assembled in Python (no `SELECT` to print), multi-team `INSERT ... SELECT` (same exemption as any multi-team query), ClickHouse migrations, and one-shot operational scripts.
 
 ## Background: read these once
 
@@ -82,6 +108,14 @@ For HogQL queries, three ways to get from HogQL to executable ClickHouse SQL; pi
 
 Before reaching for tools, eyeball the SQL for the patterns that account for most slow ClickHouse queries.
 
+The smells below are the view from the SQL: shapes that are bad on sight. When you instead have a
+specific slow query (usually pulled from production) and need to work backwards from its runtime cost to
+the cause, [`references/investigation-playbook.md`](references/investigation-playbook.md) is the deep
+dive: pulling the full query, reading bytes vs CPU vs duration, the fuller list of runtime causes
+(high-cardinality breakdowns, function-wrapped sort keys that defeat granule pruning, ratio-metric double
+scans), tracing a query back to the product code that issued it, and using EXPLAIN to confirm a
+hypothesis.
+
 ### `FROM <table> FINAL`
 
 `FROM person FINAL`, `FROM groups FINAL`, `FROM cohortpeople FINAL`, or any other `FINAL` on a ReplacingMergeTree / CollapsingMergeTree / AggregatingMergeTree table forces ClickHouse to run an on-the-fly merge across every part it reads, deduplicating to the latest version per sort-key row. It defeats parallel reads, blows up memory, and scales badly with part count. On large tables (`person`, anything sharded) it is rarely the right answer.
@@ -96,9 +130,21 @@ Worth a mention specific to PostHog: per [`CLAUDE.md`](../../../CLAUDE.md), new 
 
 ### JSON operations on properties
 
-Any `JSONExtractString(properties, ...)`, `JSONExtractFloat(properties, ...)`, `JSONHas(properties, ...)`, or similar against the raw `properties` / `person_properties` / `group_properties` column is a huge smell. It means ClickHouse has to parse the JSON blob at query time for every row it reads.
+Any `JSONExtractString(properties, ...)`, `JSONExtractFloat(properties, ...)`, `JSONHas(properties, ...)`, or similar against the raw `properties` / `person_properties` / `group_properties` column is a huge smell. It means ClickHouse has to parse the JSON blob at query time for every row it reads. This holds for both event and person property blobs: reading either as raw JSON can be up to ~100x slower than reading a directly materialized (`mat_*` / `dmat_*`) column, and ~10x slower than a property group read.
 
-We have three materialization strategies. Skim:
+**For any query that goes through the HogQL printer, the fix is mechanical and unconditional: replace every hand-written `JSONExtract*(properties, 'X')` with HogQL property access `properties.X` (wrap in `toFloat(...)` / `toInt(...)` when you need a non-string type). Convert _all_ of them — do not stop to work out which properties are materialized.** The printer path is most HogQL: backend `parse_select` / `execute_hogql_query` / `*QueryRunner` queries, and frontend `api.queryHogQL` / `` hogql`...` `` strings (they POST to `/query`, which runs the same printer). When the printer visits `properties.X` it does the materialization lookup against the live ClickHouse and emits the best available form — a directly materialized column, a property group read, a DMAT slot, or a `JSONExtract` fallback when nothing is materialized. So `properties.X` is **never worse** than the hand-written `JSONExtract`: worst case the printer emits the same `JSONExtract`; best case you get the materialized fast path, both now and automatically in the future when the column later gets materialized.
+
+**Do not try to determine which properties are materialized and convert only those.** Reading migration files, the materialized-columns registry, or a `DESCRIBE` to decide which `JSONExtract`s are "safe" to convert is the printer's job reimplemented by hand, and it reaches the wrong answer:
+
+- Materialization is frequently not created by a migration at all, so scanning migrations misses most of it.
+- Property groups cover properties that have no dedicated materialized column.
+- The materialized set differs per environment and changes over time, so any answer you compute is a snapshot that goes stale.
+
+Converting only the subset you could confirm leaves the query inconsistent (some properties as `properties.X`, sibling properties left as `JSONExtract`, sometimes forced into a `hogql.raw()` conditional to keep one of each) for zero benefit, and silently skips every property you couldn't find evidence for. Convert all of them and let the printer decide at print time.
+
+**The one exception is raw SQL that never goes through the printer** — multi-team `sync_execute` queries, ClickHouse migrations, and temporal activities that build query strings by hand (see Step 0). There is no printer to do the lookup (and `properties.X` HogQL syntax isn't available), so those queries _do_ have to reference the materialized column directly. That hand-rolled lookup is correct there, and only there.
+
+For the raw-SQL exception, and as background, we have three materialization strategies. You do **not** need to consult these to convert a printer-path query:
 
 - Directly materialized columns: [`posthog/clickhouse/materialized_columns.py`](../../../posthog/clickhouse/materialized_columns.py)
 - Property groups: [`posthog/clickhouse/property_groups.py`](../../../posthog/clickhouse/property_groups.py)
@@ -106,9 +152,9 @@ We have three materialization strategies. Skim:
 
 We are also experimenting with the new ClickHouse JSON data type. Check recent migrations under [`posthog/clickhouse/migrations/`](../../../posthog/clickhouse/migrations/) for the current state.
 
-If a property is not materialized in the local fixtures, snapshot tests will fall back to `JSONExtract*`. In test code, wrap the block in the `materialized()` context manager from [`posthog/test/base.py`](../../../posthog/test/base.py) (search for `def materialized`) to materialize a property for the duration of the test. It supports `create_minmax_index`, `create_bloom_filter_index`, and the lower-case variants when you also want to assert the skip index is used.
+In test code, if you need a property materialized for the duration of a test (e.g. to assert the printer emits a column read or that a skip index is used), wrap the block in the `materialized()` context manager from [`posthog/test/base.py`](../../../posthog/test/base.py) (search for `def materialized`). It supports `create_minmax_index`, `create_bloom_filter_index`, and the lower-case variants.
 
-**Important: `JSONExtract` in a test-extracted query is a noisy signal.** The HogQL printer's materialization lookup runs against whatever ClickHouse you're talking to. The test ClickHouse usually has a minimal materialized set (events `$browser`, `$os`, a few others), so the printer falls back to `JSONExtract(properties, ...)` and the `.ambr` snapshot bakes that in. Production has dozens of materialized properties per team and the printer emits direct column reads. Before chasing a JSON smell you saw in a snapshot, confirm it's actually `JSONExtract`-ing in production: pull the same query type from `system.query_log` (via `/query-clickhouse-via-metabase`) and see what the printer actually emitted. If prod is already on `pmat_X` and the snapshot just shows `JSONExtract`, the smell is a test-environment artifact, not a real performance problem.
+A `JSONExtract` you see in a `.ambr` snapshot or other printed SQL — where the _source_ query already uses `properties.X` — is just the printer's fallback because the test fixture lacks the materialized column prod has. There is nothing to change in the source, and it is not evidence of a production problem: prod may well emit a materialized column read for the same query. Don't "fix" the snapshot, and don't treat it as a perf bug.
 
 ### Primary key and skip indexes
 
@@ -142,7 +188,7 @@ ClickHouse `EXPLAIN` works on a dev instance even without representative data, b
 - `EXPLAIN ESTIMATE SELECT ...` for per-part row/mark estimates
 - `EXPLAIN SYNTAX SELECT ...` for the normalized SQL after parsing
 
-See the [ClickHouse EXPLAIN docs](https://clickhouse.com/docs/sql-reference/statements/explain) for the full option matrix.
+See the [ClickHouse EXPLAIN docs](https://clickhouse.com/docs/sql-reference/statements/explain) for the full option matrix. For the hypothesis-testing technique — EXPLAINing the suspect query and a fixed variant side by side and diffing `Granules`, `ReadType`, and Prewhere-vs-primary-key — plus which variants do a small metadata read rather than being entirely free, see [`references/investigation-playbook.md`](references/investigation-playbook.md).
 
 ## Step 4: measure for real
 
@@ -172,12 +218,12 @@ The Test Cluster is read-only, so you cannot try schema changes there. For those
 
 ### Query performance autoresearch (the powertool)
 
-For hard cases, [`products/query_performance_ai/`](../../../products/query_performance_ai/) wraps [pi-autoresearch](https://github.com/davebcn87/pi-autoresearch) in a coordinator that hands the LLM a query and asks it to optimize against the Test Cluster in a loop. Setup is non-trivial (Docker sandbox per query, ANTHROPIC_API_KEY, Metabase database IDs), so ask the user to run the setup themselves:
+For hard cases, [`tools/query-performance-ai/query_performance_ai/`](../../../tools/query-performance-ai/query_performance_ai/) wraps [pi-autoresearch](https://github.com/davebcn87/pi-autoresearch) in a coordinator that hands the LLM a query and asks it to optimize against the Test Cluster in a loop. Setup is non-trivial (Docker sandbox per query, ANTHROPIC_API_KEY, Metabase database IDs), so ask the user to run the setup themselves:
 
-- Coordinator and setup: [`products/query_performance_ai/README.md`](../../../products/query_performance_ai/README.md)
-- Coordinator entry point: [`products/query_performance_ai/orchestrator/coordinator.py`](../../../products/query_performance_ai/orchestrator/coordinator.py)
-- The campaign skill the sandboxed agent runs: [`products/query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/skills/clickhouse-autoresearch-campaign/SKILL.md`](../../../products/query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/skills/clickhouse-autoresearch-campaign/SKILL.md)
-- Orchestration contract: [`products/query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/skills/clickhouse-autoresearch-campaign/orchestration.md`](../../../products/query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/skills/clickhouse-autoresearch-campaign/orchestration.md)
+- Coordinator and setup: [`tools/query-performance-ai/README.md`](../../../tools/query-performance-ai/README.md)
+- Coordinator entry point: [`tools/query-performance-ai/query_performance_ai/orchestrator/coordinator.py`](../../../tools/query-performance-ai/query_performance_ai/orchestrator/coordinator.py)
+- The campaign skill the sandboxed agent runs: [`tools/query-performance-ai/query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/skills/clickhouse-autoresearch-campaign/SKILL.md`](../../../tools/query-performance-ai/query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/skills/clickhouse-autoresearch-campaign/SKILL.md)
+- Orchestration contract: [`tools/query-performance-ai/query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/skills/clickhouse-autoresearch-campaign/orchestration.md`](../../../tools/query-performance-ai/query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/skills/clickhouse-autoresearch-campaign/orchestration.md)
 
 I am not entirely sure of the exact commands needed beyond the snippets in the README. Ask the user; the setup also takes effort on their side.
 

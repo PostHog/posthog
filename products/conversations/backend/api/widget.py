@@ -157,8 +157,9 @@ class WidgetMessageView(APIView):
                     if ticket.widget_session_id != widget_session_id:
                         return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
-                # Update distinct_id if changed (anonymous → identified transition)
-                if ticket.distinct_id != distinct_id:
+                # Only HMAC-verified requests may (re)bind a ticket's distinct_id.
+                # Anonymous → identified continuity is still handled by person merging.
+                if verified_distinct_id is not None and ticket.distinct_id != distinct_id:
                     ticket.distinct_id = distinct_id
 
                 # Update traits if provided

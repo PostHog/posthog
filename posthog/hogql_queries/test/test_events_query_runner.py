@@ -1070,12 +1070,22 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0][0]["event"], "$pageview")
 
+    def _enable_property_access_control(self) -> None:
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
     @freeze_time("2020-01-11T12:00:05Z")
     def test_restricted_person_properties_stripped_from_person_column(self):
         from posthog.models import PropertyDefinition
 
         from products.access_control.backend.models.property_access_control import PropertyAccessControl
         from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+        self._enable_property_access_control()
 
         _create_person(
             team_id=self.team.pk,
@@ -1122,6 +1132,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         from products.access_control.backend.models.property_access_control import PropertyAccessControl
         from products.access_control.backend.property_access_control import PropertyAccessLevel
 
+        self._enable_property_access_control()
+
         _create_event(
             team=self.team,
             event="$pageview",
@@ -1149,6 +1161,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-11T12:00:05Z")
     def test_users_with_different_restrictions_get_different_cache_keys(self):
+        self._enable_property_access_control()
+
         # create a second user in the same org
         other_user = self._create_user("other@posthog.com")
         OrganizationMembership.objects.get(user=other_user, organization=self.organization)
@@ -1222,6 +1236,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         from products.access_control.backend.models.property_access_control import PropertyAccessControl
         from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+        self._enable_property_access_control()
 
         other_user = self._create_user("other@posthog.com")
 

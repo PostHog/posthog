@@ -290,6 +290,13 @@ impl storage::GroupStorage for FailingStorage {
         Err(self.error.clone())
     }
 
+    async fn count_group_type_mappings(
+        &self,
+        _consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<Vec<(i64, i64)>> {
+        Err(self.error.clone())
+    }
+
     async fn create_group(
         &self,
         _team_id: i64,
@@ -631,6 +638,13 @@ impl storage::GroupStorage for SuccessStorage {
         _project_ids: &[i64],
         _consistency: storage::postgres::ConsistencyLevel,
     ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
+        Ok(Vec::new())
+    }
+
+    async fn count_group_type_mappings(
+        &self,
+        _consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<Vec<(i64, i64)>> {
         Ok(Vec::new())
     }
 
@@ -1031,6 +1045,13 @@ impl storage::GroupStorage for PopulatedStorage {
         Ok(Vec::new())
     }
 
+    async fn count_group_type_mappings(
+        &self,
+        _consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<Vec<(i64, i64)>> {
+        Ok(Vec::new())
+    }
+
     async fn create_group(
         &self,
         team_id: i64,
@@ -1398,6 +1419,14 @@ impl storage::GroupStorage for ConsistencyTrackingStorage {
         _project_ids: &[i64],
         consistency: storage::postgres::ConsistencyLevel,
     ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
+        self.record(consistency);
+        Ok(Vec::new())
+    }
+
+    async fn count_group_type_mappings(
+        &self,
+        consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<Vec<(i64, i64)>> {
         self.record(consistency);
         Ok(Vec::new())
     }

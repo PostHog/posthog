@@ -10,12 +10,13 @@ from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture_dispatch import capture_internal_routed
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.scoped import scoped_temporal
 
 from products.ai_observability.backend.llm import TRIAL_MODEL_IDS, Client, CompletionRequest
 from products.ai_observability.backend.llm.config import get_eval_config
@@ -190,6 +191,7 @@ class ExecuteTaggerInputs:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
     """Execute LLM tagger to classify the target event."""
     from django.utils import timezone
@@ -218,7 +220,7 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
             key = LLMProviderKey.objects.get(id=key_id, team_id=team_id)
             if key.state != LLMProviderKey.State.OK:
                 raise ApplicationError(
-                    f"Your API key is {key.state}. Please fix or replace it.",
+                    f"This API key has been disabled (status: {key.state}). Re-validate to recover, or replace it.",
                     {"error_type": "key_invalid", "key_id": str(key.id), "key_state": key.state},
                     non_retryable=True,
                 )
@@ -567,7 +569,7 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
 
         event_timestamp = datetime.now(UTC)
 
-        resp = capture_internal(
+        routed_result = capture_internal_routed(
             token=team.api_token,
             event_name="$ai_tag",
             event_source="llm_analytics_tagger",
@@ -576,7 +578,7 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
             properties=properties,
             process_person_profile=True,
         )
-        resp.raise_for_status()
+        routed_result.raise_for_status()
 
     await database_sync_to_async(_emit, thread_sensitive=False)()
 

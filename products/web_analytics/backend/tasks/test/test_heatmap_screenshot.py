@@ -1,9 +1,11 @@
+import os
 from contextlib import contextmanager
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.exceptions import ImproperlyConfigured
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
@@ -16,6 +18,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
     BrowserlessPermanentError,
     _browserless_screenshot,
     _build_browserless_screenshot_url,
+    _launch_local_browser,
     _redact_browserless_url,
     _resolve_widths,
     _sanitize_browserless_error,
@@ -401,6 +404,24 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         assert kwargs["send_feature_flag_events"] is False
         assert kwargs["only_evaluate_locally"] is False
 
+    @parameterized.expand([("US", "US"), ("EU", "EU"), (None, "DEV")])
+    @override_settings(HEATMAP_BROWSERLESS_URL="wss://host/chromium", DEBUG=False)
+    @patch(
+        "products.web_analytics.backend.tasks.heatmap_screenshot.posthoganalytics.feature_enabled",
+        return_value=True,
+    )
+    def test_use_browserless_passes_region_property_to_flag(
+        self, cloud_deployment: str | None, expected_region: str, mock_feature_enabled: MagicMock
+    ) -> None:
+        # The deploy region is exposed to the flag (person + group properties) so it can target by
+        # environment, e.g. excluding DEV while prod is at 100%.
+        with override_settings(CLOUD_DEPLOYMENT=cloud_deployment):
+            assert _use_browserless_for_screenshot(self._make_heatmap()) is True
+        _, kwargs = mock_feature_enabled.call_args
+        assert kwargs["person_properties"]["region"] == expected_region
+        assert kwargs["group_properties"]["organization"]["region"] == expected_region
+        assert kwargs["group_properties"]["project"]["region"] == expected_region
+
     @override_settings(HEATMAP_BROWSERLESS_URL="wss://host/chromium", DEBUG=False)
     @patch(
         "products.web_analytics.backend.tasks.heatmap_screenshot.posthoganalytics.feature_enabled",
@@ -556,3 +577,52 @@ class TestBrowserlessUrlHelpers(SimpleTestCase):
         assert "token=REDACTED" in sanitized
         # The real failure reason is preserved so the error is debuggable
         assert "401" in sanitized
+
+
+# Pure-function test for the local Chromium launcher — no DB, so it runs on SimpleTestCase.
+class TestLaunchLocalBrowser(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("sandbox_on_by_default", None, True),
+            ("no_sandbox_enabled", True, True),
+            ("no_sandbox_disabled", False, False),
+        ]
+    )
+    def test_no_sandbox_flag_respects_setting(
+        self, _name: str, setting_value: bool | None, should_include: bool
+    ) -> None:
+        overrides = {} if setting_value is None else {"HEATMAP_CHROMIUM_NO_SANDBOX": setting_value}
+        with override_settings(**overrides), patch.dict(os.environ):
+            os.environ.pop("CHROME_BIN", None)  # isolate from the runner's environment
+            p = MagicMock()
+            _launch_local_browser(p)
+            launch_args = p.chromium.launch.call_args.kwargs["args"]
+            assert ("--no-sandbox" in launch_args) is should_include
+
+    @parameterized.expand(
+        [
+            ("unset", None),
+            ("empty", ""),
+        ]
+    )
+    def test_no_executable_path_without_chrome_bin(self, _name: str, value: str | None) -> None:
+        with patch.dict(os.environ):
+            os.environ.pop("CHROME_BIN", None)
+            if value is not None:
+                os.environ["CHROME_BIN"] = value
+            p = MagicMock()
+            _launch_local_browser(p)
+            assert p.chromium.launch.call_args.kwargs["executable_path"] is None
+
+    def test_uses_chrome_bin_when_it_points_at_an_existing_path(self) -> None:
+        with patch.dict(os.environ, {"CHROME_BIN": __file__}):
+            p = MagicMock()
+            _launch_local_browser(p)
+            assert p.chromium.launch.call_args.kwargs["executable_path"] == __file__
+
+    def test_raises_config_error_when_chrome_bin_points_at_missing_path(self) -> None:
+        with patch.dict(os.environ, {"CHROME_BIN": "/nonexistent/chromium"}):
+            p = MagicMock()
+            with self.assertRaises(ImproperlyConfigured):
+                _launch_local_browser(p)
+            p.chromium.launch.assert_not_called()

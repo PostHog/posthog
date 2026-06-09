@@ -7,7 +7,7 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 from posthog.sync import database_sync_to_async
 from posthog.temporal.session_replay.session_summary.types.video import SessionProblem, VideoSummarySingleSessionInputs
 
-from products.signals.backend.api import emit_signal
+from products.signals.backend.facade.api import emit_signal
 
 logger = structlog.get_logger(__name__)
 

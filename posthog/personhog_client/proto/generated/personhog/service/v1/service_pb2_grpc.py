@@ -201,6 +201,12 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingByDashboardIdResponse.FromString,
             _registered_method=True,
         )
+        self.CountGroupTypeMappings = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/CountGroupTypeMappings",
+            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.CountGroupTypeMappingsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.CountGroupTypeMappingsResponse.FromString,
+            _registered_method=True,
+        )
         self.CreateGroup = channel.unary_unary(
             "/personhog.service.v1.PersonHogService/CreateGroup",
             request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.CreateGroupRequest.SerializeToString,
@@ -424,6 +430,12 @@ class PersonHogServiceServicer:
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def CountGroupTypeMappings(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
     def CreateGroup(self, request, context):
         """Group writes (routed to replica — non-person data)"""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -620,6 +632,11 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             servicer.GetGroupTypeMappingByDashboardId,
             request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingByDashboardIdRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingByDashboardIdResponse.SerializeToString,
+        ),
+        "CountGroupTypeMappings": grpc.unary_unary_rpc_method_handler(
+            servicer.CountGroupTypeMappings,
+            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.CountGroupTypeMappingsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.CountGroupTypeMappingsResponse.SerializeToString,
         ),
         "CreateGroup": grpc.unary_unary_rpc_method_handler(
             servicer.CreateGroup,
@@ -1476,6 +1493,36 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/GetGroupTypeMappingByDashboardId",
             personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingByDashboardIdRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingByDashboardIdResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def CountGroupTypeMappings(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/CountGroupTypeMappings",
+            personhog_dot_types_dot_v1_dot_group__pb2.CountGroupTypeMappingsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_group__pb2.CountGroupTypeMappingsResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -15,12 +15,13 @@ from temporalio.exceptions import ActivityError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.models.exported_asset import ExportedAsset
-from posthog.tasks.exports.failure_handler import ExcelColumnLimitExceeded
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
 from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult
+
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 

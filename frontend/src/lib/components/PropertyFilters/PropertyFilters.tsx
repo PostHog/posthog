@@ -4,6 +4,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import React, { useEffect, useState } from 'react'
 
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
+import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import {
     AllowedProperties,
     ExcludedOperators,
@@ -104,7 +105,7 @@ export function PropertyFilters({
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
 
     useEffect(() => {
-        setFilters(propertyFilters ?? [])
+        setFilters(propertyFilters ? parseProperties(propertyFilters) : [])
     }, [propertyFilters, setFilters])
 
     const displayedFilters = allowNew && editable ? filtersWithNew : filters

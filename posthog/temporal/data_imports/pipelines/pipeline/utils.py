@@ -169,7 +169,7 @@ def get_default_value_for_pyarrow_type(arrow_type: pa.DataType) -> Any:
         raise ValueError(f"Unsupported PyArrow type: {arrow_type}")
 
 
-def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Schema | None) -> pa.Table:
+def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Schema | None) -> pa.Table:
     # First pass: normalize types that Delta write path does not handle well.
     for column_name in incoming_table.column_names:
         incoming_column = incoming_table.column(column_name)

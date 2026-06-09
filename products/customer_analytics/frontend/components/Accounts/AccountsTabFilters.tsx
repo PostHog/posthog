@@ -3,30 +3,26 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown, IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
 
-import { MemberSelect } from 'lib/components/MemberSelect'
+import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 
 import { tagsModel } from '~/models/tagsModel'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { accountsLogic, RoleFilterValue } from './accountsLogic'
 
 export function AccountsTabFilters(): JSX.Element {
+    const { searchInput, tagsFilter, allRolesUnassigned, csmFilter, accountExecutiveFilter, accountOwnerFilter } =
+        useValues(accountsLogic)
+    const { responseLoading: accountsLoading } = useValues(dataNodeLogic)
     const {
-        searchQuery,
-        tagsFilter,
-        allRolesUnassigned,
-        csmFilter,
-        accountExecutiveFilter,
-        accountOwnerFilter,
-        accountsLoading,
-    } = useValues(accountsLogic)
-    const {
-        setSearchQuery,
+        setSearchInput,
         setTagsFilter,
         setAllRolesUnassigned,
         setCsmFilter,
         setAccountExecutiveFilter,
         setAccountOwnerFilter,
         refresh,
+        reportFilterChange,
     } = useActions(accountsLogic)
     const { tags: tagsAvailable } = useValues(tagsModel)
 
@@ -38,8 +34,8 @@ export function AccountsTabFilters(): JSX.Element {
             <LemonInput
                 type="search"
                 placeholder="Search by name or ID..."
-                value={searchQuery}
-                onChange={setSearchQuery}
+                value={searchInput}
+                onChange={setSearchInput}
                 size="small"
                 className="min-w-64"
                 data-attr="accounts-search"
@@ -53,7 +49,10 @@ export function AccountsTabFilters(): JSX.Element {
                             allowCustomValues
                             value={tagsFilter}
                             options={(tagsAvailable || []).map((t: string) => ({ key: t, label: t }))}
-                            onChange={setTagsFilter}
+                            onChange={(tags) => {
+                                setTagsFilter(tags)
+                                reportFilterChange('tag')
+                            }}
                             placeholder="Select or type tags..."
                             data-attr="accounts-tags-filter"
                         />
@@ -69,27 +68,47 @@ export function AccountsTabFilters(): JSX.Element {
                     type="secondary"
                     size="small"
                     icon={<IconX />}
-                    onClick={() => setTagsFilter([])}
+                    onClick={() => {
+                        setTagsFilter([])
+                        reportFilterChange('tag')
+                    }}
                     tooltip="Clear tag filter"
                 />
             )}
 
-            <RolePicker label="CSM" value={csmFilter} onChange={setCsmFilter} dataAttr="accounts-csm-filter" />
+            <RolePicker
+                label="CSM"
+                value={csmFilter}
+                onChange={(value) => {
+                    setCsmFilter(value)
+                    reportFilterChange('csm')
+                }}
+                dataAttr="accounts-csm-filter"
+            />
             <RolePicker
                 label="AE"
                 value={accountExecutiveFilter}
-                onChange={setAccountExecutiveFilter}
+                onChange={(value) => {
+                    setAccountExecutiveFilter(value)
+                    reportFilterChange('account_executive')
+                }}
                 dataAttr="accounts-ae-filter"
             />
             <RolePicker
                 label="Owner"
                 value={accountOwnerFilter}
-                onChange={setAccountOwnerFilter}
+                onChange={(value) => {
+                    setAccountOwnerFilter(value)
+                    reportFilterChange('account_owner')
+                }}
                 dataAttr="accounts-owner-filter"
             />
             <LemonCheckbox
                 checked={allRolesUnassigned}
-                onChange={setAllRolesUnassigned}
+                onChange={(value) => {
+                    setAllRolesUnassigned(value)
+                    reportFilterChange('unassigned_only')
+                }}
                 label="Unassigned only"
                 disabledReason={accountsLoading ? 'Loading…' : undefined}
                 data-attr="accounts-unassigned-filter"
@@ -123,15 +142,35 @@ function RolePicker({
     onChange: (value: RoleFilterValue) => void
     dataAttr: string
 }): JSX.Element {
+    const buttonLabel =
+        value.length === 0 ? `Any ${label}` : value.length === 1 ? `1 ${label}` : `${value.length} ${label}s`
     return (
-        <div data-attr={dataAttr}>
-            <MemberSelect
-                size="small"
-                type="secondary"
-                defaultLabel={`Any ${label}`}
-                value={value}
-                onChange={(user) => onChange(user ? user.id : null)}
-            />
+        <div className="flex gap-1 items-center" data-attr={dataAttr}>
+            <LemonDropdown
+                closeOnClickInside={false}
+                overlay={
+                    <div className="p-2 min-w-64">
+                        <MemberSelectMultiple
+                            idKey="id"
+                            value={value}
+                            onChange={(users) => onChange(users.map((user) => user.id))}
+                        />
+                    </div>
+                }
+            >
+                <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                    {buttonLabel}
+                </LemonButton>
+            </LemonDropdown>
+            {value.length > 0 && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconX />}
+                    onClick={() => onChange([])}
+                    tooltip={`Clear ${label} filter`}
+                />
+            )}
         </div>
     )
 }

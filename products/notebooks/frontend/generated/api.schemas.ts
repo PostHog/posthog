@@ -9,13 +9,13 @@
  */
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -147,28 +147,6 @@ export interface NotebookApi {
     _create_in_folder?: string
 }
 
-export interface SharePasswordApi {
-    readonly id: number
-    readonly created_at: string
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    note?: string | null
-    readonly created_by_email: string
-    readonly is_active: boolean
-}
-
-export interface SharingConfigurationApi {
-    readonly created_at: string
-    enabled?: boolean
-    /** @nullable */
-    readonly access_token: string | null
-    settings?: unknown
-    password_required?: boolean
-    readonly share_passwords: readonly SharePasswordApi[]
-}
-
 /**
  * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
  * @nullable
@@ -243,10 +221,10 @@ export interface NotebookCollabSaveApi {
 
 export type NotebooksListParams = {
     /**
- * Filter for notebooks that match a provided filter.
-                Each match pair is separated by a colon,
-                multiple match pairs can be sent separated by a space or a comma
- */
+     * Filter for notebooks that match a provided filter.
+     *                 Each match pair is separated by a colon,
+     *                 multiple match pairs can be sent separated by a space or a comma
+     */
     contains?: string
     /**
      * The UUID of the Notebook's creator

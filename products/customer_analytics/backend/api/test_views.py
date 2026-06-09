@@ -498,6 +498,8 @@ class TestAccountViewSet(APIBaseTest):
         "billing_id": "bill_789",
         "sfdc_id": "001A000000DUMMY",
         "zendesk_id": "zd_42",
+        "slack_channel_id": "C0123456789",
+        "usage_dashboard_link": "https://us.posthog.com/project/2/dashboard/12345",
     }
 
     def _assert_external_identifiers(self, properties_payload):

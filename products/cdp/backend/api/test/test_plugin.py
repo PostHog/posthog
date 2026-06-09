@@ -875,6 +875,17 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             [plugin_no_configs.id, plugin_only_disabled.id],
         )
 
+    def test_plugin_unused_does_not_leak_other_orgs(self, mock_get, mock_reload):
+        own_unused = Plugin.objects.create(organization=self.organization)
+        other_org = Organization.objects.create(name="Other Org")
+        other_org_unused = Plugin.objects.create(organization=other_org)
+
+        response = self.client.get("/api/organizations/@current/plugins/unused/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(own_unused.id, response.json())
+        self.assertNotIn(other_org_unused.id, response.json())
+
     def test_install_plugin_on_multiple_orgs(self, mock_get, mock_reload):
         # Expectation: since plugins are url-unique, installing the same plugin on a second orgs should
         # return a 400 response, as the plugin is already installed on the first org

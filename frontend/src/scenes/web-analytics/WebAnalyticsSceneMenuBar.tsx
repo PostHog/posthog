@@ -148,7 +148,7 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
                 </SceneMenuBarItem>
                 {showFocusMode && (
                     <SceneMenuBarItem
-                        onClick={openFocusModeModal}
+                        onClick={() => openFocusModeModal()}
                         data-attr="web-analytics-menubar-focus-mode-settings"
                         opensFloatingUi
                     >

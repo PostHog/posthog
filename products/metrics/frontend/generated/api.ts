@@ -19,15 +19,15 @@ import type {
 } from './api.schemas'
 
 export const getEventFilterMetricsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/event_filter/metrics/`
+    return `/api/projects/${projectId}/event_filter/metrics/`
 }
 
 /**
  * Single event filter per team.
-GET  /event_filter/ — returns the config (or null if not yet created)
-POST /event_filter/ — creates or updates the config (upsert)
-GET  /event_filter/metrics/ — time-series metrics
-GET  /event_filter/metrics/totals/ — aggregate totals
+ * GET  /event_filter/ — returns the config (or null if not yet created)
+ * POST /event_filter/ — creates or updates the config (upsert)
+ * GET  /event_filter/metrics/ — time-series metrics
+ * GET  /event_filter/metrics/totals/ — aggregate totals
  */
 export const eventFilterMetricsRetrieve = async (
     projectId: string,
@@ -40,15 +40,15 @@ export const eventFilterMetricsRetrieve = async (
 }
 
 export const getEventFilterMetricsTotalsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/event_filter/metrics/totals/`
+    return `/api/projects/${projectId}/event_filter/metrics/totals/`
 }
 
 /**
  * Single event filter per team.
-GET  /event_filter/ — returns the config (or null if not yet created)
-POST /event_filter/ — creates or updates the config (upsert)
-GET  /event_filter/metrics/ — time-series metrics
-GET  /event_filter/metrics/totals/ — aggregate totals
+ * GET  /event_filter/ — returns the config (or null if not yet created)
+ * POST /event_filter/ — creates or updates the config (upsert)
+ * GET  /event_filter/metrics/ — time-series metrics
+ * GET  /event_filter/metrics/totals/ — aggregate totals
  */
 export const eventFilterMetricsTotalsRetrieve = async (
     projectId: string,
@@ -96,7 +96,7 @@ export const getMetricsValuesRetrieveUrl = (projectId: string, params?: MetricsV
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

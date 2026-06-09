@@ -9,11 +9,11 @@ from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_slack_response import AsyncSlackResponse
 
-from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration
-from posthog.models.subscription import Subscription
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.tasks.subscriptions.slack_subscriptions import (
