@@ -70,10 +70,7 @@ ee/tasks/subscriptions/** @PostHog/team-analytics-platform
 frontend/src/scenes/data-management/schema/** @PostHog/team-analytics-platform
 frontend/src/scenes/dashboard/ @PostHog/team-analytics-platform
 posthog/api/schema_property_group.py @PostHog/team-analytics-platform
-posthog/hogql/database/schema/sessions*\*.py @PostHog/team-analytics-platform
-posthog/models/raw_sessions/** @PostHog/team-analytics-platform
 posthog/models/schema.py @PostHog/team-analytics-platform
-posthog/models/sessions/** @PostHog/team-analytics-platform
 posthog/hogql_queries/sessions_query_runner.py @PostHog/team-analytics-platform
 posthog/hogql_queries/sessions_timeline_query_runner.py @PostHog/team-analytics-platform
 posthog/dags/sessions.py @PostHog/team-analytics-platform
@@ -316,6 +313,9 @@ posthog/temporal/quota_limiting/ @PostHog/team-billing
 # Query performance - owned by @PostHog/team-query-performance
 posthog/queries/ @PostHog/team-query-performance
 posthog/caching/ @PostHog/team-query-performance
+posthog/hogql/database/schema/sessions*\*.py @PostHog/team-query-performance
+posthog/models/raw_sessions/** @PostHog/team-query-performance
+posthog/models/sessions/** @PostHog/team-query-performance
 
 # Ingestion (persons identity pipeline) - owned by @PostHog/team-ingestion
 posthog/temporal/delete_persons/ @PostHog/team-ingestion

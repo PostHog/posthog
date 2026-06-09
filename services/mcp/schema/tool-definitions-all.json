@@ -5374,6 +5374,20 @@
             "readOnlyHint": true
         }
     },
+    "signals-scout-runs-emissions-list": {
+        "description": "Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, and the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal. Use this to see *what* a run actually surfaced, not just how many (`emitted_count`) or which ids (`emitted_finding_ids`). Strictly team-scoped — a run UUID belonging to another team returns 404.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List a scout run's emitted findings",
+        "title": "List a scout run's emitted findings",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "signals-scout-runs-list": {
         "description": "Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. Each row carries `emitted_count` (how many findings the run surfaced to the inbox) and `emitted_finding_ids`. Pass `emitted=true` to return only runs that emitted at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive substring match on the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results capped at 100.",
         "category": "Signals",

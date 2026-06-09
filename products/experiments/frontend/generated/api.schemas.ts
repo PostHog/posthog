@@ -168,6 +168,63 @@ export interface PatchedExperimentSavedMetricApi {
     readonly user_access_level?: string | null
 }
 
+/**
+ * * `server` - Server
+ * `client` - Client
+ * `all` - All
+ */
+export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
+
+export const EvaluationRuntimeEnumApi = {
+    Server: 'server',
+    Client: 'client',
+    All: 'all',
+} as const
+
+/**
+ * * `distinct_id` - User ID (default)
+ * `device_id` - Device ID
+ */
+export type BucketingIdentifierEnumApi = (typeof BucketingIdentifierEnumApi)[keyof typeof BucketingIdentifierEnumApi]
+
+export const BucketingIdentifierEnumApi = {
+    DistinctId: 'distinct_id',
+    DeviceId: 'device_id',
+} as const
+
+export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
+
+export interface MinimalFeatureFlagApi {
+    readonly id: number
+    readonly team_id: number
+    name?: string
+    /** @maxLength 400 */
+    key: string
+    filters?: MinimalFeatureFlagApiFilters
+    deleted?: boolean
+    active?: boolean
+    /** @nullable */
+    ensure_experience_continuity?: boolean | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    version?: number | null
+    /** Specifies where this feature flag should be evaluated
+
+  * `server` - Server
+  * `client` - Client
+  * `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | null
+    /** Identifier used for bucketing users into rollout and variants
+
+  * `distinct_id` - User ID (default)
+  * `device_id` - Device ID */
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
+    readonly evaluation_contexts: readonly string[]
+}
+
 export interface ExperimentVariantApi {
     /** Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'. */
     key: string
@@ -443,8 +500,6 @@ export const ExperimentStatusEnumApi = {
     Stopped: 'stopped',
 } as const
 
-export type ExperimentApiFeatureFlag = { [key: string]: unknown }
-
 /**
  * Mixin for serializers to add user access control fields
  */
@@ -467,7 +522,7 @@ export interface ExperimentApi {
     end_date?: string | null
     /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
     feature_flag_key: string
-    readonly feature_flag: ExperimentApiFeatureFlag
+    readonly feature_flag: MinimalFeatureFlagApi
     readonly holdout: ExperimentHoldoutApi
     /**
      * ID of a holdout group to exclude from the experiment.
@@ -545,8 +600,6 @@ export interface PaginatedExperimentListApi {
     results: ExperimentApi[]
 }
 
-export type PatchedExperimentApiFeatureFlag = { [key: string]: unknown }
-
 /**
  * Mixin for serializers to add user access control fields
  */
@@ -569,7 +622,7 @@ export interface PatchedExperimentApi {
     end_date?: string | null
     /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
     feature_flag_key?: string
-    readonly feature_flag?: PatchedExperimentApiFeatureFlag
+    readonly feature_flag?: MinimalFeatureFlagApi
     readonly holdout?: ExperimentHoldoutApi
     /**
      * ID of a holdout group to exclude from the experiment.
@@ -754,6 +807,10 @@ export type ExperimentsListParams = {
      * Filter to experiments created by the given user ID.
      */
     created_by_id?: number
+    /**
+     * Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.
+     */
+    event?: string
     /**
      * Filter to experiments linked to the given feature flag ID.
      */
