@@ -36,7 +36,7 @@ from products.signals.backend.report_generation.research import (
 def _render_finding(finding: ResearchedDeprecation, today: date) -> str:
     severity = score_severity(finding.cutoff_date, today)
     cutoff = finding.cutoff_date.isoformat() if finding.cutoff_date else "no published date"
-    if finding.already_past_cutoff:
+    if finding.cutoff_date and finding.cutoff_date < today:
         cutoff += " (already past)"
     migration = " · needs data migration" if finding.pin.persisted_per_row else ""
     affected = f" · affected fields: {', '.join(finding.affected_fields)}" if finding.affected_fields else ""

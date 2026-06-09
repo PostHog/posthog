@@ -2,6 +2,8 @@ from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from pydantic import ValidationError
 
 from products.signals.backend.api_deprecation.extractors import EXTRACTORS, extract_pins, is_test_path
@@ -14,6 +16,8 @@ FIXTURES = Path(__file__).with_name("fixtures")
 META = next(e for e in EXTRACTORS if e.vendor == "meta")
 GOOGLE = next(e for e in EXTRACTORS if e.vendor == "google_ads")
 TODAY = date(2026, 6, 9)
+# Recursive globs so the scan reaches the nested fixtures/nested/tests/ file.
+_RECURSIVE = (replace(META, file_globs=("**/*.template.ts",)), replace(GOOGLE, file_globs=("**/*.template.ts",)))
 
 
 def _pin(vendor: str = "meta", version: str = "v21.0") -> Pin:
@@ -59,27 +63,39 @@ def test_extract_pins_returns_empty_when_host_absent():
     assert extract_pins("no vendor here", "x.ts", META) == []
 
 
-def test_scan_repo_inventory_excludes_tests():
-    extractors = (replace(META, file_globs=("*.template.ts",)), replace(GOOGLE, file_globs=("*.template.ts",)))
-    found = {(p.vendor, p.pinned_version) for p in scan_repo(FIXTURES, extractors)}
-    assert ("meta", "v21.0") in found and ("google_ads", "v21") in found and ("meta", "v25.0") in found
+def test_scan_repo_reports_the_inventory():
+    found = {(p.vendor, p.pinned_version) for p in scan_repo(FIXTURES, _RECURSIVE)}
+    assert {("meta", "v21.0"), ("google_ads", "v21"), ("meta", "v25.0")} <= found
 
 
-def test_is_test_path():
-    assert is_test_path("a/b.test.ts") and is_test_path("a/test_x.py")
-    assert not is_test_path("a/whatsapp.template.ts")
+def test_scan_repo_excludes_test_files():
+    # fixtures/nested/tests/stale.template.ts pins v19.0 but lives under a tests/ dir → excluded by default.
+    versions = {(p.vendor, p.pinned_version) for p in scan_repo(FIXTURES, _RECURSIVE)}
+    assert ("meta", "v19.0") not in versions
+    assert ("meta", "v19.0") in {
+        (p.vendor, p.pinned_version) for p in scan_repo(FIXTURES, _RECURSIVE, include_test_files=True)
+    }
+
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        ("a/b.test.ts", True),
+        ("a/test_x.py", True),
+        ("a/tests/x.py", True),
+        ("a/whatsapp.template.ts", False),
+    ],
+)
+def test_is_test_path(path: str, expected: bool):
+    assert is_test_path(path) is expected
 
 
 # --- research output: citation enforced, no fabricated dates ---
 
 
 def test_deprecation_claim_requires_citation():
-    raised = False
-    try:
+    with pytest.raises(ValidationError):
         ResearchedDeprecation(pin=_pin(), is_deprecated=True)  # no evidence
-    except ValidationError:
-        raised = True
-    assert raised, "is_deprecated without a citation must be rejected"
 
 
 def test_non_deprecated_needs_no_citation():
@@ -90,11 +106,17 @@ def test_non_deprecated_needs_no_citation():
 # --- severity (from the cited cutoff date, not a seeded table) ---
 
 
-def test_score_severity_from_cutoff():
-    assert score_severity(date(2026, 6, 1), TODAY) == "P0"  # past
-    assert score_severity(date(2026, 8, 1), TODAY) == "P1"  # 53 days
-    assert score_severity(date(2026, 11, 1), TODAY) == "P2"  # 145 days
-    assert score_severity(None, TODAY) == "P3"  # unknown date -> no manufactured urgency
+@pytest.mark.parametrize(
+    "cutoff,expected",
+    [
+        (date(2026, 6, 1), "P0"),  # past
+        (date(2026, 8, 1), "P1"),  # 53 days
+        (date(2026, 11, 1), "P2"),  # 145 days
+        (None, "P3"),  # unknown date -> no manufactured urgency
+    ],
+)
+def test_score_severity_from_cutoff(cutoff: date | None, expected: str):
+    assert score_severity(cutoff, TODAY) == expected
 
 
 def test_select_most_urgent_orders_by_severity_then_date():

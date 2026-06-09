@@ -73,7 +73,6 @@ class ResearchedDeprecation(BaseModel):
         description="Real removal/sunset date from the changelog, if the source states one. "
         "May be null for 'deprecated, no published date' — still requires a citation.",
     )
-    already_past_cutoff: bool = Field(default=False, description="True if the cutoff date is in the past.")
     latest_ga_version: str | None = Field(default=None)
     recommended_version: str | None = Field(default=None, description="Version to bump to.")
     classification: Classification = Field(default=Classification.UNCERTAIN)

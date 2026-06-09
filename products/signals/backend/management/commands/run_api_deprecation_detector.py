@@ -59,7 +59,10 @@ class Command(BaseCommand):
         )
         from products.signals.backend.temporal.custom_agent import run_agent  # noqa: PLC0415
 
-        team = Team.objects.select_related("organization").get(id=options["team_id"])
+        try:
+            team = Team.objects.select_related("organization").get(id=options["team_id"])
+        except Team.DoesNotExist:
+            raise CommandError(f"Team {options['team_id']} not found.")
         handle = run_agent(
             ApiDeprecationAgent,
             team=team,
