@@ -13,6 +13,17 @@ const THEME: ChartTheme = { colors: ['#1f77b4'], backgroundColor: '#ffffff' }
 ;<LineChart series={SERIES} labels={LABELS} theme={THEME} />
 ```
 
+## Setup
+
+**Tokens (optional but recommended)** — load `@posthog/quill-tokens/color-system.css`
+so `useChartTheme()` resolves the real quill palette and chrome. Without it you get
+a sensible built-in fallback palette (see below), not the brand colors.
+
+The built-in tooltip styles itself inline, so it renders correctly with no extra
+setup. The rest of the library's chrome uses Tailwind utility classes — if you want
+those generated for a non-PostHog host, add this package to your Tailwind
+`@source`/content globs.
+
 ## Theme
 
 Charts are **headless about color** — every chart takes a `ChartTheme` (`colors`

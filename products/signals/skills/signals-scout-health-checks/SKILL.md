@@ -120,7 +120,7 @@ than assuming it's absent because it isn't here.
 to read the `payload` and the trusted `remediation` (`human` + `agent`). A `no_live_events`
 critical is the strongest single finding this scout produces — confirm with
 `query-trends`/`execute-sql` that `$pageview`/`$screen` volume actually collapsed (not just
-a quiet weekend), then emit high-weight with the remediation summarized in the description.
+a quiet weekend), then emit with the remediation summarized in the description.
 
 #### 2. Kind clusters → one bundled finding
 
@@ -145,14 +145,14 @@ one-per-kind when a kind hides several causes.
 #### 3. Weight by real blast radius
 
 The check fires the same way for a 10-pageview hobby project and a 10M-pageview product.
-**You** set the weight. Before emitting a web-instrumentation issue (`web_vitals`,
+**You** judge the real blast radius before emitting. Before emitting a web-instrumentation issue (`web_vitals`,
 `reverse_proxy`, `partial_proxy`, `no_pageleave_events`, `scroll_depth`), confirm with
 `query-trends`/`read-data-schema` that the underlying traffic is non-trivial — a
 `reverse_proxy` warning on a project doing millions of pageviews is materially different from
 one doing a hundred. For `sdk_outdated`, check via `execute-sql` what share of recent traffic
 still flows from the outdated `$lib`/`$lib_version` (`SELECT properties.$lib_version, count()
 FROM events WHERE timestamp > now() - INTERVAL 7 DAY GROUP BY 1 ORDER BY 2 DESC`); a version
-nobody sends from anymore is low weight even if flagged.
+nobody sends from anymore is low priority even if flagged.
 
 #### 4. Agent-fixability triage
 
@@ -176,7 +176,7 @@ duplicating a finding a specialist already raised.
 
 Write scratchpad entries continuously, encoding the category in the key prefix:
 
-- `dedupe:health:<issue_id>` — "surfaced {kind} issue {id} on {date} at weight {w}; re-emit
+- `dedupe:health:<issue_id>` — "surfaced {kind} issue {id} on {date}; re-emit
   only if it escalates or recurs after a resolve."
 - `dedupe:health:cluster:<kind>` — "bundled {kind} cluster of N on {date}; re-emit only if
   count materially grows or a new critical appears."
@@ -192,11 +192,6 @@ Write scratchpad entries continuously, encoding the category in the key prefix:
 - **Emit** via `signals-scout-emit-signal` when a finding clears the bar (confidence ≥ 0.65).
   Put the relevant `remediation` guidance into the description's recommendation sentence, and
   cross-check `inbox-reports-list` first so you don't duplicate an existing report.
-  - `weight` — human attention this deserves, set from _real impact_, **not** the check's
-    severity: `0.85–1.0` confirmed active impact with wide blast radius (e.g. `no_live_events`
-    with a verified capture collapse); `0.65–0.84` a material systemic cluster worth acting on
-    today; `0.4–0.64` a confirmed but contained or low-traffic issue; below `0.4` don't emit —
-    write memory.
   - `confidence` — is it real: `0.85+` corroborated by a second query and verified not already
     covered; `0.65–0.84` one strong signal with minor unknowns; below `0.65` don't emit, write
     memory.
@@ -220,7 +215,7 @@ Write scratchpad entries continuously, encoding the category in the key prefix:
 
 ### Close out
 
-One paragraph: which issues you looked at, what you emitted (and at what weight + why), what
+One paragraph: which issues you looked at, what you emitted (and why), what
 you bundled, what you remembered, what you ruled out. The harness saves this as the run
 summary; future runs read it via `signals-scout-runs-list`. Do **not** write a separate "run
 metadata" scratchpad entry. "Looked but found nothing meaningful" is a real outcome.

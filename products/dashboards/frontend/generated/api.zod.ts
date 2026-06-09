@@ -256,9 +256,9 @@ export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Add a markdown text tile to a dashboard.
-
-Text tiles render as markdown blocks on the dashboard — useful as section headings, dividers,
-or annotations between insight tiles to give the dashboard structure.
+ *
+ * Text tiles render as markdown blocks on the dashboard — useful as section headings, dividers,
+ * or annotations between insight tiles to give the dashboard structure.
  */
 export const dashboardsCreateTextTileCreateBodyBodyMax = 4000
 
@@ -306,10 +306,10 @@ export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Soft-delete a single tile from a dashboard.
-
-Works for text, insight, and button tiles. The underlying Insight, Text, or ButtonTile
-object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
-use the dashboard delete endpoint instead.
+ *
+ * Works for text, insight, and button tiles. The underlying Insight, Text, or ButtonTile
+ * object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
+ * use the dashboard delete endpoint instead.
  */
 export const DashboardsDeleteTileBody = /* @__PURE__ */ zod.object({
     tile_id: zod.number().describe('ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.'),
@@ -741,22 +741,22 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
 
 /**
  * Bulk update tags on multiple objects.
-
-PAT access: this action has no ``required_scopes=`` on the decorator —
-inheriting viewsets must add ``"bulk_update_tags"`` to their
-``scope_object_write_actions`` list to accept personal API keys.
-Without that opt-in, ``APIScopePermission`` rejects PAT requests with
-"This action does not support personal API key access". Done per-viewset
-so granting ``<scope>:write`` for one resource doesn't leak access to
-sibling resources that share this mixin.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
  */
 export const dashboardsBulkUpdateTagsCreateBodyIdsMax = 500
 
@@ -814,8 +814,8 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
 
 /**
  * Creates an unlisted dashboard from template by tag.
-Enforces uniqueness (one per tag per team).
-Returns 409 if unlisted dashboard with this tag already exists.
+ * Enforces uniqueness (one per tag per team).
+ * Returns 409 if unlisted dashboard with this tag already exists.
  */
 export const dashboardsCreateUnlistedDashboardCreateBodyNameMax = 400
 
