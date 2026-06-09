@@ -7187,6 +7187,7 @@ export namespace Schemas {
      * * `llm_analytics` - llm_analytics
      * * `sandbox` - sandbox
      * * `user_interview` - user_interview
+     * * `customer_analytics` - customer_analytics
      */
     export type AgentModeEnum = typeof AgentModeEnum[keyof typeof AgentModeEnum];
 
@@ -7204,6 +7205,7 @@ export namespace Schemas {
       LlmAnalytics: 'llm_analytics',
       Sandbox: 'sandbox',
       UserInterview: 'user_interview',
+      CustomerAnalytics: 'customer_analytics',
     } as const;
 
     export interface AggregatedSpanRow {
