@@ -149,7 +149,8 @@ async def run_ai_observability_report_agent_activity(
     inputs: RunAIObservabilityReportAgentInput,
 ) -> RunAIObservabilityReportAgentOutput:
     """Run the digest agent for one config: load skill, execute in sandbox, post to Slack."""
-    from products.ai_observability.backend.ai_observability_digest import AIObservabilityDigestAgent
+    from posthog.temporal.ai_observability.ai_observability_reports.agent import AIObservabilityDigestAgent
+
     from products.signals.backend.custom_agent.base import NO_REPO
 
     log = logger.bind(config_id=inputs.config_id)

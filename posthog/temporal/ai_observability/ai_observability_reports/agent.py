@@ -11,6 +11,11 @@ from products.signals.backend.custom_agent import CustomSignalAgent
 
 logger = structlog.get_logger(__name__)
 
+# Lives in the posthog temporal layer (not products.ai_observability) because it subclasses
+# the Signals custom-agent framework: products.ai_observability is not allowed to depend on
+# products.signals (tach), but the posthog layer may depend on both. The digest's schema and
+# Slack delivery (no signals dependency) stay in the product.
+
 _OVERVIEW_DIRECTIVE = (
     "Now execute the skill instructions above against this team's AI observability data, using the "
     "available read-only PostHog MCP tools to gather the numbers (errors, costliest users, tool usage "
