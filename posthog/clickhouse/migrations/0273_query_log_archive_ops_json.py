@@ -55,10 +55,7 @@ OLD_DIST_MV = "dist_query_log_archive_mv"
 
 operations = [
     # ---------- A. Stop the old write path (MVs hold no data) ----------
-    *[
-        run_sql_with_exceptions(f"DROP TABLE IF EXISTS {QUERY_LOG_ARCHIVE_OPS_MV}", node_roles=[role])
-        for role in ALL_ROLES
-    ],
+    run_sql_with_exceptions(f"DROP TABLE IF EXISTS {QUERY_LOG_ARCHIVE_OPS_MV}", node_roles=ALL_ROLES),
     run_sql_with_exceptions(f"DROP TABLE IF EXISTS {OLD_SHARDED_MV}", node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(f"DROP TABLE IF EXISTS {OLD_DIST_MV}", node_roles=[NodeRole.ENDPOINTS]),
     # ---------- B. Move the old populated data tables aside (no data dropped) ----------
@@ -76,26 +73,15 @@ operations = [
     run_sql_with_exceptions(SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(), node_roles=[NodeRole.OPS]),
     # ---------- D. Writable Distributed (physical columns only) -> ops.sharded, on every cluster ----------
     # Drop first to replace prod's existing old-schema writable (a no-data Distributed).
-    *[
-        run_sql_with_exceptions(f"DROP TABLE IF EXISTS {WRITABLE_QUERY_LOG_ARCHIVE_TABLE}", node_roles=[role])
-        for role in ALL_ROLES
-    ],
-    *[run_sql_with_exceptions(WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(), node_roles=[role]) for role in ALL_ROLES],
+    run_sql_with_exceptions(f"DROP TABLE IF EXISTS {WRITABLE_QUERY_LOG_ARCHIVE_TABLE}", node_roles=ALL_ROLES),
+    run_sql_with_exceptions(WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(), node_roles=ALL_ROLES),
     # ---------- E. Slim MV (system.query_log -> writable), on every cluster ----------
-    *[
-        run_sql_with_exceptions(
-            QUERY_LOG_ARCHIVE_OPS_MV_SQL(
-                view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=WRITABLE_QUERY_LOG_ARCHIVE_TABLE
-            ),
-            node_roles=[role],
-        )
-        for role in ALL_ROLES
-    ],
+    run_sql_with_exceptions(
+        QUERY_LOG_ARCHIVE_OPS_MV_SQL(view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=WRITABLE_QUERY_LOG_ARCHIVE_TABLE),
+        node_roles=ALL_ROLES,
+    ),
     # ---------- F. Read Distributed query_log_archive -> ops.sharded, on every cluster ----------
     # Non-OPS: existing no-data Distributed -> drop + recreate. OPS: already renamed aside in B, just create.
-    *[
-        run_sql_with_exceptions(f"DROP TABLE IF EXISTS {QUERY_LOG_ARCHIVE_DATA_TABLE}", node_roles=[role])
-        for role in DISTRIBUTED_READ_ROLES
-    ],
-    *[run_sql_with_exceptions(DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(), node_roles=[role]) for role in ALL_ROLES],
+    run_sql_with_exceptions(f"DROP TABLE IF EXISTS {QUERY_LOG_ARCHIVE_DATA_TABLE}", node_roles=DISTRIBUTED_READ_ROLES),
+    run_sql_with_exceptions(DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(), node_roles=ALL_ROLES),
 ]
