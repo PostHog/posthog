@@ -171,7 +171,8 @@ Write scratchpad entries continuously, encoding the category in the key prefix:
   only; don't surface unless it escalates."
 - `addressed:health:<kind>:team{team_id}` — "team fixed {kind} (issues auto-resolved on
   {date}); stay quiet."
-- `pattern:health:team{team_id}` — durable note on this team's normal setup shape.
+- `pattern:health:shape-team{team_id}` — durable note on this team's normal setup shape
+  (distinct from the `clean-team` close-out marker above, which only records the last all-clear).
 
 ### Decide
 
