@@ -8,6 +8,7 @@ import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSession
 
 import { WizardProgressFab } from '.'
 import { WIZARD_SKILL_IDS } from '../../skillBadge'
+import { wizardActiveSessionDetectorLogic } from '../wizardActiveSessionDetectorLogic'
 import { wizardProgressTrackerLogic } from '../wizardProgressTrackerLogic'
 
 const WORKFLOW_ID = 'posthog-integration'
@@ -59,6 +60,7 @@ type WizardSessionFixture = {
     error: { type: string; message: string } | null
     created_at: string
     updated_at: string
+    is_stale: boolean
 }
 
 const SAMPLE_TASKS = [
@@ -88,12 +90,14 @@ function makeSession(overrides: Partial<WizardSessionFixture> = {}): WizardSessi
         error: null,
         created_at: startedAt,
         updated_at: new Date().toISOString(),
+        is_stale: false,
         ...overrides,
     }
 }
 
 function withSession(buildSession: (skillId: string) => WizardSessionFixture | null): StoryFn<StoryArgs> {
     return function StoryRender({ skillId }) {
+        useMountedLogic(wizardActiveSessionDetectorLogic)
         useMountedLogic(wizardProgressTrackerLogic)
         const streamLogic = wizardSessionStreamLogic({ workflowId: WORKFLOW_ID })
         useMountedLogic(streamLogic)
@@ -103,6 +107,9 @@ function withSession(buildSession: (skillId: string) => WizardSessionFixture | n
             const session = buildSession(skillId)
             if (session) {
                 streamLogic.actions.sessionUpdated(session as any)
+                // Explicitly flip the gate so visual-regression snapshots don't
+                // race the tracker's subscription firing path.
+                wizardActiveSessionDetectorLogic.actions.markActive()
             }
             // eslint-disable-next-line react-hooks/exhaustive-deps
         }, [skillId])
@@ -158,6 +165,7 @@ export const Hidden: StoryFn<StoryArgs> = withSession(() => null)
  * "card and FAB never overlap" contract.
  */
 export const HiddenByPanel: StoryFn<StoryArgs> = function HiddenByPanelStory({ skillId }) {
+    useMountedLogic(wizardActiveSessionDetectorLogic)
     useMountedLogic(wizardProgressTrackerLogic)
     const streamLogic = wizardSessionStreamLogic({ workflowId: WORKFLOW_ID })
     useMountedLogic(streamLogic)
@@ -171,6 +179,7 @@ export const HiddenByPanel: StoryFn<StoryArgs> = function HiddenByPanelStory({ s
                 tasks: buildTasks(['completed', 'in_progress', 'pending', 'pending', 'pending']),
             }) as any
         )
+        wizardActiveSessionDetectorLogic.actions.markActive()
         wizardProgressTrackerLogic.actions.setPanelMounted(true)
         return () => wizardProgressTrackerLogic.actions.setPanelMounted(false)
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -215,6 +224,7 @@ export const RunningLate: StoryFn<StoryArgs> = withSession((skillId) =>
 
 /** Reconnecting state: live session mid-run, but the SSE transport just errored. */
 export const Connecting: StoryFn<StoryArgs> = function ConnectingStory({ skillId }) {
+    useMountedLogic(wizardActiveSessionDetectorLogic)
     useMountedLogic(wizardProgressTrackerLogic)
     const streamLogic = wizardSessionStreamLogic({ workflowId: WORKFLOW_ID })
     useMountedLogic(streamLogic)
@@ -228,6 +238,7 @@ export const Connecting: StoryFn<StoryArgs> = function ConnectingStory({ skillId
                 tasks: buildTasks(['completed', 'in_progress', 'pending', 'pending', 'pending']),
             }) as any
         )
+        wizardActiveSessionDetectorLogic.actions.markActive()
         const id = window.setTimeout(() => {
             streamLogic.actions.connectionErrored('EventSource transport error — reconnecting')
         }, 50)
@@ -274,6 +285,7 @@ export const Errored: StoryFn<StoryArgs> = withSession((skillId) =>
  *   t=24s  task 5 ✓, run_phase = completed (green ring + dismiss visible)
  */
 export const SimulatedRun: StoryFn<StoryArgs> = function SimulatedRunStory({ skillId }) {
+    useMountedLogic(wizardActiveSessionDetectorLogic)
     useMountedLogic(wizardProgressTrackerLogic)
     const streamLogic = wizardSessionStreamLogic({ workflowId: WORKFLOW_ID })
     useMountedLogic(streamLogic)
@@ -295,10 +307,12 @@ export const SimulatedRun: StoryFn<StoryArgs> = function SimulatedRunStory({ ski
             error: null,
             created_at: startedAt,
             updated_at: startedAt,
+            is_stale: false,
         }
 
         actions.connectionOpened()
         actions.sessionUpdated(base as any)
+        wizardActiveSessionDetectorLogic.actions.markActive()
 
         const schedule: Array<{ atMs: number; tasks: TaskStatus[]; phase?: 'running' | 'completed' }> = [
             { atMs: 4_000, tasks: ['in_progress', 'pending', 'pending', 'pending', 'pending'] },

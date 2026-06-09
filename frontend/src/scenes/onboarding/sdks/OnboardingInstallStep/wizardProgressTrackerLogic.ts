@@ -189,7 +189,7 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
                 connecting: 'connecting…',
                 open: 'connected, waiting for wizard',
                 closed: 'stream closed',
-                error: 'transport error — reconnecting…',
+                error: 'connection error — reconnecting…',
                 idle: '',
             }
             const text = messages[status as string]
@@ -208,13 +208,18 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
                 actions.markSessionCurrent()
             }
             // Keep the global detector in sync so the FAB survives a navigation
-            // away from the install step. Active = fresh + non-terminal; once we
-            // hit a terminal phase, schedule a grace-period teardown so the FAB
-            // can show the completion / error UI before the stream tears down.
+            // away from the install step. Active = fresh + non-terminal; on the
+            // *transition* into a terminal phase, schedule a grace-period
+            // teardown so the FAB can show the completion / error UI before
+            // the stream tears down. Only fire on the transition — repeated
+            // terminal heartbeats / re-polls don't reset the clock (the
+            // detector's `scheduleMarkInactive` is also idempotent as a
+            // belt-and-braces guard).
             const isTerminal = session.run_phase === 'completed' || session.run_phase === 'error'
+            const wasTerminal = prev?.run_phase === 'completed' || prev?.run_phase === 'error'
             if (isFresh && !isTerminal) {
                 actions.markActive()
-            } else if (isTerminal) {
+            } else if (isTerminal && !wasTerminal) {
                 actions.scheduleMarkInactive()
             }
             if (!prev) {

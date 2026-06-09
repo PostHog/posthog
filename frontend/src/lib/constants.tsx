@@ -397,6 +397,7 @@ export const FEATURE_FLAGS = {
     ONBOARDING_SOCIAL_PROOF_INFO: 'onboarding-social-proof-info', // owner: @fercgomes #team-growth, payload overrides social proof strings per product
     ONBOARDING_WIZARD_INSTALLATION_IMPROVED_COPY: 'onboarding-wizard-installation-improved-copy', // owner: @fercgomes #team-growth multivariate=control,test
     ONBOARDING_WIZARD_SYNC: 'onboarding-wizard-sync', // owner: @fercgomes #team-growth multivariate=control,test — gates the live wizard sync progress panel
+    ONBOARDING_WIZARD_SYNC_KILLSWITCH: 'onboarding-wizard-sync-killswitch', // owner: @fercgomes #team-growth — emergency kill: unmounts FAB + detector and stops SSE reconnection (mirrors backend killswitch)
     OWNER_ONLY_BILLING: 'owner-only-billing', // owner: @pawelcebula #team-billing
     PAGE_REPORTS_AVERAGE_PAGE_VIEW: 'page-reports-average-page-view', // owner: @jordanm-posthog #team-web-analytics
     PAGE_REPORTS_RANKED_URL_SEARCH: 'page-reports-ranked-url-search', // owner: @jordanm-posthog #team-web-analytics
