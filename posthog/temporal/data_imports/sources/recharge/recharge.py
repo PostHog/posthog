@@ -100,9 +100,14 @@ def _build_initial_params(
         # created_at). Filter server-side on `<field>_min` and sort ascending on
         # the same field so the pipeline watermark advances monotonically.
         params[f"{incremental_field}_min"] = _format_incremental_value(db_incremental_field_last_value)
-        params["sort_by"] = f"{incremental_field}-asc"
+        sort_field = incremental_field
     else:
-        params["sort_by"] = f"{config.default_sort_field}-asc"
+        sort_field = config.default_sort_field
+
+    # Some endpoints (e.g. `/products` on the 2021-11 API) reject `sort_by`
+    # outright with a 422 — they rely on cursor pagination for stable ordering.
+    if config.supports_sort:
+        params["sort_by"] = f"{sort_field}-asc"
 
     return params
 

@@ -77,16 +77,24 @@ class TestBuildInitialParams:
         assert params["sort_by"] == "id-asc"
         assert not any(k.endswith("_min") for k in params)
 
-    def test_non_incremental_endpoint_never_filters(self) -> None:
-        # `collections` ships full-refresh only; even with incremental inputs set
-        # it must not emit a server-side timestamp filter.
+    @parameterized.expand(
+        [
+            # `collections` is full-refresh but still sortable -> keeps `id-asc`.
+            ("collections", {"limit": 250, "sort_by": "id-asc"}),
+            # `/products` on the 2021-11 API rejects `sort_by` outright -> limit only.
+            ("products", {"limit": 250}),
+        ]
+    )
+    def test_full_refresh_endpoint_ignores_incremental_inputs(self, endpoint: str, expected: dict) -> None:
+        # Full-refresh endpoints must never emit a `*_min` filter even when the
+        # user supplies incremental inputs; products additionally omits `sort_by`.
         params = _build_initial_params(
-            RECHARGE_ENDPOINTS["collections"],
+            RECHARGE_ENDPOINTS[endpoint],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
             incremental_field="updated_at",
         )
-        assert params["sort_by"] == "id-asc"
+        assert params == expected
         assert not any(k.endswith("_min") for k in params)
 
 
@@ -179,6 +187,24 @@ class TestGetRows:
         )
 
         assert mock_session.call_args.kwargs["redact_values"] == ("secret-token",)
+
+    @patch("posthog.temporal.data_imports.sources.recharge.recharge.make_tracked_session")
+    def test_products_request_omits_sort_by(self, mock_session: MagicMock) -> None:
+        # Regression: the 2021-11 `/products` endpoint 422s on `sort_by`, so the
+        # initial request must send only `limit` (no sort, no timestamp filter).
+        mock_session.return_value.get.return_value = _mock_response(
+            json_body={"products": [{"id": 1}], "next_cursor": None}
+        )
+
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        list(get_rows(api_key="t", endpoint="products", logger=MagicMock(), resumable_source_manager=manager))
+
+        requested_url = mock_session.return_value.get.call_args.args[0]
+        assert "products?limit=250" in requested_url
+        assert "sort_by" not in requested_url
+        assert "_min" not in requested_url
 
     @patch("posthog.temporal.data_imports.sources.recharge.recharge.make_tracked_session")
     def test_resumes_from_saved_cursor_when_endpoint_matches(self, mock_session: MagicMock) -> None:
