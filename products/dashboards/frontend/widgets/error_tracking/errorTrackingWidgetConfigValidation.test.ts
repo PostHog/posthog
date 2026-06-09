@@ -56,7 +56,7 @@ describe('validateErrorTrackingWidgetConfigInput', () => {
         }
     })
 
-    it('defaults filterTestAccounts to null when not provided in config', () => {
+    it('omits filterTestAccounts when not provided in config', () => {
         const result = errorTrackingWidgetConfigSchema.safeParse({
             limit: 10,
             orderBy: 'occurrences',
@@ -65,7 +65,7 @@ describe('validateErrorTrackingWidgetConfigInput', () => {
 
         expect(result.success).toBe(true)
         if (result.success) {
-            expect(result.data.filterTestAccounts).toBeNull()
+            expect(result.data.filterTestAccounts).toBeUndefined()
         }
     })
 })

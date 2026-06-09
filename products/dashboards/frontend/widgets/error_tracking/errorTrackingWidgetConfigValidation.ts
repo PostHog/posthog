@@ -84,9 +84,17 @@ export function validateErrorTrackingWidgetConfigInput(input: {
         return { success: false, fieldErrors: fieldErrorsFromZodError(parsed.error) }
     }
 
+    const formInput: ErrorTrackingWidgetFormInput = {
+        limit: parsed.data.limit,
+        orderBy: parsed.data.orderBy,
+        orderDirection: parsed.data.orderDirection,
+        dateRange: parsed.data.dateRange ?? null,
+        filterTestAccounts: parsed.data.filterTestAccounts ?? null,
+    }
+
     return {
         success: true,
-        config: buildErrorTrackingWidgetConfig(parsed.data, input.baseConfig),
+        config: buildErrorTrackingWidgetConfig(formInput, input.baseConfig),
     }
 }
 

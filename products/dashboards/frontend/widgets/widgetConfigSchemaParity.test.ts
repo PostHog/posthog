@@ -1,6 +1,4 @@
 // Guards FE Zod config shape against backend/OpenAPI pydantic drift (cheap SSOT check).
-import { z, type ZodTypeAny } from 'zod'
-
 import configPropertyMetadata from '../generated/widget-config-property-keys.json'
 import {
     errorTrackingWidgetConfigSchema,
@@ -13,19 +11,23 @@ const WIDGET_CONFIG_SCHEMAS = {
     session_replay_list: sessionReplayWidgetConfigSchema,
 } as const
 
+type SchemaNode = { _zod?: { def?: ZodDef } }
+
 type ZodDef = {
     type?: string
-    innerType?: ZodTypeAny
-    options?: readonly ZodTypeAny[]
-    valueType?: ZodTypeAny
-    element?: ZodTypeAny
+    innerType?: SchemaNode
+    options?: readonly SchemaNode[]
+    valueType?: SchemaNode
+    element?: SchemaNode
+    shape?: Record<string, SchemaNode>
+    entries?: Record<string, unknown>
 }
 
-function zodDef(schema: ZodTypeAny): ZodDef | undefined {
-    return (schema as { _zod?: { def?: ZodDef } })._zod?.def
+function zodDef(schema: SchemaNode): ZodDef | undefined {
+    return schema._zod?.def
 }
 
-function unwrapZod(schema: ZodTypeAny): ZodTypeAny {
+function unwrapZod(schema: SchemaNode): SchemaNode {
     let current = schema
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -34,99 +36,65 @@ function unwrapZod(schema: ZodTypeAny): ZodTypeAny {
             current = def.innerType ?? current
             continue
         }
-        if (current instanceof z.ZodOptional || current instanceof z.ZodNullable) {
-            current = current.unwrap()
-            continue
-        }
-        if (current instanceof z.ZodDefault) {
-            current = current.removeDefault()
-            continue
-        }
         break
     }
     return current
 }
 
-function zodPropertyTree(schema: ZodTypeAny): unknown {
+function zodPropertyTree(schema: SchemaNode): unknown {
     const unwrapped = unwrapZod(schema)
     const def = zodDef(unwrapped)
 
-    if (unwrapped instanceof z.ZodObject || def?.type === 'object') {
-        const shape = unwrapped.shape
-        return Object.fromEntries(
-            Object.entries(shape).map(([key, value]) => [key, zodPropertyTree(value as ZodTypeAny)])
-        )
+    if (def?.type === 'object' && def.shape) {
+        return Object.fromEntries(Object.entries(def.shape).map(([key, value]) => [key, zodPropertyTree(value)]))
     }
 
-    if (unwrapped instanceof z.ZodRecord || def?.type === 'record') {
-        const valueType = def?.valueType ?? (unwrapped as z.ZodRecord).valueSchema
+    if (def?.type === 'record' && def.valueType) {
         return {
-            $record: zodPropertyTree(valueType as ZodTypeAny),
+            $record: zodPropertyTree(def.valueType),
         }
     }
 
-    if (unwrapped instanceof z.ZodArray || def?.type === 'array') {
-        const element = def?.element ?? (unwrapped as z.ZodArray).element
+    if (def?.type === 'array' && def.element) {
         return {
-            $array: zodPropertyTree(element as ZodTypeAny),
+            $array: zodPropertyTree(def.element),
         }
     }
 
-    if (unwrapped instanceof z.ZodEnum || def?.type === 'enum') {
-        const options =
-            def && 'entries' in def && def.entries
-                ? Object.keys(def.entries as Record<string, unknown>)
-                : (unwrapped as z.ZodEnum<[string, ...string[]]>).options
-        return { $enum: [...options].sort() }
+    if (def?.type === 'enum' && def.entries) {
+        return { $enum: Object.keys(def.entries).sort() }
     }
 
-    if (unwrapped instanceof z.ZodUnion || def?.type === 'union') {
-        const options = def?.options ?? (unwrapped as z.ZodUnion<[ZodTypeAny, ...ZodTypeAny[]]>).options
-        const substantiveOptions = options.filter(
-            (option) => zodDef(unwrapZod(option))?.type !== 'null' && !(unwrapZod(option) instanceof z.ZodNull)
-        )
+    if (def?.type === 'union' && def.options) {
+        const substantiveOptions = def.options.filter((option) => zodDef(unwrapZod(option))?.type !== 'null')
         if (substantiveOptions.length === 1) {
-            return zodPropertyTree(substantiveOptions[0] as ZodTypeAny)
+            return zodPropertyTree(substantiveOptions[0]!)
         }
-        const objectArm = substantiveOptions.find(
-            (option) =>
-                unwrapZod(option as ZodTypeAny) instanceof z.ZodObject ||
-                zodDef(unwrapZod(option as ZodTypeAny))?.type === 'object'
-        )
+        const objectArm = substantiveOptions.find((option) => zodDef(unwrapZod(option))?.type === 'object')
         if (objectArm) {
-            return zodPropertyTree(objectArm as ZodTypeAny)
+            return zodPropertyTree(objectArm)
         }
-        const enumArm = substantiveOptions.find(
-            (option) =>
-                unwrapZod(option as ZodTypeAny) instanceof z.ZodEnum ||
-                zodDef(unwrapZod(option as ZodTypeAny))?.type === 'enum'
-        )
+        const enumArm = substantiveOptions.find((option) => zodDef(unwrapZod(option))?.type === 'enum')
         if (enumArm) {
-            return zodPropertyTree(enumArm as ZodTypeAny)
+            return zodPropertyTree(enumArm)
         }
-        const hasStringArm = substantiveOptions.some((option) => {
-            const unwrappedOption = unwrapZod(option as ZodTypeAny)
-            return unwrappedOption instanceof z.ZodString || zodDef(unwrappedOption)?.type === 'string'
-        })
-        const hasArrayArm = substantiveOptions.some((option) => {
-            const unwrappedOption = unwrapZod(option as ZodTypeAny)
-            return unwrappedOption instanceof z.ZodArray || zodDef(unwrappedOption)?.type === 'array'
-        })
+        const hasStringArm = substantiveOptions.some((option) => zodDef(unwrapZod(option))?.type === 'string')
+        const hasArrayArm = substantiveOptions.some((option) => zodDef(unwrapZod(option))?.type === 'array')
         if (hasStringArm && hasArrayArm) {
             return { $types: ['string'] }
         }
 
         const primitiveTypes = substantiveOptions
-            .map((option) => unwrapZod(option as ZodTypeAny))
+            .map((option) => unwrapZod(option))
             .flatMap((option) => {
                 const optionDef = zodDef(option)
-                if (option instanceof z.ZodString || optionDef?.type === 'string') {
+                if (optionDef?.type === 'string') {
                     return ['string']
                 }
-                if (option instanceof z.ZodNumber || optionDef?.type === 'number') {
+                if (optionDef?.type === 'number') {
                     return ['integer']
                 }
-                if (option instanceof z.ZodBoolean || optionDef?.type === 'boolean') {
+                if (optionDef?.type === 'boolean') {
                     return ['boolean']
                 }
                 return []
@@ -136,13 +104,13 @@ function zodPropertyTree(schema: ZodTypeAny): unknown {
         }
     }
 
-    if (unwrapped instanceof z.ZodString || def?.type === 'string') {
+    if (def?.type === 'string') {
         return { $type: 'string' }
     }
-    if (unwrapped instanceof z.ZodNumber || def?.type === 'number') {
+    if (def?.type === 'number') {
         return { $type: 'integer' }
     }
-    if (unwrapped instanceof z.ZodBoolean || def?.type === 'boolean') {
+    if (def?.type === 'boolean') {
         return { $type: 'boolean' }
     }
 

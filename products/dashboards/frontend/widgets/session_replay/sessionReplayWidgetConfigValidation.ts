@@ -76,9 +76,17 @@ export function validateSessionReplayWidgetConfigInput(input: {
         return { success: false, fieldErrors: fieldErrorsFromZodError(parsed.error) }
     }
 
+    const formInput: SessionReplayWidgetFormInput = {
+        limit: parsed.data.limit,
+        orderBy: parsed.data.orderBy,
+        orderDirection: parsed.data.orderDirection,
+        dateRange: parsed.data.dateRange ?? null,
+        filterTestAccounts: parsed.data.filterTestAccounts ?? null,
+    }
+
     return {
         success: true,
-        config: buildSessionReplayWidgetConfig(parsed.data, input.baseConfig),
+        config: buildSessionReplayWidgetConfig(formInput, input.baseConfig),
     }
 }
 
