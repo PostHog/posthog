@@ -89,7 +89,25 @@ tools:
             again later. Returns 409 if the transition is not allowed from the report's current status.
     inbox-source-configs-create:
         operation: signals_source_configs_create
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create signal source config
+        description: >
+            Create a signal source config for the current project, switching an inbox signal source on. A source ties a
+            `source_product` to a `source_type` and an `enabled` flag. Valid `source_product` values: session_replay,
+            llm_analytics, github, linear, zendesk, conversations, error_tracking, pganalyze, signals_scout, logs. Valid
+            `source_type` values: session_analysis_cluster, evaluation, issue, ticket, issue_created, issue_reopened,
+            issue_spiking, cross_source_issue, alert_state_change. To turn the Signals scout source on for a project,
+            create `source_product=signals_scout`, `source_type=cross_source_issue`, `enabled=true` — this is the
+            team-level source gate that scout emit also requires (the per-scout `emit` flag is set separately via
+            `signals-scout-config-update`). There is at most one config per (source_product, source_type) per project;
+            if one already exists, update it instead. Enabling the session_analysis_cluster source requires the
+            organization to have approved AI data processing.
     inbox-source-configs-destroy:
         operation: signals_source_configs_destroy
         enabled: false
@@ -120,7 +138,19 @@ tools:
                 - updated_at
     inbox-source-configs-partial-update:
         operation: signals_source_configs_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update signal source config
+        description: >
+            Partially update an existing signal source config by ID — typically to flip its `enabled` flag on or off, or
+            to adjust its `config`. Only the fields you pass are changed. To turn the Signals scout source off for a
+            project, set `enabled=false` on its `signals_scout` / `cross_source_issue` config. Enabling the
+            session_analysis_cluster source requires the organization to have approved AI data processing.
     inbox-source-configs-retrieve:
         operation: signals_source_configs_retrieve
         enabled: true
@@ -136,7 +166,19 @@ tools:
             enabled flag, configuration JSON, and current status of the underlying data import or workflow.
     inbox-source-configs-update:
         operation: signals_source_configs_update
-        enabled: false
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Replace signal source config
+        description: >
+            Replace an existing signal source config by ID (full update — `source_product` and `source_type` are
+            required; `enabled` and `config` are optional and keep their current values if omitted). Prefer
+            `inbox-source-configs-partial-update` when you only need to flip `enabled` or tweak `config`. Enabling the
+            session_analysis_cluster source requires the organization to have approved AI data processing.
     signals-scout-config-list:
         operation: signals_scout_config_list
         enabled: true
@@ -214,10 +256,12 @@ tools:
         title: List recent scout runs
         description: >
             Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout
-            to dedupe against work other runs already covered. Pass `text` for a case-insensitive substring match on the
-            run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` / `date_to`
-            (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results capped at
-            100.
+            to dedupe against work other runs already covered. Each row carries `emitted_count` (how many findings the
+            run surfaced to the inbox) and `emitted_finding_ids`. Pass `emitted=true` to return only runs that emitted
+            at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive
+            substring match on the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass
+            `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a
+            window. Results capped at 100.
     signals-scout-runs-retrieve:
         operation: signals_scout_runs_retrieve
         enabled: true
@@ -229,9 +273,10 @@ tools:
             idempotent: true
         title: Get a scout run by ID
         description: >
-            Return the full `SignalScoutRun` row, including the agent's end-of-run `summary`. Status, timestamps, and
-            error flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows queryable by `source_id =
-            run:<run_id>:finding:<finding_id>`. Strictly team-scoped — a UUID belonging to another team returns 404.
+            Return the full `SignalScoutRun` row, including the agent's end-of-run `summary`, `emitted_count`, and
+            `emitted_finding_ids`. Status, timestamps, and error flow from the linked `tasks.TaskRun`; emitted findings
+            live as `Signal` rows queryable by `source_id = run:<run_id>:finding:<finding_id>` (one per id in
+            `emitted_finding_ids`). Strictly team-scoped — a UUID belonging to another team returns 404.
     signals-scout-scratchpad-forget:
         operation: signals_scout_scratchpad_forget
         enabled: true

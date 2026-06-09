@@ -48,12 +48,6 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub length_caps: LengthCaps,
 
-    #[envconfig(default = "false")]
-    pub aggregate_by_event_name: bool,
-
-    #[envconfig(default = "false")]
-    pub emit_event_name: bool,
-
     #[envconfig(default = "0")]
     pub merger_seen_cache_capacity: usize,
 
@@ -92,11 +86,8 @@ pub struct LengthCaps {
     #[envconfig(default = "400")]
     pub max_property_key_len: usize,
 
-    #[envconfig(default = "255")]
+    #[envconfig(default = "10000")]
     pub max_property_value_len: usize,
-
-    #[envconfig(default = "200")]
-    pub max_event_name_len: usize,
 }
 
 #[derive(Clone)]
@@ -213,8 +204,7 @@ mod tests {
     fn length_caps_default_when_env_unset() {
         let caps = LengthCaps::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
         assert_eq!(caps.max_property_key_len, 400);
-        assert_eq!(caps.max_property_value_len, 255);
-        assert_eq!(caps.max_event_name_len, 200);
+        assert_eq!(caps.max_property_value_len, 10000);
     }
 
     #[test]
@@ -222,12 +212,10 @@ mod tests {
         let env = std::collections::HashMap::from([
             ("MAX_PROPERTY_KEY_LEN".to_string(), "500".to_string()),
             ("MAX_PROPERTY_VALUE_LEN".to_string(), "1000".to_string()),
-            ("MAX_EVENT_NAME_LEN".to_string(), "300".to_string()),
         ]);
         let caps = LengthCaps::init_from_hashmap(&env).unwrap();
         assert_eq!(caps.max_property_key_len, 500);
         assert_eq!(caps.max_property_value_len, 1000);
-        assert_eq!(caps.max_event_name_len, 300);
     }
 
     fn arb_team_list() -> impl Strategy<Value = Vec<i64>> {

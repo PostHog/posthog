@@ -116,6 +116,7 @@ jobs:
                       shouldRun:
                         # Any change that could affect E2E behavior triggers a run.
                         - playwright/**
+                        - 'products/*/frontend/e2e/**'
                         - .github/workflows/ci-e2e-playwright.yml
                         - 'ee/**'
                         - 'posthog/!(temporal/**)/**'
@@ -184,7 +185,7 @@ jobs:
         # the workload "is not resource constrained" even after sharding was removed).
         # Talk to #team-devex before changing.
         runs-on: depot-ubuntu-latest-8
-        timeout-minutes: 75
+        timeout-minutes: 45
         permissions:
             contents: read
             pull-requests: write
@@ -248,7 +249,8 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
+                  token: ${{ github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -284,6 +286,7 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-e2e-playwright.yml
+                  token: ${{ github.token }}
 
             # Workaround for SIGABRT (exit 134) raised after all tests pass.
             # See https://pytest-qt.readthedocs.io/en/latest/troubleshooting.html#tlambert03-setup-qt-libs
@@ -813,6 +816,7 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  token: ${{ github.token }}
 
             - name: Install VR CLI
               run: cd products/visual_review/cli && npm ci && npm run build && npm link

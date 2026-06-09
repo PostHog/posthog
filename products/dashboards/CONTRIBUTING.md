@@ -36,7 +36,10 @@ Layer table, registry shapes, copy/move, analytics, and typing details: [`.agent
 | MCP / REST                          | [`references/mcp.md`](../../.agents/skills/dashboard-widgets/references/mcp.md)                                             |
 | Keep skill docs in sync             | [`references/skill-maintenance.md`](../../.agents/skills/dashboard-widgets/references/skill-maintenance.md)                 |
 
-**Critical rule:** product RBAC is registry-driven — see [permissions-and-sharing.md § Product RBAC](../../.agents/skills/dashboard-widgets/references/permissions-and-sharing.md#product-rbac).
+**Critical rules:**
+
+- Product RBAC is registry-driven — see [permissions-and-sharing.md § Product RBAC](../../.agents/skills/dashboard-widgets/references/permissions-and-sharing.md#product-rbac).
+- **Charts/trends on a dashboard → insight tiles**, not new widget types — [architecture.md § Charts](../../.agents/skills/dashboard-widgets/references/architecture.md#charts--use-insight-tiles-not-widgets).
 
 ## Frontend / backend parity
 

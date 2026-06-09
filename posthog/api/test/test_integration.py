@@ -304,7 +304,10 @@ class TestEmailIntegration:
         assert integration.created_by == self.user
 
         mock_client.create_email_domain.assert_called_once_with(
-            "posthog.com", mail_from_subdomain="youmustnothavelikedmyemail", team_id=self.team.id
+            "posthog.com",
+            mail_from_subdomain="youmustnothavelikedmyemail",
+            team_id=self.team.id,
+            org_team_ids=[self.team.id],
         )
 
     @patch("posthog.models.integration.SESProvider")

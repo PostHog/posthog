@@ -38,6 +38,14 @@ describe('resolveMode', () => {
         expect(result).toEqual({ mode: 'cli', useSingleExec: true })
     })
 
+    it('LibreChat activates single exec', () => {
+        const result = resolveMode({
+            ...base,
+            clientProfile: profile({ clientName: 'LibreChat' }),
+        })
+        expect(result).toEqual({ mode: 'cli', useSingleExec: true })
+    })
+
     it('non-coding agent does NOT activate single exec', () => {
         const result = resolveMode({
             ...base,

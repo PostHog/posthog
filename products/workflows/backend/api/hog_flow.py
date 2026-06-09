@@ -32,11 +32,12 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.event_usage import EventSource, get_event_source
-from posthog.models import Cohort, Team
-from posthog.models.cohort.util import get_all_cohort_dependencies
+from posthog.models import Team
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test, create_hog_flow_scheduled_invocation
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.feature_flags.backend.user_blast_radius import (
     PERSON_BATCH_SIZE,
     get_user_blast_radius,
@@ -701,6 +702,12 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         # session auth, so live sizing while editing is unaffected.
         if self.action == "user_blast_radius":
             return ["hog_flow:read", "person:read"]
+        # A test invocation resolves the event's $groups into real group properties server-side, so a
+        # hog_flow:write-only token could branch on group_0.properties and read the returned logs/variables
+        # as a group-property oracle. Require group:read on top. The web builder uses session auth, so
+        # running tests while editing is unaffected.
+        if self.action == "invocations":
+            return ["hog_flow:write", "group:read"]
         return None
 
     def get_serializer_class(self) -> type[BaseSerializer]:

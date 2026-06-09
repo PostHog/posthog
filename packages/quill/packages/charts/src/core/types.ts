@@ -108,6 +108,11 @@ export interface PointClickData<Meta = unknown> {
     /** Cursor position in pixels relative to the chart wrapper at click time, or `null`
      *  when unavailable. Same origin as `TooltipContext.hoverPosition`. */
     cursor: { x: number; y: number } | null
+    /** Grouped layouts only: `true` when the cursor was in the bar's band slot but beyond its
+     *  filled value extent — i.e. the track region above (vertical) or past (horizontal) a short
+     *  bar. Lets consumers route "clicked the empty remainder" differently from "clicked the bar"
+     *  (e.g. funnel drop-off vs converted). `undefined` outside grouped click resolution. */
+    inTrackArea?: boolean
 }
 
 /** Context object passed to the `renderTooltip` render prop and tooltip event callbacks. */
@@ -230,6 +235,8 @@ export type ValueDomain =
 
 /** Bar appearance + band-layout details. Grouped under {@link BarChartConfig.bars} to keep the
  *  config flat at the top level. `barLayout` stays top-level as the primary discriminator. */
+export type BarFillStyle = 'flat' | 'gradient' | 'gloss'
+
 export interface BarsConfig {
     /** Corner radius in px for the rounded end(s) of a bar. Stacked bars only round the topmost
      *  segment. Defaults to 0 (square). */
@@ -241,6 +248,9 @@ export interface BarsConfig {
     track?: boolean
     /** Drop shadow under each bar so it reads as layered over a `track`. */
     shadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
+    /** Bar fill treatment. `flat` (default) is a solid color. `gradient` is a smooth diagonal
+     *  light→dark sheen. `gloss` is a curved radial highlight for a glassy look. */
+    fillStyle?: BarFillStyle
     /** Stacked layout only — use d3.stackOffsetDiverging so negative values stack below the zero
      *  baseline (positives above). Default `false` clamps negatives to 0. */
     divergingStack?: boolean

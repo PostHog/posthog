@@ -265,6 +265,13 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         """
         return self.scim_enabled and bool(self.scim_bearer_token)
 
+    @property
+    def has_id_jag(self) -> bool:
+        """
+        Returns whether ID-JAG (XAA) is configured for this domain.
+        """
+        return bool(self.id_jag_issuer_url)
+
     def _complete_verification(self) -> tuple["OrganizationDomain", bool]:
         self.last_verification_retry = None
         self.verified_at = timezone.now()

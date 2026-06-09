@@ -1,11 +1,10 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual } from 'lib/utils'
 import { hasRecentAIEvents } from 'lib/utils/aiEventsUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -20,6 +19,7 @@ import { AnyPropertyFilter, Breadcrumb } from '~/types'
 
 import type { aiObservabilitySharedLogicType } from './aiObservabilitySharedLogicType'
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from './clusters/constants'
+import { parserRecipesLogic } from './settings/parserRecipesLogic'
 
 export const AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID = 'ai-observability-data'
 
@@ -110,6 +110,9 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             `${props?.personId || 'aiObservabilityScene'}::${props?.tabId || ''}`
     ),
     connect(() => ({
+        // Mount the parser-recipe logic so a team's custom recipes reach the trace-rendering
+        // normalizer on any AI observability page, not just the settings scene.
+        logic: [parserRecipesLogic],
         values: [
             sceneLogic,
             ['sceneKey'],
@@ -255,7 +258,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         ],
     }),
 
-    tabAwareUrlToAction(({ actions, values, cache }) => {
+    urlToAction(({ actions, values, cache }) => {
         const KNOWN_PARAMS = new Set(['filters', 'date_from', 'date_to', 'filter_test_accounts'])
 
         function applySearchParams(
@@ -349,7 +352,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         }
     }),
 
-    tabAwareActionToUrl(() => {
+    trackedActionToUrl(() => {
         // Only preserve params that belong to the shared logic — drop stale
         // params from other pages (e.g. event, timestamp, msg from trace view).
         function sharedSearchParams(): Record<string, unknown> {

@@ -244,6 +244,11 @@ class _LogsQueryBodySerializer(serializers.Serializer):
     )
     limit = serializers.IntegerField(required=False, default=100, help_text="Max results (1-1000).")
     after = serializers.CharField(required=False, help_text="Pagination cursor from previous response.")
+    excludeAttributes = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false.",
+    )
 
 
 class _LogsQueryRequestSerializer(serializers.Serializer):
@@ -659,6 +664,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             "filterGroup": self._normalize_filter_group(query_data.get("filterGroup", None)),
             "resourceFingerprint": query_data.get("resourceFingerprint", None),
             "limit": requested_limit + 1,  # Fetch limit plus 1 to see if theres another page
+            "excludeAttributes": query_data.get("excludeAttributes", False),
         }
         if live_logs_checkpoint:
             logs_query_params["liveLogsCheckpoint"] = live_logs_checkpoint

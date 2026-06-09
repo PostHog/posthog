@@ -151,6 +151,9 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
     provider = serializers.ChoiceField(choices=["ses", "maildev"] if settings.DEBUG else ["ses"])
     mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
 
+    def validate_email(self, value: str) -> str:
+        return value.lower()
+
 
 class GitHubRepoSerializer(serializers.Serializer):
     id = serializers.IntegerField()
@@ -631,6 +634,16 @@ class IntegrationViewSet(
                 stripe_integration.clear_posthog_secrets()
             except Exception as e:
                 capture_exception(e)
+        elif instance.kind == "email" and instance.config.get("provider") == "ses":
+            domain = instance.config.get("domain")
+            if (
+                domain
+                and not Integration.objects.filter(kind="email", config__domain=domain).exclude(pk=instance.pk).exists()
+            ):
+                try:
+                    EmailIntegration(instance).ses_provider.delete_identity(domain)
+                except Exception as e:
+                    capture_exception(e)
 
         if instance.kind == "github" and instance.integration_id:
             # Team integrations own the installation; personal ones are subordinate. When the

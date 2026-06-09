@@ -8,8 +8,7 @@ from django.utils import timezone
 
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
-from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricResult
 
 

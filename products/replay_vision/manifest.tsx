@@ -31,6 +31,13 @@ export const manifest: ProductManifest = {
             iconType: 'replay_vision',
             layout: 'app-container',
         },
+        ReplayVisionScannerEditor: {
+            name: 'Replay vision scanner editor',
+            import: () => import('./frontend/replay_scanners/ScannerEditorScene'),
+            projectBased: true,
+            iconType: 'replay_vision',
+            layout: 'app-container',
+        },
         ReplayVisionObservation: {
             name: 'Replay vision observation',
             import: () => import('./frontend/observations/ReplayObservation'),
@@ -43,6 +50,8 @@ export const manifest: ProductManifest = {
         '/replay-vision': ['ReplayVision', 'replayVision'],
         '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
         '/replay-vision/templates': ['ReplayVisionTemplates', 'replayVisionTemplates'],
+        '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
+        '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
         '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     },
     redirects: {},
@@ -51,6 +60,8 @@ export const manifest: ProductManifest = {
             /** @param id A UUID or 'new'. Omit for the scanner list page. */
             (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
         replayVisionTemplates: (): string => '/replay-vision/templates',
+        replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
+        replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
         replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
     },
     fileSystemTypes: {},

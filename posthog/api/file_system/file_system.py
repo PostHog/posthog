@@ -19,6 +19,20 @@ from posthog.api.file_system.deletion import (
     undo_delete as undo_delete_object,
 )
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
+from posthog.api.file_system.folder_instructions import (
+    FolderInstructionsPublishSerializer,
+    FolderInstructionsSerializer,
+    FolderInstructionsVersionSerializer,
+)
+from posthog.api.file_system.folder_instructions_service import (
+    FolderInstructionsVersionConflictError,
+    FolderInstructionsVersionLimitError,
+    delete_folder_instructions,
+    ensure_blank_folder_instructions,
+    get_folder_instructions_versions,
+    get_latest_folder_instructions,
+    publish_folder_instructions,
+)
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -169,6 +183,19 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # Product surface this tree serves. Subclass and override to expose a different surface
     # (e.g. "desktop") on its own route. The default surface also matches legacy NULL rows.
     file_system_surface: str = DEFAULT_SURFACE
+    # GET /instructions/ and /instructions/versions/ are reads; PUT/PATCH/DELETE on
+    # /instructions/ resolve to `publish_instructions` / `delete_instructions` via DRF's
+    # method mapping, so they go in the write bucket.
+    scope_object_read_actions = ["list", "retrieve", "instructions", "instructions_versions"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "publish_instructions",
+        "delete_instructions",
+    ]
 
     def _basename_regex(self, value: str) -> str:
         return rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*$"
@@ -913,6 +940,117 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
     """
     The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
     scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+
+    Adds per-folder, versioned markdown instructions describing the contents of a folder.
     """
 
     file_system_surface = "desktop"
+
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        super().perform_create(serializer)
+        instance = cast(FileSystem, serializer.instance)
+        self._ensure_blank_instructions_for_created_path(instance)
+
+    def _ensure_blank_instructions_for_created_path(self, instance: FileSystem) -> None:
+        """Give every desktop folder along the created path a blank instruction set.
+
+        Covers the created folder itself plus any parent folders auto-created by the serializer,
+        so a "channel" always has instructions from the moment it exists.
+        """
+        segments = split_path(instance.path)
+        candidate_paths = [join_path(segments[:depth_index]) for depth_index in range(1, len(segments))]
+        if instance.type == "folder":
+            candidate_paths.append(instance.path)
+        if not candidate_paths:
+            return
+
+        folders = self._scope_by_project(FileSystem.objects.filter(path__in=candidate_paths, type="folder"))
+        user = self.request.user if isinstance(self.request.user, User) else None
+        for folder in folders:
+            ensure_blank_folder_instructions(folder, user=user)
+
+    def _get_folder_or_400(self) -> FileSystem | Response:
+        instance = self.get_object()
+        if instance.type != "folder":
+            return Response(
+                {"detail": "Instructions can only be attached to folders."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return instance
+
+    @extend_schema(responses={200: FolderInstructionsSerializer})
+    @action(methods=["GET"], detail=True)
+    def instructions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Return the latest non-deleted instructions for this folder."""
+        folder = self._get_folder_or_400()
+        if isinstance(folder, Response):
+            return folder
+
+        latest = get_latest_folder_instructions(folder)
+        if latest is None:
+            return Response({"detail": "This folder has no instructions."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(FolderInstructionsSerializer(latest).data)
+
+    @extend_schema(request=FolderInstructionsPublishSerializer, responses={200: FolderInstructionsSerializer})
+    @instructions.mapping.put
+    @instructions.mapping.patch
+    def publish_instructions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Publish a new version of the folder's instructions."""
+        folder = self._get_folder_or_400()
+        if isinstance(folder, Response):
+            return folder
+
+        payload = FolderInstructionsPublishSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        try:
+            published = publish_folder_instructions(
+                folder,
+                content=payload.validated_data["content"],
+                user=cast(User, request.user),
+                base_version=payload.validated_data.get("base_version"),
+            )
+        except FolderInstructionsVersionConflictError as err:
+            return Response(
+                {
+                    "detail": "The instructions changed since you opened them. Reload the latest version and try again.",
+                    "current_version": err.current_version,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        except FolderInstructionsVersionLimitError as err:
+            return Response(
+                {"detail": f"This folder has reached the maximum of {err.max_version} instruction versions."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(FolderInstructionsSerializer(published).data)
+
+    @extend_schema(request=None, responses={204: None})
+    @instructions.mapping.delete
+    def delete_instructions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Soft-delete every version of this folder's instructions."""
+        folder = self._get_folder_or_400()
+        if isinstance(folder, Response):
+            return folder
+
+        deleted_count = delete_folder_instructions(folder)
+        if deleted_count == 0:
+            return Response({"detail": "This folder has no instructions."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(responses={200: FolderInstructionsVersionSerializer(many=True)})
+    @action(methods=["GET"], detail=True, url_path="instructions/versions")
+    def instructions_versions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the version history for this folder's instructions, newest first."""
+        folder = self._get_folder_or_400()
+        if isinstance(folder, Response):
+            return folder
+
+        versions = get_folder_instructions_versions(folder)
+        page = self.paginate_queryset(versions)
+        if page is not None:
+            return self.get_paginated_response(FolderInstructionsVersionSerializer(page, many=True).data)
+        return Response(FolderInstructionsVersionSerializer(versions, many=True).data)

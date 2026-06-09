@@ -43,6 +43,7 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import IntegrityError, generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -163,6 +164,7 @@ class Integration(models.Model):
         GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_PUBSUB = "google-pubsub"
+        GOOGLE_SEARCH_CONSOLE = "google-search-console"
         GOOGLE_SHEETS = "google-sheets"
         HUBSPOT = "hubspot"
         INTERCOM = "intercom"
@@ -295,6 +297,7 @@ class OauthIntegration:
         "salesforce",
         "hubspot",
         "google-ads",
+        "google-search-console",
         "google-sheets",
         "snapchat",
         "linkedin-ads",
@@ -400,6 +403,22 @@ class OauthIntegration:
                 client_id=settings.GOOGLE_ADS_APP_CLIENT_ID,
                 client_secret=settings.GOOGLE_ADS_APP_CLIENT_SECRET,
                 scope="https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
+                id_path="sub",
+                name_path="email",
+            )
+        elif kind == "google-search-console":
+            if not settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID or not settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET:
+                raise NotImplementedError("Google Search Console app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://oauth2.googleapis.com/token",
+                client_id=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID,
+                client_secret=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET,
+                scope="https://www.googleapis.com/auth/webmasters.readonly https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
@@ -1973,7 +1992,7 @@ class EmailIntegration:
     def create_native_integration(
         cls, config: dict, team_id: int, organization_id: str, created_by: User | None = None
     ) -> Integration:
-        email_address: str = config["email"]
+        email_address: str = config["email"].lower()
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
         mail_from_subdomain: str = config.get("mail_from_subdomain", "feedback")
@@ -1994,7 +2013,13 @@ class EmailIntegration:
         # Create domain in the appropriate provider
         if provider == "ses":
             ses = SESProvider()
-            ses.create_email_domain(domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id)
+            org_team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
+            ses.create_email_domain(
+                domain,
+                mail_from_subdomain=mail_from_subdomain,
+                team_id=team_id,
+                org_team_ids=org_team_ids,
+            )
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:
@@ -3291,7 +3316,7 @@ class StripeIntegration:
 
     # These are the scopes we'll give Stripe when creating a local OAuth App
     # and sending them access
-    SCOPES = " ".join(
+    SCOPES: str = " ".join(
         [
             "customer_journey:read",
             "query:read",

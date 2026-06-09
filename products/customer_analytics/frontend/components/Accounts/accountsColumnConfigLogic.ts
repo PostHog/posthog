@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -15,6 +16,7 @@ import type { DataWarehouseViewLink } from '~/types'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import type { accountsColumnConfigLogicType } from './accountsColumnConfigLogicType'
+import { AccountsEvents } from './constants'
 
 // Mandatory — the backend emits it as `tuple(name, external_id, id)` so the
 // row identity (id) and copy-able external_id ride along with the display name.
@@ -31,6 +33,21 @@ export const ACCOUNTS_HOGQL_DEFAULT_SELECT: string[] = [
 
 function ensureNameColumn(columns: string[]): string[] {
     return columns.includes(ACCOUNTS_NAME_COLUMN) ? columns : [ACCOUNTS_NAME_COLUMN, ...columns]
+}
+
+export function diffColumnConfiguration(
+    previous: string[],
+    next: string[]
+): { changed: boolean; added: number; removed: number; reordered: boolean } {
+    const previousSet = new Set(previous)
+    const nextSet = new Set(next)
+    const added = next.filter((column) => !previousSet.has(column)).length
+    const removed = previous.filter((column) => !nextSet.has(column)).length
+    const reordered = !objectsEqual(
+        previous.filter((column) => nextSet.has(column)),
+        next.filter((column) => previousSet.has(column))
+    )
+    return { changed: added > 0 || removed > 0 || reordered, added, removed, reordered }
 }
 
 export const ACCOUNTS_COLUMN_CONFIG_KEY = 'customer_analytics_accounts_columns'
@@ -271,6 +288,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         saveColumns: async () => {
             const teamId = values.currentTeamId || undefined
             const columns = values.selectColumns
+            const previousColumns = values.savedColumnConfiguration?.columns ?? ACCOUNTS_HOGQL_DEFAULT_SELECT
             try {
                 if (values.savedColumnConfiguration?.id) {
                     await api.columnConfigurations.update({
@@ -286,6 +304,16 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                     actions.loadSavedColumnConfigurationSuccess({ id: response.id, columns: response.columns || [] })
                 }
                 lemonToast.success('Columns saved')
+                const diff = diffColumnConfiguration(previousColumns, columns)
+                if (diff.changed) {
+                    posthog.capture(AccountsEvents.ColumnsSaved, {
+                        column_count: columns.length,
+                        columns,
+                        added_count: diff.added,
+                        removed_count: diff.removed,
+                        reordered: diff.reordered,
+                    })
+                }
             } catch (error) {
                 posthog.captureException(error as Error, { scope: 'accountsColumnConfigLogic.saveColumns' })
                 lemonToast.error('Failed to save columns')

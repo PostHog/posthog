@@ -4,6 +4,8 @@ export {
     WidgetCardBodyMessage,
     WidgetCardBodySkeleton,
     WidgetCardContent,
+    WidgetCardSharedPlaceholderBody,
+    type WidgetCardSharedPlaceholderCopy,
     WidgetLoadingState,
 } from './WidgetCardBody'
 export {

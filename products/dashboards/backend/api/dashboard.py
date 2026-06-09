@@ -12,7 +12,6 @@ from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
 from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
-from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
@@ -29,7 +28,6 @@ from asgiref.sync import sync_to_async
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from opentelemetry import trace
-from pydantic import BaseModel
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
@@ -43,13 +41,12 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
-from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
@@ -60,7 +57,6 @@ from posthog.helpers.trigram_search import (
     MIN_NAME_TRIGRAM_SIMILARITY,
     normalize_search_term,
 )
-from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.activity_logging.activity_log import ActivityScope, Detail, changes_between, log_activity
 from posthog.models.file_system.file_system import create_or_update_file, delete_file
 from posthog.models.quick_filter import QuickFilter
@@ -73,16 +69,21 @@ from posthog.rbac.user_access_control import UserAccessControl, UserAccessContro
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
+from posthog.slo.context import SloSpec, slo_operation
+from posthog.slo.types import SloArea, SloOperation
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
 
 from products.ai_observability.backend.dashboard_templates import get_ai_observability_default_template
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.dashboards.backend.api.dashboard_ai import generate_refresh_analysis
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
-from products.dashboards.backend.api.widget_openapi_serializers import DashboardWidgetConfigField
+from products.dashboards.backend.api.widget_openapi_serializers import (
+    WIDGET_BATCH_ADD_OPENAPI_HELP,
+    AddDashboardWidgetRequestOpenApi,
+    DashboardWidgetConfigField,
+)
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -111,7 +112,6 @@ from products.product_analytics.backend.api.insight import (
     InsightSerializer,
     InsightViewSet,
 )
-from products.product_analytics.backend.api.insight_suggestions import summarize_insight_result
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -172,25 +172,47 @@ class _RunWidgetQueryWorkItem(TypedDict):
     user: User | None
 
 
-def _run_widget_query(team: Team, work_item: _RunWidgetQueryWorkItem) -> dict[str, Any]:
+def _run_widget_query(
+    team: Team,
+    work_item: _RunWidgetQueryWorkItem,
+    *,
+    dashboard_id: int,
+    distinct_id: str,
+) -> dict[str, Any]:
     tile_id = work_item["tile_id"]
     widget_type = work_item["widget_type"]
-    try:
-        result = work_item["query_fn"](team, work_item["config"], user=work_item["user"])
-        return {
-            "tile_id": tile_id,
+
+    with slo_operation(
+        spec=SloSpec(
+            distinct_id=distinct_id,
+            area=SloArea.ANALYTIC_PLATFORM,
+            operation=SloOperation.DASHBOARD_WIDGET_DELIVERY,
+            team_id=team.id,
+            resource_id=str(tile_id),
+        ),
+        properties={
             "widget_type": widget_type,
-            "result": result,
-            "error": None,
-        }
-    except Exception:
-        logger.exception("dashboard_run_widgets_failed", tile_id=tile_id, widget_type=widget_type)
-        return {
+            "dashboard_id": dashboard_id,
             "tile_id": tile_id,
-            "widget_type": widget_type,
-            "result": None,
-            "error": "Widget query failed. Please try again later.",
-        }
+        },
+    ) as slo:
+        try:
+            result = work_item["query_fn"](team, work_item["config"], user=work_item["user"])
+            return {
+                "tile_id": tile_id,
+                "widget_type": widget_type,
+                "result": result,
+                "error": None,
+            }
+        except Exception:
+            logger.exception("dashboard_run_widgets_failed", tile_id=tile_id, widget_type=widget_type)
+            slo.fail()
+            return {
+                "tile_id": tile_id,
+                "widget_type": widget_type,
+                "result": None,
+                "error": "Widget query failed. Please try again later.",
+            }
 
 
 def _tile_rects_overlap(rect_a: dict[str, int], rect_b: dict[str, int]) -> bool:
@@ -474,8 +496,8 @@ class MoveTileRequestSerializer(serializers.Serializer):
 
 
 class DashboardWidgetCoreRequestSerializer(serializers.Serializer):
-    widget_type = serializers.CharField(
-        max_length=64,
+    widget_type = serializers.ChoiceField(
+        choices=sorted(EXPECTED_WIDGET_TYPES),
         help_text=WIDGET_TYPE_API_HELP,
     )
     config = DashboardWidgetConfigField(
@@ -519,8 +541,8 @@ class AddDashboardWidgetRequestSerializer(DashboardWidgetCoreRequestSerializer):
 
 
 class DashboardPatchWidgetSerializer(DashboardWidgetCoreRequestSerializer):
-    widget_type = serializers.CharField(
-        max_length=64,
+    widget_type = serializers.ChoiceField(
+        choices=sorted(EXPECTED_WIDGET_TYPES),
         required=False,
         help_text=WIDGET_TYPE_API_HELP,
     )
@@ -538,6 +560,17 @@ class AddDashboardWidgetsBatchRequestSerializer(serializers.Serializer):
         help_text=(
             f"Widget tiles to add atomically (1–{MAX_WIDGETS_BATCH_SIZE}). Use a single-element list to add one widget."
         ),
+    )
+
+
+class AddDashboardWidgetsBatchRequestOpenApiSerializer(serializers.Serializer):
+    """OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents."""
+
+    widgets = serializers.ListField(
+        child=AddDashboardWidgetRequestOpenApi,
+        min_length=1,
+        max_length=MAX_WIDGETS_BATCH_SIZE,
+        help_text=f"{WIDGET_BATCH_ADD_OPENAPI_HELP} (1–{MAX_WIDGETS_BATCH_SIZE} per request).",
     )
 
 
@@ -571,29 +604,6 @@ class CanEditDashboard(BasePermission):
         if request.method in SAFE_METHODS:
             return True
         return view.user_permissions.dashboard(dashboard).can_edit
-
-
-class ClientResultItemSerializer(serializers.Serializer):
-    insight_name = serializers.CharField(required=True)
-
-    # `data` shadows Serializer.data so we declare it via get_fields to avoid the mypy conflict
-    def get_fields(self):
-        fields = super().get_fields()
-        fields["data"] = serializers.JSONField(required=True)
-        return fields
-
-    def validate_data(self, value):
-        if not value:
-            raise serializers.ValidationError("Data cannot be empty.")
-        return value
-
-
-class DashboardSnapshotSerializer(serializers.Serializer):
-    client_results = serializers.DictField(
-        child=ClientResultItemSerializer(),
-        required=False,
-        allow_null=True,
-    )
 
 
 class TextSerializer(serializers.ModelSerializer):
@@ -677,6 +687,36 @@ class DashboardWidgetSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
 
 
+class SharedDashboardWidgetMetadataSerializer(serializers.ModelSerializer):
+    """Tile header metadata for shared dashboards — no user fields or live query results."""
+
+    widget_type = serializers.CharField(
+        max_length=64,
+        help_text="Widget type identifier from the dashboard widget catalog.",
+    )
+    name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional custom display name for this widget tile. Falls back to the widget catalog label when unset.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional markdown description shown on the dashboard tile when enabled.",
+    )
+    config = DashboardWidgetConfigField(
+        required=False,
+        help_text="Widget-specific configuration JSON for this widget type.",
+    )
+
+    class Meta:
+        model = DashboardWidget
+        fields = ["id", "widget_type", "name", "description", "config"]
+        read_only_fields = ["id", "widget_type", "name", "description", "config"]
+
+
 class DashboardTileSerializer(serializers.ModelSerializer):
     id: serializers.IntegerField = serializers.IntegerField(required=False)
     insight = InsightSerializer()
@@ -704,8 +744,10 @@ class DashboardTileSerializer(serializers.ModelSerializer):
     def to_representation(self, instance: DashboardTile):
         representation = super().to_representation(instance)
 
-        if self.context.get("is_shared") and representation.get("widget"):
-            representation["widget"] = None
+        if self.context.get("is_shared") and instance.widget_id is not None:
+            representation["widget"] = SharedDashboardWidgetMetadataSerializer(
+                instance.widget, context=self.context
+            ).data
 
         representation["order"] = self.context.get("order", None)
 
@@ -1118,7 +1160,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 "from_template": bool(use_template),
                 "template_key": use_template,
                 "duplicated": bool(use_dashboard),
-                "dashboard_id": use_dashboard,
+                "duplicated_from_dashboard_id": use_dashboard,
             },
             team=dashboard.team,
             request=request,
@@ -1382,7 +1424,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             raise serializers.ValidationError({"widget": "widget_type cannot be changed."})
 
         if "config" in widget_data:
-            widget.config = validate_widget_config(widget.widget_type, widget_data["config"])
+            widget.config = validate_widget_config(widget.widget_type, widget_data["config"], team_id=widget.team_id)
         if "name" in widget_data:
             widget.name = widget_data["name"] or None
         if "description" in widget_data:
@@ -1936,54 +1978,6 @@ class DashboardsViewSet(
 
         return queryset
 
-    def _get_cached_results_for_analysis(self, dashboard: Dashboard, request: Request) -> dict[int, Any]:
-        """
-        Fetch currently cached results for all insight tiles on the dashboard.
-        Uses CACHE_ONLY_NEVER_CALCULATE to ensure we get the 'before' state without triggering recalc.
-        Returns dict mapping tile_id to summarized result data.
-        """
-        results = {}
-        tiles = dashboard.tiles.filter(insight__isnull=False).select_related("insight")
-        analytics_props = get_request_analytics_properties(request)
-
-        for tile in tiles:
-            insight = tile.insight
-            if not insight or not insight.query:
-                continue
-
-            try:
-                query = InsightVizNode.model_validate(insight.query)
-            except Exception:
-                logger.warning("dashboard_refresh_analysis_query_validation_failed", tile_id=tile.id)
-                continue
-
-            try:
-                result_ctx = process_query_model(
-                    self.team,
-                    query,
-                    execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-                    user=request.user if request.user.is_authenticated else None,
-                    analytics_props=analytics_props,
-                )
-
-                result_data = None
-                if isinstance(result_ctx, BaseModel):
-                    result_dict = result_ctx.model_dump()
-                    result_data = result_dict.get("results") or result_dict.get("result")
-                elif isinstance(result_ctx, dict):
-                    result_data = result_ctx.get("results") or result_ctx.get("result")
-
-                if result_data:
-                    results[tile.id] = {
-                        "insight_name": insight.name or insight.derived_name,
-                        "data": summarize_insight_result(result_data),
-                    }
-            except Exception:
-                logger.warning("dashboard_refresh_analysis_query_processing_failed", tile_id=tile.id)
-                continue
-
-        return results
-
     @extend_schema(parameters=[VARIABLES_OVERRIDE_PARAM, FILTERS_OVERRIDE_PARAM])
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1996,77 +1990,6 @@ class DashboardsViewSet(
 
         response = Response(data)
         return response
-
-    def _validate_ai_feature_access(self) -> None:
-        """Validate that AI data processing is approved by the organization.
-
-        Mirrors `InsightsViewSet._validate_ai_feature_access`. The dashboard refresh
-        flow is `snapshot` -> `analyze_refresh_result`; both touch the same data the
-        OpenAI call ultimately sees, so both gate on this check.
-        """
-        if not self.organization.is_ai_data_processing_approved:
-            raise exceptions.PermissionDenied("AI data processing must be approved by your organization")
-
-    @action(methods=["POST"], detail=True)
-    def snapshot(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """
-        Snapshot the current dashboard state (from cache) for AI analysis.
-        Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
-        """
-        self._validate_ai_feature_access()
-        dashboard = self.get_object()
-
-        input_serializer = DashboardSnapshotSerializer(data=request.data)
-        input_serializer.is_valid(raise_exception=True)
-        client_results = input_serializer.validated_data.get("client_results")
-
-        if client_results:
-            before_results = {
-                int(tile_id): {
-                    "insight_name": item["insight_name"],
-                    "data": summarize_insight_result(item["data"]),
-                }
-                for tile_id, item in client_results.items()
-            }
-        else:
-            before_results = self._get_cached_results_for_analysis(dashboard, request)
-
-        cache_key = f"dashboard_refresh_before_{dashboard.id}_{request.user.id}_{now().timestamp()}"
-        cache.set(cache_key, before_results, timeout=1800)  # 30 minutes
-        return Response({"cache_key": cache_key})
-
-    @action(methods=["POST"], detail=True)
-    def analyze_refresh_result(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """
-        Generate AI analysis comparing before/after dashboard refresh.
-        Expects cache_key in request body pointing to the stored 'before' state.
-        """
-        self._validate_ai_feature_access()
-
-        dashboard = self.get_object()
-        cache_key = request.data.get("cache_key")
-
-        if not cache_key:
-            return Response({"error": "cache_key is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Get 'before' state from cache
-        before_results = cache.get(cache_key)
-        if before_results is None:
-            return Response(
-                {"error": "Analysis context expired or not found. Please refresh the dashboard again."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Get 'after' state (should be fresh in cache now)
-        after_results = self._get_cached_results_for_analysis(dashboard, request)
-
-        # Generate AI analysis
-        analysis = generate_refresh_analysis(before_results, after_results, dashboard)
-
-        if not analysis:
-            return Response({"result": "No significant changes detected in the dashboard data."})
-
-        return Response({"result": analysis})
 
     # ******************************************
     # /projects/:id/dashboard/:id/stream_tiles
@@ -2587,6 +2510,7 @@ class DashboardsViewSet(
 
         dashboard = self.get_object()
         user_access_control = UserAccessControl(user=cast(User, request.user), team=self.team)
+        distinct_id = str(cast(User, request.user).distinct_id)
 
         tiles_by_id = {
             tile.id: tile
@@ -2665,7 +2589,13 @@ class DashboardsViewSet(
             max_workers = min(RUN_WIDGETS_QUERY_CONCURRENCY, len(query_work_items))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {
-                    executor.submit(_run_widget_query, self.team, work_item): work_item["tile_id"]
+                    executor.submit(
+                        _run_widget_query,
+                        self.team,
+                        work_item,
+                        dashboard_id=dashboard.id,
+                        distinct_id=distinct_id,
+                    ): work_item["tile_id"]
                     for work_item in query_work_items
                 }
                 for future in as_completed(futures):
@@ -2683,7 +2613,7 @@ class DashboardsViewSet(
         return Response({"results": get_widget_catalog_entries()})
 
     @extend_schema(
-        request=AddDashboardWidgetsBatchRequestSerializer,
+        request=AddDashboardWidgetsBatchRequestOpenApiSerializer,
         responses={201: AddDashboardWidgetsBatchResponseSerializer},
     )
     @action(methods=["POST"], detail=True, url_path="widgets/batch", required_scopes=["dashboard:write"])
@@ -2844,7 +2774,6 @@ class DashboardsViewSet(
                     "template_key": dashboard_template.template_name,
                     **template_scope_props,
                     "duplicated": False,
-                    "dashboard_id": dashboard.pk,
                     "creation_context": creation_context,
                 },
                 team=dashboard.team,

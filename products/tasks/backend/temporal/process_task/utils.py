@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.core.cache import cache
 
 from pydantic import BaseModel
 
@@ -16,6 +15,7 @@ from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, h
 
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend.constants import InitialPermissionMode
+from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -204,13 +204,13 @@ def mark_mcp_token_issued(run_id: str) -> None:
     The cache entry self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so
     `should_refresh_mcp_token` returns True again past that window.
     """
-    cache.set(_mcp_token_issued_cache_key(run_id), True, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+    get_tasks_cache().set(_mcp_token_issued_cache_key(run_id), True, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
 
 
 def should_refresh_mcp_token(run_id: str) -> bool:
     """Return True if no MCP token has been issued for this run within the
     last MCP_TOKEN_REFRESH_INTERVAL_SECONDS window."""
-    return cache.get(_mcp_token_issued_cache_key(run_id)) is None
+    return get_tasks_cache().get(_mcp_token_issued_cache_key(run_id)) is None
 
 
 @dataclass(frozen=True)
@@ -498,11 +498,13 @@ def _github_user_token_cache_key(run_id: str) -> str:
 
 
 def cache_github_user_token(run_id: str, github_user_token: str) -> None:
-    cache.set(_github_user_token_cache_key(run_id), github_user_token, timeout=GITHUB_USER_TOKEN_CACHE_TTL_SECONDS)
+    get_tasks_cache().set(
+        _github_user_token_cache_key(run_id), github_user_token, timeout=GITHUB_USER_TOKEN_CACHE_TTL_SECONDS
+    )
 
 
 def get_cached_github_user_token(run_id: str) -> str | None:
-    token = cache.get(_github_user_token_cache_key(run_id))
+    token = get_tasks_cache().get(_github_user_token_cache_key(run_id))
     return token if isinstance(token, str) and token else None
 
 

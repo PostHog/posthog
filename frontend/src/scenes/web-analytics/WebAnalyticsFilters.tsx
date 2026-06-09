@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import posthog from 'posthog-js'
 import { useMemo, useState } from 'react'
 
-import { IconFilter, IconGlobe, IconPhone, IconPlus } from '@posthog/icons'
+import { IconFilter, IconGlobe, IconPhone, IconPlus, IconShare } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { baseModifier } from 'lib/components/AppShortcuts/shortcuts'
@@ -28,6 +29,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
 import MaxTool from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
+import { shareNudgeLogic } from 'scenes/web-analytics/shareNudgeLogic'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { PropertyFilterType, PropertyMathType } from '~/types'
@@ -462,6 +464,7 @@ export const WebAnalyticsCompareFilter = (): JSX.Element | null => {
 
 const ShareButton = (): JSX.Element => {
     const { activePreset } = useValues(webAnalyticsFilterPresetsLogic)
+    const { emphasizeShareButton } = useValues(shareNudgeLogic)
 
     const handleShare = (): void => {
         const url = new URL(window.location.href)
@@ -472,18 +475,21 @@ const ShareButton = (): JSX.Element => {
         }
 
         void copyToClipboard(url.toString(), 'link')
+        posthog.capture('web analytics share link copied', { source: 'filters_button' })
     }
 
     return (
         <LemonButton
             type="secondary"
             size="small"
-            icon={<IconLink />}
-            tooltip="Share"
+            icon={emphasizeShareButton ? <IconShare /> : <IconLink />}
+            tooltip={emphasizeShareButton ? undefined : 'Share'}
             tooltipPlacement="top"
             onClick={handleShare}
             data-attr="web-analytics-share-button"
-        />
+        >
+            {emphasizeShareButton ? 'Share' : undefined}
+        </LemonButton>
     )
 }
 

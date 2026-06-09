@@ -58,6 +58,7 @@ class ExternalDataSourceType(models.TextChoices):
     CHARGEBEE = "Chargebee", "Chargebee"
     CLERK = "Clerk", "Clerk"
     GOOGLEADS = "GoogleAds", "GoogleAds"
+    GOOGLESEARCHCONSOLE = "GoogleSearchConsole", "GoogleSearchConsole"
     TEMPORALIO = "TemporalIO", "TemporalIO"
     DOIT = "DoIt", "DoIt"
     GOOGLESHEETS = "GoogleSheets", "GoogleSheets"

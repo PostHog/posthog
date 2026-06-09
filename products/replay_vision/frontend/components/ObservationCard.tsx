@@ -7,10 +7,12 @@ import { urls } from 'scenes/urls'
 import type { ReplayObservationApi, ScannerSnapshotApi } from '../generated/api.schemas'
 import {
     failureKindDescription,
+    ineligibleKindDescription,
     parseFailureReason,
     parseIneligibleReason,
     scannerTypeLabel,
 } from '../replay_scanners/types'
+import { ObservationProgressBar } from './ObservationProgressBar'
 
 export function ObservationStatusTag({
     status,
@@ -23,11 +25,9 @@ export function ObservationStatusTag({
         return <LemonTag type="success">Succeeded</LemonTag>
     }
     if (status === 'failed') {
+        // Raw exception text lives in `FailureDetail`; tooltip is the description only.
         const parsed = errorReason ? parseFailureReason(errorReason) : null
-        const tooltip =
-            [parsed?.label, parsed ? failureKindDescription(parsed.kind) : null, parsed?.message ?? errorReason]
-                .filter(Boolean)
-                .join('\n\n') || null
+        const tooltip = parsed ? failureKindDescription(parsed.kind) : errorReason || null
         return (
             <Tooltip title={tooltip}>
                 <LemonTag type="danger">Failed</LemonTag>
@@ -37,7 +37,14 @@ export function ObservationStatusTag({
     if (status === 'ineligible') {
         // Muted, not danger — the session was skipped at the gate, not a scanner failure.
         const parsed = errorReason ? parseIneligibleReason(errorReason) : null
-        const tooltip = [parsed?.label, parsed?.message ?? errorReason].filter(Boolean).join('\n\n') || null
+        const tooltip = parsed ? (
+            <div className="flex flex-col gap-1">
+                <div>{ineligibleKindDescription(parsed.kind)}</div>
+                {parsed.message && <div className="text-xs opacity-80">{parsed.message}</div>}
+            </div>
+        ) : errorReason ? (
+            <div>{errorReason}</div>
+        ) : null
         return (
             <Tooltip title={tooltip}>
                 <LemonTag type="muted">Ineligible</LemonTag>
@@ -365,12 +372,7 @@ export function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.
 }
 
 function ObservationProgress({ observation }: { observation: ReplayObservationApi }): JSX.Element {
-    return (
-        <div className="flex items-center gap-2 text-muted text-sm">
-            <Spinner textColored />
-            <span>{observation.status === 'pending' ? 'Queued…' : 'Analyzing recording…'}</span>
-        </div>
-    )
+    return <ObservationProgressBar observationId={observation.id} sessionId={observation.session_id} compact />
 }
 
 export function ObservationDockCard({

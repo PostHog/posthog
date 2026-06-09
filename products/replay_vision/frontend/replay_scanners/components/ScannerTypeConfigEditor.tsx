@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
-import { Field } from 'kea-forms'
 
 import { LemonInput, LemonSegmentedButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
 import { replayScannerLogic } from '../replayScannerLogic'
@@ -14,8 +14,8 @@ const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length']; lab
     { value: 'long', label: 'Long (3-5 paragraphs)' },
 ]
 
-export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element {
-    const { scanner } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): JSX.Element {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
 
     if (!scanner) {
         return <div className="text-muted">Loading…</div>
@@ -24,15 +24,15 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
     if (scanner.scanner_type === 'summarizer') {
         return (
             <div className="space-y-4">
-                <Field name="scanner_config.prompt" label="Prompt">
+                <LemonField name="scanner_config.prompt" label="Prompt">
                     <LemonTextArea
                         placeholder="Summarize what the user did, focusing on their goal and any obstacles they hit."
                         minRows={6}
                     />
-                </Field>
-                <Field name="scanner_config.length" label="Summary length">
+                </LemonField>
+                <LemonField name="scanner_config.length" label="Summary length">
                     <LemonSegmentedButton options={SUMMARIZER_LENGTH_OPTIONS} />
-                </Field>
+                </LemonField>
             </div>
         )
     }
@@ -40,26 +40,26 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
     if (scanner.scanner_type === 'monitor') {
         return (
             <div className="space-y-4">
-                <Field name="scanner_config.prompt" label="Prompt">
+                <LemonField name="scanner_config.prompt" label="Prompt">
                     <LemonTextArea
                         placeholder="Did the user encounter a payment failure? Answer yes or no with a one-sentence reason."
                         minRows={6}
                     />
-                </Field>
-                <Field name="scanner_config.allow_inconclusive">
+                </LemonField>
+                <LemonField name="scanner_config.allow_inconclusive">
                     {({ value, onChange }) => (
                         <div className="flex items-center gap-2">
                             <LemonSwitch checked={!!value} onChange={onChange} />
                             <div>
                                 <div className="text-sm font-medium">Allow inconclusive verdicts</div>
                                 <div className="text-xs text-muted">
-                                    Lets the model answer `inconclusive` when the recording doesn't contain enough
-                                    evidence to decide. Otherwise it must commit to `yes` or `no`.
+                                    Lets the model answer inconclusive when the recording doesn't contain enough
+                                    evidence to decide. Otherwise it must commit to yes or no.
                                 </div>
                             </div>
                         </div>
                     )}
-                </Field>
+                </LemonField>
             </div>
         )
     }
@@ -67,10 +67,10 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
     if (scanner.scanner_type === 'classifier') {
         return (
             <div className="space-y-4">
-                <Field name="scanner_config.prompt" label="Prompt">
+                <LemonField name="scanner_config.prompt" label="Prompt">
                     <LemonTextArea placeholder="Categorize this session by its primary user intent." minRows={6} />
-                </Field>
-                <Field name="scanner_config.tags" label="Tag vocabulary">
+                </LemonField>
+                <LemonField name="scanner_config.tags" label="Tag vocabulary">
                     {({ value, onChange }) => (
                         <LemonInputSelect
                             mode="multiple"
@@ -81,8 +81,8 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                             options={((value as string[]) ?? []).map((t) => ({ key: t, label: t }))}
                         />
                     )}
-                </Field>
-                <Field name="scanner_config.multi_label">
+                </LemonField>
+                <LemonField name="scanner_config.multi_label">
                     {({ value, onChange }) => (
                         <div className="flex items-center gap-2">
                             <LemonSwitch checked={!!value} onChange={onChange} />
@@ -94,8 +94,8 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                             </div>
                         </div>
                     )}
-                </Field>
-                <Field name="scanner_config.allow_freeform_tags">
+                </LemonField>
+                <LemonField name="scanner_config.allow_freeform_tags">
                     {({ value, onChange }) => (
                         <div className="flex items-center gap-2">
                             <LemonSwitch checked={!!value} onChange={onChange} />
@@ -107,7 +107,7 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                             </div>
                         </div>
                     )}
-                </Field>
+                </LemonField>
             </div>
         )
     }
@@ -115,13 +115,13 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
     if (scanner.scanner_type === 'scorer') {
         return (
             <div className="space-y-4">
-                <Field name="scanner_config.prompt" label="Prompt">
+                <LemonField name="scanner_config.prompt" label="Prompt">
                     <LemonTextArea
                         placeholder="Rate how frustrated the user appeared during this session."
                         minRows={6}
                     />
-                </Field>
-                <Field name="scanner_config.scale">
+                </LemonField>
+                <LemonField name="scanner_config.scale">
                     {({ value, onChange, error }) => {
                         const scale = (value as { min: number; max: number; label?: string }) ?? { min: 0, max: 10 }
                         return (
@@ -131,15 +131,15 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                                     <div className="flex items-center gap-3 max-w-md">
                                         <LemonInput
                                             type="number"
-                                            value={scale.min}
-                                            onChange={(v) => onChange({ ...scale, min: Number(v) || 0 })}
+                                            value={Number.isFinite(scale.min) ? scale.min : undefined}
+                                            onChange={(v) => onChange({ ...scale, min: v ?? Number.NaN })}
                                             prefix={<span className="text-muted text-xs">min</span>}
                                         />
                                         <span className="text-muted">to</span>
                                         <LemonInput
                                             type="number"
-                                            value={scale.max}
-                                            onChange={(v) => onChange({ ...scale, max: Number(v) || 0 })}
+                                            value={Number.isFinite(scale.max) ? scale.max : undefined}
+                                            onChange={(v) => onChange({ ...scale, max: v ?? Number.NaN })}
                                             prefix={<span className="text-muted text-xs">max</span>}
                                         />
                                     </div>
@@ -156,7 +156,7 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                             </div>
                         )
                     }}
-                </Field>
+                </LemonField>
             </div>
         )
     }

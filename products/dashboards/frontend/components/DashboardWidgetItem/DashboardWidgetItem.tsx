@@ -13,6 +13,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import {
+    DEFAULT_SHARED_DASHBOARD_WIDGET_PLACEHOLDER,
     getDashboardWidgetCatalogEntry,
     getDashboardWidgetGroupLabel,
     getUnknownDashboardWidgetCatalogFallback,
@@ -26,7 +27,7 @@ import {
     type DashboardWidgetDefinition,
 } from '../../widgets/registry'
 import { WidgetCard } from '../WidgetCard/WidgetCard'
-import { WidgetCardBody } from '../WidgetCard/WidgetCardBody'
+import { WidgetCardBody, WidgetCardSharedPlaceholderBody } from '../WidgetCard/WidgetCardBody'
 import { WidgetCardHeader, widgetCardShouldHideMoreButton } from '../WidgetCard/WidgetCardHeader'
 import { WidgetRuntimeAvailabilityGuard } from '../WidgetRuntimeAvailabilityGuard/WidgetRuntimeAvailabilityGuard'
 
@@ -132,9 +133,10 @@ function DashboardWidgetItemContent({
     const headerLayout = headerCatalogEntry.headerLayout
 
     const hasProductAccess = userHasDashboardWidgetProductAccess(definition?.productAccess)
+    const showSharedPlaceholder = placement === DashboardPlacement.Public
 
     const titleHref =
-        hasProductAccess && placement !== DashboardPlacement.Public && headerCatalogEntry.titleHref
+        hasProductAccess && !showSharedPlaceholder && headerCatalogEntry.titleHref
             ? headerCatalogEntry.titleHref
             : undefined
 
@@ -241,39 +243,49 @@ function DashboardWidgetItemContent({
                 }
                 onDragHandleMouseDown={onDragHandleMouseDown}
             />
-            <WidgetCardBody
-                locked={!hasProductAccess}
-                error={!isUnknownWidgetType && hasProductAccess ? error : undefined}
-                onRefresh={isUnknownWidgetType ? undefined : onRefresh}
-                refreshing={isUnknownWidgetType ? false : loading}
-            >
-                <ErrorBoundary
-                    className="flex min-h-0 min-w-0 flex-1 w-full max-w-full flex-col"
-                    exceptionProps={{
-                        feature: 'dashboard_widget',
-                        widget_type: widget.widget_type,
-                        tile_id: tile.id,
-                    }}
+            {showSharedPlaceholder ? (
+                <WidgetCardSharedPlaceholderBody
+                    copy={headerCatalogEntry.sharedPlaceholder ?? DEFAULT_SHARED_DASHBOARD_WIDGET_PLACEHOLDER}
+                />
+            ) : (
+                <WidgetCardBody
+                    locked={!hasProductAccess}
+                    error={!isUnknownWidgetType && hasProductAccess ? error : undefined}
+                    onRefresh={isUnknownWidgetType ? undefined : onRefresh}
+                    refreshing={isUnknownWidgetType ? false : loading}
                 >
-                    <DashboardWidgetItemBody widget={widget} definition={definition} componentProps={componentProps} />
-                </ErrorBoundary>
-                {EditModal &&
-                    editOpen &&
-                    createPortal(
-                        <EditModal
-                            isOpen={editOpen}
-                            onClose={() => setEditOpen(false)}
-                            config={widget.config}
-                            name={title}
-                            defaultTitle={defaultTitle}
-                            description={description}
-                            onSave={async (config, metadata) => {
-                                await onUpdateWidgetTile?.({ config, ...metadata })
-                            }}
-                        />,
-                        document.body
-                    )}
-            </WidgetCardBody>
+                    <ErrorBoundary
+                        className="flex min-h-0 min-w-0 flex-1 w-full max-w-full flex-col"
+                        exceptionProps={{
+                            feature: 'dashboard_widget',
+                            widget_type: widget.widget_type,
+                            tile_id: tile.id,
+                        }}
+                    >
+                        <DashboardWidgetItemBody
+                            widget={widget}
+                            definition={definition}
+                            componentProps={componentProps}
+                        />
+                    </ErrorBoundary>
+                </WidgetCardBody>
+            )}
+            {EditModal &&
+                editOpen &&
+                createPortal(
+                    <EditModal
+                        isOpen={editOpen}
+                        onClose={() => setEditOpen(false)}
+                        config={widget.config}
+                        name={title}
+                        defaultTitle={defaultTitle}
+                        description={description}
+                        onSave={async (config, metadata) => {
+                            await onUpdateWidgetTile?.({ config, ...metadata })
+                        }}
+                    />,
+                    document.body
+                )}
         </>
     )
 }
