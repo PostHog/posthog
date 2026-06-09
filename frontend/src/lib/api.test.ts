@@ -149,6 +149,42 @@ describe('API helper', () => {
         })
     })
 
+    describe('shared view transient server errors', () => {
+        const mockErrorResponse = (status: number): void => {
+            fakeFetch.mockResolvedValueOnce({
+                ok: false,
+                status,
+                statusText: '',
+                headers: new Headers(),
+                json: () => Promise.resolve(null),
+            })
+        }
+
+        afterEach(() => {
+            delete (window as any).POSTHOG_EXPORTED_DATA
+        })
+
+        it.each([502, 503, 504])('absorbs a transient %s in a shared view instead of throwing', async (status) => {
+            ;(window as any).POSTHOG_EXPORTED_DATA = { accessToken: 'fake-token' }
+            mockErrorResponse(status)
+
+            await expect(api.get('/api/environments/2/insights/1/')).resolves.toBeNull()
+        })
+
+        it('still throws on a 500 in a shared view', async () => {
+            ;(window as any).POSTHOG_EXPORTED_DATA = { accessToken: 'fake-token' }
+            mockErrorResponse(500)
+
+            await expect(api.get('/api/environments/2/insights/1/')).rejects.toMatchObject({ status: 500 })
+        })
+
+        it('throws on a transient 503 when not in a shared view', async () => {
+            mockErrorResponse(503)
+
+            await expect(api.get('/api/environments/2/insights/1/')).rejects.toMatchObject({ status: 503 })
+        })
+    })
+
     it('uses response message as the ApiError message when no detail or error is present', async () => {
         fakeFetch.mockResolvedValueOnce({
             ok: false,

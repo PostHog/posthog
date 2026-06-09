@@ -7191,6 +7191,9 @@ const api = {
 
 const warnedSharedViewLeaks = new Set<string>()
 
+// Transient backend errors that the shared-view auto-refresh loop can safely retry.
+const TRANSIENT_SERVER_ERROR_STATUSES = new Set([502, 503, 504])
+
 async function handleFetch(url: string, method: string, fetcher: () => Promise<Response>): Promise<Response> {
     const startTime = new Date().getTime()
 
@@ -7232,6 +7235,20 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
                 warnedSharedViewLeaks.add(leakKey)
                 console.warn(`[shared-view] unexpected ${response.status} on ${leakKey}`)
             }
+        }
+
+        // Embedded shared dashboards run a periodic auto-refresh loop
+        // (SharedDashboardAutoRefresh). A transient 5xx from the backend would
+        // otherwise bubble out as an unhandled error that error tracking captures,
+        // re-fingerprinted into a new issue on every bundle rebuild. Absorb it as a
+        // retryable no-op — the next refresh cycle recovers — instead of throwing.
+        if (inSharedView && TRANSIENT_SERVER_ERROR_STATUSES.has(response.status)) {
+            const transientKey = `${method} ${pathname} ${response.status}`
+            if (!warnedSharedViewLeaks.has(transientKey)) {
+                warnedSharedViewLeaks.add(transientKey)
+                console.warn(`[shared-view] transient ${response.status} on ${method} ${pathname}, skipping`)
+            }
+            return response
         }
 
         const data = await getJSONOrNull(response)
