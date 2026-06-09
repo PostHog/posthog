@@ -1,44 +1,30 @@
 import { useActions, useValues } from 'kea'
-import { Field, Form } from 'kea-forms'
-import { router } from 'kea-router'
 
-import {
-    LemonBanner,
-    LemonButton,
-    LemonInput,
-    LemonSelect,
-    LemonSwitch,
-    LemonTab,
-    LemonTabs,
-    LemonTag,
-    LemonTextArea,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { QUOTA_WARN_THRESHOLD } from '../utils/quotaProjection'
+import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
-import { ScannerTriggers } from './components/ScannerTriggers'
-import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
+import { ScannerOverview } from './components/ScannerOverview'
 import { SummarizerMaxChat } from './components/SummarizerMaxChat'
 import { replayScannerLogic } from './replayScannerLogic'
 import { replayScannerSceneLogic } from './replayScannerSceneLogic'
-import { EditorTab, SCANNER_TYPE_OPTIONS, MODEL_OPTIONS } from './types'
 
 export const scene: SceneExport = {
     component: ReplayScannerSceneComponent,
@@ -47,17 +33,13 @@ export const scene: SceneExport = {
 }
 
 export function ReplayScannerSceneComponent(): JSX.Element {
-    const { scannerId, activeTab } = useValues(replayScannerSceneLogic)
-    const { setActiveTab } = useActions(replayScannerSceneLogic)
+    const { scannerId } = useValues(replayScannerSceneLogic)
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
-    const { scanner, originalScanner, scannerLoading, isScannerSubmitting, hasUnsavedChanges, isNew } =
-        useValues(scannerLogic)
-    const { searchParams } = useValues(router)
-    const { setScannerType, submitScanner, resetScanner, deleteScanner } = useActions(scannerLogic)
-    const isTypeSelectable = isNew && !searchParams.template
+    const { scanner, scannerLoading } = useValues(scannerLogic)
+    const { deleteScanner } = useActions(scannerLogic)
 
     if (scannerLoading || !scanner) {
         return (
@@ -67,197 +49,76 @@ export function ReplayScannerSceneComponent(): JSX.Element {
         )
     }
 
-    const tabs: (LemonTab<EditorTab> | false)[] = [
-        !isNew && {
-            key: 'observations' as EditorTab,
-            label: 'Observations',
-            content: (
-                <div className="space-y-4">
-                    <SummarizerMaxChat scannerId={scannerId} />
-                    <ScannerObservationsTable scannerId={scannerId} />
-                </div>
-            ),
-        },
-        {
-            key: 'configuration',
-            label: 'Configuration',
-            content: (
-                <div className="flex flex-col gap-y-4 max-w-3xl pb-12">
-                    <SceneSection
-                        title="Details"
-                        description="What this scanner looks for and how it analyzes recordings."
-                        titleSize="sm"
-                    >
-                        <Field name="name" label="Name">
-                            <LemonInput placeholder="e.g. Confused checkout flow" />
-                        </Field>
-
-                        <Field name="description" label="Description (optional)">
-                            <LemonTextArea placeholder="What this scanner looks for and why." minRows={2} />
-                        </Field>
-
-                        {isTypeSelectable ? (
-                            <Field name="scanner_type" label="Scanner type">
-                                <LemonSelect
-                                    value={scanner.scanner_type}
-                                    onChange={(next) => {
-                                        if (next === scanner.scanner_type) {
-                                            return
-                                        }
-                                        if (scanner.scanner_config?.prompt?.trim()) {
-                                            LemonDialog.open({
-                                                title: 'Switch scanner type?',
-                                                description:
-                                                    'Your prompt and type-specific settings will reset to defaults for the new type.',
-                                                primaryButton: {
-                                                    children: 'Switch and reset',
-                                                    onClick: () => setScannerType(next),
-                                                },
-                                                secondaryButton: { children: 'Keep current' },
-                                            })
-                                            return
-                                        }
-                                        setScannerType(next)
-                                    }}
-                                    options={SCANNER_TYPE_OPTIONS.map((opt) => ({
-                                        value: opt.value,
-                                        label: opt.label,
-                                        labelInMenu: (
-                                            <div className="flex flex-col">
-                                                <span className="font-medium">{opt.label}</span>
-                                                <span className="text-xs text-muted">{opt.description}</span>
-                                            </div>
-                                        ),
-                                    }))}
-                                />
-                            </Field>
-                        ) : (
-                            <div className="space-y-1">
-                                <label className="block text-sm font-medium">Scanner type</label>
-                                <LemonTag type="option">
-                                    {SCANNER_TYPE_OPTIONS.find((o) => o.value === scanner.scanner_type)?.label ??
-                                        scanner.scanner_type}
-                                </LemonTag>
-                                <div className="text-xs text-muted">
-                                    {isNew ? (
-                                        <>
-                                            Type is set by the template you picked. To use a different type,{' '}
-                                            <Link to={urls.replayVisionTemplates()}>start from another template</Link>.
-                                        </>
-                                    ) : (
-                                        'Scanner type is fixed after creation.'
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
-                        <ScannerTypeConfigEditor scannerId={scannerId} />
-                    </SceneSection>
-
-                    <SceneDivider />
-
-                    <SceneSection title="Advanced" description="Model choice and downstream emission." titleSize="sm">
-                        <Field name="model" label="Model">
-                            <LemonSelect value={scanner.model} options={MODEL_OPTIONS} />
-                        </Field>
-
-                        <Field name="emits_signals">
-                            {({ value, onChange }) => (
-                                <div className="flex items-center gap-3">
-                                    <LemonSwitch checked={!!value} onChange={onChange} />
-                                    <div>
-                                        <div className="text-sm font-medium">Emit PostHog Signals</div>
-                                        <div className="text-xs text-muted">
-                                            Also flags actionable issues as Signals.
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </Field>
-                    </SceneSection>
-
-                    <SceneDivider />
-
-                    <SceneSection
-                        title="Triggers"
-                        description="Which completed recordings this scanner runs against."
-                        titleSize="sm"
-                    >
-                        <ScannerTriggers scannerId={scannerId} />
-                    </SceneSection>
-                </div>
-            ),
-        },
-    ]
-
     return (
         <SceneContent>
             <SceneTitleSection
-                name={scanner.name || (isNew ? 'New scanner' : 'Scanner')}
+                name={scanner.name || 'Untitled scanner'}
                 description={scanner.description}
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <>
-                        {!isNew && (
-                            <More
-                                size="small"
-                                overlay={
-                                    <LemonButton
-                                        status="danger"
-                                        fullWidth
-                                        onClick={() =>
-                                            LemonDialog.open({
-                                                title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
-                                                description: 'This cannot be undone.',
-                                                primaryButton: {
-                                                    children: 'Delete',
-                                                    status: 'danger',
-                                                    onClick: () => deleteScanner(),
-                                                },
-                                                secondaryButton: { children: 'Cancel' },
-                                            })
-                                        }
-                                    >
-                                        Delete
-                                    </LemonButton>
-                                }
-                            />
-                        )}
-                        {hasUnsavedChanges && originalScanner && (
-                            <LemonButton type="secondary" size="small" onClick={() => resetScanner(originalScanner)}>
-                                Discard changes
-                            </LemonButton>
-                        )}
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.SessionRecording}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                disabledReason={!isNew && !hasUnsavedChanges ? 'No changes to save' : undefined}
-                                loading={isScannerSubmitting}
-                                onClick={() => submitScanner()}
-                                data-attr="save-replay-scanner"
-                            >
-                                {isNew ? 'Create' : 'Save'}
-                            </LemonButton>
-                        </AccessControlAction>
+                        <ReplayVisionFeedbackButton />
+                        <More
+                            size="small"
+                            overlay={
+                                <LemonButton
+                                    status="danger"
+                                    fullWidth
+                                    onClick={() =>
+                                        LemonDialog.open({
+                                            title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
+                                            description: 'This cannot be undone.',
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                status: 'danger',
+                                                onClick: () => deleteScanner(),
+                                            },
+                                            secondaryButton: { children: 'Cancel' },
+                                        })
+                                    }
+                                    data-attr="vision-scanner-delete"
+                                    data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                                >
+                                    Delete
+                                </LemonButton>
+                            }
+                        />
                     </>
                 }
             />
 
-            {hasUnsavedChanges && !isNew && <LemonBanner type="info">You have unsaved changes.</LemonBanner>}
-
             <QuotaBanner />
 
-            <Form logic={replayScannerLogic} props={{ id: scannerId }} formKey="scanner" enableFormOnSubmit>
-                <LemonTabs
-                    activeKey={activeTab}
-                    onChange={(key) => setActiveTab(key as EditorTab)}
-                    tabs={tabs.filter((t): t is LemonTab<EditorTab> => Boolean(t))}
-                />
-            </Form>
+            <ScannerOverview scannerId={scannerId} />
+
+            <LemonCollapse
+                panels={[
+                    {
+                        key: 'configuration',
+                        header: 'Configuration',
+                        content: <ScannerConfigReadonly scanner={scanner} />,
+                        dataAttr: 'vision-scanner-config-expand',
+                    },
+                ]}
+            />
+            <div className="flex items-center justify-end">
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.SessionRecording}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <LemonButton
+                        type="primary"
+                        to={urls.replayVisionScannerConfigure(scannerId)}
+                        data-attr="vision-scanner-edit"
+                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                    >
+                        Edit scanner
+                    </LemonButton>
+                </AccessControlAction>
+            </div>
+
+            <SummarizerMaxChat scannerId={scannerId} />
+            <ScannerObservationsTable scannerId={scannerId} />
         </SceneContent>
     )
 }
@@ -268,7 +129,7 @@ function QuotaBanner(): JSX.Element | null {
     if (!quota || quota.monthly_quota <= 0) {
         return null
     }
-    const resetsOn = dayjs(quota.period_end).format('MMM D')
+    const resetsOn = dayjs(quota.period_end).format('MMMM D')
     if (quota.exhausted) {
         return (
             <LemonBanner type="warning">

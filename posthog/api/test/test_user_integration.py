@@ -132,6 +132,53 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         response = self.client.delete("/api/users/@me/integrations/github/99999/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation")
+    def test_delete_last_reference_calls_github_uninstall(self, mock_uninstall):
+        mock_uninstall.return_value = True
+        _create_user_integration(self.user, integration_id="12345")
+
+        response = self.client.delete("/api/users/@me/integrations/github/12345/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        mock_uninstall.assert_called_once_with("12345")
+        self.assertFalse(UserIntegration.objects.filter(integration_id="12345").exists())
+
+    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation")
+    def test_delete_skips_uninstall_when_team_reference_exists(self, mock_uninstall):
+        _create_user_integration(self.user, integration_id="12345")
+        Integration.objects.create(
+            team=self.team, kind="github", integration_id="12345", config={}, sensitive_config={}
+        )
+
+        response = self.client.delete("/api/users/@me/integrations/github/12345/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        mock_uninstall.assert_not_called()
+        self.assertFalse(UserIntegration.objects.filter(user=self.user, integration_id="12345").exists())
+
+    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation")
+    def test_delete_skips_uninstall_when_other_user_reference_exists(self, mock_uninstall):
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        _create_user_integration(self.user, integration_id="12345")
+        _create_user_integration(other_user, integration_id="12345")
+
+        response = self.client.delete("/api/users/@me/integrations/github/12345/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        mock_uninstall.assert_not_called()
+
+    @patch(
+        "posthog.api.user_integration.UserGitHubIntegration.uninstall_if_last_reference",
+        side_effect=Exception("GitHub API error"),
+    )
+    def test_delete_still_returns_204_when_uninstall_fails(self, _mock_uninstall):
+        _create_user_integration(self.user, integration_id="12345")
+
+        response = self.client.delete("/api/users/@me/integrations/github/12345/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(UserIntegration.objects.filter(integration_id="12345").exists())
+
     @override_settings(GITHUB_APP_CLIENT_ID="client_id")
     @patch(
         "posthog.api.github_callback.personal_state.get_instance_settings",

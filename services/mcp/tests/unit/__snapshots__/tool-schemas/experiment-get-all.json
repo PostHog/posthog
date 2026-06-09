@@ -9,6 +9,10 @@
             "description": "Filter to experiments created by the given user ID.",
             "type": "number"
         },
+        "event": {
+            "description": "Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.",
+            "type": "string"
+        },
         "feature_flag_id": {
             "description": "Filter to experiments linked to the given feature flag ID.",
             "type": "number"

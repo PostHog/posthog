@@ -105,7 +105,6 @@
     'posthog.tasks.tasks.ingestion_lag',
     'posthog.tasks.tasks.kill_stale_queued_task_runs',
     'posthog.tasks.tasks.pg_plugin_server_query_timing',
-    'posthog.tasks.tasks.pg_row_count',
     'posthog.tasks.tasks.pg_table_cache_hit_rate',
     'posthog.tasks.tasks.poll_query_performance',
     'posthog.tasks.tasks.process_query_task',
@@ -125,7 +124,6 @@
     'posthog.tasks.tasks.update_event_partitions',
     'posthog.tasks.tasks.update_survey_adaptive_sampling',
     'posthog.tasks.tasks.update_survey_iteration',
-    'posthog.tasks.tasks.verify_persons_data_in_sync',
     'posthog.tasks.team_access_cache_tasks.invalidate_token_cache_task',
     'posthog.tasks.team_access_cache_tasks.invalidate_user_tokens_task',
     'posthog.tasks.team_llm_gateway_policy.refresh_expiring_llm_gateway_policy_cache_entries',
@@ -137,7 +135,6 @@
     'posthog.tasks.usage_report.capture_report',
     'posthog.tasks.usage_report.send_all_org_usage_reports',
     'posthog.tasks.usage_report.send_report_to_billing_service',
-    'posthog.tasks.verify_persons_data_in_sync.verify_persons_data_in_sync',
     'posthog.tasks.warehouse.validate_data_warehouse_table_columns',
   ])
 # ---

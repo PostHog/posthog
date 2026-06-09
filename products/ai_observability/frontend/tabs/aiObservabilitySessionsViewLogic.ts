@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -11,23 +11,20 @@ import sessionsQueryTemplate from '../../backend/queries/sessions.sql?raw'
 import { SortDirection, SortState, aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import type { aiObservabilitySessionsViewLogicType } from './aiObservabilitySessionsViewLogicType'
 
-export interface AIObservabilitySessionsViewLogicProps {
-    tabId?: string
-}
+export type AIObservabilitySessionsViewLogicProps = Record<string, never>
 
 export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tabs', 'aiObservabilitySessionsViewLogic']),
-    key((props: AIObservabilitySessionsViewLogicProps) => props.tabId || 'default'),
     props({} as AIObservabilitySessionsViewLogicProps),
-    connect((props: AIObservabilitySessionsViewLogicProps) => ({
+    connect(() => ({
         values: [
-            aiObservabilitySharedLogic({ tabId: props.tabId }),
+            aiObservabilitySharedLogic,
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
         ],
         actions: [
-            aiObservabilitySharedLogic({ tabId: props.tabId }),
+            aiObservabilitySharedLogic,
             ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState'],
         ],
     })),
