@@ -4090,9 +4090,8 @@ class TestExternalDataSource(APIBaseTest):
     def test_update_host_change_with_stored_connection_string(
         self, _name, extra_creds, expected_status, mock_validate_credentials
     ):
-        # A source created via a connection string stores the raw URI under `connection_string`,
-        # which the edit form can never re-supply, so it must not block a host change. The real
-        # secret, `password`, stays gated: re-entering it succeeds, omitting it is still rejected.
+        # A stored `connection_string` (never re-suppliable via the edit form) must not block a host
+        # change, while `password` stays gated: re-entering it succeeds, omitting it is still rejected.
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -4121,9 +4120,7 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         assert ("re-entering your credentials" in str(response.json())) == (expected_status == 400)
         source.refresh_from_db()
-        # connection_string is excluded from the re-entry gate but still carried through the merge:
-        # connection-string-based sources (e.g. MongoDB) connect via it and never re-supply it on
-        # edit, so dropping it would break them.
+        # Preserved by the merge regardless of outcome — connection-string-based sources rely on this.
         assert (
             source.job_inputs["connection_string"] == "postgresql://dbuser:original_password@db.example.com:5432/mydb"
         )
