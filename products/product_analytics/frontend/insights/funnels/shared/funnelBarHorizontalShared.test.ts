@@ -1,5 +1,6 @@
 import {
     buildFunnelBarHorizontalFiller,
+    buildFunnelBars,
     buildFunnelConversionStep,
     FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
     FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX,
@@ -72,6 +73,46 @@ describe('funnelBarHorizontalShared', () => {
             })
             expect(stepData.series[0].data).toEqual([expectedSegment])
             expect(stepData.series[1].data).toEqual([expectedFiller])
+        })
+    })
+
+    describe('buildFunnelBars', () => {
+        const COLORS = { color: '#1d4aff', fillerColor: '#eee' }
+        const steps = [
+            { name: 'Pageview', count: 1000 },
+            { name: 'Signed up', count: 400 },
+            { name: 'Activated', count: 100 },
+        ]
+
+        it('computes per-step conversion vs the first step and vs the previous step', () => {
+            const { rows } = buildFunnelBars(steps, COLORS)
+
+            expect(rows.map((r) => r.fractionOfBasis)).toEqual([1, 0.4, 0.1])
+            // step 0 has no previous step (value unused by the view); steps 1/2 are vs the prior count.
+            expect(rows.map((r) => r.fromPrevious)).toEqual([0, 0.4, 0.25])
+            expect(rows.map((r) => r.name)).toEqual(['Pageview', 'Signed up', 'Activated'])
+            expect(rows[0].stepData.series).toHaveLength(2)
+        })
+
+        it('reports overall conversion as last/first', () => {
+            expect(buildFunnelBars(steps, COLORS).overall).toEqual({ rate: 0.1, firstCount: 1000, lastCount: 100 })
+        })
+
+        it('guards divide-by-zero when the first step has no entries', () => {
+            const { rows, overall } = buildFunnelBars(
+                [
+                    { name: 'A', count: 0 },
+                    { name: 'B', count: 0 },
+                ],
+                COLORS
+            )
+
+            expect(rows.map((r) => r.fractionOfBasis)).toEqual([0, 0])
+            expect(overall.rate).toBe(0)
+        })
+
+        it('returns no rows for an empty funnel', () => {
+            expect(buildFunnelBars([], COLORS).rows).toEqual([])
         })
     })
 })

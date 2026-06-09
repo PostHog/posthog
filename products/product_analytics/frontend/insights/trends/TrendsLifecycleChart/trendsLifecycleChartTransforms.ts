@@ -109,6 +109,43 @@ export function buildTrendsLifecycleConfig(opts: BuildTrendsLifecycleConfigOpts)
     }
 }
 
+export interface BuildLifecycleChartModelOpts<
+    R extends TrendsLifecycleResultLike,
+    M = unknown,
+> extends BuildTrendsLifecycleConfigOpts {
+    /** Final x-axis labels (already formatted by the host — kea dates vs the MCP `formatDate`). */
+    labels: string[]
+    getColor: (status: string | undefined) => string
+    /** Client-side legend toggle state. Omit on hosts that toggle interactively (the web chart). */
+    toggledLifecycles?: readonly string[]
+    getHidden?: (r: R, index: number) => boolean
+    buildMeta?: (r: R, index: number) => M
+}
+
+/** The complete input a host hands to quill's `TimeSeriesBarChart` for a lifecycle chart. */
+export interface LifecycleChartModel<M = unknown> {
+    series: Series<M>[]
+    labels: string[]
+    config: TimeSeriesBarChartConfig
+}
+
+/** Assembles the full lifecycle chart model (filter → series → config) so both the web container and
+ *  the MCP visualizer share one tested path; each injects only host-specific bits (color, labels,
+ *  tooltip, meta, interactivity flags). */
+export function buildLifecycleChartModel<R extends TrendsLifecycleResultLike, M = unknown>(
+    results: R[],
+    opts: BuildLifecycleChartModelOpts<R, M>
+): LifecycleChartModel<M> {
+    const visible = filterToggledLifecycleResults(results, opts.toggledLifecycles)
+    const series = buildTrendsLifecycleSeries<R, M>(visible, {
+        getColor: opts.getColor,
+        getHidden: opts.getHidden,
+        buildMeta: opts.buildMeta,
+    })
+    const config = buildTrendsLifecycleConfig(opts)
+    return { series, labels: opts.labels, config }
+}
+
 /** Lifecycle series labels arrive as "Pageview - new", "Pageview - returning", etc.
  *  Returns just the capitalized status ("New", "Returning"). */
 export function shortenLifecycleLabel(label: string | null | undefined): string {

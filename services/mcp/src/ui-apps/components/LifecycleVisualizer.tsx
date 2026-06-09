@@ -4,11 +4,7 @@ import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 import { ChartLegend, TimeSeriesBarChart, legendItemsFromSeries } from '@posthog/quill-charts'
 
-import {
-    buildTrendsLifecycleConfig,
-    buildTrendsLifecycleSeries,
-    filterToggledLifecycleResults,
-} from 'products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/trendsLifecycleChartTransforms'
+import { buildLifecycleChartModel } from 'products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/trendsLifecycleChartTransforms'
 
 import { CHART_THEME, lifecycleColor } from './charts/theme'
 import type { LifecycleVisualizerProps } from './types'
@@ -17,30 +13,27 @@ import { formatDate } from './utils'
 const LIFECYCLE_TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
 
 export function LifecycleVisualizer({ query, results }: LifecycleVisualizerProps): ReactElement {
-    const isStacked = query?.lifecycleFilter?.stacked ?? true
     const showLegend = query?.lifecycleFilter?.showLegend ?? true
-    const toggledLifecycles = query?.lifecycleFilter?.toggledLifecycles
 
-    const { series, labels } = useMemo(() => {
-        const items = results ?? []
-        const visible = filterToggledLifecycleResults(items, toggledLifecycles)
-        const lifecycleSeries = buildTrendsLifecycleSeries(
-            visible.map((item, i) => ({
-                id: i,
-                label: item.label,
-                data: item.data ?? [],
-                status: item.status,
-                days: item.days,
-            })),
-            { getColor: lifecycleColor }
-        )
-        const rawLabels = items[0]?.days ?? items[0]?.labels ?? []
-        return { series: lifecycleSeries, labels: rawLabels.map(formatDate) }
-    }, [results, toggledLifecycles])
-
-    const config = useMemo(
-        () => buildTrendsLifecycleConfig({ isStacked, tooltip: LIFECYCLE_TOOLTIP_CONFIG }),
-        [isStacked]
+    const { series, labels, config } = useMemo(
+        () =>
+            buildLifecycleChartModel(
+                (results ?? []).map((item, i) => ({
+                    id: i,
+                    label: item.label,
+                    data: item.data ?? [],
+                    status: item.status,
+                    days: item.days,
+                })),
+                {
+                    getColor: lifecycleColor,
+                    labels: (results?.[0]?.days ?? results?.[0]?.labels ?? []).map(formatDate),
+                    isStacked: query?.lifecycleFilter?.stacked ?? true,
+                    toggledLifecycles: query?.lifecycleFilter?.toggledLifecycles,
+                    tooltip: LIFECYCLE_TOOLTIP_CONFIG,
+                }
+            ),
+        [results, query?.lifecycleFilter?.stacked, query?.lifecycleFilter?.toggledLifecycles]
     )
 
     const legendItems = useMemo(() => legendItemsFromSeries(series, CHART_THEME), [series])

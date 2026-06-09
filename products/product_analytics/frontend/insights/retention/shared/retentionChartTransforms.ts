@@ -125,3 +125,172 @@ export function buildRetentionBarChartConfig(opts: BuildRetentionChartConfigOpts
         tooltip: opts.tooltip,
     }
 }
+
+// --- Cohort shaping ----------------------------------------------------------------------------
+// Turns a raw retention query result into chart entries. Lives here (not in the MCP host) so the
+// cohort math is unit-tested. Structural/neutral so it stays MCP-bundle-safe.
+
+/** Structural cohort shape the MCP `RetentionResultItem` satisfies. */
+export interface RetentionCohortLike {
+    date?: string | null
+    breakdown_value?: string | number | null
+    values: { count: number; aggregation_value?: number | null }[]
+}
+
+function formatCohortStartDate(date: string | null | undefined, period: string): string | null {
+    if (!date) {
+        return null
+    }
+    const d = new Date(date)
+    if (Number.isNaN(d.getTime())) {
+        return null
+    }
+    if (period === 'Hour') {
+        return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric' })
+    }
+    if (period === 'Month') {
+        return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+    }
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+export function formatRetentionCohortLabel(cohort: RetentionCohortLike, cohortNumber: number, period: string): string {
+    const startDate = formatCohortStartDate(cohort.date, period)
+    const breakdown =
+        cohort.breakdown_value !== undefined && cohort.breakdown_value !== null && cohort.breakdown_value !== ''
+            ? String(cohort.breakdown_value)
+            : null
+    const base = `Cohort ${cohortNumber}`
+    if (breakdown) {
+        return startDate ? `${base} (${breakdown}, ${startDate})` : `${base} (${breakdown})`
+    }
+    return startDate ? `${base} (${startDate})` : base
+}
+
+/** Mirrors retentionLogic: `count` aggregation → percentage of the reference cohort size
+ *  (`total` = interval 0, `previous` = preceding interval); other aggregations surface
+ *  `aggregation_value` directly. */
+export function computeRetentionSeriesValue(
+    values: RetentionCohortLike['values'],
+    intervalIndex: number,
+    aggregationType: string,
+    reference: string
+): number {
+    const current = values[intervalIndex]
+    if (!current) {
+        return 0
+    }
+    if (aggregationType !== 'count') {
+        return current.aggregation_value ?? 0
+    }
+    if (reference === 'previous') {
+        if (intervalIndex === 0) {
+            return 100
+        }
+        const prev = values[intervalIndex - 1]
+        if (!prev || prev.count === 0) {
+            return 0
+        }
+        return (current.count / prev.count) * 100
+    }
+    const baseline = values[0]?.count ?? 0
+    if (baseline === 0) {
+        return 0
+    }
+    return (current.count / baseline) * 100
+}
+
+/** Sorts cohorts chronologically; cohorts with a missing/invalid date keep their order at the end. */
+export function sortRetentionCohorts<C extends RetentionCohortLike>(cohorts: C[]): C[] {
+    return [...cohorts].sort((a, b) => {
+        const ta = a.date ? new Date(a.date).getTime() : Number.POSITIVE_INFINITY
+        const tb = b.date ? new Date(b.date).getTime() : Number.POSITIVE_INFINITY
+        const aMissing = Number.isNaN(ta) || !Number.isFinite(ta)
+        const bMissing = Number.isNaN(tb) || !Number.isFinite(tb)
+        if (aMissing && bMissing) {
+            return 0
+        }
+        if (aMissing) {
+            return 1
+        }
+        if (bMissing) {
+            return -1
+        }
+        return ta - tb
+    })
+}
+
+function retentionYAxisLabel(aggregationType: string): string {
+    if (aggregationType === 'count') {
+        return 'Retention %'
+    }
+    if (aggregationType === 'sum') {
+        return 'Sum'
+    }
+    return 'Avg'
+}
+
+export interface BuildRetentionChartModelOpts {
+    aggregationType: string
+    reference: string
+    period: string
+    showTrendLines?: boolean
+    getColor: (index: number) => string
+    tooltip?: TooltipConfig
+    /** Cohorts beyond this are dropped so each line keeps a distinct palette color. */
+    maxCohorts: number
+}
+
+export interface RetentionChartModel {
+    series: Series<RetentionSeriesMeta>[]
+    labels: string[]
+    lineConfig: TimeSeriesLineChartConfig
+    barConfig: TimeSeriesBarChartConfig
+    /** Cohort count before the `maxCohorts` cap — lets the host show a truncation notice. */
+    totalCohorts: number
+}
+
+/** Assembles the full retention chart model (sort → cap → per-interval values → series → line/bar
+ *  configs) so the MCP visualizer stays presentational and the cohort math is tested here. */
+export function buildRetentionChartModel<C extends RetentionCohortLike>(
+    cohorts: C[],
+    opts: BuildRetentionChartModelOpts
+): RetentionChartModel {
+    const sorted = sortRetentionCohorts(cohorts)
+    const limited = sorted.slice(0, opts.maxCohorts)
+    const numIntervals = limited.reduce((max, c) => Math.max(max, c.values.length), 0)
+    const labels = Array.from({ length: numIntervals }, (_, i) => `${opts.period} ${i}`)
+
+    const entries: RetentionTrendSeriesEntry[] = limited.map((cohort, idx) => ({
+        count: cohort.values[0]?.count ?? 0,
+        data: Array.from({ length: numIntervals }, (_, i) =>
+            computeRetentionSeriesValue(cohort.values, i, opts.aggregationType, opts.reference)
+        ),
+        labels,
+        index: idx,
+        label: formatRetentionCohortLabel(cohort, idx + 1, opts.period),
+    }))
+
+    const series = buildRetentionSeries(entries, { isIntervalView: false }).map((s, i) => ({
+        ...s,
+        color: opts.getColor(i),
+    }))
+
+    const isPercentage = opts.aggregationType === 'count'
+    const yAxisLabel = retentionYAxisLabel(opts.aggregationType)
+    const lineBase = buildRetentionLineChartConfig({
+        isPercentage,
+        showTrendLines: opts.showTrendLines,
+        series,
+        tooltip: opts.tooltip,
+    })
+    const barBase = buildRetentionBarChartConfig({ isPercentage, series, tooltip: opts.tooltip })
+
+    return {
+        series,
+        labels,
+        lineConfig: { ...lineBase, yAxis: { ...lineBase.yAxis, label: yAxisLabel } },
+        barConfig: { ...barBase, yAxis: { ...barBase.yAxis, label: yAxisLabel } },
+        totalCohorts: sorted.length,
+    }
+}

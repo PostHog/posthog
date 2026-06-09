@@ -5,6 +5,7 @@ import type { IntervalType } from '~/types'
 
 import type { YFormatterFields } from '../shared/trendsChartDisplayOptions'
 import {
+    buildLifecycleChartModel,
     buildTrendsLifecycleConfig,
     buildTrendsLifecycleSeries,
     filterToggledLifecycleResults,
@@ -144,6 +145,45 @@ describe('filterToggledLifecycleResults', () => {
     it('drops rows without a status once a toggle is active', () => {
         const withUnstatused = [...rows, { status: undefined, data: [9] }]
         expect(filterToggledLifecycleResults(withUnstatused, ['new'])).toEqual([{ status: 'new', data: [1] }])
+    })
+})
+
+describe('buildLifecycleChartModel', () => {
+    const results: TrendsLifecycleResultLike[] = [
+        { id: 'new', status: 'new', label: 'Pageview - new', data: [1, 2] },
+        { id: 'dormant', status: 'dormant', label: 'Pageview - dormant', data: [-1, -2] },
+    ]
+
+    it('assembles series + config and passes the host labels through', () => {
+        const model = buildLifecycleChartModel(results, {
+            getColor,
+            labels: ['Jun 1', 'Jun 2'],
+            isStacked: true,
+        })
+
+        expect(model.labels).toEqual(['Jun 1', 'Jun 2'])
+        expect(model.series.map((s) => s.key)).toEqual(['dormant', 'new'])
+        expect(model.config.barLayout).toBe('stacked')
+        expect(model.config.divergingStack).toBe(true)
+    })
+
+    it('applies the toggledLifecycles filter before building series', () => {
+        const model = buildLifecycleChartModel(results, {
+            getColor,
+            labels: ['Jun 1', 'Jun 2'],
+            isStacked: false,
+            toggledLifecycles: ['new'],
+        })
+
+        expect(model.series.map((s) => s.key)).toEqual(['new'])
+        expect(model.config.barLayout).toBe('grouped')
+    })
+
+    it('forwards the tooltip config through to the chart config', () => {
+        const tooltip = { pinnable: true, placement: 'top' as const }
+        const model = buildLifecycleChartModel(results, { getColor, labels: [], isStacked: true, tooltip })
+
+        expect(model.config.tooltip).toBe(tooltip)
     })
 })
 
