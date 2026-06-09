@@ -97,7 +97,7 @@ go). Tools, primary first:
   the menu, the proven defaults, and the must-know gotchas (give every ensemble sub-detector
   an explicit `window`; `diffs_n` does **not** default to 1; target a time-series, not a
   single-value, insight).
-- `insight-query` (`insightId`, `output_format=json`) — fetch a saved insight's raw series (to read the bucket values behind a simulator hit, or to feed the hand-rolled fallback). **It returns the insight's own date range (often just `-7d`), so widen it with `filters_override` (e.g. `{"date_from": "-63d"}`).**
+- `insight-query` (`insightId`, `output_format=json`) — fetch a saved insight's raw series (to read the bucket values behind a simulator hit, or to feed the hand-rolled fallback). **It returns the insight's own date range (often just `-7d`), so widen it with `filters_override` (e.g. `{"date_from": "-63d"}`).** Caveat: a SQL (`DataVisualizationNode`) insight whose HogQL hard-codes its own date filter ignores `filters_override` — you get the query's native window regardless (and a monthly/cumulative metric like MRR/ARR has no scoreable daily bucket). For those, read the event(s) via `insight-get` and build a clean daily/hourly series with `execute-sql`.
 - `dashboard-insights-run` (`id`, `output_format=json`, `refresh=blocking`, `filters_override`)
   — runs every tile on a dashboard at once; efficient for sweeping a whole high-value
   dashboard. Pass `output_format=json` — the default `optimized` returns prose summaries, not

@@ -118,7 +118,48 @@ Charts are `{type: "ph-query", attrs: {nodeId: "<unique>", query: <query>}}` nod
   `{kind: "InsightVizNode", source: {kind: "TrendsQuery", ...}}`.
 
 Prefer embedding the saved insight you scored — it stays in sync with the source and is the
-thing the human will open next. Give each `ph-query` node a distinct `nodeId`.
+thing the human will open next. Give each `ph-query` node a distinct `nodeId`. `notebooks-create`
+returns the new notebook's URL in `_posthogUrl` — surface that verbatim, don't hand-build it.
+
+`content` is a ProseMirror doc (the tool documents no node schema, so use this skeleton). Text
+is `paragraph` / `heading` (with `attrs.level`) / `bulletList` → `listItem` → `paragraph`;
+charts are `ph-query` nodes. A minimal working shape:
+
+```json
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 1 },
+      "content": [{ "type": "text", "text": "Anomaly: <metric> <direction> (<date>)" }]
+    },
+    { "type": "paragraph", "content": [{ "type": "text", "text": "<the quantified hook>" }] },
+    {
+      "type": "ph-query",
+      "attrs": { "nodeId": "scored-insight", "query": { "kind": "SavedInsightNode", "shortId": "<short_id>" } }
+    },
+    { "type": "heading", "attrs": { "level": 2 }, "content": [{ "type": "text", "text": "Baseline & method" }] },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [{ "type": "text", "text": "<baseline median + MAD, the z, partial bucket excluded>" }]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+For a SQL-fallback chart, swap the `ph-query` query for
+`{ "kind": "DataVisualizationNode", "source": { "kind": "HogQLQuery", "query": "SELECT ..." }, "display": "ActionsLineGraph" }`.
 
 ### Wire it into the emit
 
