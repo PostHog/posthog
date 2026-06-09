@@ -149,8 +149,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             await logger.adebug(f"Incremental earliest value being used is: {processed_incremental_earliest_value}")
 
         if SourceRegistry.is_registered(source_type):
-            # Per-row namespace + storage key; resolution/fallback lives in `resolve_source_location`.
-            schema_metadata = schema.schema_metadata or {}
+            # Generic per-schema metadata + storage key; interpreted by `resolve_source_location`.
             sync_type_config = schema.sync_type_config or {}
             source_inputs = SourceInputs(
                 schema_name=schema.name,
@@ -170,9 +169,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,
                 enabled_columns=schema.enabled_columns,
-                source_schema=_metadata_str(schema_metadata.get("source_schema")),
-                source_table_name=_metadata_str(schema_metadata.get("source_table_name")),
-                source_catalog=_metadata_str(schema_metadata.get("source_catalog")),
+                schema_metadata=schema.schema_metadata,
                 dwh_storage_key=_metadata_str(sync_type_config.get("dwh_storage_key")),
             )
 

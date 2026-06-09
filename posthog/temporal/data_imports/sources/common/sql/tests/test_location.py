@@ -12,7 +12,22 @@ from posthog.temporal.data_imports.sources.common.sql.location import (
 )
 
 
-def _source_inputs(schema_name: str = "users", **overrides: Any) -> SourceInputs:
+def _source_inputs(
+    schema_name: str = "users",
+    *,
+    source_schema: str | None = None,
+    source_table_name: str | None = None,
+    source_catalog: str | None = None,
+    **overrides: Any,
+) -> SourceInputs:
+    # Mirror how a real schema row stashes the SQL location keys inside the generic `schema_metadata`.
+    metadata: dict[str, Any] = {}
+    if source_schema is not None:
+        metadata["source_schema"] = source_schema
+    if source_table_name is not None:
+        metadata["source_table_name"] = source_table_name
+    if source_catalog is not None:
+        metadata["source_catalog"] = source_catalog
     defaults: dict[str, Any] = {
         "schema_name": schema_name,
         "schema_id": "schema-1",
@@ -26,6 +41,7 @@ def _source_inputs(schema_name: str = "users", **overrides: Any) -> SourceInputs
         "job_id": "job-1",
         "logger": MagicMock(),
         "reset_pipeline": False,
+        "schema_metadata": metadata or None,
     }
     defaults.update(overrides)
     return SourceInputs(**defaults)

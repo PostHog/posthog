@@ -57,10 +57,10 @@ class SourceInputs:
     logger: FilteringBoundLogger
     reset_pipeline: bool
     enabled_columns: Optional[list[str]] = None
-    # Per-row namespace + storage key for multi-schema import; resolved by `resolve_source_location`.
-    source_schema: Optional[str] = None
-    source_table_name: Optional[str] = None
-    source_catalog: Optional[str] = None
+    # Generic per-schema blob + storage key for multi-schema import, interpreted by
+    # `resolve_source_location`. SQL sources stash `source_schema`/`source_table_name`/`source_catalog`
+    # in `schema_metadata`; non-SQL sources leave both `None`.
+    schema_metadata: Optional[dict[str, Any]] = None
     dwh_storage_key: Optional[str] = None
 
 

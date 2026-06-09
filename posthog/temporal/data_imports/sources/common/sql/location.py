@@ -21,12 +21,16 @@ class ResolvedSourceLocation(NamedTuple):
     response_name: str
 
 
-def normalize_namespace(value: Optional[str]) -> Optional[str]:
+def normalize_namespace(value: object) -> Optional[str]:
     """Empty / whitespace-only namespace means "all namespaces" — never an empty predicate."""
     if not isinstance(value, str):
         return None
     stripped = value.strip()
     return stripped or None
+
+
+def _str_or_none(value: object) -> Optional[str]:
+    return value if isinstance(value, str) else None
 
 
 def fill_missing_from_dotted_name(
@@ -53,19 +57,23 @@ def resolve_source_location(
 ) -> ResolvedSourceLocation:
     """Resolve `(catalog, schema, table_name, response_name)` for one warehouse-import row.
 
-    Namespace + table priority: per-row `schema_metadata` → dotted `schema_name` self-heal →
+    Namespace + table priority: per-schema `schema_metadata` → dotted `schema_name` self-heal →
     `config_namespace` → `default`. `response_name` (the Delta subdir) comes from `dwh_storage_key`
     when present, so a migrated row keeps its legacy path — no S3 rewrite, no orphaned data.
+
+    The SQL-specific keys (`source_schema` / `source_table_name` / `source_catalog`) are read out of
+    the generic `schema_metadata` blob here, so `SourceInputs` stays free of per-dialect fields.
     """
-    source_schema = normalize_namespace(inputs.source_schema)
-    source_table_name = inputs.source_table_name if isinstance(inputs.source_table_name, str) else None
+    metadata = inputs.schema_metadata if isinstance(inputs.schema_metadata, dict) else {}
+    source_schema = normalize_namespace(metadata.get("source_schema"))
+    source_table_name = _str_or_none(metadata.get("source_table_name"))
     source_schema, source_table_name = fill_missing_from_dotted_name(
         source_schema, source_table_name, inputs.schema_name
     )
 
     schema = source_schema or normalize_namespace(config_namespace) or default
     table_name = source_table_name or inputs.schema_name
-    catalog = (inputs.source_catalog if isinstance(inputs.source_catalog, str) else None) or config_catalog
+    catalog = _str_or_none(metadata.get("source_catalog")) or config_catalog
 
     storage_key = inputs.dwh_storage_key if isinstance(inputs.dwh_storage_key, str) and inputs.dwh_storage_key else None
     response_name = NamingConvention.normalize_identifier(storage_key or inputs.schema_name)
