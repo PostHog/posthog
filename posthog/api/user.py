@@ -934,6 +934,11 @@ class UserViewSet(
         if default_device(user) or passkeys_enabled_for_2fa:
             return Response({"success": True, "token": token, "requires_2fa": True})
 
+        # Don't hand a non-SSO session to an account whose domain enforces SSO — verifying an email
+        # must not become a password-backend login path around the IdP. The user logs in via SSO.
+        if OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email):
+            return Response({"success": True, "token": token, "requires_sso": True})
+
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
         set_two_factor_verified_in_session(self.request)
         report_user_logged_in(user)

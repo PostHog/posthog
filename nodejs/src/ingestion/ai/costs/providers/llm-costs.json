@@ -313,6 +313,32 @@
         }
     },
     {
+        "model": "anthropic/claude-fable-5",
+        "cost": {
+            "default": {
+                "prompt_token": 0.00001,
+                "completion_token": 0.00005,
+                "cache_read_token": 0.000001,
+                "cache_write_token": 0.0000125,
+                "web_search": 0.01
+            },
+            "anthropic": {
+                "prompt_token": 0.00001,
+                "completion_token": 0.00005,
+                "cache_read_token": 0.000001,
+                "cache_write_token": 0.0000125,
+                "web_search": 0.01
+            },
+            "anthropic-claude-on-aws": {
+                "prompt_token": 0.00001,
+                "completion_token": 0.00005,
+                "cache_read_token": 0.000001,
+                "cache_write_token": 0.0000125,
+                "web_search": 0.01
+            }
+        }
+    },
+    {
         "model": "anthropic/claude-haiku-4.5",
         "cost": {
             "default": {

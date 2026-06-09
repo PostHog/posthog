@@ -2,9 +2,10 @@ from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from typing import Any, Optional
 
 from requests import Request, Response, Session
+from urllib3.util.retry import Retry
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.http import DEFAULT_RETRY, make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
@@ -31,6 +32,23 @@ def _auth_headers(access_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {access_token}", **_default_headers()}
 
 
+# The substream walk reaches `/conversations/search` and `/companies/list` via
+# POST. The shared `DEFAULT_RETRY` excludes POST from `allowed_methods`, so a
+# transient read timeout on those calls is *not* retried — unlike the GET calls
+# in the same walk, which retry transparently. These POSTs are read-only,
+# idempotent queries (the body just carries the query + cursor), so it's safe to
+# retry them on transient read timeouts and 429/5xx like everything else.
+# Derived from DEFAULT_RETRY so the shared policy stays the single source of
+# truth — the only intentional difference is adding POST to allowed_methods.
+_INTERCOM_RETRY = Retry(
+    total=DEFAULT_RETRY.total,
+    backoff_factor=DEFAULT_RETRY.backoff_factor,
+    status_forcelist=DEFAULT_RETRY.status_forcelist,
+    allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"},
+    raise_on_status=DEFAULT_RETRY.raise_on_status,
+)
+
+
 def _make_intercom_session(access_token: str) -> Session:
     """Build a tracked session with Intercom auth + default headers baked in.
 
@@ -38,7 +56,7 @@ def _make_intercom_session(access_token: str) -> Session:
     keep the underlying TCP+TLS connection alive — the substream generators
     (one GET per parent row) are the main beneficiary.
     """
-    return make_tracked_session(headers=_auth_headers(access_token))
+    return make_tracked_session(headers=_auth_headers(access_token), retry=_INTERCOM_RETRY)
 
 
 class IntercomSearchPaginator(BasePaginator):
