@@ -295,9 +295,9 @@ def _build_message_blocks(
     dismiss_button_value: str | None = None,
 ) -> tuple[list[dict], str]:
     title_line = report.title or "New signals inbox item"
-    header_text = title_line
-    if len(header_text) > _SLACK_HEADER_MAX_LEN:
-        header_text = header_text[: _SLACK_HEADER_MAX_LEN - 3] + "..."
+    header_text = (
+        title_line if len(title_line) <= _SLACK_HEADER_MAX_LEN else title_line[: _SLACK_HEADER_MAX_LEN - 3] + "..."
+    )
 
     meta_parts: list[str] = []
     if priority:
@@ -385,20 +385,42 @@ _MAX_THREAD_SIGNALS = 30
 # Slack section text caps at 3000 chars; leave headroom for the ellipsis.
 _SIGNAL_CONTENT_MAX_LEN = 2900
 
-# Mirrors ERROR_TRACKING_SOURCE_TYPE_LABELS in the frontend (lib/signals/errorTracking.ts).
-_ERROR_TRACKING_TYPE_LABELS: dict[str, str] = {
-    "issue_created": "New issue",
-    "issue_reopened": "Issue reopened",
-    "issue_spiking": "Volume spike",
+# Explicit "Product · Signal type" labels, mirroring `signalCardSourceLine` in the canonical Inbox UI
+# (PostHog Code's apps/code/.../detail/SignalCard.tsx). Keep in sync with it.
+_SIGNAL_SOURCE_LINES: dict[tuple[str, str], str] = {
+    ("error_tracking", "issue_created"): "Error tracking · New issue",
+    ("error_tracking", "issue_reopened"): "Error tracking · Issue reopened",
+    ("error_tracking", "issue_spiking"): "Error tracking · Volume spike",
+    ("session_replay", "session_problem"): "Session replay · Session problem",
+    ("session_replay", "session_segment_cluster"): "Session replay · Session segment cluster",
+    ("session_replay", "session_analysis_cluster"): "Session replay · Session analysis cluster",
+    ("llm_analytics", "evaluation"): "AI observability · Evaluation",
+    ("zendesk", "ticket"): "Zendesk · Ticket",
+    ("github", "issue"): "GitHub · Issue",
+    ("linear", "issue"): "Linear · Issue",
+    ("pganalyze", "issue"): "pganalyze · Issue",
 }
 
 
-def _signal_source_line(source_product: str, source_type: str) -> str:
-    """Human-readable "Product · Signal type" line, mirroring `signalCardSourceLine` in the inbox UI."""
+def _prettify_scout_name(skill_name: str) -> str:
+    """Turn a scout's skill_name (e.g. "signals-scout-error-tracking") into a label (e.g. "Error tracking")."""
+    cleaned = skill_name.removeprefix("signals-scout-").replace("-", " ").replace("_", " ").strip()
+    return cleaned[:1].upper() + cleaned[1:] if cleaned else ""
+
+
+def _signal_source_line(source_product: str, source_type: str, extra: dict | None = None) -> str:
+    """Human-readable "Product · Signal type" line, mirroring `signalCardSourceLine` in the canonical Inbox UI."""
+    explicit = _SIGNAL_SOURCE_LINES.get((source_product, source_type))
+    if explicit is not None:
+        return explicit
     if source_product == "error_tracking":
-        type_label = _ERROR_TRACKING_TYPE_LABELS.get(source_type, source_type.replace("_", " "))
+        type_label = source_type.replace("_", " ")
         return f"Error tracking · {type_label}" if type_label else "Error tracking"
-    product_label = _SOURCE_PRODUCT_LABELS.get(source_product, source_product.replace("_", " "))
+    if source_product == "signals_scout" and source_type == "cross_source_issue":
+        skill_name = extra.get("skill_name") if isinstance(extra, dict) else None
+        pretty = _prettify_scout_name(skill_name) if isinstance(skill_name, str) else ""
+        return f"Scout · {pretty}" if pretty else "Scout · Cross-source issue"
+    product_label = source_product.replace("_", " ")
     type_label = source_type.replace("_", " ")
     return f"{product_label} · {type_label}" if type_label else product_label
 
@@ -455,12 +477,14 @@ def _build_signal_thread_blocks(signal: dict) -> tuple[list[dict], str]:
     """Render one evidence signal as Slack blocks, mirroring an inbox SignalCard."""
     source_product = str(signal.get("source_product") or "")
     source_type = str(signal.get("source_type") or "")
+    raw_extra = signal.get("extra")
+    extra = raw_extra if isinstance(raw_extra, dict) else {}
     try:
         weight = float(signal.get("weight") or 0.0)
     except (TypeError, ValueError):
         weight = 0.0
 
-    source_line = _escape_mrkdwn(_signal_source_line(source_product, source_type))
+    source_line = _escape_mrkdwn(_signal_source_line(source_product, source_type, extra))
     header_line = f"*{source_line}*  ·  Weight: {weight:.1f}"
     blocks: list[dict] = [{"type": "context", "elements": [{"type": "mrkdwn", "text": header_line}]}]
 
@@ -470,8 +494,7 @@ def _build_signal_thread_blocks(signal: dict) -> tuple[list[dict], str]:
             content = content[: _SIGNAL_CONTENT_MAX_LEN - 1].rstrip() + "…"
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _escape_mrkdwn(content)}})
 
-    extra = signal.get("extra")
-    detail_parts = _signal_detail_parts(source_product, extra) if isinstance(extra, dict) else []
+    detail_parts = _signal_detail_parts(source_product, extra)
     if detail_parts:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "  ·  ".join(detail_parts)}]})
 

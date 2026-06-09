@@ -796,19 +796,42 @@ def test_dispatch_sends_once_per_channel_when_reviewers_share_channel(org_and_te
 @pytest.mark.parametrize(
     ("source_product", "source_type", "expected"),
     [
+        # Explicit labels mirror the canonical Inbox UI's signalCardSourceLine.
         ("error_tracking", "issue_created", "Error tracking · New issue"),
+        ("error_tracking", "issue_spiking", "Error tracking · Volume spike"),
+        ("session_replay", "session_problem", "Session replay · Session problem"),
+        ("session_replay", "session_analysis_cluster", "Session replay · Session analysis cluster"),
+        ("llm_analytics", "evaluation", "AI observability · Evaluation"),
+        ("github", "issue", "GitHub · Issue"),
+        ("zendesk", "ticket", "Zendesk · Ticket"),
+        ("linear", "issue", "Linear · Issue"),
+        ("pganalyze", "issue", "pganalyze · Issue"),
+        # Unknown error-tracking type falls back to the humanized source type.
         ("error_tracking", "weird_type", "Error tracking · weird type"),
         # No source type → no trailing separator.
         ("error_tracking", "", "Error tracking"),
-        ("session_replay", "session_problem", "Session replay · session problem"),
-        ("llm_analytics", "evaluation", "LLM analytics · evaluation"),
-        ("github", "issue", "GitHub · issue"),
-        ("zendesk", "ticket", "Zendesk · ticket"),
+        # Unknown product/type humanizes both halves.
+        ("logs", "alert_state_change", "logs · alert state change"),
         ("unknown_thing", "", "unknown thing"),
     ],
 )
 def test_signal_source_line(source_product: str, source_type: str, expected: str) -> None:
     assert _signal_source_line(source_product, source_type) == expected
+
+
+@pytest.mark.parametrize(
+    ("skill_name", "expected"),
+    [
+        # A scout's skill name becomes the label.
+        ("signals-scout-error-tracking", "Scout · Error tracking"),
+        ("signals-scout-revenue-analytics", "Scout · Revenue analytics"),
+        # No usable skill name → generic scout label.
+        ("", "Scout · Cross-source issue"),
+    ],
+)
+def test_signal_source_line_scout_uses_skill_name(skill_name: str, expected: str) -> None:
+    extra = {"skill_name": skill_name} if skill_name else {}
+    assert _signal_source_line("signals_scout", "cross_source_issue", extra) == expected
 
 
 def test_build_signal_thread_blocks_renders_header_content_and_github_details() -> None:
@@ -825,13 +848,13 @@ def test_build_signal_thread_blocks_renders_header_content_and_github_details() 
     }
     blocks, fallback = _build_signal_thread_blocks(signal)
 
-    assert blocks[0]["elements"][0]["text"] == "*GitHub · issue*  ·  Weight: 2.5"
+    assert blocks[0]["elements"][0]["text"] == "*GitHub · Issue*  ·  Weight: 2.5"
     assert blocks[1]["text"]["text"] == "Users report the export button does nothing"
     detail = blocks[2]["elements"][0]["text"]
     assert "#42" in detail
     assert "bug, export" in detail
     assert "<https://github.com/PostHog/posthog/issues/42|View on GitHub>" in detail
-    assert fallback.startswith("GitHub · issue:")
+    assert fallback.startswith("GitHub · Issue:")
 
 
 def test_build_signal_thread_blocks_escapes_content_to_block_mention_injection() -> None:
