@@ -4,6 +4,7 @@ import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/q
 
 import {
     buildTrendsBarAggregatedSeries,
+    buildTrendsBarChartModel,
     buildTrendsBarTimeSeries,
     buildTrendsBarTimeSeriesConfig,
     type TrendsBarResultLike,
@@ -341,5 +342,51 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
         })
         expect(cfg.valueLabels).toEqual({ formatter })
         expect(cfg.tooltip).toEqual({ pinnable: true, placement: 'top' })
+    })
+})
+
+describe('buildTrendsBarChartModel', () => {
+    const results: TrendsBarResultLike[] = [
+        { id: 'a', label: 'Pageview', data: [1, 2, 3] },
+        { id: 'b', label: 'Signup', data: [4, 5, 6] },
+    ]
+
+    it('assembles series + config and passes the host labels through', () => {
+        const model = buildTrendsBarChartModel(results, {
+            getColor: () => RED,
+            labels: ['Mon', 'Tue', 'Wed'],
+            isPercentStackView: false,
+            isGrouped: false,
+        })
+
+        expect(model.labels).toEqual(['Mon', 'Tue', 'Wed'])
+        expect(model.series.map((s) => s.key)).toEqual(['a', 'b'])
+        expect(model.series[0].data).toEqual([1, 2, 3])
+        expect(model.config.barLayout).toBe('stacked')
+    })
+
+    it.each([
+        { isGrouped: false, isPercentStackView: false, expected: 'stacked' },
+        { isGrouped: true, isPercentStackView: false, expected: 'grouped' },
+        { isGrouped: false, isPercentStackView: true, expected: 'percent' },
+    ])('maps layout flags to barLayout=$expected', ({ isGrouped, isPercentStackView, expected }) => {
+        const model = buildTrendsBarChartModel(results, {
+            getColor: () => RED,
+            labels: [],
+            isGrouped,
+            isPercentStackView,
+        })
+        expect(model.config.barLayout).toBe(expected)
+    })
+
+    it('forwards an x-axis tick formatter into the config', () => {
+        const model = buildTrendsBarChartModel(results, {
+            getColor: () => RED,
+            labels: [],
+            isPercentStackView: false,
+            isGrouped: false,
+            xAxisTickFormatter: (value) => `~${value}`,
+        })
+        expect(model.config.xAxis?.tickFormatter?.('2024-01-01', 0)).toBe('~2024-01-01')
     })
 })
