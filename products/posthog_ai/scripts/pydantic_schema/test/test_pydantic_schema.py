@@ -74,3 +74,24 @@ def test_pydantic_schema_renders_json(register_fake_module: Callable[..., None])
     assert schema["properties"]["name"]["type"] == "string"
     assert schema["properties"]["count"]["type"] == "integer"
     assert "name" in schema.get("required", [])
+
+
+class Inner(BaseModel):
+    value: str
+
+
+class Outer(BaseModel):
+    inner: Inner
+
+
+def test_pydantic_schema_inline_defs_false_drops_defs_and_shortens_refs(
+    register_fake_module: Callable[..., None],
+) -> None:
+    register_fake_module("_test_defs_models", "Outer", Outer)
+    inlined = json.loads(pydantic_schema("_test_defs_models.Outer"))
+    assert "$defs" in inlined
+    assert inlined["properties"]["inner"]["$ref"] == "#/$defs/Inner"
+
+    trimmed = json.loads(pydantic_schema("_test_defs_models.Outer", inline_defs=False))
+    assert "$defs" not in trimmed
+    assert trimmed["properties"]["inner"]["$ref"] == "Inner"

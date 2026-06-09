@@ -48,7 +48,19 @@ def json_schema_type_label(prop: dict) -> str:
     return t
 
 
-def pydantic_schema(dotted_path: str, indent: int = 2) -> str:
+def _shorten_refs(obj: object) -> object:
+    """Rewrite ``{"$ref": "#/$defs/EventsNode"}`` to ``{"$ref": "EventsNode"}`` recursively."""
+    if isinstance(obj, dict):
+        return {
+            k: (v.rsplit("/", 1)[-1] if k == "$ref" and isinstance(v, str) else _shorten_refs(v))
+            for k, v in obj.items()
+        }
+    if isinstance(obj, list):
+        return [_shorten_refs(v) for v in obj]
+    return obj
+
+
+def pydantic_schema(dotted_path: str, indent: int = 2, inline_defs: bool = True) -> str:
     """Return the JSON Schema of a Pydantic model as a formatted JSON string.
 
     Usage in a template::
@@ -56,7 +68,15 @@ def pydantic_schema(dotted_path: str, indent: int = 2) -> str:
         ```json
         {{ pydantic_schema("products.feature_flags.backend.max_tools.FeatureFlagCreationSchema") }}
         ```
+
+    ``inline_defs=False`` drops the ``$defs`` block and shortens ``$ref``
+    pointers to bare type names, leaving just the model's own fields — avoids
+    inlining the full property-filter/query-node unions on every call. Render
+    shared building blocks (e.g. ``EventsNode``) once and reference them by name.
     """
     model_cls = _import_model(dotted_path)
     schema = model_cls.model_json_schema()
+    if not inline_defs:
+        schema = {k: v for k, v in schema.items() if k != "$defs"}
+        schema = _shorten_refs(schema)  # type: ignore[assignment]
     return json.dumps(schema, indent=indent)
