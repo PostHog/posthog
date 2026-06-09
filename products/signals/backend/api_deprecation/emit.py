@@ -24,7 +24,7 @@ from products.signals.backend.custom_agent.persistence import (
     PersistedCustomAgentReport,
     create_custom_agent_ready_report,
 )
-from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
+from products.signals.backend.custom_agent.schemas import CustomAgentAssignee, CustomAgentFinalReport
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -104,8 +104,13 @@ def emit_signal_to_inbox(
     findings: list[ResearchedDeprecation],
     today: date,
     repository: str = "posthog/posthog",
+    reviewers: list[str] | None = None,
 ) -> PersistedCustomAgentReport | None:
-    """Persist cited findings as one READY ``SignalReport`` (no PR side effects). None ⇒ nothing emitted."""
+    """Persist cited findings as one READY ``SignalReport``. None ⇒ nothing emitted.
+
+    ``reviewers`` are GitHub logins to suggest — they make the report land in those users' inbox
+    "review" lane. This does NOT open a PR: emit only persists; dispatch is a separate, explicit step.
+    """
     components = render_report(findings, today)
     if components is None:
         return None
@@ -113,7 +118,7 @@ def emit_signal_to_inbox(
         title=components.title,
         description=components.description,
         actionability=components.actionability,
-        assignees=[],  # empty → never auto-opens a PR
+        assignees=[CustomAgentAssignee(github_login=login) for login in (reviewers or [])],
         priority=components.priority,
     )
     return create_custom_agent_ready_report(

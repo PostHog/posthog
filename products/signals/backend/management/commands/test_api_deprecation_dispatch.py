@@ -41,6 +41,12 @@ class Command(BaseCommand):
         parser.add_argument(
             "--dispatch-dry-run", action="store_true", help="With --dispatch, plan only — no side effects."
         )
+        parser.add_argument(
+            "--reviewer",
+            action="append",
+            default=None,
+            help="GitHub login to suggest as reviewer (repeatable). Makes the card show in that user's inbox lane. No PR.",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         if not settings.DEBUG:
@@ -50,7 +56,11 @@ class Command(BaseCommand):
         today = date.today()
 
         persisted = emit_signal_to_inbox(
-            team_id=options["team_id"], findings=[finding], today=today, repository=options["repository"]
+            team_id=options["team_id"],
+            findings=[finding],
+            today=today,
+            repository=options["repository"],
+            reviewers=options["reviewer"],
         )
         if persisted is None:
             self.stdout.write("nothing emitted (finding produced no report)")
