@@ -180,6 +180,22 @@ def _get_property_type(value) -> str:
     return "str"
 
 
+# Operators whose semantics are genuinely numeric and therefore need the `__float` attribute
+# map (string comparison would order `"100" < "99"` lexicographically). Every other operator is
+# equality / substring / regex identity matching and MUST use `__str` — see the comment in
+# `LogsFilterBuilder.__init__` for why routing equality to `__float` is a correctness bug.
+_NUMERIC_COMPARISON_OPERATORS = frozenset(
+    {
+        PropertyOperator.GT,
+        PropertyOperator.GTE,
+        PropertyOperator.LT,
+        PropertyOperator.LTE,
+        PropertyOperator.BETWEEN,
+        PropertyOperator.NOT_BETWEEN,
+    }
+)
+
+
 class LogsFilterBuilder:
     """Builds HogQL WHERE clause AST from LogsQuery filter fields.
 
@@ -219,14 +235,20 @@ class LogsFilterBuilder:
                     [f for f in property_group.values if f.type == LogPropertyFilterType.LOG],
                 )
 
-            # dynamically detect type of the given property values
-            # if they all convert cleanly to float, use the __float property mapping instead
-            # we keep multiple attribute maps for different types:
-            # attribute_map_str
-            # attribute_map_float
-            # attribute_map_datetime
+            # Pick which per-type attribute map to read from. We keep multiple maps:
+            #   attributes_map_str / attributes_map_float / attributes_map_datetime
+            # `attributes_map_float` is MATERIALIZED from `attributes_map_str` via
+            # `toFloat64OrNull`, so every value present in float is also present in str.
             #
-            # for now we'll just check str and float as we need a decent UI for datetime filtering.
+            # The `__float` map is ONLY needed for genuine numeric range comparisons
+            # (`>`, `<`, between) where lexicographic string ordering would be wrong.
+            # For equality / identity matching (Exact, IN, IsNot, contains, regex) we must
+            # stay on `__str`: routing those to `__float` silently coerces values, which is
+            # a correctness bug — distinct_ids "007", "7", and "7.0" all collapse to the
+            # float 7.0 (one person's logs leak onto another), and numeric IDs above 2^53
+            # lose float64 precision. This is the root cause of all-numeric distinct_ids
+            # failing to link logs to a person on the profile Logs tab (the pivot filter
+            # uses Exact, so it was being routed to `__float`).
             for property_filter in self.query.filterGroup.values[0].values:
                 # we only do the type mapping for log attributes
                 if property_filter.type != LogPropertyFilterType.LOG_ATTRIBUTE:
@@ -234,14 +256,15 @@ class LogsFilterBuilder:
 
                 if isinstance(property_filter, LogPropertyFilter) and property_filter.value:
                     property_type = "str"
-                    if isinstance(property_filter.value, list):
-                        property_types = {_get_property_type(v) for v in property_filter.value}
-                        # only use the detected type if all given values have the same type
-                        # e.g. if values are '1', '2', we can use float, if values are '1', 'a', stick to str
-                        if len(property_types) == 1:
-                            property_type = property_types.pop()
-                    else:
-                        property_type = _get_property_type(property_filter.value)
+                    if property_filter.operator in _NUMERIC_COMPARISON_OPERATORS:
+                        if isinstance(property_filter.value, list):
+                            property_types = {_get_property_type(v) for v in property_filter.value}
+                            # only use the detected type if all given values have the same type
+                            # e.g. if values are '1', '2', we can use float, if values are '1', 'a', stick to str
+                            if len(property_types) == 1:
+                                property_type = property_types.pop()
+                        else:
+                            property_type = _get_property_type(property_filter.value)
 
                     # defensive copy as we mutate the filter here and don't want to impact other copies
                     property_filter = property_filter.copy(deep=True)

@@ -82,6 +82,77 @@ class TestAttributeFilters(APIBaseTest):
         # this optimization was premature and needs more thought, and probably has very little benefit anyway
         self.assertNotIn("in(resource_fingerprint", query_str)
 
+    def _attribute_filter_for(self, *, key, operator, value):
+        """Build a single LogAttribute filter and return the LogsFilterBuilder's processed
+        copy, whose `.key` carries the `__str` / `__float` suffix the routing logic chose."""
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2024-01-10T00:00:00Z", date_to="2024-01-15T23:59:59Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            LogPropertyFilter(
+                                key=key,
+                                operator=operator,
+                                type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                                value=value,
+                            )
+                        ],
+                    )
+                ],
+            ),
+            kind="LogsQuery",
+        )
+        af = LogsQueryRunner(query=query, team=self.team)._filter_builder.attribute_filters
+        self.assertEqual(len(af), 1)
+        return af[0]
+
+    @parameterized.expand(
+        [
+            # Equality / identity operators on numeric-looking values MUST route to __str.
+            ("exact_single_numeric", PropertyOperator.EXACT, "69339"),
+            ("exact_numeric_list", PropertyOperator.EXACT, ["5", "8675309"]),
+            ("is_not_numeric", PropertyOperator.IS_NOT, ["5"]),
+            ("icontains_numeric", PropertyOperator.ICONTAINS, "500"),
+        ]
+    )
+    def test_equality_operators_on_numeric_values_route_to_str(self, _name, operator, value):
+        """Regression: numeric distinct_ids (e.g. `69339`) must be matched in the `__str`
+        map, not `__float`. Routing equality to `__float` is the root cause of all-numeric
+        distinct_ids failing to link logs to a person on the profile Logs tab."""
+        f = self._attribute_filter_for(key="posthog.distinct_id", operator=operator, value=value)
+        self.assertTrue(f.key.endswith("__str"), f"expected __str routing, got {f.key!r}")
+        self.assertFalse(f.key.endswith("__float"))
+
+    @parameterized.expand(
+        [
+            ("gt", PropertyOperator.GT),
+            ("gte", PropertyOperator.GTE),
+            ("lt", PropertyOperator.LT),
+            ("lte", PropertyOperator.LTE),
+        ]
+    )
+    def test_numeric_range_operators_still_route_to_float(self, _name, operator):
+        """Numeric range comparisons keep `__float` routing — string ordering would be
+        lexicographically wrong (`"100" < "99"`). This is what the fix deliberately preserves."""
+        f = self._attribute_filter_for(key="duration_ms", operator=operator, value="500")
+        self.assertTrue(f.key.endswith("__float"), f"expected __float routing, got {f.key!r}")
+
+    def test_leading_zero_and_plain_numeric_do_not_collide(self):
+        """`"007"` and `"7"` both parse as float 7.0, so under `__float` they would collide
+        (one person's logs leaking onto another). Under `__str` they stay distinct, exact
+        string values — verify both route to `__str` and keep their literal value."""
+        f_007 = self._attribute_filter_for(key="posthog.distinct_id", operator=PropertyOperator.EXACT, value=["007"])
+        f_7 = self._attribute_filter_for(key="posthog.distinct_id", operator=PropertyOperator.EXACT, value=["7"])
+        self.assertTrue(f_007.key.endswith("__str"))
+        self.assertTrue(f_7.key.endswith("__str"))
+        self.assertEqual(f_007.value, ["007"])
+        self.assertEqual(f_7.value, ["7"])
+
     def test_resource_attribute_filters(self):
         """Test that resource attribute filters are properly handled"""
         query = LogsQuery(
@@ -237,8 +308,10 @@ class TestAttributeFilters(APIBaseTest):
         assert executor.clickhouse_prepared_ast is not None
         query_str = executor.clickhouse_prepared_ast.to_hogql()
 
-        # All filter types should be present
-        self.assertIn("http.status_code__float", query_str)
+        # All filter types should be present. `http.status_code` uses Exact (equality),
+        # so it routes to the `__str` map — equality/identity matching never uses `__float`
+        # (that's reserved for numeric range comparisons). See test_*_routes_to_str/float below.
+        self.assertIn("http.status_code__str", query_str)
         self.assertIn("service.name", query_str)
         self.assertIn("message", query_str)
         self.assertNotIn("service.name__str", query_str)
