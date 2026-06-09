@@ -185,15 +185,6 @@ def _sentinel(value: str) -> ast.Constant:
     return ast.Constant(value=value, inline=True)
 
 
-def _blob_field(field_type: ast.FieldType) -> ast.Field:
-    """A Field over the raw JSON blob column (`properties` / `person_properties`), reusing its resolved type.
-
-    Printing this Field runs the ClickHouse printer's `visit_field_type`, which `JSONDropKeys`-wraps it for restricted
-    properties — so a restricted read scrubs to '' exactly as on master.
-    """
-    return ast.Field(chain=[field_type.name], type=field_type)
-
-
 def _json_extract_trim_quotes_expr(field_expr: ast.Expr, keys: list[str | int]) -> ast.Expr:
     """The raw JSON read for a key path: `JSONExtractRaw(blob, *keys)`, with `''`/`'null'` nulled out and quotes trimmed.
 
@@ -332,8 +323,12 @@ def _substitute_value_read(node: ast.JSONFieldAccess, context: HogQLContext) -> 
 # (replaceRegexpAll(nullIf(nullIf(...)))). ClickHouse can't use the column's skip index through that wrapping, so it
 # scans every row. When one side of a comparison is a property with a materialized column (or a property-group map
 # entry), these rewrites rebuild the comparison against the bare column instead, restoring the empty/null handling
-# inline so the rows are unchanged. The bare column is index-eligible, so ClickHouse can skip granules. Success means the
-# same rows and a usable skip index — not SQL that matches the old printer.
+# inline so the rows are unchanged. The bare column is index-eligible, so ClickHouse can skip granules.
+#
+# This is not new behavior: it reproduces the optimizations the old ClickHouse printer did in
+# `_get_optimized_materialized_column_equals_operation` / `_range_operation` / `_get_optimized_property_group_call`. The
+# only move is where they run — here as HogQL nodes, not as SQL strings in the printer — so the rows and index
+# eligibility match master.
 
 
 def _call(name: str, args: list[ast.Expr]) -> ast.Call:
@@ -352,10 +347,6 @@ def _lower(expr: ast.Expr) -> ast.Call:
 def _coalesce_empty(expr: ast.Expr) -> ast.Call:
     """`coalesce(expr, '')`, typed non-nullable String — matches the lower-index expression and prints bare."""
     return ast.Call(name="coalesce", args=[expr, _sentinel("")], type=ast.StringType(nullable=False))
-
-
-def _is_null_constant(expr: ast.Expr) -> bool:
-    return isinstance(expr, ast.Constant) and expr.value is None
 
 
 def _resolve_field_type(expr: ast.Expr) -> ast.Type | None:
