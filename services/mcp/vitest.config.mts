@@ -15,10 +15,9 @@ const markdownLoader = {
     },
 }
 
-// Three projects run under a single `pnpm test` invocation:
-//   - `unit`     → fast Node-pool suite (default pool, ~2s)
-//   - `ui-apps`  → jsdom suite for React UI-app components (vitest.ui-apps.config.mts)
-//   - `workers`  → DO/runtime integration via @cloudflare/vitest-pool-workers
+// Two projects run under a single `pnpm test` invocation:
+//   - `unit`    → fast Node-pool suite (default pool, ~2s)
+//   - `workers` → DO/runtime integration via @cloudflare/vitest-pool-workers
 // Integration tests that need a real PostHog backend stay in their own
 // config (vitest.integration.config.mts) — they boot the full stack and
 // aren't suitable for the default run.
@@ -43,7 +42,6 @@ export default defineConfig({
                     ],
                 },
             },
-            './vitest.ui-apps.config.mts',
             './vitest.workers.config.mts',
         ],
     },

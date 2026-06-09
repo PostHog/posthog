@@ -2,7 +2,7 @@ import { type ReactElement, useState } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
-import { BarChart as QuillBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
+import { BarChart as BarValueChart, TimeSeriesLineChart } from '@posthog/quill-charts'
 
 import {
     buildTrendsBarValueConfig,
@@ -104,7 +104,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         const barConfig = buildTrendsBarValueConfig()
         return (
             <div className="flex flex-col w-full h-[400px]">
-                <QuillBarChart
+                <BarValueChart
                     series={barSeries}
                     labels={items.map((item) => item.label)}
                     theme={CHART_THEME}
