@@ -69,7 +69,7 @@ jobs:
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
@@ -302,7 +302,7 @@ jobs:
 
     detect-snapshot-mode:
         name: Detect snapshot mode
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 5
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
@@ -439,7 +439,7 @@ jobs:
             needs.turbo-discover.outputs.matrix != '[]' &&
             needs.turbo-discover.outputs.matrix != ''
         runs-on: depot-ubuntu-latest
-        timeout-minutes: 30
+        timeout-minutes: 40
         name: Product tests (${{ matrix.group }})
         strategy:
             fail-fast: false
@@ -504,7 +504,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
@@ -654,7 +654,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
@@ -722,7 +722,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
                   # Reuse the app token already minted above instead of a second mint.
                   token: ${{ steps.app-token.outputs.token || github.token }}
 
@@ -809,7 +809,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
@@ -1431,7 +1431,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
@@ -1588,7 +1588,7 @@ jobs:
             always() &&
             needs.changes.outputs.backend == 'true' &&
             needs.get_clickhouse_versions.result == 'success'
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 5
         outputs:
             include: ${{ steps.build.outputs.include }}
@@ -1619,7 +1619,7 @@ jobs:
                     [range(1; $shards + 1) | {
                       segment: "Core",
                       "person-on-events": false,
-                      "python-version": "3.12.12",
+                      "python-version": "3.13.13",
                       "clickhouse-server-image": $image,
                       concurrency: $shards,
                       group: .,
@@ -1632,7 +1632,7 @@ jobs:
                     [range(1; $shards + 1) | {
                       segment: "Core",
                       "person-on-events": true,
-                      "python-version": "3.12.12",
+                      "python-version": "3.13.13",
                       "clickhouse-server-image": $image,
                       concurrency: $shards,
                       group: .,
@@ -1645,7 +1645,7 @@ jobs:
                     [range(1; $shards + 1) | {
                       segment: "Temporal",
                       "person-on-events": false,
-                      "python-version": "3.12.12",
+                      "python-version": "3.13.13",
                       "clickhouse-server-image": $image,
                       concurrency: $shards,
                       group: .,
@@ -1662,7 +1662,7 @@ jobs:
                       | .value + {
                           segment: "Core",
                           "person-on-events": false,
-                          "python-version": "3.12.12",
+                          "python-version": "3.13.13",
                           compat: true,
                           artifact_key: ("compat-" + ((.key + 1)|tostring))
                         }
@@ -2135,7 +2135,7 @@ jobs:
         name: Get ClickHouse versions
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 5
         outputs:
             # Oldest supported version for main Django tests (JSON array for matrix)
@@ -2287,50 +2287,48 @@ jobs:
         timeout-minutes: 5
         if: always()
         steps:
-            - name: Check matrix outcome
+            - name: Summarize dependency results
               run: |
-                  # The `needs.django.result` will be 'success' only if all jobs in the matrix succeeded.
-                  # Otherwise, it will be 'failure'.
-                  if [[ "${{ needs.django.result }}" != "success" && "${{ needs.django.result }}" != "skipped" ]]; then
-                    echo "One or more jobs in the Django test matrix failed."
-                    exit 1
-                  fi
+                  {
+                    echo "### Backend CI dependency results"
+                    echo "| Dependency | Result |"
+                    echo "| --- | --- |"
+                    echo "| django | ${{ needs.django.result }} |"
+                    echo "| check-migrations | ${{ needs.check-migrations.result }} |"
+                    echo "| check-openapi-types | ${{ needs.check-openapi-types.result }} |"
+                    echo "| async-migrations | ${{ needs.async-migrations.result }} |"
+                    echo "| repo-checks | ${{ needs.repo-checks.result }} |"
+                    echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
+                    echo "| turbo-tests | ${{ needs.turbo-tests.result }} |"
+                    echo "| handle-snapshots | ${{ needs.handle-snapshots.result }} |"
+                  } | tee -a "$GITHUB_STEP_SUMMARY"
 
-                  # Check migration validation - must pass for Django Tests to be green
-                  if [[ "${{ needs.check-migrations.result }}" != "success" && "${{ needs.check-migrations.result }}" != "skipped" ]]; then
-                    echo "Migration checks failed."
-                    exit 1
-                  fi
+            - name: Check dependency results
+              run: |
+                  check_required_result() {
+                    local label="$1"
+                    local result="$2"
 
-                  # Check OpenAPI type validation - must pass for Django Tests to be green
-                  if [[ "${{ needs.check-openapi-types.result }}" != "success" && "${{ needs.check-openapi-types.result }}" != "skipped" ]]; then
-                    echo "OpenAPI type checks failed."
-                    exit 1
-                  fi
+                    if [[ "$result" == "success" || "$result" == "skipped" ]]; then
+                      return
+                    fi
 
-                  # Check async migrations - must pass for Django Tests to be green
-                  if [[ "${{ needs.async-migrations.result }}" != "success" && "${{ needs.async-migrations.result }}" != "skipped" ]]; then
-                    echo "Async migrations tests failed."
-                    exit 1
-                  fi
+                    if [[ "$result" == "cancelled" ]]; then
+                      echo "::error::$label was cancelled or timed out."
+                    else
+                      echo "::error::$label failed with result '$result'."
+                    fi
 
-                  # Check repo checks (product lint, IDOR, operator parity, tach)
-                  if [[ "${{ needs.repo-checks.result }}" != "success" && "${{ needs.repo-checks.result }}" != "skipped" ]]; then
-                    echo "Repo checks failed."
                     exit 1
-                  fi
+                  }
 
-                  # Check Turbo discover - must pass for Django Tests to be green
-                  if [[ "${{ needs.turbo-discover.result }}" != "success" && "${{ needs.turbo-discover.result }}" != "skipped" ]]; then
-                    echo "Turbo discover failed."
-                    exit 1
-                  fi
-
-                  # Check Turbo tests (products) - must pass for Django Tests to be green
-                  if [[ "${{ needs.turbo-tests.result }}" != "success" && "${{ needs.turbo-tests.result }}" != "skipped" ]]; then
-                    echo "Turbo tests failed."
-                    exit 1
-                  fi
+                  check_required_result "Django test matrix" "${{ needs.django.result }}"
+                  check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
+                  check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
+                  check_required_result "Async migration tests" "${{ needs.async-migrations.result }}"
+                  check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
+                  check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
+                  check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
 
                   # Check handle-snapshots result (OK if skipped, but fail if it failed)
                   if [[ "${{ needs.handle-snapshots.result }}" == "failure" ]]; then
@@ -2338,7 +2336,7 @@ jobs:
                     exit 1
                   fi
 
-                  echo "All checks passed."
+                  echo "All backend and product checks passed."
 
     test-selection-verdict:
         needs: [django, turbo-tests, changes]

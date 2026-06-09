@@ -1991,7 +1991,7 @@ class EmailIntegration:
     def create_native_integration(
         cls, config: dict, team_id: int, organization_id: str, created_by: User | None = None
     ) -> Integration:
-        email_address: str = config["email"]
+        email_address: str = config["email"].lower()
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
         mail_from_subdomain: str = config.get("mail_from_subdomain", "feedback")

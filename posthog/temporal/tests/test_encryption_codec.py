@@ -62,7 +62,7 @@ def test_prepare_key(key: bytes, expected: bytes) -> None:
 def test_codec_rejects_short_keys_when_not_debug_or_test():
     class EncryptionSettings:
         TEMPORAL_SECRET_KEY: str | bytes = b"a"
-        TEMPORAL_FALLBACK_KEYS: collections.abc.Iterable[str | bytes] = []
+        TEMPORAL_FALLBACK_SECRET_KEYS: collections.abc.Iterable[str | bytes] = []
         TEST: bool = False
         DEBUG: bool = False
 
@@ -71,7 +71,7 @@ def test_codec_rejects_short_keys_when_not_debug_or_test():
     with pytest.raises(ValueError):
         _ = EncryptionCodec.from_settings(settings)
 
-    settings.TEMPORAL_FALLBACK_KEYS = [b"b"]
+    settings.TEMPORAL_FALLBACK_SECRET_KEYS = [b"b"]
     settings.TEMPORAL_SECRET_KEY = b"a" * 32
 
     with pytest.raises(ValueError):
@@ -87,7 +87,7 @@ def test_codec_rejects_short_keys_when_not_debug_or_test():
 
 class TestEncryptionSettings:
     TEMPORAL_SECRET_KEY: str | bytes = b"a" * 32
-    TEMPORAL_FALLBACK_KEYS: collections.abc.Iterable[str | bytes] = [b"b" * 32, b"c" * 32]
+    TEMPORAL_FALLBACK_SECRET_KEYS: collections.abc.Iterable[str | bytes] = [b"b" * 32, b"c" * 32]
     TEST: bool = False
     DEBUG: bool = False
 

@@ -163,6 +163,10 @@ class TestPromptBuilder(BaseTest):
         # Recency lens references the started_at anchor.
         assert "Recency lens" in prompt
         assert "2026-05-01T12:34:56+00:00" in prompt
+        # The base prompt nudges the scout to report operational friction via the
+        # agent-feedback tool so the scout system improves over time.
+        assert "Report operational friction" in prompt
+        assert "agent-feedback" in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses

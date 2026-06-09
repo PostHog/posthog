@@ -893,8 +893,8 @@ class BytecodeCompiler(Visitor):
         body = node.body
 
         # Sometimes blocks like `fn x() {foo}` get parsed as placeholders
-        if isinstance(body, ast.Placeholder):
-            body = ast.Block(declarations=[ast.ExprStatement(expr=body.expr), ast.ReturnStatement(expr=None)])
+        if isinstance(body, ast.Placeholder):  # type: ignore[unreachable]
+            body = ast.Block(declarations=[ast.ExprStatement(expr=body.expr), ast.ReturnStatement(expr=None)])  # type: ignore[unreachable]
         elif isinstance(node.body, ast.Block):
             if len(node.body.declarations) == 0 or not isinstance(node.body.declarations[-1], ast.ReturnStatement):
                 body = ast.Block(declarations=[*node.body.declarations, ast.ReturnStatement(expr=None)])

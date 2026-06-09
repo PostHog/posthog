@@ -1189,6 +1189,8 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     # for a data warehouse schema. Validates external credentials and lists schemas
     # against the customer's source — no PostHog-side mutations.
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/external_data_schemas/[^/]+/incremental_fields/?$"),
+    # POST but read-only: kicks off insight/dashboard/session replay export renders (e.g. MP4)
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/exports/?$"),
     # Allow upgrading from read-only to read-write impersonation
     "/admin/impersonation/upgrade/",
     # Logout is POST in Django 5; the frontend submits to `/logout` (no trailing slash),

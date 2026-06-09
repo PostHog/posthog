@@ -369,3 +369,5 @@ class TestBuildPipeline:
             assert response.primary_keys == ["id"]
             assert response.rows_to_sync == 5
             assert list(response.items()) == [b"batch-1", b"batch-2"]
+            # Pin a single timestamp unit so mixed ns/us batches don't break pyarrow assembly.
+            streaming_cursor.fetch_arrow_batches.assert_called_once_with(force_microsecond_precision=True)
