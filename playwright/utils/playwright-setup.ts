@@ -71,6 +71,11 @@ export interface PlaywrightWorkspaceSetupData {
      * allow creating more than one project). Merged with the always-on access_control feature.
      */
     available_features?: string[]
+    /**
+     * Organization membership level for the test user. Defaults to 'member'; use 'admin' for flows
+     * that require admin rights (e.g. creating a project).
+     */
+    membership_level?: 'member' | 'admin' | 'owner'
     insight_variables?: PlaywrightSetupVariable[]
     insights?: PlaywrightSetupInsight[]
     dashboards?: PlaywrightSetupDashboard[]

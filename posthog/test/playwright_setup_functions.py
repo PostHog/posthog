@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import AvailableFeature
 from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
-from posthog.models import PersonalAPIKey, Team, User
+from posthog.models import OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.utils import hash_key_value, mask_key_value
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -78,6 +78,9 @@ class PlaywrightWorkspaceSetupData(BaseModel):
     # Extra available product feature keys to grant the org (e.g. "organizations_projects"
     # to allow creating more than one project). Merged with the always-on access_control feature.
     available_features: list[str] | None = None
+    # Organization membership level for the test user. Defaults to "member"; use "admin" for flows
+    # that require admin rights (e.g. creating a project, which needs UserCanCreateProjectPermission).
+    membership_level: str | None = None
     insight_variables: list[PlaywrightSetupVariable] | None = None
     insights: list[PlaywrightSetupInsight] | None = None
     dashboards: list[PlaywrightSetupDashboard] | None = None
@@ -191,9 +194,17 @@ def create_organization_with_team(
     # Bypass billing quota limits so insights always compute on CI
     organization.never_drop_data = True
     # Add access control feature for password-protected sharing, plus any extra features the test requested
-    feature_keys = [AvailableFeature.ACCESS_CONTROL, *(data.available_features or [])]
+    feature_keys = list(dict.fromkeys([AvailableFeature.ACCESS_CONTROL, *(data.available_features or [])]))
     organization.available_product_features = [{"key": key, "name": key} for key in feature_keys]
     organization.save()
+
+    if data.membership_level:
+        level = {
+            "member": OrganizationMembership.Level.MEMBER,
+            "admin": OrganizationMembership.Level.ADMIN,
+            "owner": OrganizationMembership.Level.OWNER,
+        }[data.membership_level]
+        OrganizationMembership.objects.filter(user=user, organization=organization).update(level=level)
 
     # Create personal API key for the user
     api_key_value = f"phx_test_api_key_for_playwright_tests_{unique_suffix}"

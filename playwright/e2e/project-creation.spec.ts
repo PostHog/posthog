@@ -14,6 +14,8 @@ test.describe('Project creation', () => {
             skip_onboarding: true,
             // Required to create a second project — without it both the UI and API block it.
             available_features: ['organizations_projects'],
+            // Creating a project requires org admin rights (UserCanCreateProjectPermission).
+            membership_level: 'admin',
         })
     })
 
