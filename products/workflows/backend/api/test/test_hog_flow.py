@@ -2057,6 +2057,17 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
         wide = {r["workflow_id"]: r for r in self._global({"after": "-60d"}).json()}
         assert wide[str(self.flow_a.id)]["failed"] == 13
 
+    def test_after_filter_respects_team_timezone(self):
+        # PT is UTC-7 in June, so after='2026-06-08T00:00:00' resolves to 07:00 UTC. The 06:00 UTC
+        # row must fall outside the window and the 08:00 UTC row inside — a naive bound read as
+        # 00:00 UTC would count both.
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save()
+        self._seed(self.flow_a.id, failed=1, timestamp=datetime(2026, 6, 8, 6, 0, 0, tzinfo=UTC))
+        self._seed(self.flow_a.id, failed=1, timestamp=datetime(2026, 6, 8, 8, 0, 0, tzinfo=UTC))
+        rows = self._global({"after": "2026-06-08T00:00:00", "before": "2026-06-09T00:00:00"}).json()
+        assert {r["workflow_id"]: r["failed"] for r in rows} == {str(self.flow_a.id): 1}
+
     def test_isolated_from_other_team_and_app_source(self):
         self._seed(self.flow_a.id, succeeded=2)
         # Same id but a hog_function metric, and another team — neither must leak in.
