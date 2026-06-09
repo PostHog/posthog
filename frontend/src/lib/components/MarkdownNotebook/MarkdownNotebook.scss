@@ -1,5 +1,6 @@
 .MarkdownNotebook {
     --markdown-notebook-component-background: var(--color-bg-surface-primary);
+    --markdown-notebook-component-border: color-mix(in sRGB, var(--color-border-primary) 86%, white);
     --markdown-notebook-text-group-background: var(--color-bg-surface-primary);
     --markdown-notebook-text-group-border: color-mix(in sRGB, var(--color-border-primary) 86%, white);
     --markdown-notebook-text-group-shadow: 0 0.125rem 0.5rem rgb(0 0 0 / 4%), inset 0 1px 0 rgb(255 255 255 / 70%);
@@ -19,6 +20,7 @@
 
 [theme='dark'] .MarkdownNotebook {
     --markdown-notebook-component-background: var(--color-bg-surface-tertiary);
+    --markdown-notebook-component-border: var(--color-border-primary);
     --markdown-notebook-text-group-background: var(--markdown-notebook-component-background);
     --markdown-notebook-text-group-border: var(--color-border-primary);
     --markdown-notebook-text-group-shadow: inset 0 1px 0 rgb(255 255 255 / 5%);
@@ -212,7 +214,7 @@
 .MarkdownNotebook__text-group {
     box-sizing: border-box;
     width: calc(100% - var(--markdown-notebook-content-offset));
-    padding: 1.75rem 1rem 1.75rem 0.25rem;
+    padding: 1.75rem 1rem;
     margin: 0.75rem 0 0.75rem var(--markdown-notebook-content-offset);
     background: var(--markdown-notebook-text-group-background);
     border: 1px solid var(--markdown-notebook-text-group-border);
@@ -361,6 +363,8 @@ h3.MarkdownNotebook__text-block--heading {
     padding-left: 0.75rem;
     color: var(--secondary);
     border-left: 3px solid var(--border-bold);
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
 }
 
 .MarkdownNotebook__text-block code {
@@ -845,6 +849,8 @@ h3.MarkdownNotebook__text-block--heading {
     border: 1px solid var(--markdown-notebook-code-border);
     border-left: 3px solid var(--markdown-notebook-code-gutter);
     border-radius: 0.25rem;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
     outline: none;
     box-shadow: var(--markdown-notebook-code-shadow);
 }
@@ -865,10 +871,12 @@ h3.MarkdownNotebook__text-block--heading {
     margin: 0.5rem 0 0.5rem var(--markdown-notebook-content-offset);
     overflow: hidden;
     background: var(--markdown-notebook-component-background);
-    border: 0;
+    border: 1px solid var(--markdown-notebook-component-border);
     border-left: 3px solid
         color-mix(in oklab, var(--color-text-success) 45%, var(--markdown-notebook-component-background));
     border-radius: 0.25rem;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
     outline: none;
 }
 

@@ -476,9 +476,6 @@ export const notebookLogic = kea<notebookLogicType>([
                                 }
                             )
                             actions.ackLocalSteps(stepsJson, String(sendable.clientID))
-                            if (notebook.content === values.localContent) {
-                                actions.clearLocalContent()
-                            }
                             refreshTreeItem('notebook', String(values.notebook.short_id))
                             return response
                         } catch (error: any) {
@@ -540,10 +537,6 @@ export const notebookLogic = kea<notebookLogicType>([
                             }
                         }
 
-                        // If the object is identical then no edits were made, so we can safely clear the local changes
-                        if (notebook.content === values.localContent) {
-                            actions.clearLocalContent()
-                        }
                         refreshTreeItem('notebook', String(values.notebook.short_id))
                         return response
                     } catch (error: any) {
@@ -1168,7 +1161,13 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.setCommentContexts(next)
         },
 
-        saveNotebookSuccess: actions.scheduleNotebookRefresh,
+        saveNotebookSuccess: ({ payload }) => {
+            // Clear only the saved object; newer edits get a new object.
+            if (payload?.notebook.content === values.localContent) {
+                actions.clearLocalContent()
+            }
+            actions.scheduleNotebookRefresh()
+        },
         loadNotebookSuccess: () => {
             actions.scheduleNotebookRefresh()
             actions.maybeLoadComments()

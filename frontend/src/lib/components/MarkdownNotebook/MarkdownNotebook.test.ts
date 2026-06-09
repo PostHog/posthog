@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { createElement, useEffect } from 'react'
+import { createElement, useEffect, useState } from 'react'
 
 import { mergeNotebookMarkdownChanges } from './collaboration'
 import {
@@ -655,6 +655,17 @@ Repeated block`)
         const nodeIds = reconciled.document.nodes.map((node) => node.id)
 
         expect(new Set(nodeIds).size).toEqual(nodeIds.length)
+    })
+
+    it('preserves component identity when stable component props change', () => {
+        const previous = parseMarkdownNotebook('<Chat id="chat-id" lastAnswer="First answer" />')
+        const next = parseMarkdownNotebook(
+            '<Chat id="chat-id" lastAnswer="Second answer with unrelated wording after a reply completes" />'
+        )
+
+        const reconciled = reconcileNotebookDocuments(previous, next)
+
+        expect(reconciled.document.nodes[0].id).toEqual(previous.nodes[0].id)
     })
 
     it('sanitizes edited HTML into supported inline nodes', () => {
@@ -1784,7 +1795,8 @@ Tail paragraph`
         expect(
             container.querySelector('.MarkdownNotebook__line-insert-menu-button')?.getAttribute('aria-expanded')
         ).toEqual('true')
-        expect(slashTextBlock.getAttribute('data-placeholder')).toEqual('Search for a tool')
+        let activeSlashTextBlock = getEditableTextBlocks(container)[2]
+        expect(activeSlashTextBlock.getAttribute('data-placeholder')).toEqual('Search for a tool')
 
         const initialInsertItems = Array.from(container.querySelectorAll('.MarkdownNotebook__insert-item'))
         expect(container.querySelector('.MarkdownNotebook__insert-menu')?.textContent).not.toContain('Add to notebook')
@@ -1793,20 +1805,21 @@ Tail paragraph`
         expect(initialInsertItems.map((item) => item.textContent)).not.toContain('Text')
         expect(initialInsertItems.map((item) => item.textContent)).not.toContain('Feature flag')
 
-        slashTextBlock.textContent = 'zzzz'
-        fireEvent.input(slashTextBlock)
+        activeSlashTextBlock.textContent = 'zzzz'
+        fireEvent.input(activeSlashTextBlock)
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\nzzzz`)
 
         expect(container.querySelector('.MarkdownNotebook__empty-menu')?.textContent).toEqual('No components found')
 
-        fireEvent.keyDown(slashTextBlock, { key: 'Enter' })
+        fireEvent.keyDown(activeSlashTextBlock, { key: 'Enter' })
+        activeSlashTextBlock = getEditableTextBlocks(container)[2]
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n `)
-        expect(document.activeElement).toEqual(slashTextBlock)
-        expect(slashTextBlock.textContent).toEqual('')
+        expect(document.activeElement).toEqual(activeSlashTextBlock)
+        expect(activeSlashTextBlock.textContent).toEqual('')
 
-        slashTextBlock.textContent = 'tr'
-        fireEvent.input(slashTextBlock)
+        activeSlashTextBlock.textContent = 'tr'
+        fireEvent.input(activeSlashTextBlock)
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\ntr`)
 
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
@@ -2008,7 +2021,7 @@ Third paragraph`,
         const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
         const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
         const lineInsertMenuButton = container.querySelector('.MarkdownNotebook__line-insert-menu-button')
-        const editableTextBlock = getBodyTextBlock(container)
+        let editableTextBlock = getBodyTextBlock(container)
 
         expect(row).toBeInstanceOf(HTMLElement)
         expect(editableTextBlock).toBeInstanceOf(HTMLElement)
@@ -2044,22 +2057,25 @@ Third paragraph`,
                 ?.classList.contains('LemonButton--active')
         ).toBe(true)
         expect(container.querySelector('[data-placeholder="Search for a tool"]')).toBeInstanceOf(HTMLElement)
-        expect(editableTextBlock.classList.contains('MarkdownNotebook__text-block--insert-placeholder')).toBe(true)
+        const activeTextBlock = getBodyTextBlock(container)
+        expect(activeTextBlock.classList.contains('MarkdownNotebook__text-block--insert-placeholder')).toBe(true)
         expect(container.querySelector('[data-placeholder="Start writing..."]')).toBeNull()
-        expect(document.activeElement).toEqual(editableTextBlock)
+        expect(document.activeElement).toEqual(activeTextBlock)
 
         fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
 
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeNull()
+        editableTextBlock = getBodyTextBlock(container)
         expect(container.querySelector('[data-placeholder="Start writing..."]')).toBeNull()
         expect(
             container
                 .querySelector('.MarkdownNotebook__line-insert-menu-button')
                 ?.classList.contains('LemonButton--active')
         ).toBe(false)
-        expect(document.activeElement).toEqual(editableTextBlock)
+        expect(editableTextBlock).toBeInstanceOf(HTMLElement)
 
         fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
+        editableTextBlock = getBodyTextBlock(container)
 
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
         expect(container.querySelector('[data-placeholder="Search for a tool"]')).toBeInstanceOf(HTMLElement)
@@ -2074,6 +2090,7 @@ Third paragraph`,
 
         fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeNull()
+        editableTextBlock = getBodyTextBlock(container)
 
         fireEvent.mouseLeave(container.querySelector('.MarkdownNotebook__canvas') as HTMLElement)
         expect(container.querySelector('.MarkdownNotebook__line-insert-menu-button')).toBeInstanceOf(HTMLButtonElement)
@@ -2123,6 +2140,27 @@ Third paragraph`,
 
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeNull()
         expect(onChange).toHaveBeenLastCalledWith(expect.stringContaining('TrendsQuery'))
+    })
+
+    it('breaks a text group apart when clicking the slash button on an empty text row', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('Before\n\n \n\nAfter') })
+        )
+        const blankTextBlock = getBodyTextBlock(container, 1)
+        const row = blankTextBlock.closest('.MarkdownNotebook__row')
+
+        expect(row).toBeInstanceOf(HTMLElement)
+        expect(blankTextBlock.closest('.MarkdownNotebook__text-group')).toBeInstanceOf(HTMLElement)
+        expect(container.querySelectorAll('.MarkdownNotebook__text-group')).toHaveLength(1)
+
+        fireEvent.mouseEnter(row as HTMLElement)
+        fireEvent.click(row?.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
+
+        expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
+        const activeBlankTextBlock = getBodyTextBlock(container, 1)
+        expect(activeBlankTextBlock.closest('.MarkdownNotebook__text-group')).toBeNull()
+        expect(container.querySelectorAll('.MarkdownNotebook__text-group')).toHaveLength(2)
+        expect(document.activeElement).toEqual(activeBlankTextBlock)
     })
 
     it('clears the slash command query with Cmd+A then Backspace', () => {
@@ -5569,6 +5607,47 @@ After component`,
         expect(container.querySelector('.MarkdownNotebook__component-toolbar-title')?.textContent).toEqual(
             'Conversation title'
         )
+    })
+
+    it('does not remount a stable chat component when its cached answer changes', () => {
+        const mountComponent = jest.fn()
+        const unmountComponent = jest.fn()
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Chat',
+                label: 'AI chat',
+                category: 'AI',
+                hideModeActions: true,
+                exclusiveEditPanel: true,
+                ViewComponent: () => {
+                    const [status] = useState('conversation remains expanded')
+                    useEffect(() => {
+                        mountComponent()
+                        return () => unmountComponent()
+                    }, [])
+                    return createElement('div', { 'data-testid': 'chat-output' }, status)
+                },
+            },
+        ])
+        const { container, rerender } = render(
+            createElement(MarkdownNotebook, {
+                value: '<Chat id="chat-id" lastAnswer="First answer" />',
+                registry,
+            })
+        )
+
+        rerender(
+            createElement(MarkdownNotebook, {
+                value: '<Chat id="chat-id" lastAnswer="Second answer with unrelated wording after a reply completes" />',
+                registry,
+            })
+        )
+
+        expect(container.querySelector('[data-testid="chat-output"]')?.textContent).toEqual(
+            'conversation remains expanded'
+        )
+        expect(mountComponent).toHaveBeenCalledTimes(1)
+        expect(unmountComponent).not.toHaveBeenCalled()
     })
 
     it('shows embed title before url in the filters panel', () => {

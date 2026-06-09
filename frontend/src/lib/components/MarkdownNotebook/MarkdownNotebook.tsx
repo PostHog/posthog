@@ -472,7 +472,8 @@ export function MarkdownNotebook({
                 request.tableCell !== undefined
                     ? tableCellRefs.current[getTableCellRefKey(request.nodeId, request.tableCell)]
                     : request.listItemIndex === undefined
-                      ? blockRefs.current[request.nodeId]
+                      ? (blockRefs.current[request.nodeId] ??
+                        getNotebookBlockElement(notebookRef.current, request.nodeId))
                       : listItemRefs.current[getListItemRefKey(request.nodeId, request.listItemIndex)]
             if (element) {
                 element.focus()
@@ -2136,6 +2137,30 @@ export function MarkdownNotebook({
         }))
     }
 
+    const openDetachedInsertMenuFromNode = useCallback(
+        (nodeId: string, query: string = ''): boolean => {
+            const currentDocument = documentRef.current
+            const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+            const nodeIndex = nodes.findIndex((node) => node.id === nodeId)
+            const node = nodes[nodeIndex]
+            if (nodeIndex <= 0 || !node || !isTextBlockNode(node)) {
+                return false
+            }
+
+            const commandNode = makeEmptyParagraph(`slash-command-${node.id}`)
+            commandNode.children = query ? [{ type: 'text', text: query }] : []
+            restoreSelectionRef.current = { nodeId: commandNode.id, start: query.length, end: query.length }
+            onInteractionStateChange?.(true)
+            setInsertMenu({ nodeId: commandNode.id, query, selectedIndex: 0, mode: 'tools', detached: true })
+            commitDocument({
+                ...currentDocument,
+                nodes: nodes.map((currentNode) => (currentNode.id === node.id ? commandNode : currentNode)),
+            })
+            return true
+        },
+        [commitDocument, onInteractionStateChange]
+    )
+
     const updateInsertMenuPosition = useCallback((): void => {
         if (!insertMenu) {
             setInsertMenuPosition(null)
@@ -3285,7 +3310,11 @@ export function MarkdownNotebook({
                             return withPersistedComponentPanelProps(currentNode, componentDefinition, nextPanels)
                         }),
                     setBlockRef: (element) => {
-                        blockRefs.current[node.id] = element
+                        if (element) {
+                            blockRefs.current[node.id] = element
+                        } else if (!blockRefs.current[node.id]?.isConnected) {
+                            delete blockRefs.current[node.id]
+                        }
                     },
                     setListItemRef: (itemIndex, element) => {
                         listItemRefs.current[getListItemRefKey(node.id, itemIndex)] = element
@@ -3309,6 +3338,7 @@ export function MarkdownNotebook({
                     moveFocusToAdjacentListItem,
                     moveFocusToAdjacentTableCell,
                     openInsertMenu: (query = '') => openInsertMenu(node.id, query),
+                    openDetachedInsertMenu: () => openDetachedInsertMenuFromNode(node.id),
                     updateAIPromptQuery: (query) => updateAIPromptQuery(node.id, query),
                     closeInsertMenu: () => setInsertMenu(null),
                     moveInsertMenuSelection: (direction) => {
@@ -3508,6 +3538,7 @@ function renderNode({
     moveFocusToAdjacentListItem,
     moveFocusToAdjacentTableCell,
     openInsertMenu,
+    openDetachedInsertMenu,
     updateAIPromptQuery,
     closeInsertMenu,
     moveInsertMenuSelection,
@@ -3558,6 +3589,7 @@ function renderNode({
         offset: number
     ) => boolean
     openInsertMenu: (query?: string) => void
+    openDetachedInsertMenu: () => boolean
     updateAIPromptQuery: (query: string) => void
     closeInsertMenu: () => void
     moveInsertMenuSelection: (direction: InsertMenuSelectionDirection) => void
@@ -3674,6 +3706,7 @@ function renderNode({
             deleteNodeBefore={deleteNodeBefore}
             moveFocusToAdjacentNode={moveFocusToAdjacentNode}
             openInsertMenu={openInsertMenu}
+            openDetachedInsertMenu={openDetachedInsertMenu}
             closeInsertMenu={closeInsertMenu}
             moveInsertMenuSelection={moveInsertMenuSelection}
             toggleInsertMenu={toggleInsertMenu}
@@ -5093,6 +5126,7 @@ function EditableTextBlock({
     deleteNodeBefore,
     moveFocusToAdjacentNode,
     openInsertMenu,
+    openDetachedInsertMenu,
     closeInsertMenu,
     moveInsertMenuSelection,
     toggleInsertMenu,
@@ -5119,6 +5153,7 @@ function EditableTextBlock({
     deleteNodeBefore: (nodeId: string, options?: { requireSameTextStyle?: boolean }) => boolean
     moveFocusToAdjacentNode: (nodeId: string, direction: InsertMenuSelectionDirection, offset: number) => boolean
     openInsertMenu: (query?: string) => void
+    openDetachedInsertMenu: () => boolean
     closeInsertMenu: () => void
     moveInsertMenuSelection: (direction: InsertMenuSelectionDirection) => void
     toggleInsertMenu: () => void
@@ -5649,6 +5684,20 @@ function EditableTextBlock({
     }
 
     const handleInsertMenuButtonClick = (): void => {
+        const isInsideTextGroup = elementRef.current?.closest('.MarkdownNotebook__text-group') instanceof HTMLElement
+        const shouldDetachInsertMenu = isInsideTextGroup && !isToolInsertMenuOpen
+
+        if (isToolInsertMenuOpen) {
+            const caretOffset = getInlineText(node.children).length
+            restoreSelectionRef.current = { nodeId: node.id, start: caretOffset, end: caretOffset }
+            toggleInsertMenu()
+            return
+        }
+
+        if (shouldDetachInsertMenu && openDetachedInsertMenu()) {
+            return
+        }
+
         toggleInsertMenu()
         focusEditableBlock()
     }
@@ -6814,6 +6863,18 @@ function getInlineInsertMenuQuery(node: NotebookBlockNode): string {
     }
 
     return getSlashCommandQuery(getInlineText(node.children)) ?? ''
+}
+
+function getNotebookBlockElement(rootElement: HTMLElement | null, nodeId: string): HTMLElement | null {
+    return (
+        rootElement?.querySelector<HTMLElement>(
+            `[data-markdown-notebook-node-id="${escapeAttributeSelectorValue(nodeId)}"]`
+        ) ?? null
+    )
+}
+
+function escapeAttributeSelectorValue(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
 function getListItemRefKey(nodeId: string, itemIndex: number): string {

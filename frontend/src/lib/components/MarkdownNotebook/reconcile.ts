@@ -32,6 +32,7 @@ export function reconcileNotebookDocuments(
 
     preserveSameIndexIds(previousEntries, nextNodes)
     preserveExactFingerprintIds(previousEntries, nextNodes)
+    preserveStableComponentIds(previousEntries, nextNodes)
     preserveSimilarNodeIds(previousEntries, nextNodes)
     const uniqueNextNodes = ensureUniqueNodeIds(nextNodes)
 
@@ -87,6 +88,51 @@ function preserveExactFingerprintIds(previousEntries: PreviousNodeEntry[], nextN
         nextNode.id = entry.node.id
         entry.matched = true
     })
+}
+
+function preserveStableComponentIds(previousEntries: PreviousNodeEntry[], nextNodes: NotebookBlockNode[]): void {
+    const entriesByComponentKey = new Map<string, PreviousNodeEntry[]>()
+    previousEntries.forEach((entry) => {
+        if (entry.matched) {
+            return
+        }
+
+        const componentKey = getStableComponentKey(entry.node)
+        if (!componentKey) {
+            return
+        }
+
+        entriesByComponentKey.set(componentKey, [...(entriesByComponentKey.get(componentKey) ?? []), entry])
+    })
+
+    nextNodes.forEach((nextNode) => {
+        if (previousEntries.some((entry) => entry.node.id === nextNode.id && entry.matched)) {
+            return
+        }
+
+        const componentKey = getStableComponentKey(nextNode)
+        const entries = componentKey ? entriesByComponentKey.get(componentKey) : null
+        const entry = entries?.find((candidate) => !candidate.matched)
+        if (!entry) {
+            return
+        }
+
+        nextNode.id = entry.node.id
+        entry.matched = true
+    })
+}
+
+function getStableComponentKey(node: NotebookBlockNode): string | null {
+    if (node.type !== 'component') {
+        return null
+    }
+
+    const id = node.props.id
+    if (typeof id !== 'string' || !id.trim()) {
+        return null
+    }
+
+    return `${node.tagName}:${id}`
 }
 
 function preserveSimilarNodeIds(previousEntries: PreviousNodeEntry[], nextNodes: NotebookBlockNode[]): void {

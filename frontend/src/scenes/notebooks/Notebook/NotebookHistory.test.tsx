@@ -179,6 +179,42 @@ describe('Notebook history revert flow', () => {
         expect(logic.values.collabEnabled).toBe(false)
     })
 
+    it('clears markdown local content after the save response updates notebook content', async () => {
+        const baseContent = buildMarkdownNotebookContent('')
+        const localContent = buildMarkdownNotebookContent(`# title
+
+text`)
+        const baseNotebook = {
+            ...cachedNotebook,
+            content: baseContent,
+            text_content: '',
+        }
+
+        apiUpdateSpy.mockResolvedValueOnce({
+            ...baseNotebook,
+            version: 2,
+            content: localContent,
+            text_content: '# title\n\ntext',
+        })
+
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook: baseNotebook })
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        logic.actions.setAutosavePaused(true)
+        logic.actions.setLocalContent(localContent)
+
+        await expectLogic(logic, () => {
+            logic.actions.saveNotebook({ content: localContent, title: 'title' })
+        })
+            .toDispatchActions(['saveNotebook', 'saveNotebookSuccess', 'clearLocalContent'])
+            .toFinishAllListeners()
+
+        expect(logic.values.notebook?.content).toEqual(localContent)
+        expect(logic.values.localContent).toBeNull()
+    })
+
     it('keeps a merged markdown draft after a stale save conflict', async () => {
         const baseMarkdown = `# Markdown v2
 
