@@ -207,7 +207,7 @@ near-zero time on cold-start exploration.
 For each candidate finding:
 
 - **Emit** via `signals-scout-emit-signal` if it clears the confidence bar.
-  Strong scout findings: weight ≥ 0.7, confidence ≥ 0.85, with concrete blocked domain,
+  Strong scout findings: confidence ≥ 0.85, with concrete blocked domain,
   effective directive(s), document URL(s), distinct-user count, time-range evidence,
   and an explicit lens (policy / compromise / vendor drift).
 - **Remember** if below the bar but worth carrying forward (e.g. fresh domain with only
@@ -216,9 +216,9 @@ For each candidate finding:
   `addressed:`, or `dedupe:` key prefix already covers it.
 
 Cross-check `inbox-reports-list` filtered to `source_product=csp_reporting` before
-emitting — the push-based emission already drops individual fingerprints into the inbox
-at weight 0.5. Your aggregated finding should reference those source signals as evidence
-(by fingerprint) rather than re-stating them.
+emitting — the push-based emission already drops individual raw signals into the inbox,
+one per violation fingerprint. Your aggregated finding should reference those source
+signals as evidence (by fingerprint) rather than re-stating them.
 
 ### Close out
 
@@ -279,18 +279,18 @@ Harness-level:
 ## How this relates to the push-based source (PR #58596)
 
 The companion push path (`posthog/tasks/csp_signal.py`, behind per-team
-`SignalSourceConfig` opt-in) emits **one signal per unique violation fingerprint** at
-weight 0.5 with a 24h Redis dedup TTL. That gives the inbox raw coverage of every fresh
-`(directive, blocked_url, document_url, source_file)` tuple, but at low weight and
+`SignalSourceConfig` opt-in) emits **one raw signal per unique violation fingerprint**
+with a 24h Redis dedup TTL. That gives the inbox raw coverage of every fresh
+`(directive, blocked_url, document_url, source_file)` tuple, but per-fingerprint and
 without cross-fingerprint context.
 
 This scout is the **aggregation layer above it.** Its findings should:
 
-- Bundle multiple raw fingerprints into a single higher-weight finding with shared root
+- Bundle multiple raw fingerprints into a single aggregated finding with shared root
   cause (one new domain across many pages, one deploy regression across many directives,
   one compromise pattern across many users).
 - Use the push path's existing signals as evidence in the finding's body (referenced by
   fingerprint / source_id) rather than re-deriving them.
-- Stay quiet when the push path's coverage is sufficient — a single fingerprint already
-  in the inbox with weight 0.5 does not need a parallel scout finding unless the
-  aggregation adds new context.
+- Stay quiet when the push path's coverage is sufficient — a single raw fingerprint
+  already in the inbox does not need a parallel scout finding unless the aggregation adds
+  new context.

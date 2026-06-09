@@ -29,7 +29,7 @@ from posthog.queries.property_values import (
     get_event_property_values_from_aggregated_table,
     get_person_property_values_for_key,
 )
-from posthog.utils import convert_property_value, flatten, relative_date_parse
+from posthog.utils import convert_property_value, flatten, get_instance_region, relative_date_parse
 
 from products.access_control.backend.property_access_control import get_restricted_property_names
 
@@ -86,7 +86,13 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         # event-agnostic value suggestions for event-scoped requests.
         if self.query.is_column or self.query.property_key.startswith("$virt_"):
             return False
-        if not posthoganalytics.feature_enabled(PROPERTY_VALUES_TABLE_FLAG, str(self.team.pk)):
+        team_id = str(self.team.pk)
+        if not posthoganalytics.feature_enabled(
+            PROPERTY_VALUES_TABLE_FLAG,
+            team_id,
+            person_properties={"region": get_instance_region() or "DEV", "team_id": team_id},
+            send_feature_flag_events=False,
+        ):
             return False
         # Restricted keys stay on the events scan: the table read bypasses HogQL
         # property resolution, which is where property access control is enforced.

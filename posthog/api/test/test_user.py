@@ -29,6 +29,7 @@ from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -754,6 +755,75 @@ class TestUserAPI(APIBaseTest):
         assert self.user.email == "alpha@example.com"
         assert self.user.pending_email is None
         mock_send_email_change_emails.assert_not_called()
+
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.api.user.EmailVerifier.create_token_and_send_email_verification")
+    def test_email_change_allowed_between_two_sso_enforced_domains_of_same_org(
+        self,
+        mock_send_email_verification,
+        mock_is_email_available,
+    ):
+        self.user.email = "alice@example.com"
+        self.user.save()
+        for domain in ("example.com", "example.org"):
+            OrganizationDomain.objects.create(
+                organization=self.organization,
+                domain=domain,
+                verified_at=timezone.now(),
+                sso_enforcement="google-oauth2",
+            )
+
+        with patch(
+            "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
+            side_effect=lambda email, organization=None: "google-oauth2"
+            if email.split("@")[-1] in ("example.com", "example.org")
+            else None,
+        ):
+            with self.is_cloud(True):
+                response = self.client.patch("/api/users/@me/", {"email": "alice@example.org"})
+
+        assert response.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
+        assert self.user.pending_email == "alice@example.org"
+        mock_send_email_verification.assert_called_once()
+
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_email_change_blocked_to_sso_enforced_domain_of_another_org(
+        self,
+        mock_send_email_change_emails,
+        mock_is_email_available,
+    ):
+        self.user.email = "alice@example.com"
+        self.user.save()
+        OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="example.com",
+            verified_at=timezone.now(),
+            sso_enforcement="google-oauth2",
+        )
+        other_org = Organization.objects.create(name="Attacker Org")
+        OrganizationDomain.objects.create(
+            organization=other_org,
+            domain="example.net",
+            verified_at=timezone.now(),
+            sso_enforcement="google-oauth2",
+        )
+
+        with patch(
+            "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
+            side_effect=lambda email, organization=None: "google-oauth2"
+            if email.split("@")[-1] in ("example.com", "example.net")
+            else None,
+        ):
+            with self.is_cloud(True):
+                response = self.client.patch("/api/users/@me/", {"email": "alice@example.net"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "sso_enforced_current_email"
+        self.user.refresh_from_db()
+        assert self.user.email == "alice@example.com"
+        assert self.user.pending_email is None
 
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     def test_verify_email_without_pending_email_keeps_social_auth_connections(self, mock_send_email_change_emails):

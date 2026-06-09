@@ -1,8 +1,10 @@
 import time
+from datetime import timedelta
 from urllib.parse import urlencode
 
 from django.core.cache import cache
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -201,6 +203,59 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         res = self._post_token(refresh_body)
         assert res.status_code == 400
         assert res.json()["error"] == "invalid_grant"
+
+    def _stamp_session_revoke(self, when=None) -> None:
+        OAuthApplication.objects.filter(client_id=TEST_STRIPE_OAUTH_CLIENT_ID).update(
+            sessions_revoked_at=when or timezone.now()
+        )
+
+    def test_refresh_rejected_when_token_predates_session_revoke(self):
+        # Stamp without sweeping, simulating a refresh token the bulk revoke missed.
+        self._store_auth_code("revoke_refresh", issued_at=timezone.now().isoformat())
+        first = self._post_token(self._token_request_body(code="revoke_refresh"))
+        refresh_token = first.json()["refresh_token"]
+
+        self._stamp_session_revoke()
+
+        tokens_before = OAuthAccessToken.objects.count()
+        refresh_body = urlencode({"grant_type": "refresh_token", "refresh_token": refresh_token}).encode()
+        res = self._post_token(refresh_body)
+        assert res.status_code == 400
+        body = res.json()
+        assert body["error"] == "invalid_grant"
+        assert "revoked" in body["error_description"]
+        assert OAuthAccessToken.objects.count() == tokens_before
+
+    def test_refresh_allowed_when_token_postdates_session_revoke(self):
+        self._stamp_session_revoke(timezone.now() - timedelta(hours=1))
+        self._store_auth_code("post_revoke", issued_at=timezone.now().isoformat())
+        first = self._post_token(self._token_request_body(code="post_revoke"))
+        assert first.status_code == 200
+
+        refresh_body = urlencode(
+            {"grant_type": "refresh_token", "refresh_token": first.json()["refresh_token"]}
+        ).encode()
+        res = self._post_token(refresh_body)
+        assert res.status_code == 200
+
+    @parameterized.expand(
+        [
+            ("issued_before_revoke", -120, 400),
+            ("missing_issued_at", None, 400),
+            ("issued_after_revoke", 120, 200),
+        ]
+    )
+    def test_code_exchange_against_session_revoke_stamp(self, _name, issued_offset_seconds, expected_status):
+        overrides = {}
+        if issued_offset_seconds is not None:
+            overrides["issued_at"] = (timezone.now() + timedelta(seconds=issued_offset_seconds)).isoformat()
+        self._store_auth_code("revoke_code", **overrides)
+        self._stamp_session_revoke()
+
+        res = self._post_token(self._token_request_body(code="revoke_code"))
+        assert res.status_code == expected_status
+        if expected_status == 400:
+            assert res.json()["error"] == "invalid_grant"
 
 
 class TestLegacyStripeOAuthApp(ProvisioningTestBase):
