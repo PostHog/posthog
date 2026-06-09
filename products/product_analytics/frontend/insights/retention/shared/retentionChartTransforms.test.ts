@@ -1,14 +1,30 @@
 import type { Series, TooltipConfig } from '@posthog/quill-charts'
 
+import type { RetentionTrendPayload } from 'scenes/retention/types'
+
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
+
+import type { GoalLineLike } from 'products/product_analytics/frontend/insights/trends/shared/trendsChartDisplayOptions'
 
 import {
     buildRetentionBarChartConfig,
+    buildRetentionChartModel,
     buildRetentionLineChartConfig,
     buildRetentionSeries,
+    type RetentionCohortLike,
+    computeRetentionSeriesValue,
+    type RetentionResultLike,
     type RetentionSeriesMeta,
     type RetentionTrendSeriesEntry,
+    sortRetentionCohorts,
 } from './retentionChartTransforms'
+
+// The neutral structural types in retentionChartTransforms.ts exist so the shared chart code stays
+// free of `~/` and `scenes/` imports (the MCP Vite bundle can't resolve them). These helpers' return
+// types enforce that the real schema types stay assignable to the neutral ones — if a schema field
+// ever changes shape, the returns fail to compile and flag the drift here rather than at a call site.
+const asNeutralRetentionResult = (r: RetentionTrendPayload): RetentionResultLike => r
+const asNeutralGoalLine = (g: SchemaGoalLine): GoalLineLike => g
 
 const makeEntry = (overrides: Partial<RetentionTrendSeriesEntry> = {}): RetentionTrendSeriesEntry => ({
     count: 100,
@@ -23,6 +39,21 @@ const makeEntry = (overrides: Partial<RetentionTrendSeriesEntry> = {}): Retentio
 const TOOLTIP: TooltipConfig = { pinnable: true, placement: 'top' }
 
 describe('retentionChartTransforms', () => {
+    describe('schema type firewall', () => {
+        it('keeps the schema RetentionTrendPayload / GoalLine assignable to the neutral structural types', () => {
+            expect(
+                asNeutralRetentionResult({
+                    count: 100,
+                    data: [100, 50],
+                    days: ['2024-01-01', '2024-01-02'],
+                    labels: ['Day 0', 'Day 1'],
+                    index: 0,
+                })
+            ).toMatchObject({ count: 100 })
+            expect(asNeutralGoalLine({ label: 'goal', value: 10 })).toMatchObject({ label: 'goal', value: 10 })
+        })
+    })
+
     describe('buildRetentionSeries', () => {
         it('builds one series per payload, keyed by row index', () => {
             const series = buildRetentionSeries([makeEntry({ index: 0 }), makeEntry({ index: 1 })], {
@@ -197,6 +228,93 @@ describe('retentionChartTransforms', () => {
         it('passes the tooltip config through unchanged', () => {
             const config = buildRetentionBarChartConfig({ isPercentage: true, series: baseSeries, tooltip: TOOLTIP })
             expect(config.tooltip).toBe(TOOLTIP)
+        })
+    })
+
+    describe('computeRetentionSeriesValue', () => {
+        const values = [{ count: 100 }, { count: 50 }, { count: 0 }]
+
+        it.each([
+            { intervalIndex: 0, reference: 'total', expected: 100, desc: 'total: interval 0 is 100%' },
+            { intervalIndex: 1, reference: 'total', expected: 50, desc: 'total: percentage of baseline' },
+            { intervalIndex: 0, reference: 'previous', expected: 100, desc: 'previous: interval 0 is 100%' },
+            { intervalIndex: 1, reference: 'previous', expected: 50, desc: 'previous: percentage of prior interval' },
+        ])('count aggregation — $desc', ({ intervalIndex, reference, expected }) => {
+            expect(computeRetentionSeriesValue(values, intervalIndex, 'count', reference)).toBe(expected)
+        })
+
+        it.each([
+            { values: [{ count: 0 }, { count: 5 }], desc: 'baseline of 0' },
+            { values: [{ count: 100 }], desc: 'missing interval' },
+        ])('count aggregation returns 0 for $desc', ({ values: vals }) => {
+            expect(computeRetentionSeriesValue(vals, 1, 'count', 'total')).toBe(0)
+        })
+
+        it('non-count aggregation surfaces aggregation_value directly', () => {
+            expect(computeRetentionSeriesValue([{ count: 1, aggregation_value: 42 }], 0, 'sum', 'total')).toBe(42)
+        })
+    })
+
+    describe('sortRetentionCohorts', () => {
+        it('orders cohorts chronologically and keeps dateless cohorts last in original order', () => {
+            const cohorts: RetentionCohortLike[] = [
+                { date: '2024-03-01', values: [] },
+                { date: null, values: [], breakdown_value: 'first-dateless' },
+                { date: '2024-01-01', values: [] },
+                { date: null, values: [], breakdown_value: 'second-dateless' },
+            ]
+            expect(sortRetentionCohorts(cohorts).map((c) => c.date ?? c.breakdown_value)).toEqual([
+                '2024-01-01',
+                '2024-03-01',
+                'first-dateless',
+                'second-dateless',
+            ])
+        })
+    })
+
+    describe('buildRetentionChartModel', () => {
+        const colorAt = (i: number): string => `c${i}`
+        const cohort = (date: string, counts: number[]): RetentionCohortLike => ({
+            date,
+            values: counts.map((count) => ({ count })),
+        })
+
+        it('caps to maxCohorts but reports the full total, and labels by period', () => {
+            const cohorts = [
+                cohort('2024-01-01', [100, 50]),
+                cohort('2024-01-02', [80, 40]),
+                cohort('2024-01-03', [60, 30]),
+            ]
+            const model = buildRetentionChartModel(cohorts, {
+                aggregationType: 'count',
+                reference: 'total',
+                period: 'Day',
+                getColor: colorAt,
+                maxCohorts: 2,
+            })
+
+            expect(model.totalCohorts).toBe(3)
+            expect(model.series).toHaveLength(2)
+            expect(model.series.map((s) => s.color)).toEqual(['c0', 'c1'])
+            expect(model.labels).toEqual(['Day 0', 'Day 1'])
+            expect(model.series[0].data).toEqual([100, 50])
+        })
+
+        it.each([
+            { aggregationType: 'count', expectedLabel: 'Retention %', expectedFormat: 'percentage' },
+            { aggregationType: 'sum', expectedLabel: 'Sum', expectedFormat: 'numeric' },
+            { aggregationType: 'avg', expectedLabel: 'Avg', expectedFormat: 'numeric' },
+        ])('labels the y-axis for $aggregationType', ({ aggregationType, expectedLabel, expectedFormat }) => {
+            const model = buildRetentionChartModel([cohort('2024-01-01', [100, 50])], {
+                aggregationType,
+                reference: 'total',
+                period: 'Day',
+                getColor: colorAt,
+                maxCohorts: 6,
+            })
+            expect(model.lineConfig.yAxis?.label).toBe(expectedLabel)
+            expect(model.barConfig.yAxis?.label).toBe(expectedLabel)
+            expect(model.lineConfig.yAxis?.format).toBe(expectedFormat)
         })
     })
 })
