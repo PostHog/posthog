@@ -98,16 +98,7 @@ class DashboardContext:
         # return_exceptions=True keeps one failing insight from dropping the whole dashboard.
         insight_tasks = [self._execute_insight_with_semaphore(insight) for insight in self.insights]
         insight_results = await asyncio.gather(*insight_tasks, return_exceptions=True)
-
-        formatted_insights: list[str] = []
-        for insight, result in zip(self.insights, insight_results):
-            if isinstance(result, asyncio.CancelledError):
-                raise result
-            if isinstance(result, BaseException):
-                capture_exception(result)
-                formatted_insights.append(f'Insight "{insight.name or "Insight"}": Error preparing insight context.')
-            else:
-                formatted_insights.append(result)
+        formatted_insights = self._resolve_insight_results(insight_results, "Error preparing insight context.")
 
         return format_prompt_string(
             prompt_template,
@@ -129,12 +120,12 @@ class DashboardContext:
                 description=self.description,
             )
 
-        insight_schemas = []
-        for insight in self.insights:
-            schema = await insight.format_schema()
-            insight_schemas.append(schema)
-
-        insights_text = "\n\n".join(insight_schemas) if insight_schemas else ""
+        # No semaphore (unlike execute_and_format): schema formatting runs no queries, so there's
+        # no DB load to bound. return_exceptions=True keeps one failure from dropping the dashboard.
+        schema_results = await asyncio.gather(
+            *(insight.format_schema() for insight in self.insights), return_exceptions=True
+        )
+        insight_schemas = self._resolve_insight_results(schema_results, "Error preparing insight schema.")
 
         return format_prompt_string(
             prompt_template,
@@ -143,8 +134,25 @@ class DashboardContext:
             dashboard_id=self.dashboard_id,
             dashboard_url=self.dashboard_url,
             description=self.description,
-            insights=insights_text,
+            insights="\n\n".join(insight_schemas),
         )
+
+    def _resolve_insight_results(self, results: Sequence[str | BaseException], error_message: str) -> list[str]:
+        """Map gathered per-insight results to strings so one failure can't drop the dashboard.
+
+        Cancellation is re-raised (never swallowed); any other exception is captured and
+        replaced with a short placeholder.
+        """
+        formatted: list[str] = []
+        for insight, result in zip(self.insights, results):
+            if isinstance(result, asyncio.CancelledError):
+                raise result
+            if isinstance(result, BaseException):
+                capture_exception(result)
+                formatted.append(f'Insight "{insight.name or "Insight"}": {error_message}')
+            else:
+                formatted.append(result)
+        return formatted
 
     async def _execute_insight_with_semaphore(self, insight: InsightContext) -> str:
         """Execute a single insight with semaphore control."""
