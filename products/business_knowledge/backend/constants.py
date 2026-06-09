@@ -138,3 +138,11 @@ BK_RRF_SCORE_FLOOR = 0.015
 # Timeout (seconds) for the async embedding call on the query path. If the
 # embedding service is slow, FTS alone fires (graceful degradation).
 BK_QUERY_EMBEDDING_TIMEOUT = 5.0
+
+# --- Drill-down (agentic read) tunables ---
+# Default chunk radius for get_document_window: returns center +/- radius
+# chunks (up to 2*radius+1 = 11 chunks ~= 13k chars at typical size).
+BK_DRILLDOWN_DEFAULT_RADIUS = 5
+# Hard cap on drill-down radius. radius=15 => up to 31 chunks ~= 50k chars;
+# bounds how much one read_data call can pull.
+BK_DRILLDOWN_MAX_RADIUS = 15

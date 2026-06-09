@@ -12,11 +12,14 @@ description: >
   empty. Self-contained peer in the signals-scout-* fleet.
 compatibility: >
   Runs as the PostHog Signals scout in a Claude sandbox with read-only analytics scopes plus
-  signal_scout_internal:write (scratchpad + emit). Uses the signals-scout MCP family
+  signal_scout_internal:write (scratchpad + emit) and notebook:write (write-up artifact).
+  Uses the signals-scout MCP family
   (project-profile-get, runs-list, runs-retrieve, scratchpad-search/-remember/-forget,
   emit-signal) plus dashboard/insight tools (insights-trending-retrieve, insight-get,
   insight-query, dashboards-get-all, dashboard-get, dashboard-insights-run, insights-list),
   alert-simulate (the anomaly-detection simulator — primary scorer for saved insights),
+  notebooks-create / notebooks-destroy (the durable write-up that backs each emitted
+  finding, removed if the emit is preflight-skipped),
   execute-sql, read-data-schema, inbox-reports-list.
 metadata:
   owner_team: signals
@@ -95,7 +98,7 @@ go). Tools, primary first:
   the menu, the proven defaults, and the must-know gotchas (give every ensemble sub-detector
   an explicit `window`; `diffs_n` does **not** default to 1; target a time-series, not a
   single-value, insight).
-- `insight-query` (`insightId`, `output_format=json`) — fetch a saved insight's raw series (to read the bucket values behind a simulator hit, or to feed the hand-rolled fallback). **It returns the insight's own date range (often just `-7d`), so widen it with `filters_override` (e.g. `{"date_from": "-63d"}`).**
+- `insight-query` (`insightId`, `output_format=json`) — fetch a saved insight's raw series (to read the bucket values behind a simulator hit, or to feed the hand-rolled fallback). **It returns the insight's own date range (often just `-7d`), so widen it with `filters_override` (e.g. `{"date_from": "-63d"}`).** Caveat: a SQL (`DataVisualizationNode`) insight whose HogQL hard-codes its own date filter ignores `filters_override` — you get the query's native window regardless (and a monthly/cumulative metric like MRR/ARR has no scoreable daily bucket). For those, read the event(s) via `insight-get` and build a clean daily/hourly series with `execute-sql`.
 - `dashboard-insights-run` (`id`, `output_format=json`, `refresh=blocking`, `filters_override`)
   — runs every tile on a dashboard at once; efficient for sweeping a whole high-value
   dashboard. Pass `output_format=json` — the default `optimized` returns prose summaries, not
@@ -147,11 +150,16 @@ For each candidate anomaly, classify against prior runs and the scratchpad
 (net-new / material-update / already-covered / addressed-or-noise — full classifier in
 [`references/watchlist-and-memory.md`](references/watchlist-and-memory.md)), then:
 
-- **Emit** via `signals-scout-emit-signal` when it clears the bar. The emit contract —
-  schema, weight/confidence rubrics, severity, dedupe keys, description prose, worked
-  example — is in [`references/emit-contract.md`](references/emit-contract.md). For this
+- **Emit** via `signals-scout-emit-signal` when it clears the bar. **Before you emit, write
+  the finding up in a notebook** (`notebooks-create`) — the inbox description is a 3–6 sentence
+  hook, but the notebook is the durable artifact a human opens to see the charts, the baseline
+  math, and the attribution behind the call. Build it first, then put its URL in the emitted
+  finding's description and an evidence entry so the signal links straight to the write-up. The
+  emit contract _and_ the notebook structure — schema, confidence rubric, severity,
+  dedupe keys, description prose, the notebook layout + embedded-chart recipe, worked example —
+  are in [`references/emit-contract.md`](references/emit-contract.md). For this
   scout a strong finding is: robust z ≥ ~3.5 on the latest complete bucket, the move is not
-  explained by seasonality or a known data-pipeline gap, weight ≥ 0.7, confidence ≥ 0.85,
+  explained by seasonality or a known data-pipeline gap, confidence ≥ 0.85,
   with the insight `short_id`, the bucket value, the baseline, the z-score, and the time
   window in the evidence. Cross-check `inbox-reports-list` first — if the same metric move
   is already reported, emit only if your angle is materially new.
@@ -200,6 +208,16 @@ Direct (read-only):
   non-saved series or custom baselines.
 - `read-data-schema` — confirm events/properties before any SQL.
 - `inbox-reports-list` — check whether the move is already reported before emitting.
+
+Write (user-facing, gated on `notebook:write`):
+
+- `notebooks-create` — the durable write-up that backs an emitted finding. Build it _before_
+  emitting and reference its URL from the signal. Layout + embedded-chart recipe (embed the
+  anomalous insight with a `SavedInsightNode`; chart a SQL-fallback series with a
+  `DataVisualizationNode`) is in [`references/emit-contract.md`](references/emit-contract.md).
+- `notebooks-destroy` — clean up the write-up if the emit is preflight-skipped (dry-run /
+  gated / source disabled) so a non-emitting run leaves no orphan artifact. See
+  [`references/emit-contract.md`](references/emit-contract.md).
 
 Harness-level: `signals-scout-project-profile-get`, `signals-scout-scratchpad-search`,
 `signals-scout-runs-list`, `signals-scout-runs-retrieve` (orientation + dedupe);

@@ -800,6 +800,7 @@ class AssistantTool(StrEnum):
     ARCHIVE_LLM_SKILL = "archive_llm_skill"
     DIAGNOSE_PROXY = "diagnose_proxy"
     WEB_ANALYTICS_DOCTOR = "web_analytics_doctor"
+    ASSESS_HEATMAP = "assess_heatmap"
     MARKETING_DIAGNOSE_SETUP = "marketing_diagnose_setup"
     MARKETING_EXPLAIN_CONVERSION_GOAL = "marketing_explain_conversion_goal"
     MARKETING_LIST_CONVERSION_GOALS = "marketing_list_conversion_goals"
@@ -808,6 +809,7 @@ class AssistantTool(StrEnum):
     MARKETING_SUGGEST_CONVERSION_GOALS = "marketing_suggest_conversion_goals"
     MARKETING_SUGGEST_UTM_MAPPINGS = "marketing_suggest_utm_mappings"
     SUMMARIZE_REPLAY_VISION_SUMMARIES = "summarize_replay_vision_summaries"
+    DRAFT_REPLAY_VISION_SCANNER_PROMPT = "draft_replay_vision_scanner_prompt"
 
 
 class AssistantToolCall(BaseModel):
@@ -1931,6 +1933,11 @@ class MultipleVariantHandling(StrEnum):
 
 class Kind(StrEnum):
     EVENTS_NODE = "EventsNode"
+    ACTIONS_NODE = "ActionsNode"
+
+
+class Kind1(StrEnum):
+    EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
     ACTIONS_NODE = "ActionsNode"
 
 
@@ -7157,8 +7164,17 @@ class ExperimentApiExposureConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    event: str = Field(..., description="Custom exposure event name.")
-    kind: Literal["ExperimentEventExposureConfig"] = "ExperimentEventExposureConfig"
+    event: str | None = Field(
+        default=None,
+        description=("Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."),
+    )
+    id: int | None = Field(default=None, description="Action ID. Required when kind is 'ActionsNode'.")
+    kind: Kind1 | None = Field(
+        default=None,
+        description=(
+            "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
+        ),
+    )
     properties: list[EventPropertyFilter] = Field(
         ...,
         description="Event property filters. Pass an empty array if no filters needed.",
@@ -22795,10 +22811,19 @@ class AccountsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    accountExecutive: str | int | None = None
-    accountOwner: str | int | None = None
+    accountExecutive: list[int] | None = Field(
+        default=None,
+        description=("Match accounts whose account executive is any of these user ids (OR semantics)."),
+    )
+    accountOwner: list[int] | None = Field(
+        default=None,
+        description=("Match accounts whose account owner is any of these user ids (OR semantics)."),
+    )
     allRolesUnassigned: bool | None = None
-    csm: str | int | None = None
+    csm: list[int] | None = Field(
+        default=None,
+        description="Match accounts whose CSM is any of these user ids (OR semantics).",
+    )
     filterExpression: str | None = Field(
         default=None,
         description=(

@@ -2,9 +2,10 @@ import type { Meta, StoryObj } from '@storybook/react'
 import type { ReactElement } from 'react'
 
 import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
-import { BarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
+import { BarChart, TimeSeriesBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { ChartTheme } from '@posthog/quill-charts'
 
+import { buildTrendsBarChartModel } from '../../frontend/insights/trends/TrendsBarChart/trendsBarChartTransforms'
 import {
     buildTrendsBarValueConfig,
     buildTrendsBarValueSeries,
@@ -95,6 +96,35 @@ export const AreaChart: Story = {
         />
     ),
     name: 'Area chart',
+}
+
+// Renders the line/bar toggle's bar mode the same way the MCP app does: time-series results through
+// buildTrendsBarChartModel, then quill's TimeSeriesBarChart.
+function TrendsBarChartDemo({ results }: { results: TrendsResultLike[] }): ReactElement {
+    const { series, config } = buildTrendsBarChartModel(results, {
+        getColor: (_r, i) => colorAt(i),
+        labels: DAYS,
+        isPercentStackView: false,
+        isGrouped: false,
+    })
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'flex', flexDirection: 'column', width: 640, height: 300 }}>
+            <TimeSeriesBarChart series={series} labels={DAYS} theme={CHART_THEME} config={config} />
+        </div>
+    )
+}
+
+export const TimeSeriesBar: Story = {
+    render: () => (
+        <TrendsBarChartDemo
+            results={[
+                { id: 1, label: 'Pageviews', data: [420, 380, 510, 490, 630, 580, 720], days: DAYS },
+                { id: 2, label: 'Signups', data: [42, 38, 51, 49, 63, 58, 72], days: DAYS },
+            ]}
+        />
+    ),
+    name: 'Time-series bar',
 }
 
 // Renders ActionsBarValue the same way the MCP app does: aggregated totals through

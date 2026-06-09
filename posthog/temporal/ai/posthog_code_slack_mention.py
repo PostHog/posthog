@@ -941,7 +941,7 @@ def create_posthog_code_task_for_repo_activity(
     )
     slack = SlackIntegration(integration)
 
-    # Refuse before the :seedling: reaction or the permalink fetch: a denied
+    # Refuse before the :eyes: reaction or the permalink fetch: a denied
     # mention should not first ack-react and then refuse a second later.
     if _block_if_team_over_quota(
         integration=integration,
@@ -955,7 +955,7 @@ def create_posthog_code_task_for_repo_activity(
 
     user_message_ts = event.get("ts")
     if user_message_ts:
-        _safe_react(slack.client, channel, user_message_ts, "seedling")
+        _safe_react(slack.client, channel, user_message_ts, "eyes")
 
     user_text = re.sub(r"<@[A-Z0-9]+>", "", event.get("text", "")).strip()
     title = user_text[:255] if user_text else "Task from Slack"
@@ -1254,9 +1254,9 @@ def forward_posthog_code_followup_activity(
             status_code=result.status_code,
         )
         if result.retryable and result.status_code == 504:
-            # Agent is still processing. relayAgentResponse fires when it
-            # finishes, delivering the correct response to Slack.
-            _set_followup_done_reaction(slack, channel, user_message_ts, "hedgehog")
+            # Agent is still processing — leave the :eyes: reaction up so the thread
+            # reads as in-progress. relayAgentResponse fires when it finishes,
+            # delivering the correct response to Slack.
             _delete_followup_progress(
                 integration_id=inputs.integration_id,
                 channel=channel,
@@ -1274,8 +1274,8 @@ def forward_posthog_code_followup_activity(
         )
         return True
 
-    _set_followup_done_reaction(slack, channel, user_message_ts, "hedgehog")
-
+    # Message delivered; the agent is now working on it, so leave the :eyes: reaction
+    # up. relayAgentResponse posts the agent's response once it finishes.
     _delete_followup_progress(
         integration_id=inputs.integration_id,
         channel=channel,
@@ -1450,11 +1450,10 @@ def _set_followup_done_reaction(slack: Any, channel: str, user_message_ts: str |
     if not user_message_ts:
         return
 
-    for stale_emoji in ("eyes", "seedling"):
-        try:
-            slack.client.reactions_remove(channel=channel, timestamp=user_message_ts, name=stale_emoji)
-        except Exception:
-            pass
+    try:
+        slack.client.reactions_remove(channel=channel, timestamp=user_message_ts, name="eyes")
+    except Exception:
+        pass
 
     _safe_react(slack.client, channel, user_message_ts, done_emoji)
 

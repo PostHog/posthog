@@ -28,7 +28,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { DataWarehouseSyncInterval, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import {
+    DataWarehouseSyncInterval,
+    ExternalDataSchemaStatus,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+} from '~/types'
 
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
 import {
@@ -105,9 +110,18 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
         resyncSchema,
         cancelSchema,
         deleteTable,
+        loadJobs,
     } = useActions(sourceSettingsLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    // Load (and poll) jobs so the Rows synced column can show live progress for in-progress
+    // syncs, before the warehouse table exists. loadJobsSuccess reschedules itself.
+    useEffect(() => {
+        if (source && source.access_method !== 'direct') {
+            loadJobs()
+        }
+    }, [loadJobs, source])
 
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
     // `id` is the cleaned source id; URLs use the `managed-` prefix
@@ -283,6 +297,7 @@ function ManagedSchemaTable({
     showMetrics,
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
+    const { inProgressRowsBySchema } = useValues(sourceSettingsLogic)
     const { setSelectedSchemas } = useActions(sourceSettingsLogic)
     const { disabledReason: editDisabledReason } = useSourceEditorAccess(source)
     const [initialLoad, setInitialLoad] = useState(true)
@@ -405,7 +420,17 @@ function ManagedSchemaTable({
                         if (schema.table) {
                             return schema.table.row_count?.toLocaleString() ?? 0
                         }
-                        if (schema.status === 'Completed') {
+                        // No table yet during the first sync — fall back to the running job's live count.
+                        if (schema.status === ExternalDataSchemaStatus.Running) {
+                            const rows = inProgressRowsBySchema[schema.id] ?? 0
+                            return (
+                                <span className="flex items-center justify-end gap-1">
+                                    <Spinner textColored className="text-sm" />
+                                    {rows.toLocaleString()}
+                                </span>
+                            )
+                        }
+                        if (schema.status === ExternalDataSchemaStatus.Completed) {
                             return 0
                         }
                         return <span className="text-muted">—</span>

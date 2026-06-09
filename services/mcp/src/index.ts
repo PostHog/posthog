@@ -2,9 +2,9 @@ import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from 
 import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
-import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { RequestProperties } from '@/lib/request-properties'
-import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
+import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
+import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
 import { proxyToHono, resolveProxyRegion } from './proxy'
@@ -179,7 +179,7 @@ const handleRequest = async (
         )
     }
 
-    const token = request.headers.get('Authorization')?.split(' ')[1]
+    const token = extractBearerToken(request)
     const sessionId = url.searchParams.get('sessionId')
 
     if (!token) {
