@@ -136,18 +136,6 @@ export type McpAnalyticsInitResult =
           errorMessage: string
       }
 
-async function buildEventTags(identity: IdentityProvider): Promise<Record<string, string>> {
-    const sessionUuid = await identity.getSessionUuid()
-    if (!sessionUuid) {
-        return {}
-    }
-
-    return {
-        $session_id: sessionUuid,
-        $ai_session_id: sessionUuid,
-    }
-}
-
 export async function buildEventProperties(identity: IdentityProvider): Promise<Record<string, unknown>> {
     const [
         clientUserAgent,
@@ -164,6 +152,7 @@ export async function buildEventProperties(identity: IdentityProvider): Promise<
         mcpMode,
         mcpSessionId,
         mcpConversationId,
+        sessionUuid,
     ] = await Promise.all([
         identity.getClientUserAgent(),
         identity.getMcpClientName(),
@@ -179,6 +168,7 @@ export async function buildEventProperties(identity: IdentityProvider): Promise<
         identity.getMcpMode(),
         identity.getMcpSessionId(),
         identity.getMcpConversationId(),
+        identity.getSessionUuid(),
     ])
 
     const groups = {
@@ -206,6 +196,9 @@ export async function buildEventProperties(identity: IdentityProvider): Promise<
         $mcp_mode: mcpMode,
         $mcp_session_id: mcpSessionId,
         $mcp_conversation_id: mcpConversationId,
+        // $session_id / $ai_session_id drive Session Replay + AI observability grouping;
+        // only emitted when a wrapping app supplied the session hint.
+        ...(sessionUuid ? { $session_id: sessionUuid, $ai_session_id: sessionUuid } : {}),
         ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
     }
 }
@@ -234,10 +227,7 @@ export async function initMcpAnalytics(
             identify: { distinctId },
             reportMissing: options.reportMissingEnabled,
             eventProperties: async (request) => {
-                const [base, sessionTags] = await Promise.all([
-                    buildEventProperties(identity),
-                    buildEventTags(identity),
-                ])
+                const base = await buildEventProperties(identity)
                 const innerToolCall = options.resolveExecInnerToolCall?.(request)
                 const isListToolsRequest =
                     (request as { method?: unknown })?.method === 'tools/list' &&
@@ -246,7 +236,6 @@ export async function initMcpAnalytics(
 
                 return {
                     ...base,
-                    ...sessionTags,
                     ...(innerToolCall
                         ? {
                               $mcp_exec_tool_call_name: innerToolCall.name,
