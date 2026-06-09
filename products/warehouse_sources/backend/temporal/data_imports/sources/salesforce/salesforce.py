@@ -564,11 +564,6 @@ def list_custom_object_definitions(
     instance_url: str,
     access_token: str,
     endpoint: str,
-    # team_id: int,
-    # job_id: str,
-    # db_incremental_field_last_value: Optional[Any],
-    # resumable_source_manager: ResumableSourceManager[SalesforceResumeConfig],
-    # should_use_incremental_field: bool = False,
 ) -> list[dict[str, Any]]:
     bearer_token = f"Bearer {access_token}"
 

@@ -261,7 +261,7 @@ class TestSalesforceCustomObjectDefinitions:
             ),
         ],
     )
-    @mock.patch("posthog.temporal.data_imports.sources.salesforce.salesforce.rest_api_resources")
+    @mock.patch("posthog.temporal.data_imports.sources.salesforce.salesforce.make_tracked_session")
     def test_returns_definitions(
         self, mock_rest: mock.MagicMock, expected_defs: list[dict[str, Any]], expected_call_count: int
     ) -> None:
