@@ -46,7 +46,7 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
 
 
 # The $ai_* properties whose materialized columns carry bloom-filter skip indexes. We read them bare — no nullIf/ifNull
-# wrapping — so the index stays usable. Canonical set; the ClickHouse physical pass imports it to make the same call.
+# wrapping — so the index stays usable. Canonical set; ClickHouse property resolution imports it to make the same call.
 AI_BLOOM_FILTER_PROPERTIES = {"$ai_trace_id", "$ai_session_id", "$ai_is_error"}
 
 # Both the property name and its `mat_` column spelling, so visit_compare_operation can match either side of a comparison.
@@ -56,7 +56,7 @@ COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
 }
 
 # The only string literals a `Constant(inline_sentinel=True)` is allowed to render inline (escaped, unparameterized): the
-# fixed scrubbing markers the physical pass emits — the nullIf ''/'null' sentinels, the quote-trim regex, and the
+# fixed scrubbing markers property resolution emits — the nullIf ''/'null' sentinels, the quote-trim regex, and the
 # 'true'/'false' the property-group map stores booleans as. The printer refuses to inline anything else, so the flag can
 # never be turned into an unparameterized read of arbitrary (e.g. user-supplied) text.
 INLINE_SENTINEL_LITERALS = frozenset({"", "null", "true", "false", '^"|"$'})
@@ -356,7 +356,7 @@ class ClickHousePrinter(BasePrinter):
         return f"ifNull({op}, 0)"
 
     def visit_constant(self, node: ast.Constant):
-        # Opt-in inline rendering for the fixed scrubbing sentinels the physical pass emits, so its AST-built scrub renders
+        # Opt-in inline rendering for the fixed scrubbing sentinels property resolution emits, so its AST-built scrub renders
         # identically to the `json_extract_trim_quotes` helper's inline string. Gated to a fixed allowlist: the flag is set
         # only internally, so a value outside it is a bug — refuse to inline it rather than emit unparameterized text.
         if node.inline_sentinel and isinstance(node.value, str):
@@ -540,8 +540,8 @@ class ClickHousePrinter(BasePrinter):
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         # $session_id comparisons optimize a real column (not a property), so they stay on the printer. Every
-        # property-based skip-index rewrite (materialized column, property group) now runs in the ClickHouse physical
-        # pass, which emits the optimized form as AST before printing (see clickhouse_physical_passes.py).
+        # property-based skip-index rewrite (materialized column, property group) now runs in ClickHouse property
+        # resolution, which emits the optimized form as AST before printing (see clickhouse_property_resolution.py).
         if optimized_session_id := self._get_optimized_session_id_compare_operation(node):
             return optimized_session_id
 
@@ -706,8 +706,8 @@ class ClickHousePrinter(BasePrinter):
             raise ImpossibleASTError("Impossible")
 
     def visit_call(self, node: ast.Call):
-        # Property-group call optimizations (isNull/isNotNull/JSONHas over a property-group key) now run in the
-        # ClickHouse physical pass, which rewrites them to the keys-index `has(group, key)` form before printing.
+        # Property-group call optimizations (isNull/isNotNull/JSONHas over a property-group key) now run in ClickHouse
+        # property resolution, which rewrites them to the keys-index `has(group, key)` form before printing.
         return super().visit_call(node)
 
     def visit_array_slice(self, node: ast.ArraySlice):

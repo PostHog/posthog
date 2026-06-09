@@ -2451,7 +2451,7 @@ class TestPrinter(BaseTest):
             "hogql_val_5": [1, 0],
         }
 
-    @patch("posthog.hogql.transforms.clickhouse_physical_passes.get_materialized_column_for_property")
+    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
     def test_ai_trace_id_optimizations(self, mock_get_mat_col):
         """Test that $ai_trace_id gets special treatment for bloom filter index optimization"""
 
@@ -2527,7 +2527,7 @@ class TestPrinter(BaseTest):
             sql,
         )
 
-    @patch("posthog.hogql.transforms.clickhouse_physical_passes.get_materialized_column_for_property")
+    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
     def test_ai_session_id_optimizations(self, mock_get_mat_col):
         """Test that $ai_session_id gets special treatment for bloom filter index optimization"""
 
@@ -2578,10 +2578,10 @@ class TestPrinter(BaseTest):
         )
         self.assertNotIn("ifNull(in", sql)
 
-    @patch("posthog.hogql.transforms.clickhouse_physical_passes.get_materialized_column_for_property")
+    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
     def test_materialized_property_through_column_aliased_table(self, mock_get_mat_col):
         # A property read through a column-renamed table (`FROM events AS e (...)`, a ColumnAliasedTableType) must still
-        # resolve to its materialized column. The physical pass has to unwrap that table type to reach the real table; if
+        # resolve to its materialized column. Property resolution has to unwrap that table type to reach the real table; if
         # it doesn't, the read silently falls back to a slow JSONExtract over the raw blob.
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 

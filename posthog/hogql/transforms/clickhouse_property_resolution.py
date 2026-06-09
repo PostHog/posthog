@@ -415,7 +415,7 @@ class _OptimizableProperty:
         return ast.ArrayAccess(array=self.bare_column(), property=_const(self.key), type=ast.StringType(nullable=False))
 
 
-class ClickHousePhysicalPasses(CloningVisitor):
+class ClickHousePropertyResolver(CloningVisitor):
     """Rewrites lowered `JSONFieldAccess` reads (and comparisons over them) to read backing columns where they exist.
 
     After this pass, a backed property is an ordinary column expression; an unbacked (or restricted) one stays a
@@ -919,10 +919,10 @@ class ClickHousePhysicalPasses(CloningVisitor):
         return None
 
 
-def clickhouse_physical_passes(node: _T_AST, context: HogQLContext) -> _T_AST:
+def clickhouse_property_resolution(node: _T_AST, context: HogQLContext) -> _T_AST:
     """Rewrite every backed lowered `JSONFieldAccess` (and comparison over it) to read its backing column.
 
     ClickHouse only. Expects a resolved, swapped, lowered AST, and runs right after `lower_property_access` in the
     ClickHouse print pipeline (see `prepare_ast_for_printing`).
     """
-    return cast(_T_AST, ClickHousePhysicalPasses(context).visit(node))
+    return cast(_T_AST, ClickHousePropertyResolver(context).visit(node))

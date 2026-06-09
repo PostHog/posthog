@@ -21,7 +21,7 @@ from posthog.hogql.printer.duckdb import DuckDBPrinter
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
-from posthog.hogql.transforms.clickhouse_physical_passes import clickhouse_physical_passes
+from posthog.hogql.transforms.clickhouse_property_resolution import clickhouse_property_resolution
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
@@ -119,7 +119,7 @@ def prepare_ast_for_printing(
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
     # Load property-level access control restrictions onto the context. They are enforced only on the ClickHouse path —
-    # the printer wraps the JSON blob in JSONDropKeys, and the physical pass declines backing columns (and reads a
+    # the printer wraps the JSON blob in JSONDropKeys, and property resolution declines backing columns (and reads a
     # restricted property as NULL). The warehouse (Postgres / DuckDB) dialects only compile external data-warehouse
     # sources, which carry no restrictable event/person properties, so they need no enforcement here.
     if context.team_id is not None and context.restricted_properties is None:
@@ -157,7 +157,7 @@ def prepare_ast_for_printing(
             resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
 
         # Lower JSON-blob property reads to dialect-neutral JSONFieldAccess nodes. The warehouse dialects have no
-        # materialized columns, so logical lowering is the whole story for them (no ClickHouse physical pass).
+        # materialized columns, so logical lowering is the whole story for them (no ClickHouse property resolution).
         with context.timings.measure("lower_property_access"):
             node = lower_property_access(node, context)
 
@@ -200,15 +200,15 @@ def prepare_ast_for_printing(
 
         # The two passes that replaced the printer's old property handling, in order. Both run AFTER the PropertySwapper
         # passes, so any scalar cast already wraps the property. (1) Lowering replaces every blob `PropertyType` Field with
-        # a `JSONFieldAccess` — a plain "read these keys from this blob", no decision about how. (2) The physical passes
-        # then pick the source: each `JSONFieldAccess` backed by a materialized / skip-index / property-group column is
+        # a `JSONFieldAccess` — a plain "read these keys from this blob", no decision about how. (2) Property resolution
+        # then picks the source: each `JSONFieldAccess` backed by a materialized / skip-index / property-group column is
         # rewritten to read that column; the rest survive and print as the raw JSON extract. The within_non_hogql_query
         # (lightweight-DELETE) path runs through here too; the printer renders every column bare there (the single-table
         # mutation analyzer rejects table prefixes), so no extra marking is needed.
         with context.timings.measure("lower_property_access"):
             node = lower_property_access(node, context)
-        with context.timings.measure("clickhouse_physical_passes"):
-            node = clickhouse_physical_passes(node, context)
+        with context.timings.measure("clickhouse_property_resolution"):
+            node = clickhouse_property_resolution(node, context)
 
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.

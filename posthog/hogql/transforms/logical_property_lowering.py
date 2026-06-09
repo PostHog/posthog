@@ -4,7 +4,7 @@ A property read starts life as a `Field` tagged with a `PropertyType` ("this is 
 into a `JSONFieldAccess` — "read this key path out of this JSON blob". It makes no decision about *how* to read the
 property and never looks at materialized columns; that keeps it simple and the same for every database backend. After it
 runs, each printer just renders the node in its own JSON syntax — the property is no longer something the printer has to
-figure out. On ClickHouse a second pass (`clickhouse_physical_passes`) runs next and swaps the node for a faster column
+figure out. On ClickHouse a second pass (`clickhouse_property_resolution`) runs next and swaps the node for a faster column
 when one exists; the warehouse backends have no second pass, so for them this lowering is the whole story.
 
 It deliberately leaves four things alone, to stay minimal and change nothing about the output:
