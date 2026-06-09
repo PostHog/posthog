@@ -1,5 +1,5 @@
-import asyncio
 import random
+import asyncio
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
