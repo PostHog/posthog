@@ -22,6 +22,7 @@ from products.ai_observability.backend.summarization.llm.schema import (
     SummarizationResponse,
     SummaryBullet,
 )
+from products.customer_analytics.backend.models import Account
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -33,7 +34,7 @@ from products.warehouse_sources.backend.models.credential import DataWarehouseCr
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult
-from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.read_data.tool import ReadDataTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, NodePath
@@ -837,6 +838,100 @@ class TestReadDataTool(BaseTest):
             await tool._arun_impl({"kind": "feature_flag", "key": "nonexistent-flag"})
 
         assert "nonexistent-flag" in str(exc_info.value)
+
+    def _context_manager_without_extras(self) -> MagicMock:
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+        return context_manager
+
+    async def test_create_tool_class_with_account_flag(self):
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+
+        with patch("ee.hogai.tools.read_data.tool.has_customer_analytics_mode_feature_flag", return_value=True):
+            tool = await ReadDataTool.create_tool_class(
+                team=self.team,
+                user=self.user,
+                state=state,
+                context_manager=self._context_manager_without_extras(),
+            )
+
+        assert "Retrieves a customer account" in tool.description
+
+    async def test_create_tool_class_without_account_flag(self):
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+
+        with patch("ee.hogai.tools.read_data.tool.has_customer_analytics_mode_feature_flag", return_value=False):
+            tool = await ReadDataTool.create_tool_class(
+                team=self.team,
+                user=self.user,
+                state=state,
+                context_manager=self._context_manager_without_extras(),
+            )
+
+        assert "Retrieves a customer account" not in tool.description
+
+    async def test_read_account_by_id(self):
+        account = await Account.objects.unscoped().acreate(team=self.team, name="Acme Corp", external_id="acme-1")
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+
+        with patch("ee.hogai.tools.read_data.tool.has_customer_analytics_mode_feature_flag", return_value=True):
+            tool = await ReadDataTool.create_tool_class(
+                team=self.team,
+                user=self.user,
+                state=state,
+                context_manager=self._context_manager_without_extras(),
+            )
+            result, artifact = await tool._arun_impl({"kind": "account", "account_id": str(account.id)})
+
+        assert "Acme Corp" in result
+        assert "acme-1" in result
+        assert artifact is None
+
+    async def test_read_account_by_external_id(self):
+        await Account.objects.unscoped().acreate(team=self.team, name="Beta Inc", external_id="beta-9")
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+
+        with patch("ee.hogai.tools.read_data.tool.has_customer_analytics_mode_feature_flag", return_value=True):
+            tool = await ReadDataTool.create_tool_class(
+                team=self.team,
+                user=self.user,
+                state=state,
+                context_manager=self._context_manager_without_extras(),
+            )
+            result, _ = await tool._arun_impl({"kind": "account", "external_id": "beta-9"})
+
+        assert "Beta Inc" in result
+
+    async def test_read_account_not_found(self):
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+
+        with patch("ee.hogai.tools.read_data.tool.has_customer_analytics_mode_feature_flag", return_value=True):
+            tool = await ReadDataTool.create_tool_class(
+                team=self.team,
+                user=self.user,
+                state=state,
+                context_manager=self._context_manager_without_extras(),
+            )
+            with pytest.raises(MaxToolRetryableError) as exc_info:
+                await tool._arun_impl({"kind": "account", "account_id": str(uuid4())})
+
+        assert "was not found" in str(exc_info.value)
+
+    async def test_read_account_is_fatal_when_flag_disabled(self):
+        account = await Account.objects.unscoped().acreate(team=self.team, name="Acme Corp", external_id="acme-1")
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=self._context_manager_without_extras(),
+        )
+
+        with patch("ee.hogai.tools.read_data.tool.has_customer_analytics_mode_feature_flag", return_value=False):
+            with pytest.raises(MaxToolFatalError):
+                await tool._arun_impl({"kind": "account", "account_id": str(account.id)})
 
     async def test_read_feature_flag_requires_id_or_key(self):
         """Test that feature flag read requires either id or key."""

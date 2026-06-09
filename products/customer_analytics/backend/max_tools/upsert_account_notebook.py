@@ -25,7 +25,7 @@ UPSERT_ACCOUNT_NOTEBOOK_TOOL_DESCRIPTION = dedent("""
 
     # Actions
     - **create**: Add a new note to an account (requires `account_id`, a UUID). If you only have a
-      name, resolve the account first with read_data/list_data/search using the account kind.
+      name, resolve the account first with read_data/list_data using the account kind.
     - **update**: Revise an existing note (requires `notebook_short_id`). Pass a new `title` and/or
       `content`; `content` REPLACES the existing body, so send the full updated note, not just the
       change. Use the short_id returned when the note was created.

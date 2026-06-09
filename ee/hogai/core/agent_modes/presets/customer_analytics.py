@@ -36,7 +36,7 @@ CUSTOMER_ANALYTICS_MODE_DESCRIPTION = (
 POSITIVE_EXAMPLE_ASSIGN_ROLE = """
 User: Make Jane the CSM for Acme Corp
 Assistant: Let me find the Acme Corp account first.
-*Uses the search tool (or list_data with the account kind) to find the account's id*
+*Uses list_data with the account kind to find the account's id*
 Assistant: Found it. I'll assign Jane as the CSM.
 *Uses the upsert_account tool with action=update, account_id=<uuid>, properties={csm: {id, email}}*
 """.strip()
@@ -78,7 +78,7 @@ POSITIVE_EXAMPLE_ACCOUNT_ANALYTICS_REASONING = """
 POSITIVE_EXAMPLE_SAVE_NOTE = """
 User: Save a recap on Acme Corp from today's call — they want SSO by Q3 and flagged slow dashboards.
 Assistant: Let me find the Acme Corp account first.
-*Uses search (or list_data with the account kind) to get the account's id*
+*Uses list_data with the account kind to get the account's id*
 Assistant: Saving the recap to Acme Corp's notes.
 *Uses the upsert_account_notebook tool with action=create, account_id=<uuid>, title="Call recap", content="<markdown>"*
 """.strip()

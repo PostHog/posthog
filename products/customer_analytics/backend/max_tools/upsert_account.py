@@ -30,7 +30,7 @@ UPSERT_ACCOUNT_TOOL_DESCRIPTION = dedent("""
     - **update**: Edit an existing account (requires `account_id`; all other fields optional).
 
     # Finding an account to update
-    Resolve `account_id` (a UUID) first via `read_data`/`list_data`/`search` with the account kind.
+    Resolve `account_id` (a UUID) first via `read_data`/`list_data` with the account kind.
 
     # Properties
     `properties` carries typed fields. Assignment fields (csm, account_executive, account_owner) take
