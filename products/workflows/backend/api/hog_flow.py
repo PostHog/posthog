@@ -18,8 +18,18 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.api.app_metrics2 import AppMetricsMixin
+from posthog.schema import ProductKey
+
+from posthog.api.app_metrics2 import AppMetricsMixin, fetch_app_metric_totals_by_source
 from posthog.api.documentation import _FallbackSerializer
+from posthog.api.hog_invocation_results import (
+    HogInvocationResultDetailSerializer,
+    HogInvocationResultSerializer,
+    HogInvocationResultsRequestSerializer,
+    fetch_hog_invocation_result,
+    fetch_hog_invocation_results,
+    tag_invocation_results_query,
+)
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -31,9 +41,11 @@ from posthog.cdp.validation import (
     InputsSerializer,
     generate_template_bytecode,
 )
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import EventSource, get_event_source
 from posthog.models import Team
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test, create_hog_flow_scheduled_invocation
+from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cohorts.backend.models.cohort import Cohort
@@ -66,6 +78,24 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
 class BlastRadiusSerializer(serializers.Serializer):
     affected = serializers.IntegerField(help_text="Number of users matching the filters")
     total = serializers.IntegerField(help_text="Total number of users")
+
+
+class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
+    after = serializers.CharField(
+        required=False,
+        default="-7d",
+        help_text="Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d.",
+    )
+    before = serializers.CharField(
+        required=False,
+        help_text="End of the window. Same format as 'after'. Defaults to now.",
+    )
+
+
+class WorkflowStatsRowSerializer(serializers.Serializer):
+    workflow_id = serializers.CharField(help_text="The workflow these counts are for.")
+    succeeded = serializers.IntegerField(help_text="Successful invocations in the window.")
+    failed = serializers.IntegerField(help_text="Failed invocations in the window.")
 
 
 class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
@@ -674,7 +704,15 @@ class HogFlowFilterSet(FilterSet):
 @extend_schema(extensions={"x-product": "workflows"})
 class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
     scope_object = "hog_flow"
-    scope_object_read_actions = ["list", "retrieve", "logs", "metrics", "metrics_totals", "user_blast_radius"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "logs",
+        "metrics",
+        "metrics_totals",
+        "metrics_global",
+        "user_blast_radius",
+    ]
     scope_object_write_actions = [
         "create",
         "update",
@@ -689,6 +727,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     filterset_class = HogFlowFilterSet
     log_source = "hog_flow"
     app_source = "hog_flow"
+    function_kind = "hog_flow"
 
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
         # Dual-method custom actions need method-aware scopes — the action-name-based read/write
@@ -701,6 +740,12 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         # could use this as a person-existence oracle (e.g. "does email X exist?"). The web builder uses
         # session auth, so live sizing while editing is unaffected.
         if self.action == "user_blast_radius":
+            return ["hog_flow:read", "person:read"]
+        # Invocation inspection returns distinct_id / person_id and the raw triggering payload
+        # (invocation_globals: event/person/groups), so it's person-data access — require person:read
+        # on top of workflow read, same as user_blast_radius. A hog_flow:read-only token must not be
+        # able to enumerate who a workflow ran for.
+        if self.action in ("invocation_results", "invocation_result"):
             return ["hog_flow:read", "person:read"]
         # A test invocation resolves the event's $groups into real group properties server-side, so a
         # hog_flow:write-only token could branch on group_0.properties and read the returned logs/variables
@@ -740,7 +785,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         if self._is_mcp_request(self.request) and serializer.validated_data.get("status") == HogFlow.State.ACTIVE:
             raise exceptions.ValidationError(
                 "You can't one-shot active workflows via MCP. "
-                "Create as draft, test with workflows-run, then enable with workflows-enable."
+                "Create as draft, test with workflows-test-run, then enable with workflows-enable."
             )
 
         serializer.save()
@@ -870,6 +915,111 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         result = get_user_blast_radius(self.team, filters, group_type_index)
 
         return Response(BlastRadiusSerializer(result).data)
+
+    @extend_schema(
+        operation_id="hog_flows_invocation_results_retrieve",
+        parameters=[HogInvocationResultsRequestSerializer],
+        responses=HogInvocationResultSerializer(many=True),
+    )
+    @action(detail=True, methods=["GET"], pagination_class=None, filter_backends=[])
+    def invocation_results(self, request: Request, *args, **kwargs):
+        obj = self.get_object()
+        tag_invocation_results_query(self.function_kind)
+
+        param_serializer = HogInvocationResultsRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        after_date = None
+        before_date = None
+        if params.get("after"):
+            after_date, _, _ = relative_date_parse_with_delta_mapping(params["after"], self.team.timezone_info)
+        if params.get("before"):
+            before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
+
+        data = fetch_hog_invocation_results(
+            team_id=self.team_id,
+            function_kind=self.function_kind,
+            function_id=str(obj.id),
+            limit=params["limit"],
+            status=params["status"].split(",") if params.get("status") else None,
+            distinct_id=params.get("distinct_id"),
+            after=after_date,
+            before=before_date,
+        )
+        return Response(HogInvocationResultSerializer(data, many=True).data)
+
+    @extend_schema(
+        operation_id="hog_flows_invocation_result_retrieve",
+        parameters=[OpenApiParameter("invocation_id", str, OpenApiParameter.PATH)],
+        responses=HogInvocationResultDetailSerializer,
+    )
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="invocation_results/(?P<invocation_id>[^/.]+)",
+        filter_backends=[],
+    )
+    def invocation_result(self, request: Request, *args, **kwargs):
+        obj = self.get_object()
+        tag_invocation_results_query(self.function_kind)
+
+        data = fetch_hog_invocation_result(
+            team_id=self.team_id,
+            function_kind=self.function_kind,
+            function_id=str(obj.id),
+            invocation_id=kwargs["invocation_id"],
+        )
+        if data is None:
+            raise exceptions.NotFound("Invocation not found.")
+        return Response(HogInvocationResultDetailSerializer(data).data)
+
+    @extend_schema(
+        operation_id="hog_flows_metrics_global_retrieve",
+        parameters=[WorkflowGlobalStatsRequestSerializer],
+        responses=WorkflowStatsRowSerializer(many=True),
+    )
+    @action(detail=False, methods=["GET"], pagination_class=None, filter_backends=[], url_path="metrics/global")
+    def metrics_global(self, request: Request, *args, **kwargs):
+        param_serializer = WorkflowGlobalStatsRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+
+        after_date, _, _ = relative_date_parse_with_delta_mapping(params["after"], self.team.timezone_info)
+        before_date = None
+        if params.get("before"):
+            before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
+
+        totals = fetch_app_metric_totals_by_source(
+            team_id=self.team_id,
+            app_source=self.app_source,
+            after=after_date,
+            before=before_date,
+        )
+        # The ClickHouse query is only team-scoped, so intersect with the workflows the caller can
+        # actually see. Keeps the aggregate consistent with workflows-list/-get access control (hog
+        # flows aren't an access-control resource today, so this is a no-op now but won't silently
+        # become a bypass if they become one), and drops orphaned metrics for since-deleted workflows.
+        accessible_ids = {
+            str(pk)
+            for pk in self.user_access_control.filter_queryset_by_access_level(self.get_queryset()).values_list(
+                "id", flat=True
+            )
+        }
+        rows: list[dict[str, object]] = [
+            {
+                "workflow_id": workflow_id,
+                "succeeded": counts.get("succeeded", 0),
+                "failed": counts.get("failed", 0),
+            }
+            for workflow_id, counts in totals.items()
+            if workflow_id in accessible_ids
+        ]
+        # Surface the most-failing workflows first — this is the at-a-glance triage view.
+        rows.sort(key=lambda row: cast(int, row["failed"]), reverse=True)
+        return Response(WorkflowStatsRowSerializer(rows, many=True).data)
 
     @action(methods=["POST"], detail=False)
     def bulk_delete(self, request: Request, **kwargs):

@@ -182,6 +182,25 @@ describe('PropertyFilters', () => {
         expect(pill?.textContent).toMatch(/Browser/)
     })
 
+    it('does not crash when propertyFilters is a non-array (legacy / corrupted shape)', () => {
+        // Regression test for "n.map is not a function" crash. The reducer's initial-state path
+        // runs parseProperties, but the prop-change useEffect previously called setFilters directly
+        // — so any consumer (e.g. a HogFlow with an event-shaped object stored in conversion.filters)
+        // crashed the moment the picker re-rendered. PropertyFilters must tolerate the same input
+        // shapes parseProperties does: arrays, PropertyGroup objects, and dict-style objects.
+        const eventShapedObject = {
+            events: [{ id: 'user_signed_up', name: 'user_signed_up', type: 'events', order: 0 }],
+            source: 'events',
+            actions: [],
+        } as any
+
+        expect(() =>
+            renderPropertyFilters({
+                propertyFilters: eventShapedObject,
+            })
+        ).not.toThrow()
+    })
+
     it('does not change reducer state when re-rendered with same filter values', () => {
         const filters = [BROWSER_FILTER]
         const onChange = jest.fn()

@@ -1408,6 +1408,115 @@ class TaskPresence(TeamScopedRootMixin):
         return f"Presence: user {self.user_id} on task {self.task_id} via device {self.push_token_id}"
 
 
+class CodeWorkflowConfig(TeamScopedRootMixin):
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
+    version = models.PositiveIntegerField(default=1)
+    bindings = models.JSONField(default=dict, help_text="Situation id → ordered WorkflowAction list")
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_code_workflow_config"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user"], name="code_workflow_config_team_user_unique"),
+        ]
+
+    def __str__(self):
+        return f"CodeWorkflowConfig(team={self.team_id}, user={self.user_id}, v{self.version})"
+
+
+class CodePrSnapshot(TeamScopedRootMixin):
+    class State(models.TextChoices):
+        OPEN = "open", "Open"
+        DRAFT = "draft", "Draft"
+        MERGED = "merged", "Merged"
+        CLOSED = "closed", "Closed"
+
+    class CiStatus(models.TextChoices):
+        PASSING = "passing", "Passing"
+        FAILING = "failing", "Failing"
+        PENDING = "pending", "Pending"
+        NONE = "none", "None"
+
+    class ReviewDecision(models.TextChoices):
+        APPROVED = "approved", "Approved"
+        CHANGES_REQUESTED = "changes_requested", "Changes requested"
+        REVIEW_REQUIRED = "review_required", "Review required"
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    github_integration = models.ForeignKey(
+        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    pr_url = models.CharField(max_length=500)
+    number = models.PositiveIntegerField()
+    title = models.TextField(blank=True, default="")
+    state = models.CharField(max_length=10, choices=State.choices)
+    ci_status = models.CharField(max_length=10, choices=CiStatus.choices, default=CiStatus.NONE)
+    review_decision = models.CharField(max_length=20, choices=ReviewDecision.choices, null=True, blank=True)
+    unresolved_threads = models.PositiveIntegerField(default=0)
+    mergeable = models.BooleanField(null=True, blank=True)
+    author_login = models.CharField(max_length=255, null=True, blank=True)
+    requested_reviewer_logins = models.JSONField(default=list, help_text="GitHub logins requested as reviewers")
+    pr_updated_at = models.DateTimeField(null=True, blank=True, help_text="PR's last-updated time on GitHub")
+    fingerprint = models.CharField(max_length=64, blank=True, default="", help_text="Change-detection hash")
+    fetched_at = models.DateTimeField(default=django_timezone.now, help_text="When this snapshot was last polled")
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_code_pr_snapshot"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "pr_url"], name="code_pr_snapshot_team_url_unique"),
+        ]
+
+    def __str__(self):
+        return f"CodePrSnapshot({self.pr_url} {self.state})"
+
+
+class CodeWorkstream(TeamScopedRootMixin):
+    class WorkstreamState(models.TextChoices):
+        ATTENTION = "attention", "Needs attention"
+        IN_PROGRESS = "in_progress", "In progress"
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
+    key = models.CharField(max_length=600, help_text="Grouping key: pr:<url> | branch:<repo>#<branch> | path:<path>")
+    repo_name = models.CharField(max_length=255, null=True, blank=True)
+    repo_full_path = models.CharField(max_length=512, null=True, blank=True)
+    branch = models.CharField(max_length=255, null=True, blank=True)
+    pr_url = models.CharField(max_length=500, null=True, blank=True)
+    pr_snapshot = models.ForeignKey(CodePrSnapshot, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    pr = models.JSONField(null=True, blank=True, help_text="Per-user-resolved PrSnapshot wire shape")
+    situations = models.JSONField(default=list, help_text="List of situation ids this workstream is in")
+    primary_situation = models.CharField(max_length=20, null=True, blank=True, help_text="Board column placement")
+    state = models.CharField(max_length=20, choices=WorkstreamState.choices)
+    tasks = models.JSONField(default=list, help_text="List of {id, title, status} for grouped tasks")
+    last_activity_at = models.DateTimeField()
+    generated_at = models.DateTimeField(default=django_timezone.now, help_text="When this row was last rebuilt")
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_code_workstream"
+        ordering = ["-last_activity_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user", "key"], name="code_workstream_team_user_key_unique"),
+        ]
+        indexes = [
+            models.Index(fields=["team", "user", "state"], name="code_workstream_state_idx"),
+        ]
+
+    def __str__(self):
+        return f"CodeWorkstream({self.key} {self.state})"
+
+
 @receiver(post_save, sender=TaskRun)
 def track_task_run_completion(sender, instance: TaskRun, created: bool, **kwargs):
     try:

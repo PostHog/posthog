@@ -22,16 +22,28 @@
             "additionalProperties": false,
             "properties": {
                 "accountExecutive": {
-                    "$ref": "#/definitions/AccountsRoleAssignmentFilter"
+                    "description": "Match accounts whose account executive is any of these user ids (OR semantics).",
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
                 },
                 "accountOwner": {
-                    "$ref": "#/definitions/AccountsRoleAssignmentFilter"
+                    "description": "Match accounts whose account owner is any of these user ids (OR semantics).",
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
                 },
                 "allRolesUnassigned": {
                     "type": "boolean"
                 },
                 "csm": {
-                    "$ref": "#/definitions/AccountsRoleAssignmentFilter"
+                    "description": "Match accounts whose CSM is any of these user ids (OR semantics).",
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
                 },
                 "filterExpression": {
                     "$ref": "#/definitions/HogQLExpression",
@@ -174,17 +186,6 @@
             },
             "required": ["columns", "hogql", "kind", "limit", "offset", "results", "types"],
             "type": "object"
-        },
-        "AccountsRoleAssignmentFilter": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/integer"
-                },
-                {
-                    "const": "unassigned",
-                    "type": "string"
-                }
-            ]
         },
         "ActionConversionGoal": {
             "additionalProperties": false,
@@ -3859,7 +3860,8 @@
                 "marketing_audit_utm",
                 "marketing_suggest_conversion_goals",
                 "marketing_suggest_utm_mappings",
-                "summarize_replay_vision_summaries"
+                "summarize_replay_vision_summaries",
+                "draft_replay_vision_scanner_prompt"
             ],
             "type": "string"
         },
@@ -18398,14 +18400,19 @@
         },
         "ExperimentApiExposureConfig": {
             "additionalProperties": false,
-            "description": "Slim exposure config for experiment API payloads.",
+            "description": "Slim exposure config for experiment API payloads. Discriminated by `kind`: 'ExperimentEventExposureConfig' tracks exposure via a custom event, 'ActionsNode' tracks exposure via an action.",
             "properties": {
                 "event": {
-                    "description": "Custom exposure event name.",
+                    "description": "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'.",
                     "type": "string"
                 },
+                "id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Action ID. Required when kind is 'ActionsNode'."
+                },
                 "kind": {
-                    "const": "ExperimentEventExposureConfig",
+                    "description": "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure.",
+                    "enum": ["ExperimentEventExposureConfig", "ActionsNode"],
                     "type": "string"
                 },
                 "properties": {
@@ -18416,7 +18423,7 @@
                     "type": "array"
                 }
             },
-            "required": ["kind", "event", "properties"],
+            "required": ["properties"],
             "type": "object"
         },
         "ExperimentApiExposureCriteria": {

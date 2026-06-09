@@ -154,6 +154,36 @@ export interface PaginatedInterviewLinkListApi {
     results: InterviewLinkApi[]
 }
 
+export interface PreviewInviteRequestApi {
+    /**
+     * Which targeted interviewee to render the preview for (an email or PostHog distinct ID already on the topic). Leave blank to preview for the first targeted interviewee.
+     * @maxLength 400
+     */
+    interviewee_identifier?: string
+}
+
+export interface PreviewInviteResultApi {
+    /** The identifier (email or distinct ID) the preview was rendered for. */
+    interviewee_identifier: string
+    /** The display name used in the email greeting, derived from the identifier. */
+    user_name: string
+    /**
+     * The email address the invite would be sent to. Null for distinct-ID-only interviewees.
+     * @nullable
+     */
+    email: string | null
+    /** The rendered subject line (saved topic subject, sanitized, or the default). */
+    subject: string
+    /** The fully rendered, CSS-inlined HTML body of the invite email. Safe to display in a sandboxed iframe. */
+    html: string
+    /** An illustrative placeholder interview link shown in the previewed email body. The preview never exposes a real per-recipient share token — that link is minted only when invites are sent. */
+    interview_url: string
+    /** True if this interviewee has an email address and could actually receive the invite. */
+    emailable: boolean
+    /** Always true — the previewed interview_url is an illustrative placeholder, never a live link. */
+    is_preview_link: boolean
+}
+
 export interface SendInvitesRequestApi {
     /**
      * Override the email subject line for this send. Plain text only — URLs, angle brackets, and control characters are rejected. Falls back to the topic's saved subject, then a default.
@@ -178,7 +208,7 @@ export interface InterviewInviteResultApi {
     interview_url: string
     /** True if an email was queued for delivery. False when the recipient was skipped — see `reason`. */
     sent: boolean
-    /** Why the email was skipped (e.g., `not_an_email`, `already_sent`). Empty when sent=true. */
+    /** Why the email was skipped (e.g., `not_an_email`, `duplicate_recipient`, `already_sent`). Empty when sent=true. */
     reason?: string
 }
 

@@ -135,6 +135,11 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
 
         return handle_pull_request_event(payload)
 
+    if event_type == "installation":
+        from posthog.api.github_callback.installation_events import handle_installation_event
+
+        return handle_installation_event(payload)
+
     return HttpResponse(status=200)
 
 

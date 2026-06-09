@@ -141,7 +141,7 @@ intentional outliers, and only surface fresh shifts.
 For each candidate finding:
 
 - **Emit** via `signals-scout-emit-signal` if it clears the confidence bar.
-  Strong scout findings: weight ≥ 0.7, confidence ≥ 0.85, with concrete service /
+  Strong scout findings: confidence ≥ 0.85, with concrete service /
   message / time-range evidence.
 - **Remember** if below the bar but worth carrying forward.
 - **Skip** with a one-line note if a scratchpad entry with a `noise:` or `addressed:`

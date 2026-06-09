@@ -7019,10 +7019,13 @@ export interface AccountsQueryResponseApi {
 }
 
 export interface AccountsQueryApi {
-    accountExecutive?: string | number | null
-    accountOwner?: string | number | null
+    /** Match accounts whose account executive is any of these user ids (OR semantics). */
+    accountExecutive?: number[] | null
+    /** Match accounts whose account owner is any of these user ids (OR semantics). */
+    accountOwner?: number[] | null
     allRolesUnassigned?: boolean | null
-    csm?: string | number | null
+    /** Match accounts whose CSM is any of these user ids (OR semantics). */
+    csm?: number[] | null
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: string | null
     kind?: 'AccountsQuery'
@@ -7908,7 +7911,7 @@ export interface DashboardWidgetRunResultApi {
      * @nullable
      */
     widget_type: string | null
-    /** Live widget query result payload. */
+    /** Live widget query result payload. List widgets return results (array), limit (configured page size), hasMore (boolean), totalCount (matching rows for current filters), totalCountCapped (true when totalCount hit the widget max and more may exist), and optional offset/nextOffset. error_tracking_list results are issue summaries; session_replay_list results are recording metadata. */
     result: unknown
     /**
      * Error message when the widget could not be run.
