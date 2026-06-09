@@ -55,11 +55,15 @@ from ee.hogai.utils.types.base import (
 # to call `read_business_knowledge`, but that must never reach the end user.
 # The `bk-doc=` prefix scopes the token to this feature so the strip regex can't
 # clobber an unrelated `[doc=...]` a user typed or a future tool emits.
-# `format_*` is the single source of truth for the shape; `BK_DRILLDOWN_HANDLE_RE`
-# is its exact inverse (full UUID shape, not loose hex), used to strip it at the
-# final-answer boundary.
+# Everything below derives from `_BK_HANDLE_PREFIX` so the shape lives in exactly
+# one place: `format_*` builds it, `BK_DRILLDOWN_HANDLE_RE` is its exact inverse
+# (full UUID, not loose hex), and `BK_DRILLDOWN_HANDLE_EXAMPLE` is what prompts
+# quote — change the prefix here and prompt guidance / regex / formatter stay in sync.
+_BK_HANDLE_PREFIX = "bk-doc"
 _UUID_RE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-BK_DRILLDOWN_HANDLE_RE = re.compile(rf"`?\[bk-doc={_UUID_RE}\s+#-?\d+\]`?")
+BK_DRILLDOWN_HANDLE_RE = re.compile(rf"`?\[{re.escape(_BK_HANDLE_PREFIX)}={_UUID_RE}\s+#-?\d+\]`?")
+# Placeholder shape for prompt text (LLM-facing), not a real handle.
+BK_DRILLDOWN_HANDLE_EXAMPLE = f"[{_BK_HANDLE_PREFIX}=<document_id> #<ordinal>]"
 # Whitespace/punctuation artifacts left behind once a handle is removed. Only
 # applied when a handle was actually stripped, so handle-free text is untouched.
 _BK_DANGLING_SPACE_BEFORE_PUNCT_RE = re.compile(r"[ \t]+([.,;:!?])")
@@ -69,7 +73,7 @@ _BK_TRAILING_SPACE_RE = re.compile(r"[ \t]+\n")
 
 def format_bk_drilldown_handle(document_id: UUID, ordinal: int) -> str:
     """Build the model-facing drill-down handle for a knowledge chunk."""
-    return f"[bk-doc={document_id} #{ordinal}]"
+    return f"[{_BK_HANDLE_PREFIX}={document_id} #{ordinal}]"
 
 
 def strip_bk_drilldown_handles(text: str) -> str:

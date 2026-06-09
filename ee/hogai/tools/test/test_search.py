@@ -161,6 +161,23 @@ class TestReadBusinessKnowledgeTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn(f"[bk-doc={doc_id} #3]", blocks)
         self.assertIn("Some content", blocks)
 
+    def test_prompts_reference_single_sourced_handle_example(self):
+        # Guard against drift: the handle shape quoted in prompt text must come
+        # from the same source of truth as the formatter, not be hand-typed.
+        from ee.hogai.tools.search import (
+            BK_SEARCH_RESULTS_FOOTER,
+            BUSINESS_KNOWLEDGE_SEARCH_PROMPT,
+            READ_BUSINESS_KNOWLEDGE_PROMPT,
+        )
+        from ee.hogai.utils.helpers import BK_DRILLDOWN_HANDLE_EXAMPLE
+
+        for prompt in (
+            BUSINESS_KNOWLEDGE_SEARCH_PROMPT,
+            BK_SEARCH_RESULTS_FOOTER,
+            READ_BUSINESS_KNOWLEDGE_PROMPT,
+        ):
+            self.assertIn(BK_DRILLDOWN_HANDLE_EXAMPLE, prompt)
+
 
 class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
