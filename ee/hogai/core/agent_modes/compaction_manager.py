@@ -4,6 +4,7 @@ from collections.abc import Callable, Sequence
 from typing import Any, TypeVar, cast
 from uuid import uuid4
 
+import structlog
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
@@ -29,9 +30,12 @@ from posthog.sync import database_sync_to_async
 from ee.hogai.context.prompts import CONTEXT_INITIAL_MODE_PROMPT
 from ee.hogai.core.agent_modes.prompts import ROOT_AGENT_MODE_REMINDER_PROMPT, ROOT_TODO_REMINDER_PROMPT
 from ee.hogai.tools.todo_write import TodoWriteTool
+from ee.hogai.utils.exceptions import HTTPX_TRANSPORT_EXCEPTIONS, LLM_TRANSIENT_EXCEPTIONS
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import AssistantMessageUnion
+
+logger = structlog.get_logger(__name__)
 
 T = TypeVar("T", bound=AssistantMessageUnion)
 
@@ -114,9 +118,16 @@ class ConversationCompactionManager(ABC):
                 if not (isinstance(tool, dict) and tool.get("type", "").startswith("web_search_"))
             ]
         if len(human_messages) <= 2:
-            tool_tokens = self._get_estimated_tools_tokens(tools) if tools else 0
-            return sum(self._get_estimated_langchain_message_tokens(message) for message in messages) + tool_tokens
+            return self._estimate_token_count(messages, tools)
         return await self._get_token_count(model, messages, tools, **kwargs)
+
+    def _estimate_token_count(self, messages: Sequence[BaseMessage], tools: LangchainTools | None = None) -> int:
+        """
+        Local character-based token estimate. Used both as a cheap heuristic for short
+        conversations and as a best-effort fallback when remote token counting is unavailable.
+        """
+        tool_tokens = self._get_estimated_tools_tokens(tools) if tools else 0
+        return sum(self._get_estimated_langchain_message_tokens(message) for message in messages) + tool_tokens
 
     def update_window(
         self,
@@ -522,6 +533,17 @@ class AnthropicConversationCompactionManager(ConversationCompactionManager):
         thinking_config: dict[str, Any] | None = None,
         **kwargs,
     ) -> int:
-        return await database_sync_to_async(model.get_num_tokens_from_messages, thread_sensitive=False)(
-            messages, thinking=thinking_config, tools=tools
-        )
+        # langchain_anthropic counts tokens via a synchronous remote call to Anthropic's
+        # count_tokens API. A transient network blip there must not abort the whole run, so
+        # fall back to the local character-based estimate when the remote call is unavailable.
+        try:
+            return await database_sync_to_async(model.get_num_tokens_from_messages, thread_sensitive=False)(
+                messages, thinking=thinking_config, tools=tools
+            )
+        except (*LLM_TRANSIENT_EXCEPTIONS, *HTTPX_TRANSPORT_EXCEPTIONS) as e:
+            logger.warning(
+                "Remote token counting failed, falling back to local estimate",
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            return self._estimate_token_count(messages, tools)

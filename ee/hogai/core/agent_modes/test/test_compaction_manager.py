@@ -3,6 +3,8 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
+import anthropic
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -331,6 +333,36 @@ class TestAnthropicConversationCompactionManager(BaseTest):
 
         self.assertEqual(result, 1234)
         mock_model.get_num_tokens_from_messages.assert_called_once_with(messages, thinking=thinking_config, tools=None)
+
+    @parameterized.expand(
+        [
+            ("api_connection_error", anthropic.APIConnectionError(request=httpx.Request("POST", "https://x"))),
+            ("api_timeout_error", anthropic.APITimeoutError(request=httpx.Request("POST", "https://x"))),
+            ("httpx_connect_error", httpx.ConnectError("Temporary failure in name resolution")),
+        ]
+    )
+    async def test_get_token_count_falls_back_to_local_estimate_on_transient_error(self, _name, exc):
+        """A transient network failure in remote token counting must fall back to the local estimate, not crash."""
+        mock_model = MagicMock()
+        mock_model.get_num_tokens_from_messages = MagicMock(side_effect=exc)
+
+        messages: list[BaseMessage] = [LangchainHumanMessage(content="Test message")]
+        expected = self.window_manager._estimate_token_count(messages)
+
+        result = await self.window_manager._get_token_count(mock_model, messages)
+
+        self.assertEqual(result, expected)
+        self.assertGreater(result, 0)
+
+    async def test_get_token_count_reraises_non_transient_error(self):
+        """Non-transient errors should still propagate rather than being silently swallowed."""
+        mock_model = MagicMock()
+        mock_model.get_num_tokens_from_messages = MagicMock(side_effect=ValueError("boom"))
+
+        messages: list[BaseMessage] = [LangchainHumanMessage(content="Test message")]
+
+        with self.assertRaises(ValueError):
+            await self.window_manager._get_token_count(mock_model, messages)
 
     def test_update_window_with_large_last_tool_call_message(self):
         """
