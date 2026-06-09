@@ -108,6 +108,11 @@ export function initKea({
                 // `before_send` filter in `selfReadOnlyModeLogic`.
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
+                // These are expected control-flow 403s handled by `apiStatusLogic` (it opens the
+                // 2FA setup/verification or re-auth modal and suppresses the toast), not real crashes.
+                const isTwoFactorError =
+                    error?.code === 'two_factor_setup_required' || error?.code === 'two_factor_verification_required'
+                const isSensitiveActionError = error?.code === 'sensitive_action_required_reauth'
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
@@ -115,9 +120,6 @@ export function initKea({
                     !(isLoadAction && error.status === 403) // 403 access denied is handled by sceneLogic gates
                 ) {
                     let errorMessage = error.detail || error.statusText
-                    const isTwoFactorError =
-                        error.code === 'two_factor_setup_required' || error.code === 'two_factor_verification_required'
-                    const isSensitiveActionError = error.code === 'sensitive_action_required_reauth'
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
@@ -132,7 +134,11 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                posthog.captureException(error)
+                // Don't report expected, already-handled 2FA/re-auth control-flow errors to error
+                // tracking — mirrors the read-only-mode `before_send` filter noted above.
+                if (!isTwoFactorError && !isSensitiveActionError) {
+                    posthog.captureException(error)
+                }
             },
         }),
         subscriptionsPlugin,
