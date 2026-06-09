@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -52,4 +54,15 @@ describe('maxSettingsLogic', () => {
                 .toMatchValues({ coreMemory: null, isLoading: false })
         }
     )
+
+    it('lets non-HTTP errors propagate so real regressions stay visible', async () => {
+        // A programming error (not an ApiError) should surface as a failure, not be silently swallowed.
+        jest.spyOn(api.coreMemory, 'list').mockRejectedValueOnce(new TypeError('boom'))
+        logic = maxSettingsLogic()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadCoreMemoryFailure'])
+            .toMatchValues({ coreMemory: null, isLoading: false })
+    })
 })
