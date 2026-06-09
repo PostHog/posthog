@@ -7,6 +7,7 @@ import { IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FeatureFlagKey, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -86,6 +87,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const { upgradePlan, currentPlan } = currentAndUpgradePlans
 
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     const productDisplayNameOverrides: Record<string, string> = {
         realtime_destinations: 'Data pipelines',
@@ -171,7 +173,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     {product.subscribed && <p className="m-0">Need to manage your plan?</p>}
                                     <LemonButton
                                         type="primary"
-                                        to="mailto:sales@posthog.com?subject=Enterprise%20plan%20request"
+                                        onClick={() => openSupportForm({ kind: 'support', target_area: 'billing' })}
                                     >
                                         Get in touch
                                     </LemonButton>
@@ -383,7 +385,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     <p className="m-0">
                                         Need additional platform and support (aka enterprise) features like{' '}
                                         <b>SAML SSO</b>, <b>advanced permissioning</b>, and more?{' '}
-                                        <Link to="mailto:sales@posthog.com?subject=Enterprise%20plan%20request">
+                                        <Link
+                                            onClick={() =>
+                                                openSupportForm({ kind: 'support', target_area: 'billing' })
+                                            }
+                                        >
                                             Get in touch
                                         </Link>{' '}
                                         for a quick chat.
