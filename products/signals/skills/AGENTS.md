@@ -52,6 +52,16 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   scout's territory.
 - `signals-scout-revenue-analytics/` — anomaly watcher for revenue
   (MRR / churn / segment shifts).
+- `signals-scout-session-replay/` — capture-integrity + friction watcher for session
+  replay. Watches recording volume against site traffic for capture cliffs (SDK
+  breakage, config drift — recordings are not retroactive), and the friction stream
+  (`$rageclick`, dead clicks, errors-after-click via `session_replay_features`) for
+  clusters concentrating on one URL or element above that surface's own baseline.
+  Also the judgment layer over replay vision: scanner watch-gaps (failing scanners,
+  exhausted quota) and cross-session aggregation of `$recording_observed` scanner
+  output. Its discriminator is concentration-vs-diffusion — friction that piles up
+  in one place is signal, friction that tracks traffic is baseline; exceptions per
+  se are the error-tracking scout's territory.
 - `signals-scout-surveys/` — anomaly watcher for surveys
   (response-rate drops, sentiment shifts, completion-funnel regressions).
 - `signals-scout-experiments/` — validity watcher for A/B experiments. Audits the
