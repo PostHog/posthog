@@ -64,6 +64,16 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   se are the error-tracking scout's territory.
 - `signals-scout-surveys/` — anomaly watcher for surveys
   (response-rate drops, sentiment shifts, completion-funnel regressions).
+- `signals-scout-web-analytics/` — acquisition + site-health watcher for web traffic.
+  Reads the `sessions` table for per-channel volume diverging from
+  seasonality-aligned baselines (same 24h window 7/14 days back), attribution
+  breakage (paid traffic reclassifying into Direct/Unknown when UTM tagging breaks),
+  entry-path bounce steps and traffic cliffs, 404 spikes (via the project's own
+  not-found event, discovered by name), and per-path web vitals p75 regressions. Its
+  discriminator is segment-vs-aggregate divergence — one channel/path/referrer
+  stepping away from its own baseline while totals hold is signal; the whole site
+  moving together is baseline. Whole-site metric anomalies on watched dashboards are
+  the anomaly-detection scout's territory.
 - `signals-scout-experiments/` — validity watcher for A/B experiments. Audits the
   measurement machinery rather than the results: sample ratio mismatch, `$multiple`
   contamination, exposure stalls, mid-run flag mutations, plus lifecycle drift
