@@ -6,16 +6,17 @@ working on yesterday?"). Strictly team-scoped — no cross-team reads.
 
 `SignalScoutRun` is a thin bridge to `tasks.TaskRun`: status, timestamps, and
 error all flow from the linked TaskRun via `select_related("task_run")`. The
-only scout-owned content on the row itself is `summary` — the one-paragraph
-close-out the agent emits at end_turn, used as the dedupe key for runs that
-didn't emit any findings (and so left no `Signal` row to query against).
-Findings are recoverable as emitted `Signal` rows keyed by
+scout-owned content on the row itself is `summary` — the one-paragraph close-out
+the agent emits at end_turn, used as the dedupe key for runs that didn't emit any
+findings (and so left no `Signal` row to query against) — plus the
+`emitted_count` / `emitted_finding_ids` emit tally bumped post-success by
+`emit_finding`. Findings are recoverable as emitted `Signal` rows keyed by
 `source_id = run:<run_id>:finding:<finding_id>`.
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -37,6 +38,8 @@ class RunSummary:
     started_at: str
     completed_at: str | None
     summary: str
+    emitted_count: int = 0
+    emitted_finding_ids: list[str] = field(default_factory=list)
     task_id: str | None = None
     task_run_id: str | None = None
     task_url: str | None = None
@@ -61,6 +64,8 @@ class RunDetail:
     started_at: str
     completed_at: str | None
     summary: str
+    emitted_count: int = 0
+    emitted_finding_ids: list[str] = field(default_factory=list)
     task_id: str | None = None
     task_run_id: str | None = None
     task_url: str | None = None
@@ -75,6 +80,7 @@ def search_recent_runs(
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     text: str | None = None,
+    emitted: bool | None = None,
     limit: int = DEFAULT_RUN_SEARCH_LIMIT,
 ) -> list[RunSummary]:
     """Return the most recent runs for a team, newest first.
@@ -85,7 +91,9 @@ def search_recent_runs(
     backwards past the result cap on subsequent calls (cursor-style iteration).
     `text` is a case-insensitive substring match on the agent's end-of-run
     `summary` — the primary dedupe path for runs that didn't emit findings.
-    Results are capped at `MAX_RUN_SEARCH_LIMIT`.
+    `emitted` filters on emit outcome: `True` keeps only runs that emitted at least
+    one finding (`emitted_count > 0`), `False` keeps only runs that emitted nothing;
+    omit it for both. Results are capped at `MAX_RUN_SEARCH_LIMIT`.
     """
     clamped_limit = _clamp_limit(limit)
     qs = SignalScoutRun.objects.filter(team_id=team_id).select_related("task_run").order_by("-created_at")
@@ -95,6 +103,8 @@ def search_recent_runs(
         qs = qs.filter(created_at__lt=date_to)
     if text:
         qs = qs.filter(summary__icontains=text)
+    if emitted is not None:
+        qs = qs.filter(emitted_count__gt=0) if emitted else qs.filter(emitted_count=0)
     qs = qs[:clamped_limit]
     return [_to_summary(row, team_id=team_id) for row in qs]
 
@@ -123,6 +133,8 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
         started_at=task_run.created_at.isoformat() if task_run is not None else row.created_at.isoformat(),
         completed_at=task_run.completed_at.isoformat() if task_run is not None and task_run.completed_at else None,
         summary=row.summary,
+        emitted_count=row.emitted_count or 0,
+        emitted_finding_ids=list(row.emitted_finding_ids or []),
         task_id=task_id,
         task_run_id=task_run_id,
         task_url=_build_task_url(team_id=team_id, task_id=task_id, task_run_id=task_run_id),

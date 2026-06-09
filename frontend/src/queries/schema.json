@@ -11775,6 +11775,9 @@
                 "extra": {
                     "$ref": "#/definitions/ConversationsTicketSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -11790,7 +11793,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "ConversionGoalFilter": {
@@ -15921,6 +15924,9 @@
                 "extra": {
                     "$ref": "#/definitions/EndpointExecutionFailedSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -15936,7 +15942,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "EndpointLastExecutionTimesRequest": {
@@ -17479,6 +17485,9 @@
                 "extra": {
                     "$ref": "#/definitions/ErrorTrackingSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -17494,7 +17503,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "ErrorTrackingSimilarIssuesQuery": {
@@ -21840,6 +21849,9 @@
                 "extra": {
                     "$ref": "#/definitions/GithubIssueSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -21855,7 +21867,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "GoalLine": {
@@ -24492,6 +24504,9 @@
                 "extra": {
                     "$ref": "#/definitions/LinearIssueSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -24507,7 +24522,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "LinkedinAdsDefaultSources": {
@@ -24592,6 +24607,9 @@
                 "extra": {
                     "$ref": "#/definitions/LlmEvalReportSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -24607,7 +24625,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "LlmEvaluationSignalInput": {
@@ -24618,6 +24636,9 @@
                 },
                 "extra": {
                     "$ref": "#/definitions/LlmEvalSignalExtra"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
                 },
                 "source_id": {
                     "type": "string"
@@ -24634,7 +24655,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "LoadingBlock": {
@@ -25112,6 +25133,9 @@
                 "extra": {
                     "$ref": "#/definitions/LogsAlertStateChangeSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -25127,7 +25151,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "LogsOrderBy": {
@@ -29137,6 +29161,9 @@
                 "extra": {
                     "$ref": "#/definitions/PgAnalyzeIssueSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -29152,7 +29179,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "PinterestAdsDefaultSources": {
@@ -38548,6 +38575,9 @@
                 "extra": {
                     "$ref": "#/definitions/SessionProblemSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -38563,7 +38593,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "SessionPropertyFilter": {
@@ -39166,6 +39196,10 @@
             },
             "type": "object"
         },
+        "SignalExtraBase": {
+            "additionalProperties": false,
+            "type": "object"
+        },
         "SignalInput": {
             "anyOf": [
                 {
@@ -39205,6 +39239,54 @@
                     "$ref": "#/definitions/LogsAlertStateChangeSignalInput"
                 }
             ]
+        },
+        "SignalInputBase": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/SignalExtraBase"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "type": "string"
+                },
+                "source_type": {
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
+        "SignalRemediation": {
+            "additionalProperties": false,
+            "properties": {
+                "agent": {
+                    "description": "Agent-facing guidance: how to investigate (which MCP tools to call) and, where the fix lives in the user's codebase, how to apply it. The research agent treats this as authoritative — it still investigates and produces findings, but follows this instead of starting cold.",
+                    "type": "string"
+                },
+                "human": {
+                    "description": "Human-facing fix steps (PostHog UI / alert destinations). Surfaced in the report for the reader.",
+                    "type": "string"
+                },
+                "priority": {
+                    "description": "Suggested report priority; advisory, the research agent may override.",
+                    "enum": ["P0", "P1", "P2", "P3", "P4"],
+                    "type": "string"
+                }
+            },
+            "required": ["human", "agent"],
+            "type": "object"
         },
         "SignalReviewerUserInfo": {
             "additionalProperties": false,
@@ -39362,6 +39444,9 @@
                 "extra": {
                     "$ref": "#/definitions/SignalsScoutSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -39377,7 +39462,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "SimilarIssue": {
@@ -44650,6 +44735,9 @@
                 "extra": {
                     "$ref": "#/definitions/ZendeskTicketSignalExtra"
                 },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
                 "source_id": {
                     "type": "string"
                 },
@@ -44665,7 +44753,7 @@
                     "type": "number"
                 }
             },
-            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "getEffectiveExcludedColumns": {

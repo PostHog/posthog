@@ -416,6 +416,7 @@ const signalsScoutRunsList = (): ToolBase<
             query: {
                 date_from: params.date_from,
                 date_to: params.date_to,
+                emitted: params.emitted,
                 limit: params.limit,
                 text: params.text,
             },
