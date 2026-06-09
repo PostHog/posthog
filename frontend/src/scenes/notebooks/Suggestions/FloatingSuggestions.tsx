@@ -54,13 +54,25 @@ export function FloatingSuggestions(): JSX.Element | null {
     useOnMountEffect(() => {
         ttEditor.on('update', handleUpdate)
         ttEditor.on('selectionUpdate', handleUpdate)
-        const dom = getTiptapEditorDom(ttEditor)
-        if (dom) {
-            setRef(dom)
+
+        const attachResizeObserver = (): void => {
+            const dom = getTiptapEditorDom(ttEditor)
+            if (dom) {
+                setRef(dom)
+            }
         }
+
+        // The view may not be mounted yet on mount (AI notebooks rebuild the editor); attach once ready.
+        if (ttEditor.isInitialized) {
+            attachResizeObserver()
+        } else {
+            ttEditor.on('create', attachResizeObserver)
+        }
+
         return () => {
             ttEditor.off('update', handleUpdate)
             ttEditor.off('selectionUpdate', handleUpdate)
+            ttEditor.off('create', attachResizeObserver)
         }
     })
 
