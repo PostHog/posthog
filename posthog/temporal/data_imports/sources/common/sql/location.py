@@ -36,10 +36,9 @@ def _str_or_none(value: object) -> Optional[str]:
 def fill_missing_from_dotted_name(
     schema: Optional[str], table: Optional[str], display_name: str
 ) -> tuple[Optional[str], Optional[str]]:
-    """Self-heal a missing `schema`/`table` from a dotted `display_name` (`analytics.users`).
+    """Fill a missing `schema`/`table` by splitting a dotted `display_name` (`analytics.users`).
 
-    Shared by the sync resolver and the migration's row extractor so the "metadata-first, then split
-    the dotted name" rule can't drift between them.
+    Shared by the resolver and the migration so the rule can't drift between them.
     """
     if (not schema or not table) and "." in display_name:
         inferred_schema, _, inferred_table = display_name.partition(".")
@@ -58,11 +57,8 @@ def resolve_source_location(
     """Resolve `(catalog, schema, table_name, response_name)` for one warehouse-import row.
 
     Namespace + table priority: per-schema `schema_metadata` → dotted `schema_name` self-heal →
-    `config_namespace` → `default`. `response_name` (the Delta subdir) comes from `dwh_storage_key`
-    when present, so a migrated row keeps its legacy path — no S3 rewrite, no orphaned data.
-
-    The SQL-specific keys (`source_schema` / `source_table_name` / `source_catalog`) are read out of
-    the generic `schema_metadata` blob here, so `SourceInputs` stays free of per-dialect fields.
+    `config_namespace` → `default`. `response_name` (the Delta subdir) uses `dwh_storage_key` when
+    present, so a migrated row keeps its legacy path — no S3 rewrite, no orphaned data.
     """
     metadata = inputs.schema_metadata if isinstance(inputs.schema_metadata, dict) else {}
     source_schema = normalize_namespace(metadata.get("source_schema"))

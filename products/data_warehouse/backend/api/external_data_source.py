@@ -1780,8 +1780,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if instance.is_direct_postgres and connection_metadata != instance.connection_metadata:
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
-            # Migrate/dedupe legacy rows before sync_old_schemas. Non-Postgres sources run the shared
-            # migration only once their namespace is cleared, so single-schema syncs are untouched.
+            # Migrate/dedupe legacy rows before sync_old_schemas; non-Postgres only once namespace cleared.
             name_substitutions: dict[str, str] = {}
             if instance.source_type == ExternalDataSourceType.POSTGRES:
                 name_substitutions = reconcile_postgres_refresh_name_substitutions(

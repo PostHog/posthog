@@ -112,8 +112,7 @@ class TestResolveSourceLocation:
         assert location.response_name == "analytics_users"
 
     def test_storage_key_preserves_legacy_delta_path(self) -> None:
-        # A migrated row carries a qualified display name but must keep reading/writing at the legacy
-        # single-underscore Delta subdir — otherwise synced data is orphaned.
+        # Migrated row keeps the legacy Delta subdir (`users`, not `public_users`) or its data is orphaned.
         inputs = _source_inputs(schema_name="public.users", dwh_storage_key="users")
         location = resolve_source_location(inputs, config_namespace=None)
         assert location.response_name == "users"
@@ -141,8 +140,6 @@ class TestResolveSourceLocation:
 
 
 class TestSelfHealHelpers:
-    """Shared primitives the resolver and the migration's row extractor both depend on."""
-
     @parameterized.expand(
         [
             ("value", "public", "public"),

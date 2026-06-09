@@ -1,10 +1,8 @@
 """Postgres-specific refresh reconciliation.
 
-The source-agnostic warehouse migration (`apply_on_schema_clear`, `apply_on_refresh`,
-`detect_schema_clear_transition`, …) lives in `sql_warehouse_migration.py` and serves every
-multi-schema-capable SQL source. This module keeps only the Postgres + direct-query plumbing the
-generic path doesn't need: combining the direct-query/warehouse rename helper with the shared
-`apply_on_refresh` so the viewset feeds a single substitution dict to `sync_old_schemas_with_new_schemas`.
+The source-agnostic migration lives in `sql_warehouse_migration.py`; this keeps only the Postgres +
+direct-query plumbing — combining the rename helper with the shared `apply_on_refresh` into one
+substitution dict for `sync_old_schemas_with_new_schemas`.
 """
 
 from __future__ import annotations

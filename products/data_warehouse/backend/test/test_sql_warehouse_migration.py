@@ -1,7 +1,6 @@
 """Source-agnostic warehouse migration: capability detection + qualify-in-place on non-Postgres rows.
 
-Capability uses stubs (so flipping a real source's `schema` field later doesn't churn this file) plus
-stable anchors Postgres/MySQL. Postgres end-to-end lives in `api/test/test_postgres_warehouse_migration.py`.
+Postgres end-to-end lives in `api/test/test_postgres_warehouse_migration.py`.
 """
 
 import uuid
@@ -57,15 +56,12 @@ class TestMultiSchemaCapability:
 
     @parameterized.expand(
         [
-            # Postgres ships an optional `schema` field (qualifies today); MySQL conflates
-            # database≈schema and is out of scope forever; an unknown type is never capable.
+            # Postgres has an optional `schema` (qualifies today); MySQL/unknown never do.
             ("postgres", ExternalDataSourceType.POSTGRES, True),
             ("mysql", ExternalDataSourceType.MYSQL, False),
             ("unknown type", "NotARealSource", False),
-            # Tripwires: the "no behavior change today" guarantee rests on these three having a
-            # *required* `schema` field. When a follow-up PR makes one optional to enable multi-schema,
-            # this anchor flips True and forces a conscious update here — the migration gate is no
-            # longer dormant for that source.
+            # Tripwires: these have a *required* `schema` today. If a follow-up makes one optional,
+            # this flips True and forces a conscious update — the gate is no longer dormant for it.
             ("mssql", ExternalDataSourceType.MSSQL, False),
             ("snowflake", ExternalDataSourceType.SNOWFLAKE, False),
             ("redshift", ExternalDataSourceType.REDSHIFT, False),
@@ -154,8 +150,7 @@ class TestQualifyNonPostgresRows(BaseTest):
         assert metadata.get("source_table_name") == "users"
 
     def test_apply_on_refresh_qualifies_using_pinned_metadata(self) -> None:
-        # After clear, the namespace is blank (multi-schema mode); a legacy row pinned to its old
-        # schema qualifies on refresh and keeps its Delta path.
+        # Blank namespace (post-clear): a legacy row pinned to its old schema qualifies on refresh.
         source = self._source(schema="")
         row = ExternalDataSchema.objects.create(
             team_id=self.team.pk,
@@ -196,8 +191,7 @@ class TestQualifyNonPostgresRows(BaseTest):
         assert names == ["sales.orders"]
 
     def test_cross_namespace_duplicate_table_names_stay_distinct(self) -> None:
-        # Two schemas with the same table name coexist as distinct qualified rows; refresh must not
-        # collapse them.
+        # Same table name in two schemas must coexist; refresh must not collapse them.
         source = self._source(schema="")
         for namespace in ("dbo", "sales"):
             ExternalDataSchema.objects.create(
