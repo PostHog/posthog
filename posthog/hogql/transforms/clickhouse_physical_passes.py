@@ -544,10 +544,10 @@ class ClickHousePhysicalPasses(CloningVisitor):
         if optimized is not None:
             return optimized
 
-        # Known quirk, kept on purpose: nothing above rewrites `property = NULL` / `!= NULL`, so it falls through to
-        # super() and the surviving JSONFieldAccess reads the scrubbed materialized column. That means an is-set check
-        # treats both an empty string and the literal text "null" as "not set" — the same over-match the old code had.
-        # The more correct "does this key exist in the blob" behavior is a separate change.
+        # Intentional gap: nothing above rewrites `property = NULL` / `!= NULL`, so it falls through to super() and the
+        # surviving JSONFieldAccess reads the scrubbed materialized column. An is-set check therefore treats both an empty
+        # string and the literal text "null" as "not set", which over-matches a true "does this key exist in the blob"
+        # test. Left this way deliberately — tightening it would change query results.
         return super().visit_compare_operation(node)
 
     # --- property operand detection ---

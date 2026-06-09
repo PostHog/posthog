@@ -71,7 +71,7 @@ class LogicalPropertyLowering(CloningVisitor):
 
         # chain[0] is always the top-level property name (a string). Deeper elements keep their Python type: an integer
         # is an array index that must reach the JSON extract as an integer, not the string "1" (which would be the object
-        # key "1"). The old printer passed the chain through the same way.
+        # key "1").
         keys: list[str | int] = [str(chain[0])]
         keys.extend(link if isinstance(link, int) else str(link) for link in chain[1:])
 
