@@ -1,7 +1,7 @@
 import { trace } from '@opentelemetry/api'
 import { Message } from 'node-rdkafka'
 import pLimit from 'p-limit'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
@@ -147,18 +147,50 @@ export const logsBytesDroppedByRuleCounter = new Counter({
     labelNames: ['team_id'],
 })
 
+// --- Billing impact of drop rules (Tier 1) ---
+export const logsBillingBytesCreditedCounter = new Counter({
+    name: 'logs_ingestion_billing_bytes_credited_total',
+    help: 'Uncompressed header bytes credited back to billing for rows removed by drop rules (pro-rated).',
+    labelNames: ['team_id'],
+})
+
+export const logsBillingRecordsCreditedCounter = new Counter({
+    name: 'logs_ingestion_billing_records_credited_total',
+    help: 'Records removed by drop rules and credited back to billing.',
+    labelNames: ['team_id'],
+})
+
+// --- Pro-rate accuracy-confidence signals (Tier 2). No team_id label — kept low-cardinality. ---
+export const logsBillingProrateDivergenceHistogram = new Histogram({
+    name: 'logs_ingestion_billing_prorate_divergence',
+    help: 'Per-message |content-weighted − record-weighted credit| / header. High = size-skewed batch = pro-rate less trustworthy.',
+    buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1],
+})
+
+export const logsDropBatchRowsHistogram = new Histogram({
+    name: 'logs_ingestion_drop_batch_rows',
+    help: 'Rows per batch for messages that had drop-rule drops; small batches carry larger pro-rate error.',
+    buckets: [1, 2, 5, 10, 50, 100, 500, 1000, 5000],
+})
+
+export const logsDropFractionHistogram = new Histogram({
+    name: 'logs_ingestion_drop_fraction',
+    help: 'Fraction of a message content dropped by drop rules; extreme fractions carry larger pro-rate error.',
+    buckets: [0.1, 0.25, 0.5, 0.75, 0.9, 0.99, 1],
+})
+
 /**
  * Pro-rate a message's billable uncompressed bytes by the fraction of its content that drop
  * rules removed. Billing is on the per-message header (whole-batch wire size), but drops are
  * decided per row (content bytes), so we scale the header down by the dropped content fraction
  * to bill only what survived.
  *
- * This is an approximation: the shared envelope (resource/scope/serialization framing) is spread
- * across rows by content weight rather than kept as a fixed residual, so a batch with a large
- * shared resource that is mostly dropped is credited slightly too much. It only ever credits
- * (never over-charges) and is within ~1% for typical multi-row batches; the error grows only for
- * small, resource-heavy, heavily-dropped batches. Returns 0 when we can't measure (no header or
- * no per-row bytes), i.e. no credit rather than a wrong one.
+ * This is an approximation: it weights by per-row content, which only equals each row's true wire
+ * share when rows are uniform. The result is always ≤ the gross header (keptFraction ≤ 1), so a
+ * message is never billed above today's gross. But vs the exact net the credit can be off in
+ * either direction — within ~1% for uniform multi-row batches, but it under-credits (bills above
+ * the exact net) for size-skewed drops or tiny / resource-heavy batches. Returns 0 when we can't
+ * measure (no header or no per-row bytes), i.e. no credit rather than a wrong one.
  */
 export function billingByteReductionForDrops(headerBytes: number, bytesDropped: number, bytesTotal: number): number {
     if (headerBytes <= 0 || bytesDropped <= 0 || bytesTotal <= 0) {
@@ -542,18 +574,49 @@ export class LogsIngestionConsumer {
                         // Drop rules removed rows from this message — credit billing by the dropped
                         // content fraction. `bytesReceived` stays gross (what was sent); `bytesAllowed`
                         // (→ bytes_ingested) and `recordsAllowed` reflect only what survived the drops.
-                        const billingRow = usageStats.get(message.teamId)
-                        if (billingRow) {
-                            billingRow.bytesAllowed = Math.max(
-                                0,
-                                billingRow.bytesAllowed -
-                                    billingByteReductionForDrops(
-                                        message.bytesUncompressed,
-                                        resolved.bytesDropped,
-                                        resolved.bytesTotal
-                                    )
+                        if (resolved.recordsDropped > 0) {
+                            const header = message.bytesUncompressed
+                            const contentCredit = billingByteReductionForDrops(
+                                header,
+                                resolved.bytesDropped,
+                                resolved.bytesTotal
                             )
-                            billingRow.recordsAllowed = Math.max(0, billingRow.recordsAllowed - resolved.recordsDropped)
+                            // Second estimator (record-weighted) for the accuracy-confidence signal:
+                            // when content- and record-weighted credits diverge, the batch is size-skewed
+                            // and the content-weighted pro-rate we bill on is less trustworthy.
+                            const recordCredit = billingByteReductionForDrops(
+                                header,
+                                resolved.recordsDropped,
+                                message.recordCount
+                            )
+
+                            const teamIdLabel = message.teamId.toString()
+                            if (contentCredit > 0) {
+                                logsBillingBytesCreditedCounter.inc({ team_id: teamIdLabel }, contentCredit)
+                            }
+                            logsBillingRecordsCreditedCounter.inc({ team_id: teamIdLabel }, resolved.recordsDropped)
+                            if (message.recordCount > 0) {
+                                logsDropBatchRowsHistogram.observe(message.recordCount)
+                            }
+                            if (resolved.bytesTotal > 0) {
+                                logsDropFractionHistogram.observe(
+                                    Math.min(1, resolved.bytesDropped / resolved.bytesTotal)
+                                )
+                            }
+                            if (header > 0) {
+                                logsBillingProrateDivergenceHistogram.observe(
+                                    Math.abs(contentCredit - recordCredit) / header
+                                )
+                            }
+
+                            const billingRow = usageStats.get(message.teamId)
+                            if (billingRow) {
+                                billingRow.bytesAllowed = Math.max(0, billingRow.bytesAllowed - contentCredit)
+                                billingRow.recordsAllowed = Math.max(
+                                    0,
+                                    billingRow.recordsAllowed - resolved.recordsDropped
+                                )
+                            }
                         }
 
                         if (resolved.outcome === 'sampling_all_dropped') {
