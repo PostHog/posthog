@@ -29,7 +29,9 @@ pub struct CohortParseFlags {
     pub state_keyed_leaf_count: u32,
     /// The cohort has ≥1 cohort-reference leaf.
     pub has_cohort_ref: bool,
-    /// The cohort has ≥1 negated leaf (`negation: true` or `operator: "not_in"`).
+    /// The cohort has ≥1 person/behavioral leaf with an explicit `negation: true`. A bare `operator:
+    /// "not_in"` is a value-list predicate, not a composition negation, so it does not set this (see
+    /// [`explicit_negation`](crate::filters::leaf_classifier::explicit_negation)).
     pub has_negation: bool,
     /// The cohort lost ≥1 leaf during parse (unsupported variant, malformed, …). The dropped
     /// constraint is gone, so the cohort cannot be composed correctly from what survived.

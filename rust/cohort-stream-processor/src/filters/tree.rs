@@ -11,7 +11,9 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::filters::leaf_classifier::{classify_leaf, leaf_negation, LeafClass, LeafDropReason};
+use crate::filters::leaf_classifier::{
+    classify_leaf, explicit_negation, LeafClass, LeafDropReason,
+};
 use crate::filters::{CohortId, FilterError, TeamId};
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::state::StateVariant;
@@ -202,7 +204,7 @@ pub trait LeafSink {
     /// Records a kept, state-keyed leaf's `condition_hash → {leaf_state_key, cohort_id, bytecode}`
     /// edges and its `conditionHash` dedup membership. `bytecode` is borrowed; the implementation
     /// clones the `Arc` only on first insert per `conditionHash`. `negated` is the leaf's negation
-    /// bit ([`leaf_negation`](crate::filters::leaf_classifier::leaf_negation)).
+    /// bit ([`explicit_negation`](crate::filters::leaf_classifier::explicit_negation)).
     fn record_state_keyed(
         &mut self,
         cohort_id: CohortId,
@@ -270,7 +272,7 @@ fn parse_node(cohort_id: CohortId, node: &Value, sink: &mut dyn LeafSink) -> Opt
                 leaf.leaf_state_key(),
                 leaf.bytecode(),
             ) {
-                sink.record_state_keyed(cohort_id, hash, lsk, bytecode, leaf_negation(node));
+                sink.record_state_keyed(cohort_id, hash, lsk, bytecode, explicit_negation(node));
             }
             Some(FilterNode::Leaf(leaf))
         }
@@ -411,6 +413,23 @@ mod tests {
 
         let negated_bits: Vec<bool> = sink.state_keyed.iter().map(|&(.., neg)| neg).collect();
         assert_eq!(negated_bits, vec![false, true]);
+    }
+
+    #[test]
+    fn not_in_operator_is_not_a_parse_time_negation() {
+        // `operator: "not_in"` on a person/behavioral leaf is a value-list predicate, not a
+        // composition negation — only an explicit `negation: true` sets the bit.
+        let mut not_in = person_leaf(&HASH_A);
+        not_in["operator"] = json!("not_in");
+        let filters = json!({ "properties": { "type": "AND", "values": [not_in] } });
+        let mut sink = CollectingSink::default();
+        parse(&filters, &mut sink);
+
+        assert_eq!(sink.state_keyed.len(), 1);
+        assert!(
+            !sink.state_keyed[0].3,
+            "not_in alone must not set the negation bit",
+        );
     }
 
     #[test]

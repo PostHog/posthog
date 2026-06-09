@@ -814,29 +814,52 @@ mod tests {
 
     #[test]
     fn negated_behavioral_leaf_is_excluded_has_negation() {
-        // Both negation encodings are covered: `negation: true` and `operator: "not_in"`.
-        for negation_field in [json!({ "negation": true }), json!({ "operator": "not_in" })] {
-            let mut leaf = behavioral_performed_event(7);
-            let obj = leaf.as_object_mut().unwrap();
-            for (k, v) in negation_field.as_object().unwrap() {
-                obj.insert(k.clone(), v.clone());
-            }
-            let mut builder = TeamFiltersBuilder::default();
-            builder
-                .add_cohort(CohortId(1), TeamId(7), &wrap(vec![leaf]))
-                .unwrap();
-            let frozen = builder.freeze(UTC);
+        let mut leaf = behavioral_performed_event(7);
+        leaf.as_object_mut()
+            .unwrap()
+            .insert("negation".to_string(), json!(true));
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(CohortId(1), TeamId(7), &wrap(vec![leaf]))
+            .unwrap();
+        let frozen = builder.freeze(UTC);
 
-            assert_eq!(
-                frozen.eligibility[&CohortId(1)],
-                CohortEligibility::Excluded(ExcludedReason::HasNegation),
-                "encoding {negation_field}",
-            );
-            assert!(
-                frozen.by_lsk_to_single_leaf_cohorts.is_empty(),
-                "a negated single leaf must not map as single-leaf (encoding {negation_field})",
-            );
-        }
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::HasNegation),
+        );
+        assert!(
+            frozen.by_lsk_to_single_leaf_cohorts.is_empty(),
+            "an explicitly negated single leaf must not map as single-leaf",
+        );
+    }
+
+    #[test]
+    fn not_in_operator_alone_does_not_negate_a_state_keyed_leaf() {
+        // `operator: "not_in"` on a person/behavioral leaf is a value-list predicate compiled into
+        // the bytecode, not a Stage 2 composition negation — the oracle negates on `prop.negation`
+        // alone (`hogql_cohort_query.py:690`). Such a single-leaf cohort must still map and emit;
+        // only the cohort-ref form treats `not_in` as negation.
+        let mut leaf = person_leaf();
+        leaf.as_object_mut()
+            .unwrap()
+            .insert("operator".to_string(), json!("not_in"));
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(CohortId(1), TeamId(7), &wrap(vec![leaf]))
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::SingleLeaf(lsk),
+            "a person `not_in` predicate is positive membership, not a negated cohort",
+        );
+        assert_eq!(
+            frozen.by_lsk_to_single_leaf_cohorts[&lsk],
+            vec![CohortId(1)]
+        );
     }
 
     #[test]
