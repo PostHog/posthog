@@ -236,6 +236,14 @@ export const AxisLabels = React.memo(function AxisLabels({
         [hideXAxis, labels, scales.x, xTickFormatter, orientation, maxCategoryLabelWidth]
     )
 
+    // Mirror the vertical branch's memoization so an unrelated prop change (e.g. axisColor)
+    // doesn't re-run the per-tick `ctx.measureText` measurements in `dropOverlappingLabels`.
+    const visibleValueTicks = useMemo(
+        () =>
+            hideXAxis || orientation !== 'horizontal' ? [] : computeVisibleValueTicks(yTicks, scales.y, yTickFormatter),
+        [hideXAxis, orientation, yTicks, scales.y, yTickFormatter]
+    )
+
     const rightFormatter = yRightTickFormatter ?? yTickFormatter
 
     if (orientation === 'horizontal') {
@@ -268,17 +276,16 @@ export const AxisLabels = React.memo(function AxisLabels({
                             />
                         )
                     })}
-                {!hideXAxis &&
-                    computeVisibleValueTicks(yTicks, scales.y, yTickFormatter).map(({ tick, text, x }) => (
-                        <XTickLabel
-                            key={`x-val-${tick}`}
-                            x={x}
-                            box={dimensions}
-                            text={text}
-                            color={axisColor}
-                            dataAttr="hog-chart-axis-tick-x"
-                        />
-                    ))}
+                {visibleValueTicks.map(({ tick, text, x }) => (
+                    <XTickLabel
+                        key={`x-val-${tick}`}
+                        x={x}
+                        box={dimensions}
+                        text={text}
+                        color={axisColor}
+                        dataAttr="hog-chart-axis-tick-x"
+                    />
+                ))}
             </>
         )
     }

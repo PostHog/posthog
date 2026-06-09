@@ -60,21 +60,22 @@ describe('computeVisibleValueTicks', () => {
         }
     })
 
-    it('keeps every tick when they are spread far apart', () => {
-        const ticks = [0, 100, 200]
-        const valueToCoord = (v: number): number => v * 10
-
+    it.each([
+        {
+            description: 'keeps every tick when they are spread far apart',
+            ticks: [0, 100, 200],
+            valueToCoord: (v: number): number => v * 10,
+            expected: [0, 100, 200],
+        },
+        {
+            description: 'skips ticks whose coordinate is not finite',
+            ticks: [0, 50, 100],
+            valueToCoord: (v: number): number => (v === 50 ? NaN : v * 10),
+            expected: [0, 100],
+        },
+    ])('$description', ({ ticks, valueToCoord, expected }) => {
         const visible = computeVisibleValueTicks(ticks, valueToCoord, fmt)
 
-        expect(visible.map((v) => v.tick)).toEqual([0, 100, 200])
-    })
-
-    it('skips ticks whose coordinate is not finite', () => {
-        const ticks = [0, 50, 100]
-        const valueToCoord = (v: number): number => (v === 50 ? NaN : v * 10)
-
-        const visible = computeVisibleValueTicks(ticks, valueToCoord, fmt)
-
-        expect(visible.map((v) => v.tick)).toEqual([0, 100])
+        expect(visible.map((v) => v.tick)).toEqual(expected)
     })
 })
