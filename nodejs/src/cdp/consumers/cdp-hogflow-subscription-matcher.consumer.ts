@@ -230,10 +230,11 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // event, which is what makes property-based waits event-driven rather than polled.
         const context = { hogFlowId: hogflowId, actionId: action.id }
         for (const eventConfig of action.config.events ?? []) {
-            // An "events to wait for" entry that references no events compiles to always-true
-            // bytecode (the UI can leave an empty entry behind after a saved event is removed).
-            // Treat it as matching nothing rather than waking the job on every incoming event.
-            if (!eventConfig.filters?.events?.length) {
+            // An "events to wait for" entry that targets neither events nor actions compiles to
+            // always-true bytecode (the UI can leave an empty entry behind after a saved event is
+            // removed). Treat it as matching nothing rather than waking on every incoming event.
+            // Action-based entries (events empty, actions set) are real waits and must be kept.
+            if (!eventConfig.filters?.events?.length && !eventConfig.filters?.actions?.length) {
                 continue
             }
             if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
