@@ -2,24 +2,49 @@ import type { ReactElement } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
+import { BarChart, TooltipSurface, type TooltipContext } from '@posthog/quill-charts'
 
-import { SingleStepBar } from 'products/product_analytics/frontend/insights/funnels/FunnelBarHorizontalChart/SingleStepBar'
-import { buildFunnelBars } from 'products/product_analytics/frontend/insights/funnels/shared/funnelBarHorizontalShared'
+import {
+    buildFunnelStepsBarConfig,
+    buildFunnelStepsBars,
+    type FunnelStepsBarRow,
+} from 'products/product_analytics/frontend/insights/funnels/shared/funnelStepsBarShared'
 
-import { CHART_THEME, FILLER_COLOR, FUNNEL_COLOR } from './charts/theme'
+import { CHART_THEME, FUNNEL_COLOR } from './charts/theme'
 import type { FunnelVisualizerProps } from './types'
 import { formatNumber, formatPercent, normalizeFunnelSteps } from './utils'
 
 const NOOP = (): void => {}
-const NO_TOOLTIP = (): null => null
+
+// The web container hides the x-axis and renders its own StepLegend row; this compact UI app instead
+// shows the step names on the axis (truncated) and tracks the cursor with the tooltip.
+const CHART_CONFIG = buildFunnelStepsBarConfig({ maxCategoryLabelWidth: 120, tooltipPlacement: 'cursor' })
+
+function renderTooltip(rows: FunnelStepsBarRow[]) {
+    return function FunnelTooltip(ctx: TooltipContext): ReactElement | null {
+        const row = rows[ctx.dataIndex]
+        if (!row) {
+            return null
+        }
+        return (
+            <TooltipSurface>
+                <div className="font-semibold mb-1">
+                    {row.stepIndex + 1}. {row.name}
+                </div>
+                <div>
+                    {formatNumber(row.count)} ({formatPercent(row.fractionOfBasis)} of first step)
+                </div>
+                {row.stepIndex > 0 && <div>{formatPercent(row.fromPrevious)} from previous step</div>}
+            </TooltipSurface>
+        )
+    }
+}
 
 export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactElement {
-    const { rows, overall } = buildFunnelBars(normalizeFunnelSteps(results), {
-        color: FUNNEL_COLOR,
-        fillerColor: FILLER_COLOR,
-    })
+    const steps = normalizeFunnelSteps(results)
+    const { series, labels, rows, overall } = buildFunnelStepsBars(steps, { color: FUNNEL_COLOR })
 
-    if (rows.length === 0) {
+    if (steps.length === 0) {
         return (
             <Empty>
                 <EmptyHeader>
@@ -31,36 +56,19 @@ export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactEleme
     }
 
     return (
-        <div data-attr="funnel-bar-horizontal" className="w-full">
-            <div className="flex flex-col">
-                {rows.map((row) => (
-                    <div key={row.stepIndex} className="pb-3">
-                        <div className="flex items-baseline justify-between text-sm">
-                            <span className="font-medium text-foreground">
-                                {row.stepIndex + 1}. {row.name}
-                            </span>
-                            <span className="text-muted-foreground">
-                                {formatPercent(row.fractionOfBasis)} · {formatNumber(row.count)}
-                            </span>
-                        </div>
-                        <SingleStepBar
-                            stepData={row.stepData}
-                            theme={CHART_THEME}
-                            interactive={false}
-                            onSegmentClick={NOOP}
-                            renderTooltip={NO_TOOLTIP}
-                            onError={NOOP}
-                        />
-                        {row.stepIndex > 0 && (
-                            <div className="text-xs text-muted-foreground">
-                                {formatPercent(row.fromPrevious)} from previous step
-                            </div>
-                        )}
-                    </div>
-                ))}
+        <div data-attr="funnel-steps-bar" className="w-full">
+            <div className="flex flex-col h-72 w-full">
+                <BarChart
+                    series={series}
+                    labels={labels}
+                    theme={CHART_THEME}
+                    config={CHART_CONFIG}
+                    tooltip={renderTooltip(rows)}
+                    onError={NOOP}
+                />
             </div>
 
-            {rows.length >= 2 && (
+            {steps.length >= 2 && (
                 <div className="mt-4 rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
                     <strong className="text-foreground">Overall conversion:</strong> {formatPercent(overall.rate)} (
                     {formatNumber(overall.lastCount)} of {formatNumber(overall.firstCount)})
