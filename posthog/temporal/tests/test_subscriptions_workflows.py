@@ -81,6 +81,10 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 _GENERATE_MARKDOWN = (
     "products.exports.backend.temporal.subscriptions.ai_subscription.activities.generate_ai_subscription_markdown"
 )
+_IS_OVER_BUDGET = (
+    "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget"
+)
+_CREDIT_LIMITED_EMAIL = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.EmailMessage"
 
 SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     Sequence[Callable[..., Any]],
@@ -2049,12 +2053,6 @@ def _set_org_usage(team, usage) -> None:
     org = team.organization
     org.usage = usage
     org.save(update_fields=["usage"])
-
-
-_IS_OVER_BUDGET = (
-    "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget"
-)
-_CREDIT_LIMITED_EMAIL = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.EmailMessage"
 
 
 def _ai_delivery_inputs(subscription_id: int, delivery_id) -> DeliverSubscriptionInputs:

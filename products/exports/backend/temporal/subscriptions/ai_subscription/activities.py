@@ -47,6 +47,10 @@ LOGGER = get_logger(__name__)
 # than on the wire — the same pattern insight snapshots use.
 AI_REPORT_SNAPSHOT_KEY = "ai_report"
 
+# If the org's AI-credit balance isn't synced yet, reschedule roughly a billing cycle out so a
+# skipped sub still moves forward instead of re-firing every tick.
+_CREDIT_RESET_FALLBACK_DAYS = 31
+
 
 async def _load_ai_report(delivery_id: uuid.UUID) -> str | None:
     @database_sync_to_async(thread_sensitive=False)
@@ -99,11 +103,6 @@ def _capture_ai_credit_event(
             )
     except Exception:
         LOGGER.warning(f"{event}.capture_failed", subscription_id=subscription.id, exc_info=True)
-
-
-# If the org's AI-credit balance isn't synced yet, reschedule roughly a billing cycle out so a
-# skipped sub still moves forward instead of re-firing every tick.
-_CREDIT_RESET_FALLBACK_DAYS = 31
 
 
 def _ai_credit_reset_date(subscription: Subscription) -> datetime:
