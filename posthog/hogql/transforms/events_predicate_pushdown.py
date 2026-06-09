@@ -21,17 +21,16 @@ pieces move events work into the subquery:
 It is a pure optimization: any unexpected error leaves the query untouched (run flat), and every rewrite is
 result-equivalent.
 
-Rough edges worth refactoring away later:
+Two things are built by hand here, on purpose:
 
-- **Hand-built subquery types.** `_build_subquery` constructs the subquery's `SelectQueryType` by hand instead of
-  re-running `resolve_types`. This is *not* incidental: `resolve_types` is a pre-lowering pass, the `Resolver` has no
-  `visit_jsonfield_access`, and it clones with `clear_types=True` — so resolving a subquery that already contains
-  lowered `JSONFieldAccess` projections/predicates would null out their types and break downstream nullability/printing.
-  Replacing the hand-built typing would mean making the resolver lowered-node-aware (a layering violation), so it stays.
-- **Subquery-column nullability resolution.** The printer resolves a hoisted column's nullability through the subquery's
-  column types (`_is_type_nullable` → `resolve_constant_type` for non-`BaseTableType` fields) so join keys wrap only when
-  genuinely nullable. This is what lets pushdown hoist join keys uniformly; if the broader nullable type system lands it
-  should subsume this targeted resolution.
+- **The subquery's types.** `_build_subquery` constructs the subquery's `SelectQueryType` directly rather than calling
+  `resolve_types`. It has to: `resolve_types` runs before lowering, has no handling for `JSONFieldAccess`, and clones
+  with `clear_types=True` — so re-resolving a subquery that already holds lowered `JSONFieldAccess` projections would
+  wipe their types and break nullability and printing downstream. Teaching the resolver about lowered nodes would cross
+  a layering boundary, so the types are assembled here instead.
+- **Hoisted-column nullability.** The printer reads a hoisted column's nullability from the subquery's projected column
+  type, not as a blanket-nullable subquery column. That is what lets a join key be hoisted like any other column: it
+  wraps in `ifNull(...)` only when the value is genuinely nullable.
 """
 
 from typing import cast
@@ -137,9 +136,8 @@ class EventsSubexprHoister(CloningVisitor):
     property-group form *inside the subquery*; pushdown itself never inspects physical columns, mimics the events
     schema, or special-cases particular functions — `JSONHas` is just one events-only expression among many.
 
-    A hoisted reference reads the projected column's real nullability (the printer resolves it through the subquery's
-    column types, not as a blanket-nullable subquery column), so a non-nullable value stays unwrapped and works as a
-    join key, and a property key wraps only if genuinely nullable — exactly as without pushdown, with no special-casing.
+    A hoisted reference carries the projected column's real nullability (see the module docstring), so a non-nullable
+    value stays unwrapped and can serve as a join key, while a nullable property key still wraps correctly.
 
     Sets `blocked` if a referenced leaf is an unresolvable column, so the caller declines."""
 
@@ -168,9 +166,8 @@ class EventsSubexprHoister(CloningVisitor):
             return super().visit(node)
 
         # The maximal events-only subexpression — a direct column, a property read, or an events-only join key — is
-        # projected whole into the subquery and read back as one column. Nothing about a join key is special: the
-        # printer resolves the reference's nullability through the subquery's column type, so it wraps only when
-        # genuinely nullable, matching the un-pushed query.
+        # projected whole into the subquery and read back as one column. A join key needs no special handling; its
+        # nullability rides the projected column's type.
         if self._is_hoistable(node):
             name = self._intern(node)
             if name is not None:
@@ -180,10 +177,10 @@ class EventsSubexprHoister(CloningVisitor):
 
     def _intern(self, expr: ast.Expr) -> str | None:
         """Record a subquery projection for `expr` and return the column name to reference it by. Reads that share a
-        name reuse one column: identical reads dedupe correctly, and the resolver's `__`-joined naming can also map
-        two *different* reads to one name (e.g. a nested `properties.a.b` and a top-level property `a__b`) — both
-        collapse here exactly as they already collapse without pushdown, so this stays result-equivalent; the naming
-        is a pre-existing resolver issue fixed separately. Returns None (setting `blocked`) for an unresolvable column."""
+        name reuse one column. Identical reads dedupe; the resolver's `__`-joined naming can also give two *different*
+        reads the same name (e.g. a nested `properties.a.b` and a top-level property `a__b`), and collapsing those is
+        safe because the resolver already treats that name as a single column. Returns None (setting `blocked`) for an
+        unresolvable column."""
         name = self._preferred_name(expr)
         if name is None:
             self.blocked = True
@@ -283,9 +280,10 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
     Runs after logical lowering (so property reads are JSONFieldAccess) and before the ClickHouse physical passes,
     applying bottom-up so nested `FROM events` subqueries benefit too."""
 
-    # Join types across which moving an events PREDICATE is result-safe (they preserve the events/left side).
-    # Broader than _all_joins_preserve_every_row (LEFT only): INNER / CROSS are predicate-safe but can drop an
-    # events row, so they pass here yet decline at _safe_inner_limit (the single-rule gate always needs it).
+    # Join types across which moving an events PREDICATE is result-safe (they preserve the events/left side). This is
+    # broader than the all-rows-preserved check (`_all_joins_preserve_every_row`, LEFT only): INNER / CROSS are
+    # predicate-safe but can drop an events row, so they pass here yet are rejected when deciding whether to also push
+    # the LIMIT (`_safe_inner_limit`).
     _SAFE_JOIN_TYPES = {"JOIN", "INNER JOIN", "LEFT JOIN", "LEFT OUTER JOIN", "CROSS JOIN"}
 
     def __init__(
