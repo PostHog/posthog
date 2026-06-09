@@ -362,7 +362,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     read_business_knowledge: {
         name: 'Read business knowledge',
-        description: 'Read a wider span of a business knowledge document already located via search',
+        description: 'Read business knowledge: a wider span of a document already located via search',
         icon: <IconBook />,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
