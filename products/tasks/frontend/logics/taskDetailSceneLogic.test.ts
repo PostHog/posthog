@@ -77,6 +77,31 @@ function createConsoleSseEvent(id: string, message: string): string {
     })}\n\n`
 }
 
+function createAgentMessageSseEvent(id: string, text: string): string {
+    return `id: ${id}\nevent: message\ndata: ${JSON.stringify({
+        type: 'notification',
+        timestamp: '2024-01-01T00:00:00Z',
+        notification: {
+            jsonrpc: '2.0',
+            method: 'session/update',
+            params: {
+                update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } },
+            },
+        },
+    })}\n\n`
+}
+
+function consoleMessages(events: { message: { params?: unknown } }[]): (string | undefined)[] {
+    return events.map((event) => (event.message.params as { message?: string } | undefined)?.message)
+}
+
+function agentTexts(events: { message: { params?: unknown } }[]): (string | undefined)[] {
+    return events.map(
+        (event) =>
+            (event.message.params as { update?: { content?: { text?: string } } } | undefined)?.update?.content?.text
+    )
+}
+
 function createToolCallSseEvent(id: string, toolCallId: string, status: string, rawOutput?: unknown): string {
     return `id: ${id}\nevent: message\ndata: ${JSON.stringify({
         type: 'notification',
@@ -289,11 +314,8 @@ describe('taskDetailSceneLogic', () => {
             )
             expect(streamCalls).toHaveLength(2)
             expect(logic.values.isStreaming).toBe(true)
-            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual([
-                'first message',
-                'second message',
-            ])
-            expect(logic.values.streamEntries.map((entry) => entry.id)).toEqual(['stream-1-0', 'stream-2-0'])
+            expect(consoleMessages(logic.values.streamEvents)).toEqual(['first message', 'second message'])
+            expect(logic.values.lastStreamEventId).toBe('2-0')
 
             logic.unmount()
         })
@@ -302,12 +324,7 @@ describe('taskDetailSceneLogic', () => {
             const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
             global.fetch = createFetchMock({
                 runs: { [run.id]: run },
-                streamResponses: [
-                    createSseResponse(
-                        ['id: 1-0\nevent: message\ndata: {"type":"assistant","content":"hello"}\n\n'],
-                        true
-                    ),
-                ],
+                streamResponses: [createSseResponse([createAgentMessageSseEvent('1-0', 'hello')], true)],
             })
 
             const logic = taskDetailSceneLogic({ taskId: 'task-123' })
@@ -331,7 +348,7 @@ describe('taskDetailSceneLogic', () => {
                 String(url).includes('/stream/')
             )
             expect(streamCallsAfterReload).toHaveLength(1)
-            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual(['hello'])
+            expect(agentTexts(logic.values.streamEvents)).toEqual(['hello'])
 
             logic.unmount()
         })
@@ -342,17 +359,14 @@ describe('taskDetailSceneLogic', () => {
                 runs: { [run.id]: run },
                 streamResponses: [
                     createSseResponse(
-                        [
-                            'id: 1-0\nevent: message\ndata: {"type":"user","content":"hello"}\n\n',
-                            'id: 2-0\nevent: message\ndata: {"type":"assistant","content":"world"}\n\n',
-                        ],
+                        [createAgentMessageSseEvent('1-0', 'hello'), createAgentMessageSseEvent('2-0', 'world')],
                         true
                     ),
                     createSseResponse(
                         [
-                            'id: 1-0\nevent: message\ndata: {"type":"user","content":"hello"}\n\n',
+                            createAgentMessageSseEvent('1-0', 'hello'),
                             'event: keepalive\ndata: {"status":"ok"}\n\n',
-                            'id: 3-0\nevent: message\ndata: {"type":"assistant","content":"again"}\n\n',
+                            createAgentMessageSseEvent('3-0', 'again'),
                         ],
                         true
                     ),
@@ -368,7 +382,7 @@ describe('taskDetailSceneLogic', () => {
             await flushStreaming()
 
             expect(logic.values.lastStreamEventId).toBe('2-0')
-            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual(['hello', 'world'])
+            expect(agentTexts(logic.values.streamEvents)).toEqual(['hello', 'world'])
 
             logic.actions.stopStreaming()
             await expectLogic(logic).toFinishAllListeners()
@@ -386,7 +400,9 @@ describe('taskDetailSceneLogic', () => {
                 'Last-Event-ID': '2-0',
             })
             expect(logic.values.lastStreamEventId).toBe('3-0')
-            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual(['hello', 'worldagain'])
+            // The replayed `1-0` is ignored; raw events stay un-merged (the conversation
+            // pipeline merges consecutive chunks downstream, not the reducer).
+            expect(agentTexts(logic.values.streamEvents)).toEqual(['hello', 'world', 'again'])
 
             logic.unmount()
         })
@@ -397,18 +413,7 @@ describe('taskDetailSceneLogic', () => {
                 runs: { [run.id]: run },
                 streamResponses: [
                     createSseResponse(
-                        [
-                            [
-                                'id: 1-0',
-                                'event: message',
-                                'data: {"type":"assistant","content":"hello"}',
-                                '',
-                                'id: 1-0',
-                                'event: message',
-                                'data: {"type":"assistant","content":"hello"}',
-                                '',
-                            ].join('\n'),
-                        ],
+                        [createAgentMessageSseEvent('1-0', 'hello') + createAgentMessageSseEvent('1-0', 'hello')],
                         true
                     ),
                 ],
@@ -423,8 +428,7 @@ describe('taskDetailSceneLogic', () => {
             await flushStreaming()
 
             expect(logic.values.lastStreamEventId).toBe('1-0')
-            expect(logic.values.streamEntries.map((entry) => entry.id)).toEqual(['stream-1-0'])
-            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual(['hello'])
+            expect(agentTexts(logic.values.streamEvents)).toEqual(['hello'])
 
             logic.unmount()
         })
@@ -453,11 +457,15 @@ describe('taskDetailSceneLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             await flushStreaming()
 
-            const firstToolEntry = logic.values.streamEntries[0]
-            expect(logic.values.streamEntries).toHaveLength(1)
-            expect(firstToolEntry.type).toBe('tool')
-            expect(firstToolEntry.id).toBe('stream-1-0')
-            expect(firstToolEntry.toolStatus).toBe('running')
+            const toolUpdate = (event: { message: { params?: unknown } }): Record<string, unknown> =>
+                (event.message.params as { update?: Record<string, unknown> }).update ?? {}
+
+            expect(logic.values.streamEvents).toHaveLength(1)
+            expect(toolUpdate(logic.values.streamEvents[0])).toMatchObject({
+                sessionUpdate: 'tool_call',
+                toolCallId: 'tool-1',
+                status: 'in_progress',
+            })
 
             logic.actions.stopStreaming()
             await expectLogic(logic).toFinishAllListeners()
@@ -467,15 +475,15 @@ describe('taskDetailSceneLogic', () => {
             await flushStreaming()
 
             expect(logic.values.lastStreamEventId).toBe('2-0')
-            expect(logic.values.streamEntries).toHaveLength(1)
-            expect(logic.values.streamEntries[0]).toMatchObject({
-                id: 'stream-1-0',
-                type: 'tool',
+            // The replayed `1-0` is ignored on resume; the completion arrives as a
+            // separate raw event that the conversation pipeline folds into the call.
+            expect(logic.values.streamEvents).toHaveLength(2)
+            expect(toolUpdate(logic.values.streamEvents[1])).toMatchObject({
+                sessionUpdate: 'tool_call_update',
                 toolCallId: 'tool-1',
-                toolStatus: 'completed',
-                toolResult: { content: 'done' },
+                status: 'completed',
+                rawOutput: { content: 'done' },
             })
-            expect(logic.values.streamEntries[0]).not.toBe(firstToolEntry)
 
             logic.unmount()
         })

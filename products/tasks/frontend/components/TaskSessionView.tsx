@@ -1,16 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
 import { IconCopy } from '@posthog/icons'
-import { LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { LogEntry, parseLogs } from '../lib/parse-logs'
+import type { AcpMessage } from '../conversation/acp-types'
+import { ConversationView } from '../conversation/ConversationView'
 import { TaskRun } from '../types'
-import { CollapsibleContent } from './CollapsibleContent'
-import { ConsoleLogEntry } from './session/ConsoleLogEntry'
-import { ToolCallEntry } from './session/ToolCallEntry'
 import { TaskRunStatusBadge } from './TaskRunStatusBadge'
 
 const HEDGEHOG_STATUSES = [
@@ -52,169 +50,24 @@ function HedgehogStatus(): JSX.Element {
 }
 
 interface TaskSessionViewProps {
+    /** Raw S3 log text, kept for the "Copy" affordance. */
     logs: string
     logsLoading: boolean
-    streamEntries: LogEntry[]
+    /** Parsed ACP events (stream-first, S3 fallback) produced by the scene logic. */
+    events: AcpMessage[]
     isPolling: boolean
     isStreaming: boolean
-    initialPrompt?: string | null
     run: TaskRun | null
-}
-
-export function filterDuplicateInitialPromptEntry(entries: LogEntry[], initialPrompt?: string | null): LogEntry[] {
-    const normalizedPrompt = initialPrompt?.trim()
-    if (!normalizedPrompt || entries.length === 0) {
-        return entries
-    }
-
-    const [firstEntry, ...restEntries] = entries
-    if (
-        firstEntry.type !== 'user' ||
-        firstEntry.message?.trim() !== normalizedPrompt ||
-        (firstEntry.attachments?.length ?? 0) > 0
-    ) {
-        return entries
-    }
-
-    return restEntries
-}
-
-export function mergeDuplicateUserPromptEntries(entries: LogEntry[]): LogEntry[] {
-    return entries.reduce<LogEntry[]>((mergedEntries, entry) => {
-        const previousEntry = mergedEntries[mergedEntries.length - 1]
-
-        if (
-            previousEntry?.type === 'user' &&
-            entry.type === 'user' &&
-            previousEntry.message?.trim() === entry.message?.trim()
-        ) {
-            const previousHasAttachments = Boolean(previousEntry.attachments?.length)
-            const currentHasAttachments = Boolean(entry.attachments?.length)
-
-            if (!previousHasAttachments && currentHasAttachments) {
-                mergedEntries[mergedEntries.length - 1] = entry
-            } else if (previousHasAttachments && currentHasAttachments) {
-                mergedEntries[mergedEntries.length - 1] = {
-                    ...previousEntry,
-                    attachments: [...(previousEntry.attachments ?? []), ...(entry.attachments ?? [])],
-                }
-            }
-
-            return mergedEntries
-        }
-
-        mergedEntries.push(entry)
-        return mergedEntries
-    }, [])
-}
-
-function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
-    switch (entry.type) {
-        case 'console':
-            return (
-                <ConsoleLogEntry
-                    level={entry.level || 'info'}
-                    message={entry.message || ''}
-                    timestamp={entry.timestamp}
-                />
-            )
-        case 'tool':
-            return (
-                <ToolCallEntry
-                    toolName={entry.toolName || 'unknown'}
-                    status={entry.toolStatus || 'pending'}
-                    args={entry.toolArgs}
-                    result={entry.toolResult}
-                    timestamp={entry.timestamp}
-                />
-            )
-        case 'user':
-            return (
-                <div className="py-2 flex flex-col items-end">
-                    <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-medium">User</span>
-                        {entry.timestamp && (
-                            <span className="text-xs text-muted">{new Date(entry.timestamp).toLocaleTimeString()}</span>
-                        )}
-                    </div>
-                    <div className="border-r-2 border-muted pr-3 max-w-[90%] text-right">
-                        <CollapsibleContent gradientColor="--bg-3000">
-                            <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
-                        </CollapsibleContent>
-                        {entry.attachments && entry.attachments.length > 0 ? (
-                            <div className="mt-2 flex flex-wrap justify-end gap-2">
-                                {entry.attachments.map((attachment) => (
-                                    <LemonTag key={attachment.id} type="completion" size="small">
-                                        {attachment.label}
-                                    </LemonTag>
-                                ))}
-                            </div>
-                        ) : null}
-                    </div>
-                </div>
-            )
-        case 'agent':
-            return (
-                <div className="py-2">
-                    <div className="flex items-center gap-2 mb-1">
-                        {entry.timestamp && (
-                            <span className="text-xs text-muted">{new Date(entry.timestamp).toLocaleTimeString()}</span>
-                        )}
-                        <span className="text-xs font-medium">Agent</span>
-                    </div>
-                    <div className="border-l-2 border-primary pl-3 max-w-[90%]">
-                        <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
-                    </div>
-                </div>
-            )
-        case 'thinking':
-            return (
-                <div className="py-2">
-                    <div className="flex items-center gap-2 mb-1">
-                        {entry.timestamp && (
-                            <span className="text-xs text-muted">{new Date(entry.timestamp).toLocaleTimeString()}</span>
-                        )}
-                        <span className="text-xs font-medium text-muted">Thinking</span>
-                    </div>
-                    <div className="border-l-2 border-muted pl-3 max-w-[90%]">
-                        <CollapsibleContent gradientColor="--bg-3000">
-                            <div className="text-sm whitespace-pre-wrap text-muted">{entry.message}</div>
-                        </CollapsibleContent>
-                    </div>
-                </div>
-            )
-        case 'system':
-            return (
-                <div className="flex items-center gap-2 py-1">
-                    {entry.timestamp && (
-                        <span className="text-xs text-muted">{new Date(entry.timestamp).toLocaleTimeString()}</span>
-                    )}
-                    <span className="text-xs text-muted italic">{entry.message}</span>
-                </div>
-            )
-        case 'raw':
-            return <div className="py-0.5 text-xs font-mono text-muted break-all">{entry.raw}</div>
-        default:
-            return null
-    }
 }
 
 export function TaskSessionView({
     logs,
     logsLoading,
-    streamEntries,
+    events,
     isPolling,
     isStreaming,
-    initialPrompt,
     run,
 }: TaskSessionViewProps): JSX.Element {
-    const parsedLogs = useMemo(() => parseLogs(logs), [logs])
-    // Use stream entries when available (real-time), otherwise fall back to parsed S3 logs
-    const entries = useMemo(() => {
-        const sourceEntries = streamEntries.length > 0 ? streamEntries : parsedLogs
-        return filterDuplicateInitialPromptEntry(mergeDuplicateUserPromptEntries(sourceEntries), initialPrompt)
-    }, [initialPrompt, parsedLogs, streamEntries])
-
     const handleCopyLogs = (): void => {
         navigator.clipboard.writeText(logs).then(
             () => lemonToast.success('Logs copied to clipboard'),
@@ -222,7 +75,7 @@ export function TaskSessionView({
         )
     }
 
-    if (entries.length === 0) {
+    if (events.length === 0) {
         if (logsLoading) {
             return (
                 <div className="flex items-center justify-center h-32">
@@ -242,18 +95,23 @@ export function TaskSessionView({
             <div className="flex justify-between items-center px-4 py-2 border-b">
                 <div className="flex items-center gap-2">
                     {run && <TaskRunStatusBadge run={run} />}
-                    <span className="text-sm font-semibold">Logs ({entries.length})</span>
+                    <span className="text-sm font-semibold">Logs ({events.length})</span>
                 </div>
                 <LemonButton size="xsmall" icon={<IconCopy />} onClick={handleCopyLogs}>
                     Copy
                 </LemonButton>
             </div>
-            <div className="flex-1 overflow-auto p-4 font-mono text-sm bg-bg-3000">
-                {entries.map((entry) => (
-                    <LogEntryRenderer key={entry.id} entry={entry} />
-                ))}
-                {(isPolling || isStreaming) && <HedgehogStatus />}
+            <div className="flex-1 overflow-hidden">
+                {/* Cloud/replay semantics: the live polling/streaming state is surfaced by
+                    HedgehogStatus below, so the conversation footer stays in its
+                    completed-turn summary mode rather than double-rendering a spinner. */}
+                <ConversationView events={events} isPromptPending={null} />
             </div>
+            {(isPolling || isStreaming) && (
+                <div className="px-4">
+                    <HedgehogStatus />
+                </div>
+            )}
         </div>
     )
 }

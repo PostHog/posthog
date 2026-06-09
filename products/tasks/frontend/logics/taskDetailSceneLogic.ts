@@ -20,7 +20,8 @@ import { isUUIDLike } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { LogEntry, parseLogEvent } from '../lib/parse-logs'
+import type { AcpMessage } from '../conversation/acp-types'
+import { parseSessionLogEvent, parseSessionLogs } from '../conversation/parseSessionLogs'
 import { phDebugQueryParams, phDebugQuerySuffix } from '../lib/ph-debug'
 import { TaskRun, TaskRunStatus } from '../types'
 import type { taskDetailSceneLogicType } from './taskDetailSceneLogicType'
@@ -35,16 +36,6 @@ interface ParsedSseEvent {
     data: string
     eventType: string | null
     id: string | null
-}
-
-function buildToolMap(entries: LogEntry[]): Map<string, LogEntry> {
-    const toolMap = new Map<string, LogEntry>()
-    for (const entry of entries) {
-        if (entry.type === 'tool' && entry.toolCallId) {
-            toolMap.set(entry.toolCallId, { ...entry })
-        }
-    }
-    return toolMap
 }
 
 function parseSseEventBlock(block: string): ParsedSseEvent | null {
@@ -101,8 +92,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         startStreaming: true,
         stopStreaming: true,
         markStreamingFailed: true,
-        appendStreamEntries: (entries: LogEntry[]) => ({ entries }),
-        updateStreamEntries: (entries: LogEntry[]) => ({ entries }),
+        appendStreamEvents: (events: AcpMessage[]) => ({ events }),
         recordStreamProgress: (lastEventId: string | null, seenEventIds: string[]) => ({ lastEventId, seenEventIds }),
         setLogs: (logs: string) => ({ logs }),
         updateRun: (run: TaskRun) => ({ run }),
@@ -134,7 +124,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             {
                 setSelectedRunId: (state, { taskId }) => (taskId === props.taskId ? true : state),
                 setLogs: () => false,
-                appendStreamEntries: () => false,
+                appendStreamEvents: () => false,
             },
         ],
         runs: [
@@ -144,40 +134,18 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                     state.map((r) => (r.id === run.id ? run : r)),
             },
         ],
-        streamEntries: [
-            [] as LogEntry[],
+        streamEvents: [
+            [] as AcpMessage[],
             {
                 setSelectedRunId: (state, { taskId }) => (taskId === props.taskId ? [] : state),
-                appendStreamEntries: (state, { entries }) => {
-                    if (entries.length === 0) {
+                appendStreamEvents: (state, { events }) => {
+                    if (events.length === 0) {
                         return state
                     }
-                    const last = state[state.length - 1]
-                    const first = entries[0]
-                    if (last?.type === first.type && (first.type === 'agent' || first.type === 'thinking')) {
-                        return [
-                            ...state.slice(0, -1),
-                            { ...last, message: (last.message || '') + (first.message || '') },
-                            ...entries.slice(1),
-                        ]
-                    }
-                    return [...state, ...entries]
-                },
-                updateStreamEntries: (state, { entries }) => {
-                    if (entries.length === 0) {
-                        return state
-                    }
-                    const entriesById = new Map(entries.map((entry) => [entry.id, entry]))
-                    let changed = false
-                    const nextState = state.map((entry) => {
-                        const updatedEntry = entriesById.get(entry.id)
-                        if (!updatedEntry) {
-                            return entry
-                        }
-                        changed = true
-                        return updatedEntry
-                    })
-                    return changed ? nextState : state
+                    // Raw ACP events are append-only; the conversation pipeline is
+                    // responsible for merging consecutive message chunks and folding
+                    // tool_call_update events into the originating tool call.
+                    return [...state, ...events]
                 },
             },
         ],
@@ -310,6 +278,14 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             (s) => [s.rawLogsLoading, s.isInitialLogsLoad],
             (rawLogsLoading, isInitialLogsLoad): boolean => rawLogsLoading && isInitialLogsLoad,
         ],
+        parsedLogEvents: [(s) => [s.logs], (logs): AcpMessage[] => parseSessionLogs(logs)],
+        // Prefer live streamed events; fall back to the parsed S3 transcript when
+        // no stream events have arrived yet (historical/replayed runs).
+        events: [
+            (s) => [s.streamEvents, s.parsedLogEvents],
+            (streamEvents, parsedLogEvents): AcpMessage[] =>
+                streamEvents.length > 0 ? streamEvents : parsedLogEvents,
+        ],
     }),
 
     listeners(({ actions, values, props, cache }) => ({
@@ -381,8 +357,6 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
 
                 // TODO(no-at-current-in-api-urls): migrate to `currentProjectIdStrict`. Rule misses this site because the URL is bound to a const and passed to fetch via the variable.
                 const streamUrl = `/api/projects/@current/tasks/${props.taskId}/runs/${runId}/stream/`
-                const toolMap = buildToolMap(values.streamEntries)
-                let eventIndex = values.streamEntries.length
 
                 const consume = async (): Promise<void> => {
                     try {
@@ -416,8 +390,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                             const blocks = buffer.split('\n\n')
                             buffer = blocks.pop() || ''
 
-                            const batch: LogEntry[] = []
-                            const updatedEntriesById = new Map<string, LogEntry>()
+                            const batch: AcpMessage[] = []
                             let lastProcessedEventId: string | null = null
                             const newlySeenEventIds: string[] = []
 
@@ -440,23 +413,9 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
 
                                 try {
                                     const event = JSON.parse(parsedEvent.data) as Record<string, unknown>
-                                    const entryId = parsedEvent.id
-                                        ? `stream-${parsedEvent.id}`
-                                        : `stream-${eventIndex++}`
-                                    const entry = parseLogEvent(event, entryId, toolMap, (updatedEntry) => {
-                                        updatedEntriesById.set(updatedEntry.id, updatedEntry)
-                                    })
-                                    if (entry) {
-                                        // Merge consecutive agent/thinking messages
-                                        const last = batch[batch.length - 1]
-                                        if (
-                                            last?.type === entry.type &&
-                                            (entry.type === 'agent' || entry.type === 'thinking')
-                                        ) {
-                                            last.message = (last.message || '') + (entry.message || '')
-                                        } else {
-                                            batch.push(entry)
-                                        }
+                                    const message = parseSessionLogEvent(event)
+                                    if (message) {
+                                        batch.push(message)
                                     }
                                 } catch {
                                     // Skip invalid JSON
@@ -466,11 +425,8 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                             if (newlySeenEventIds.length > 0) {
                                 actions.recordStreamProgress(lastProcessedEventId, newlySeenEventIds)
                             }
-                            if (updatedEntriesById.size > 0) {
-                                actions.updateStreamEntries(Array.from(updatedEntriesById.values()))
-                            }
                             if (batch.length > 0) {
-                                actions.appendStreamEntries(batch)
+                                actions.appendStreamEvents(batch)
                             }
                         }
 

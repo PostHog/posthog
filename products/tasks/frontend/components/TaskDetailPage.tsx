@@ -50,7 +50,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
         logs,
         logsLoading,
         shouldPoll,
-        streamEntries,
+        events,
         isStreaming,
     } = useValues(sceneLogic)
     const { setSelectedRunId, runTask, deleteTask } = useActions(sceneLogic)
@@ -228,10 +228,9 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                     <TaskSessionView
                         logs={logs}
                         logsLoading={logsLoading}
-                        streamEntries={streamEntries}
+                        events={events}
                         isPolling={shouldPoll}
                         isStreaming={isStreaming}
-                        initialPrompt={task.description}
                         run={selectedRun}
                     />
                 </div>
