@@ -207,6 +207,7 @@ async def test_run_steps_forwards_resolution_error_message_to_fix(
     )
     mock_fix.return_value = "SELECT fixed"
     await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
+    assert mock_fix.await_args is not None
     assert mock_fix.await_args.kwargs["error_message"] == "Unable to resolve field 'operaton'"
 
 
