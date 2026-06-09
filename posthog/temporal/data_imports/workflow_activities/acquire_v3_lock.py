@@ -70,7 +70,8 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
 
     token = activity.info().workflow_run_id or ""
     if not token:
-        return AcquireV3LockActivityOutputs(acquired=True, token="")
+        logger.error("v3_pipeline_lock_missing_workflow_run_id", schema_id=str(inputs.schema_id))
+        return AcquireV3LockActivityOutputs(acquired=False, token="")
 
     acquired = acquire_v3_pipeline_lock(inputs.team_id, str(inputs.schema_id), token)
 

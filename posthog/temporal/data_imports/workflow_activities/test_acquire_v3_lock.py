@@ -100,7 +100,7 @@ class TestAcquireV3PipelineLockActivity:
 
     @patch(f"{MODULE}.activity")
     @patch(f"{MODULE}.bind_contextvars")
-    def test_empty_workflow_run_id_returns_acquired(
+    def test_empty_workflow_run_id_fails_closed(
         self,
         _bind: MagicMock,
         mock_activity: MagicMock,
@@ -109,7 +109,7 @@ class TestAcquireV3PipelineLockActivity:
 
         result = acquire_v3_pipeline_lock_activity(AcquireV3LockActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID))
 
-        assert result.acquired is True
+        assert result.acquired is False
         assert result.token == ""
 
 
