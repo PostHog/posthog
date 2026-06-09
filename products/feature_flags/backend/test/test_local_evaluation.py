@@ -7,7 +7,6 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
     GroupTypeMapping,
@@ -19,6 +18,7 @@ from posthog.models.team.team import Team
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import safe_cache_delete
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.flags_cache import get_team_ids_with_recently_updated_flags
 from products.feature_flags.backend.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,

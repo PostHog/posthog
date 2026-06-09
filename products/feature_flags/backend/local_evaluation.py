@@ -36,8 +36,6 @@ import structlog
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
 
-from posthog.models.cohort.cohort import Cohort, CohortOrEmpty, is_cohort_recalculation_only_save
-from posthog.models.cohort.util import get_nested_cohort_ids
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
     GroupTypesUnavailable,
@@ -50,6 +48,8 @@ from posthog.storage.hypercache import HYPERCACHE_REBUILD_SKIPPED_COUNTER, Hyper
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 from posthog.utils import capture_exception_throttled, get_safe_cache
 
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, is_cohort_recalculation_only_save
+from products.cohorts.backend.models.util import get_nested_cohort_ids
 from products.feature_flags.backend.flags_cache import (
     _compare_flag_fields,
     get_team_ids_with_recently_updated_flags,

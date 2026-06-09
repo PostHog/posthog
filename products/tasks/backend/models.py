@@ -41,6 +41,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
 from products.tasks.backend.metrics import observe_task_run_created
+from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
 from products.tasks.backend.stream.redis_stream import publish_task_run_stream_event
 
 logger = structlog.get_logger(__name__)
@@ -258,6 +259,13 @@ class Task(DeletedMetaFields, models.Model):
         state: dict = {"mode": mode}
         if extra_state:
             state.update({k: v for k, v in extra_state.items() if k != "mode"})
+        # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
+        if "use_dedicated_stream" not in state:
+            distinct_id = (self.created_by.distinct_id if self.created_by else None) or f"team_{self.team_id}"
+            state["use_dedicated_stream"] = evaluate_dedicated_stream_flag(
+                organization_id=str(self.team.organization_id),
+                distinct_id=distinct_id,
+            )
         is_resume = bool((extra_state or {}).get("resume_from_run_id"))
         has_pending = bool(
             (extra_state or {}).get("pending_user_message") or (extra_state or {}).get("pending_user_artifact_ids")
@@ -978,7 +986,7 @@ class TaskRun(models.Model):
         }
 
     def publish_stream_event(self, event: dict[str, Any]) -> None:
-        publish_task_run_stream_event(str(self.id), event, self.created_at)
+        publish_task_run_stream_event(str(self.id), event, run_uses_dedicated_stream(self.state))
 
     def publish_stream_state_event(self) -> None:
         self.publish_stream_event(self.build_stream_state_event())

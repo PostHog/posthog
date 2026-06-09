@@ -24,6 +24,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
 import { replayScannerLogic } from './replayScannerLogic'
@@ -84,7 +85,11 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         <SceneContent>
             <div className="flex flex-col items-center pt-16 pb-8">
                 <div className="w-full max-w-4xl px-4 flex flex-col gap-6">
-                    <SceneTitleSection name={title} resourceType={{ type: 'replay_vision' }} />
+                    <SceneTitleSection
+                        name={title}
+                        resourceType={{ type: 'replay_vision' }}
+                        actions={<ReplayVisionFeedbackButton />}
+                    />
                     <ScannerEditorStepper currentStep={step} onStepClick={goToStep} stepErrors={stepErrors} />
                     <Form logic={replayScannerLogic} props={{ id: scannerId }} formKey="scanner" enableFormOnSubmit>
                         <div className="bg-bg-light border rounded-lg shadow-sm p-6 flex flex-col gap-6 [&_.Field--error_.input-like]:!border-danger">
@@ -152,6 +157,7 @@ function ConfigureStep(): JSX.Element {
             {isTypeSelectable ? (
                 <LemonField name="scanner_type" label="Scanner type" className="items-start">
                     <LemonSelect
+                        data-attr="vision-editor-type-select"
                         value={scanner.scanner_type}
                         onChange={(next) => {
                             if (next === scanner.scanner_type) {
@@ -253,25 +259,42 @@ function EditorFooter({
     onAdvance: () => void
     onSave: () => void
 }): JSX.Element {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     return (
         <div className="flex items-center justify-between">
             {step === 'configure' ? (
                 <>
                     {isNew && (
-                        <LemonButton type="tertiary" to={urls.replayVisionTemplates()}>
+                        <LemonButton type="tertiary" to={urls.replayVisionTemplates()} data-attr="vision-editor-back">
                             Back to templates
                         </LemonButton>
                     )}
-                    <LemonButton type="primary" loading={isSubmitting} onClick={onAdvance} className="ml-auto">
+                    <LemonButton
+                        type="primary"
+                        loading={isSubmitting}
+                        onClick={onAdvance}
+                        className="ml-auto"
+                        data-attr="vision-editor-next"
+                    >
                         Next: triggers
                     </LemonButton>
                 </>
             ) : (
                 <>
-                    <LemonButton type="tertiary" to={urls.replayVisionScannerConfigure(scannerId)}>
+                    <LemonButton
+                        type="tertiary"
+                        to={urls.replayVisionScannerConfigure(scannerId)}
+                        data-attr="vision-editor-back"
+                    >
                         Back
                     </LemonButton>
-                    <LemonButton type="primary" loading={isSubmitting} onClick={onSave}>
+                    <LemonButton
+                        type="primary"
+                        loading={isSubmitting}
+                        onClick={onSave}
+                        data-attr="vision-editor-save"
+                        data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
+                    >
                         {isNew ? 'Create scanner' : 'Save changes'}
                     </LemonButton>
                 </>

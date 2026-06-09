@@ -199,6 +199,7 @@ async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInpu
                 weight=metadata.get("weight", 0.0),
                 timestamp=_ensure_tz_aware(timestamp_raw),
                 extra=metadata.get("extra", {}),
+                remediation=metadata.get("remediation"),
                 metadata=dict(metadata),
             )
         )
