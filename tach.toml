@@ -672,6 +672,21 @@ from = [
     "products.experiments",
 ]
 
+# Temporal worker registration lives in posthog/management/commands/start_temporal_worker.py, which imports
+# ACTIVITIES and WORKFLOWS from each product's backend.temporal package. Eight peer products do the same
+# thing, but experiments is the first isolated product to register a workflow, so the canonical interface
+# doesn't cover it yet. Narrowly expose just the registration symbols rather than widening every isolated
+# product's surface.
+
+[[interfaces]]
+expose = [
+    "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.WORKFLOWS",
+]
+from = [
+    "products.experiments",
+]
+
 # user_interviews exposes Vapi webhook handlers that are routed directly from posthog/urls.py.
 
 [[interfaces]]
