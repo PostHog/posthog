@@ -1317,6 +1317,7 @@ class BasePrinter(Visitor[str]):
                     has_ngram_lower_index=materialized_column.has_ngram_lower_index,
                     has_bloom_filter_index=materialized_column.has_bloom_filter_index,
                     has_bloom_filter_lower_index=materialized_column.has_bloom_filter_lower_index,
+                    minmax_index_name=materialized_column.minmax_index_name,
                 )
 
             # Check for dmat (dynamic materialized) columns
@@ -1349,6 +1350,7 @@ class BasePrinter(Visitor[str]):
                     has_ngram_lower_index=materialized_column.has_ngram_lower_index,
                     has_bloom_filter_index=materialized_column.has_bloom_filter_index,
                     has_bloom_filter_lower_index=materialized_column.has_bloom_filter_lower_index,
+                    minmax_index_name=materialized_column.minmax_index_name,
                 )
 
     def visit_property_type(self, type: ast.PropertyType):

@@ -452,6 +452,8 @@ export interface HogQLQueryModifiers {
     pushDownPredicates?: boolean
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
+    /** Ignore minmax skip indexes on materialized columns that the query only compares with negated operators (`!=` / `NOT IN`), where evaluating the index costs more than it prunes */
+    ignoreNegationOnlySkipIndexes?: boolean
     inlineCohortCalculation?: 'off' | 'auto' | 'always'
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
     parserMode?:

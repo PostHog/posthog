@@ -7626,6 +7626,14 @@ class HogQLQueryModifiers(BaseModel):
         description=("If these are provided, the query will fail if these skip indexes are not used"),
     )
     formatCsvAllowDoubleQuotes: bool | None = None
+    ignoreNegationOnlySkipIndexes: bool | None = Field(
+        default=None,
+        description=(
+            "Ignore minmax skip indexes on materialized columns that the query only"
+            " compares with negated operators (`!=` / `NOT IN`), where evaluating the"
+            " index costs more than it prunes"
+        ),
+    )
     inCohortVia: InCohortVia | None = None
     inlineCohortCalculation: InlineCohortCalculation | None = None
     materializationMode: MaterializationMode | None = None

@@ -1,6 +1,6 @@
 import re
 from datetime import date, datetime
-from typing import ClassVar, Literal, Union, cast
+from typing import Any, ClassVar, Literal, Union, cast
 from uuid import UUID
 
 from django.conf import settings as django_settings
@@ -65,6 +65,22 @@ COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
 
 class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
+
+    # Comparison operators whose minmax skip-index conditions can only prune granules where min == max == the
+    # excluded value, so evaluating the index (reading its marks and granules across every part) almost never
+    # pays for itself. Columns referenced exclusively under these operators get their minmax index ignored via
+    # the ignore_data_skipping_indices setting; skipping an index can only widen the read, never change results.
+    NEGATED_COMPARE_OPS = (
+        ast.CompareOperationOp.NotEq,
+        ast.CompareOperationOp.NotIn,
+        ast.CompareOperationOp.GlobalNotIn,
+    )
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._negated_compare_depth = 0
+        self._minmax_skip_indexes_negated: set[str] = set()
+        self._minmax_skip_indexes_positive: set[str] = set()
 
     def _render_set_query_limit_percent(self, limit: ast.Expr, limit_str: str) -> str:
         return str(self._limit_percent_constant_value(limit))
@@ -292,11 +308,24 @@ class ClickHousePrinter(BasePrinter):
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
             merged = self._merge_table_top_level_settings(self.settings)
+            if ignored_indexes := self._negation_only_skip_indexes_to_ignore(merged):
+                merged["ignore_data_skipping_indices"] = ignored_indexes
             printed = self._print_settings(merged)
             if printed is not None:
                 response += " " + printed
 
         return response
+
+    def _negation_only_skip_indexes_to_ignore(self, merged_settings: dict[str, Any]) -> list[str] | None:
+        if self.context.modifiers.ignoreNegationOnlySkipIndexes is False:
+            return None
+        candidates = self._minmax_skip_indexes_negated - self._minmax_skip_indexes_positive
+        if not candidates:
+            return None
+        forced = set(merged_settings.get("force_data_skipping_indices") or [])
+        existing = set(merged_settings.get("ignore_data_skipping_indices") or [])
+        result = sorted((candidates | existing) - forced)
+        return result or None
 
     def visit_select_query(self, node: ast.SelectQuery):
         if not self.context.enable_select_queries:
@@ -426,7 +455,16 @@ class ClickHousePrinter(BasePrinter):
         # value collapses to an empty string instead of leaking the materialized value.
         if self._is_property_type_restricted(type):
             return None
-        return super()._get_materialized_property_source_for_property_type(type)
+        source = super()._get_materialized_property_source_for_property_type(type)
+        # Track which minmax-indexed materialized columns the query references, and whether the reference sits
+        # under a negated comparison. Columns referenced only under negations get their index ignored at the
+        # top-level SETTINGS clause (see _negation_only_skip_indexes_to_ignore).
+        if isinstance(source, PrintableMaterializedColumn) and source.minmax_index_name is not None:
+            if self._negated_compare_depth > 0:
+                self._minmax_skip_indexes_negated.add(source.minmax_index_name)
+            else:
+                self._minmax_skip_indexes_positive.add(source.minmax_index_name)
+        return source
 
     def _is_property_type_restricted(self, type: ast.PropertyType) -> bool:
         if not self.context.restricted_properties or len(type.chain) == 0:
@@ -1211,6 +1249,15 @@ class ClickHousePrinter(BasePrinter):
         return False
 
     def visit_compare_operation(self, node: ast.CompareOperation):
+        if node.op in self.NEGATED_COMPARE_OPS:
+            self._negated_compare_depth += 1
+            try:
+                return self._visit_compare_operation_inner(node)
+            finally:
+                self._negated_compare_depth -= 1
+        return self._visit_compare_operation_inner(node)
+
+    def _visit_compare_operation_inner(self, node: ast.CompareOperation):
         # If either side of the operation is a property that is part of a property group, special optimizations may
         # apply here to ensure that data skipping indexes can be used when possible.
         if optimized_session_id := self._get_optimized_session_id_compare_operation(node):

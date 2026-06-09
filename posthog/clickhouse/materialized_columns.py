@@ -17,6 +17,9 @@ class MaterializedColumn(Protocol):
     has_ngram_lower_index: bool
     has_bloom_filter_lower_index: bool
 
+    @property
+    def minmax_index_name(self) -> str | None: ...
+
 
 if EE_AVAILABLE:
     from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns

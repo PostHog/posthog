@@ -18,6 +18,8 @@ class PrintableMaterializedColumn:
     has_bloom_filter_index: bool
     has_ngram_lower_index: bool
     has_bloom_filter_lower_index: bool
+    # ClickHouse name of the column's minmax skip index, when one exists (e.g. "minmax_mat_foo")
+    minmax_index_name: str | None = None
 
     def __str__(self) -> str:
         if self.table is None:

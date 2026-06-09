@@ -644,6 +644,150 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
 
 
 # ============================================================================
+# Negation-only minmax index ignore (ignore_data_skipping_indices)
+# ============================================================================
+# A minmax condition for `!=` / `NOT IN` can only prune granules where min == max == the excluded value, so
+# evaluating the index reads its marks and granules across every part for ~no pruning. When a minmax-indexed
+# materialized column is referenced only under those operators, the printer ignores the index via the
+# top-level `SETTINGS ignore_data_skipping_indices=...`. Ignoring a skip index never changes results.
+
+
+@snapshot_clickhouse_queries
+class TestNegationOnlyMinmaxIndexIgnore(_PropertySkipIndexTestBase):
+    SCOPE = "event"
+    PROPERTY_TO_EXPR_SCOPE = "event"
+    FILTER_TYPE = "event"
+
+    def _print_select(
+        self,
+        where: ast.Expr,
+        order_by: list[ast.OrderExpr] | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
+        settings: HogQLGlobalSettings | None = None,
+    ) -> tuple[str, dict[str, Any]]:
+        select_query = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=where,
+            order_by=order_by,
+        )
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team,
+            enable_select_queries=True,
+            modifiers=modifiers
+            or HogQLQueryModifiers(
+                materializationMode=MaterializationMode.AUTO,
+                propertyGroupsMode=PropertyGroupsMode.OPTIMIZED,
+                personsOnEventsMode=self.POE_MODE,
+            ),
+        )
+        query, _ = prepare_and_print_ast(
+            select_query, context, "clickhouse", settings=settings or HogQLGlobalSettings()
+        )
+        return query, context.values
+
+    def _property_expr(self, operator: PropertyOperator, value: Any) -> ast.Expr:
+        return property_to_expr(self._filter(operator, value), team=self.team, scope=self.PROPERTY_TO_EXPR_SCOPE)
+
+    @parameterized.expand([("non_nullable", False), ("nullable", True)])
+    def test_neq_only_ignores_minmax_index(self, _name: str, is_nullable: bool) -> None:
+        self._seed()
+        mat_col = self._materialize_with(is_nullable=is_nullable, create_minmax_index=True)
+        index = get_minmax_index_name(mat_col.name)
+        query, values = self._print_select(self._property_expr(PropertyOperator.IS_NOT, "5"))
+        assert f"ignore_data_skipping_indices='{index}'" in query, f"Expected {index} ignored in SQL: {query}"
+        sync_execute(query, values)
+        assert index not in _run_explain_and_get_skip_indexes(query, values)
+
+    def test_not_in_multi_value_ignores_minmax_index(self) -> None:
+        self._seed()
+        mat_col = self._materialize_with(is_nullable=False, create_minmax_index=True)
+        index = get_minmax_index_name(mat_col.name)
+        query, values = self._print_select(self._property_expr(PropertyOperator.IS_NOT, ["2", "5"]))
+        assert f"ignore_data_skipping_indices='{index}'" in query, f"Expected {index} ignored in SQL: {query}"
+        sync_execute(query, values)
+        assert index not in _run_explain_and_get_skip_indexes(query, values)
+
+    def test_eq_does_not_ignore_minmax_index(self) -> None:
+        self._seed()
+        self._materialize_with(is_nullable=False, create_minmax_index=True)
+        query, _ = self._print_select(self._property_expr(PropertyOperator.EXACT, "5"))
+        assert "ignore_data_skipping_indices" not in query, f"Unexpected ignore in SQL: {query}"
+
+    def test_mixed_eq_and_neq_does_not_ignore_minmax_index(self) -> None:
+        self._seed()
+        self._materialize_with(is_nullable=False, create_minmax_index=True)
+        where = ast.And(
+            exprs=[
+                self._property_expr(PropertyOperator.IS_NOT, "5"),
+                self._property_expr(PropertyOperator.EXACT, "3"),
+            ]
+        )
+        query, _ = self._print_select(where)
+        assert "ignore_data_skipping_indices" not in query, f"Unexpected ignore in SQL: {query}"
+
+    def test_order_by_reference_does_not_ignore_minmax_index(self) -> None:
+        self._seed()
+        self._materialize_with(is_nullable=False, create_minmax_index=True)
+        query, _ = self._print_select(
+            self._property_expr(PropertyOperator.IS_NOT, "5"),
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["properties", self._mat_property_key]), order="ASC")],
+        )
+        assert "ignore_data_skipping_indices" not in query, f"Unexpected ignore in SQL: {query}"
+
+    def test_modifier_disabled_does_not_ignore_minmax_index(self) -> None:
+        self._seed()
+        self._materialize_with(is_nullable=False, create_minmax_index=True)
+        query, _ = self._print_select(
+            self._property_expr(PropertyOperator.IS_NOT, "5"),
+            modifiers=HogQLQueryModifiers(
+                materializationMode=MaterializationMode.AUTO,
+                propertyGroupsMode=PropertyGroupsMode.OPTIMIZED,
+                personsOnEventsMode=self.POE_MODE,
+                ignoreNegationOnlySkipIndexes=False,
+            ),
+        )
+        assert "ignore_data_skipping_indices" not in query, f"Unexpected ignore in SQL: {query}"
+
+    def test_no_minmax_index_nothing_to_ignore(self) -> None:
+        self._seed()
+        self._materialize_with(is_nullable=False, create_minmax_index=False)
+        query, _ = self._print_select(self._property_expr(PropertyOperator.IS_NOT, "5"))
+        assert "ignore_data_skipping_indices" not in query, f"Unexpected ignore in SQL: {query}"
+
+    def test_forced_index_is_never_ignored(self) -> None:
+        self._seed()
+        mat_col = self._materialize_with(is_nullable=False, create_minmax_index=True)
+        index = get_minmax_index_name(mat_col.name)
+        settings = HogQLGlobalSettings(force_data_skipping_indices=[index])
+        query, _ = self._print_select(self._property_expr(PropertyOperator.IS_NOT, "5"), settings=settings)
+        assert "ignore_data_skipping_indices" not in query, f"Unexpected ignore in SQL: {query}"
+
+    def test_no_settings_object_prints_no_settings_clause(self) -> None:
+        self._seed()
+        self._materialize_with(is_nullable=False, create_minmax_index=True)
+        expr = self._property_expr(PropertyOperator.IS_NOT, "5")
+        select_query = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=expr,
+        )
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(
+                materializationMode=MaterializationMode.AUTO,
+                propertyGroupsMode=PropertyGroupsMode.OPTIMIZED,
+                personsOnEventsMode=self.POE_MODE,
+            ),
+        )
+        query, _ = prepare_and_print_ast(select_query, context, "clickhouse")
+        assert "ignore_data_skipping_indices" not in query
+
+
+# ============================================================================
 # Person-on-Events (events.person_properties)
 # ============================================================================
 

@@ -80,6 +80,10 @@ class MaterializedColumn:
         else:
             return "String"
 
+    @property
+    def minmax_index_name(self) -> str | None:
+        return get_minmax_index_name(self.name) if self.has_minmax_index else None
+
     def get_expression_and_parameters(self) -> tuple[str, dict[str, Any]]:
         if self.is_nullable:
             return (
