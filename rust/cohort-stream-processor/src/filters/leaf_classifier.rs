@@ -133,17 +133,22 @@ fn classify_cohort_ref(node: &Value) -> LeafClass {
     match cohort_id_from_value(node.get("value")) {
         Some(id) => LeafClass::CohortRef(CohortRefLeafConfig {
             referenced_cohort_id: CohortId(id),
-            negation: cohort_ref_negation(node),
+            negation: leaf_negation(node),
         }),
         None => LeafClass::Drop(LeafDropReason::MalformedLeaf),
     }
 }
 
-/// Cohort-ref negation has two equivalent encodings that both invert the Stage 2 membership bit:
-/// explicit `negation: true`, or `operator: "not_in"` (the insight/query path's exclusion form).
-/// Mirrors `posthog/cdp/filters.py:103`. Resolved here because the raw node is not retained on
-/// `CohortRefLeafConfig`.
-fn cohort_ref_negation(node: &Value) -> bool {
+/// Whether a leaf is negated, from its raw JSON: explicit `negation: true`, or `operator: "not_in"`.
+/// Mirrors `posthog/cdp/filters.py:103`.
+///
+/// Read at parse time because negation is not retained on any parsed leaf, and [`LeafStateKey`]
+/// excludes it (state is invariant to it) — so a frozen-tree re-walk could not recover it.
+///
+/// For behavioral/person leaves this over-approximates: their composition negation is `prop.negation`
+/// alone (`hogql_cohort_query.py:551`), so treating a bare `operator: "not_in"` as negated only
+/// excludes a cohort that would otherwise compose — parity-safe under the correct-or-absent posture.
+pub(crate) fn leaf_negation(node: &Value) -> bool {
     let explicit = node
         .get("negation")
         .and_then(Value::as_bool)

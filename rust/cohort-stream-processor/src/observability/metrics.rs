@@ -16,6 +16,14 @@ pub const FILTER_CATALOG_COHORT_PARSE_ERRORS: &str = "filter_catalog_cohort_pars
 /// Label-free on purpose — the raw timezone string goes only to the `warn!`, never a metric label.
 pub const FILTER_CATALOG_TZ_FALLBACK: &str = "filter_catalog_tz_fallback_total";
 
+// ── Stage 2 eligibility ──────────────────────────────────────────────────────────
+/// Cohorts classified by composition eligibility at freeze, labelled by `class` (counter).
+/// Rebuild-driven (every cohort is re-classified each refresh), so graph its rate, not its level.
+/// `class` is one of `single_leaf`, `stage2_composable`, or `excluded_<reason>`
+/// (`excluded_not_multi_leaf`, `excluded_has_negation`, `excluded_has_cohort_ref`,
+/// `excluded_has_dropped_leaf`).
+pub const COHORT_ELIGIBILITY_TOTAL: &str = "cohort_eligibility_total";
+
 // ── Store ──────────────────────────────────────────────────────────────────────
 /// RocksDB batch commits, labelled by `op` (counter).
 pub const STORE_WRITE_BATCH_TOTAL: &str = "store_write_batch_total";

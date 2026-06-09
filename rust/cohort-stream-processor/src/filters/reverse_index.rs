@@ -15,12 +15,13 @@ use serde_json::Value;
 use crate::filters::leaf_classifier::LeafDropReason;
 use crate::filters::tree::{parse_cohort_tree, CohortLeaf, CohortTree, FilterNode, LeafSink};
 use crate::filters::{CohortId, FilterError, TeamId};
-use crate::observability::metrics::FILTER_CATALOG_SKIPPED_LEAVES;
+use crate::observability::metrics::{COHORT_ELIGIBILITY_TOTAL, FILTER_CATALOG_SKIPPED_LEAVES};
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::pick_state::{
     effective_window_days, pick_state_variant, EvictionWindow, PredicateOp,
 };
 use crate::stage1::state::StateVariant;
+use crate::stage2::{classify, CohortEligibility, CohortParseFlags};
 
 /// Per-`LeafStateKey` worker metadata derived at freeze time: the state representation and (for
 /// behavioral leaves) the eviction window, so the worker picks the apply path and computes
@@ -77,6 +78,9 @@ pub struct TeamFilters {
     /// [`LeafStateKey`] (not `condition_hash`) so a 7d and a 30d leaf sharing one conditionHash get
     /// distinct keys and never cross-fire.
     pub by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>>,
+    /// Each cohort's composition class ([`CohortEligibility`]), computed once at freeze. The
+    /// single-leaf mapping above is derived from it.
+    pub eligibility: HashMap<CohortId, CohortEligibility>,
     /// Parsed trees by cohort, retained for the Stage 2 re-walk.
     pub cohorts: HashMap<CohortId, CohortTree>,
     /// The team's resolved IANA timezone (`posthog_team.timezone`), the zone the bucket variants
@@ -97,6 +101,7 @@ impl Default for TeamFilters {
             behavioral_conditions: HashSet::new(),
             person_property_conditions: HashSet::new(),
             by_lsk_to_single_leaf_cohorts: HashMap::new(),
+            eligibility: HashMap::new(),
             cohorts: HashMap::new(),
             timezone: UTC,
         }
@@ -112,6 +117,10 @@ pub struct TeamFiltersBuilder {
     by_condition_to_bytecode: HashMap<[u8; 16], Arc<Vec<Value>>>,
     unique_condition_hashes: HashSet<[u8; 16]>,
     cohorts: HashMap<CohortId, CohortTree>,
+    /// Per-cohort eligibility signals captured during parse (the [`LeafSink`] callbacks), consumed by
+    /// [`classify`] at [`freeze`](Self::freeze). Dropped leaves and behavioral negation do not
+    /// survive into the parsed tree, so the signals are captured here rather than re-walked.
+    flags: HashMap<CohortId, CohortParseFlags>,
 }
 
 impl LeafSink for TeamFiltersBuilder {
@@ -121,6 +130,7 @@ impl LeafSink for TeamFiltersBuilder {
         condition_hash: [u8; 16],
         leaf_state_key: LeafStateKey,
         bytecode: &Arc<Vec<Value>>,
+        negated: bool,
     ) {
         self.by_condition_to_lsk
             .entry(condition_hash)
@@ -136,10 +146,19 @@ impl LeafSink for TeamFiltersBuilder {
             .entry(condition_hash)
             .or_insert_with(|| Arc::clone(bytecode));
         self.unique_condition_hashes.insert(condition_hash);
+
+        let flags = self.flags.entry(cohort_id).or_default();
+        flags.state_keyed_leaf_count += 1;
+        flags.has_negation |= negated;
     }
 
-    fn record_dropped(&mut self, reason: LeafDropReason) {
+    fn record_cohort_ref(&mut self, cohort_id: CohortId) {
+        self.flags.entry(cohort_id).or_default().has_cohort_ref = true;
+    }
+
+    fn record_dropped(&mut self, cohort_id: CohortId, reason: LeafDropReason) {
         counter!(FILTER_CATALOG_SKIPPED_LEAVES, "reason" => reason.as_str()).increment(1);
+        self.flags.entry(cohort_id).or_default().has_dropped_leaf = true;
     }
 }
 
@@ -158,14 +177,16 @@ impl TeamFiltersBuilder {
     }
 
     /// Freeze into an immutable [`TeamFilters`]: sort the dedup `HashSet`s into `Vec`s for
-    /// deterministic iteration and derive the per-leaf worker indices by walking the parsed trees.
-    /// `timezone` is the team's resolved zone (the loader supplies it; tests pass `UTC`).
+    /// deterministic iteration, derive the per-leaf worker indices by walking the parsed trees, and
+    /// classify each cohort's Stage 2 eligibility from its tree + captured parse flags. `timezone` is
+    /// the team's resolved zone (the loader supplies it; tests pass `UTC`).
     pub fn freeze(self, timezone: Tz) -> TeamFilters {
         let mut by_lsk = HashMap::new();
         let mut behavioral_conditions = HashSet::new();
         let mut person_property_conditions = HashSet::new();
         let mut by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>> =
             HashMap::new();
+        let mut eligibility: HashMap<CohortId, CohortEligibility> = HashMap::new();
         for tree in self.cohorts.values() {
             collect_leaf_meta(
                 &tree.root,
@@ -173,16 +194,18 @@ impl TeamFiltersBuilder {
                 &mut behavioral_conditions,
                 &mut person_property_conditions,
             );
-            // Guard on `by_lsk` so a cohort is mapped only if its leaf actually carries worker
-            // metadata — keeps the two maps consistent when `pick_state_variant` dropped a leaf.
-            if let Some(lsk) = single_supported_leaf(&tree.root) {
-                if by_lsk.contains_key(&lsk) {
-                    by_lsk_to_single_leaf_cohorts
-                        .entry(lsk)
-                        .or_default()
-                        .push(tree.cohort_id);
-                }
+            // Only `SingleLeaf` cohorts map: a leaf flip equals their whole membership. A cohort that
+            // lost a leaf at parse is `Excluded`, so its lone survivor never maps here.
+            let flags = self.flags.get(&tree.cohort_id).copied().unwrap_or_default();
+            let class = classify(tree, &flags);
+            counter!(COHORT_ELIGIBILITY_TOTAL, "class" => class.metric_class()).increment(1);
+            if let CohortEligibility::SingleLeaf(lsk) = class {
+                by_lsk_to_single_leaf_cohorts
+                    .entry(lsk)
+                    .or_default()
+                    .push(tree.cohort_id);
             }
+            eligibility.insert(tree.cohort_id, class);
         }
         for cohorts in by_lsk_to_single_leaf_cohorts.values_mut() {
             cohorts.sort_unstable();
@@ -197,47 +220,10 @@ impl TeamFiltersBuilder {
             behavioral_conditions,
             person_property_conditions,
             by_lsk_to_single_leaf_cohorts,
+            eligibility,
             cohorts: self.cohorts,
             timezone,
         }
-    }
-}
-
-/// The [`LeafStateKey`] of a cohort whose filter tree is **exactly one** state-keyed leaf, or
-/// [`None`] otherwise (zero leaves, ≥2 leaves, or a lone cohort-reference leaf — cohort refs have no
-/// `leaf_state_key`). The single-leaf restriction is what makes a leaf transition equal a
-/// whole-cohort membership change, before Stage 2 boolean composition exists.
-fn single_supported_leaf(root: &FilterNode) -> Option<LeafStateKey> {
-    /// `One` carries the single leaf's key (itself `None` for a cohort ref) so the final answer
-    /// needs no second lookup.
-    enum LeafCount {
-        Zero,
-        One(Option<LeafStateKey>),
-        Many,
-    }
-
-    fn walk(node: &FilterNode, acc: LeafCount) -> LeafCount {
-        match node {
-            FilterNode::Leaf(leaf) => match acc {
-                LeafCount::Zero => LeafCount::One(leaf.leaf_state_key()),
-                LeafCount::One(_) | LeafCount::Many => LeafCount::Many,
-            },
-            FilterNode::Group { children, .. } => {
-                let mut acc = acc;
-                for child in children {
-                    if matches!(acc, LeafCount::Many) {
-                        return LeafCount::Many;
-                    }
-                    acc = walk(child, acc);
-                }
-                acc
-            }
-        }
-    }
-
-    match walk(root, LeafCount::Zero) {
-        LeafCount::One(lsk) => lsk,
-        LeafCount::Zero | LeafCount::Many => None,
     }
 }
 
@@ -321,6 +307,8 @@ fn sorted_vec_map<V: Ord>(map: HashMap<[u8; 16], HashSet<V>>) -> HashMap<[u8; 16
 mod tests {
     use super::*;
     use serde_json::json;
+
+    use crate::stage2::ExcludedReason;
 
     const HASH: [u8; 16] = *b"0123456789abcdef";
 
@@ -636,6 +624,10 @@ mod tests {
             frozen.by_lsk_to_single_leaf_cohorts.get(&lsk),
             Some(&vec![CohortId(1)]),
         );
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::SingleLeaf(lsk),
+        );
     }
 
     #[test]
@@ -717,6 +709,11 @@ mod tests {
             frozen.by_lsk_to_single_leaf_cohorts.is_empty(),
             "multi-leaf cohort contributes no single-leaf mapping",
         );
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::Stage2Composable,
+            "two positive state leaves are composable",
+        );
     }
 
     #[test]
@@ -728,6 +725,10 @@ mod tests {
         let frozen = builder.freeze(UTC);
 
         assert!(frozen.by_lsk_to_single_leaf_cohorts.is_empty());
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::HasCohortRef),
+        );
     }
 
     #[test]
@@ -749,11 +750,15 @@ mod tests {
             frozen.by_lsk_to_single_leaf_cohorts[&lsk],
             vec![CohortId(1)]
         );
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::SingleLeaf(lsk),
+        );
     }
 
     #[test]
     fn empty_all_dropped_cohort_is_not_indexed() {
-        // The only leaf drops (no conditionHash), leaving an empty group → zero leaves → not indexed.
+        // The only leaf drops (no conditionHash); the recorded drop excludes the cohort.
         let mut builder = TeamFiltersBuilder::default();
         let dropped =
             json!({ "type": "behavioral", "key": "$pageview", "value": "performed_event" });
@@ -767,5 +772,89 @@ mod tests {
             frozen.by_lsk.is_empty(),
             "the dropped leaf left no state metadata"
         );
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::HasDroppedLeaf),
+        );
+    }
+
+    #[test]
+    fn collapse_shape_with_dropped_sibling_is_excluded_not_single_leaf() {
+        // A dropped sibling must exclude the cohort. An AND of a sub-day `performed_event_multiple`
+        // (dropped as an unsupported variant) and a surviving `performed_event` leaves one leaf in
+        // the tree, which must NOT map as single-leaf and drive membership from the survivor alone.
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![
+                    behavioral_performed_event_multiple(5, "hour", "gte", 3),
+                    behavioral_performed_event(7),
+                ]),
+            )
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::HasDroppedLeaf),
+        );
+        assert!(
+            frozen.by_lsk_to_single_leaf_cohorts.is_empty(),
+            "the surviving leaf must NOT map the dropped-sibling cohort as single-leaf",
+        );
+        // Stage 1 still tracks the survivor; only the single-leaf mapping is withheld.
+        assert_eq!(
+            frozen.by_lsk.len(),
+            1,
+            "the surviving leaf still carries meta"
+        );
+    }
+
+    #[test]
+    fn negated_behavioral_leaf_is_excluded_has_negation() {
+        // Both negation encodings are covered: `negation: true` and `operator: "not_in"`.
+        for negation_field in [json!({ "negation": true }), json!({ "operator": "not_in" })] {
+            let mut leaf = behavioral_performed_event(7);
+            let obj = leaf.as_object_mut().unwrap();
+            for (k, v) in negation_field.as_object().unwrap() {
+                obj.insert(k.clone(), v.clone());
+            }
+            let mut builder = TeamFiltersBuilder::default();
+            builder
+                .add_cohort(CohortId(1), TeamId(7), &wrap(vec![leaf]))
+                .unwrap();
+            let frozen = builder.freeze(UTC);
+
+            assert_eq!(
+                frozen.eligibility[&CohortId(1)],
+                CohortEligibility::Excluded(ExcludedReason::HasNegation),
+                "encoding {negation_field}",
+            );
+            assert!(
+                frozen.by_lsk_to_single_leaf_cohorts.is_empty(),
+                "a negated single leaf must not map as single-leaf (encoding {negation_field})",
+            );
+        }
+    }
+
+    #[test]
+    fn negated_person_leaf_is_excluded_has_negation() {
+        let mut leaf = person_leaf();
+        leaf.as_object_mut()
+            .unwrap()
+            .insert("negation".to_string(), json!(true));
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(CohortId(1), TeamId(7), &wrap(vec![leaf]))
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::HasNegation),
+        );
+        assert!(frozen.by_lsk_to_single_leaf_cohorts.is_empty());
     }
 }

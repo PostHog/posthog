@@ -11,7 +11,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::filters::leaf_classifier::{classify_leaf, LeafClass, LeafDropReason};
+use crate::filters::leaf_classifier::{classify_leaf, leaf_negation, LeafClass, LeafDropReason};
 use crate::filters::{CohortId, FilterError, TeamId};
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::state::StateVariant;
@@ -195,20 +195,28 @@ pub struct CohortTree {
 /// Receives the indexable side effects of a parse so parsing and index-building happen in one pass.
 /// [`crate::filters::reverse_index::TeamFiltersBuilder`] is the production implementation; tests use
 /// a lightweight collecting sink.
+///
+/// Every callback carries the `cohort_id`: a dropped leaf vanishes from the parsed tree, so
+/// recording that a cohort lost a constraint is only possible here, during the parse.
 pub trait LeafSink {
     /// Records a kept, state-keyed leaf's `condition_hash → {leaf_state_key, cohort_id, bytecode}`
     /// edges and its `conditionHash` dedup membership. `bytecode` is borrowed; the implementation
-    /// clones the `Arc` only on first insert per `conditionHash`.
+    /// clones the `Arc` only on first insert per `conditionHash`. `negated` is the leaf's negation
+    /// bit ([`leaf_negation`](crate::filters::leaf_classifier::leaf_negation)).
     fn record_state_keyed(
         &mut self,
         cohort_id: CohortId,
         condition_hash: [u8; 16],
         leaf_state_key: LeafStateKey,
         bytecode: &Arc<Vec<Value>>,
+        negated: bool,
     );
 
-    /// A dropped leaf, for the skip counter.
-    fn record_dropped(&mut self, reason: LeafDropReason);
+    /// A cohort-reference leaf, kept in the tree but not state-keyed.
+    fn record_cohort_ref(&mut self, cohort_id: CohortId);
+
+    /// A dropped leaf, for the skip counter and the owning cohort's `has_dropped_leaf` flag.
+    fn record_dropped(&mut self, cohort_id: CohortId, reason: LeafDropReason);
 }
 
 /// Parse a cohort's `filters` JSON into a [`CohortTree`], emitting index side effects through
@@ -262,13 +270,16 @@ fn parse_node(cohort_id: CohortId, node: &Value, sink: &mut dyn LeafSink) -> Opt
                 leaf.leaf_state_key(),
                 leaf.bytecode(),
             ) {
-                sink.record_state_keyed(cohort_id, hash, lsk, bytecode);
+                sink.record_state_keyed(cohort_id, hash, lsk, bytecode, leaf_negation(node));
             }
             Some(FilterNode::Leaf(leaf))
         }
-        LeafClass::CohortRef(config) => Some(FilterNode::Leaf(CohortLeaf::CohortRef(config))),
+        LeafClass::CohortRef(config) => {
+            sink.record_cohort_ref(cohort_id);
+            Some(FilterNode::Leaf(CohortLeaf::CohortRef(config)))
+        }
         LeafClass::Drop(reason) => {
-            sink.record_dropped(reason);
+            sink.record_dropped(cohort_id, reason);
             None
         }
     }
@@ -292,12 +303,13 @@ mod tests {
 
     #[derive(Default)]
     struct CollectingSink {
-        state_keyed: Vec<(CohortId, [u8; 16], LeafStateKey)>,
-        dropped: Vec<LeafDropReason>,
+        state_keyed: Vec<(CohortId, [u8; 16], LeafStateKey, bool)>,
+        cohort_refs: Vec<CohortId>,
+        dropped: Vec<(CohortId, LeafDropReason)>,
     }
 
     // Bytecode capture is covered against the real `TeamFiltersBuilder` elsewhere; this sink only
-    // observes the state-keyed/dropped edges, so it ignores the bytecode argument.
+    // observes the leaf-disposition edges, so it ignores the bytecode argument.
     impl LeafSink for CollectingSink {
         fn record_state_keyed(
             &mut self,
@@ -305,11 +317,15 @@ mod tests {
             hash: [u8; 16],
             lsk: LeafStateKey,
             _bytecode: &Arc<Vec<Value>>,
+            negated: bool,
         ) {
-            self.state_keyed.push((cohort_id, hash, lsk));
+            self.state_keyed.push((cohort_id, hash, lsk, negated));
         }
-        fn record_dropped(&mut self, reason: LeafDropReason) {
-            self.dropped.push(reason);
+        fn record_cohort_ref(&mut self, cohort_id: CohortId) {
+            self.cohort_refs.push(cohort_id);
+        }
+        fn record_dropped(&mut self, cohort_id: CohortId, reason: LeafDropReason) {
+            self.dropped.push((cohort_id, reason));
         }
     }
 
@@ -384,6 +400,20 @@ mod tests {
     }
 
     #[test]
+    fn negation_bit_is_captured_at_parse_time() {
+        let mut negated = person_leaf(&HASH_B);
+        negated["negation"] = json!(true);
+        let filters = json!({
+            "properties": { "type": "AND", "values": [person_leaf(&HASH_A), negated] },
+        });
+        let mut sink = CollectingSink::default();
+        parse(&filters, &mut sink);
+
+        let negated_bits: Vec<bool> = sink.state_keyed.iter().map(|&(.., neg)| neg).collect();
+        assert_eq!(negated_bits, vec![false, true]);
+    }
+
+    #[test]
     fn cohort_ref_is_kept_in_tree_but_not_indexed() {
         let filters = json!({
             "properties": {
@@ -409,6 +439,11 @@ mod tests {
             sink.state_keyed.is_empty(),
             "cohort refs are not state-keyed"
         );
+        assert_eq!(
+            sink.cohort_refs,
+            vec![CohortId(1)],
+            "the cohort ref is recorded against its owning cohort",
+        );
     }
 
     #[test]
@@ -429,7 +464,10 @@ mod tests {
             children.is_empty(),
             "dropped leaf leaves an empty (but kept) group"
         );
-        assert_eq!(sink.dropped, vec![LeafDropReason::MissingConditionHash]);
+        assert_eq!(
+            sink.dropped,
+            vec![(CohortId(1), LeafDropReason::MissingConditionHash)],
+        );
     }
 
     #[test]
