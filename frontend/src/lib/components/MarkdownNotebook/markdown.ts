@@ -809,16 +809,38 @@ function parseExpressionValue(raw: string): unknown {
 }
 
 function serializeComponentProps(props: NotebookComponentProps): string {
-    const serialized = getOrderedComponentPropEntries(props)
+    const serialized = getOrderedComponentPropEntries(getSerializableComponentProps(props))
         .filter(([, value]) => value !== undefined)
         .map(([key, value]) => (value === true ? ` ${key}` : ` ${key}=${serializePropValue(value)}`))
         .join('')
     return serialized
 }
 
+function getSerializableComponentProps(props: NotebookComponentProps): NotebookComponentProps {
+    const nextProps = Object.entries(props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
+        if (key !== 'view' && key !== 'edit' && key !== 'hideFilters' && key !== 'hideResults') {
+            accumulator[key] = value
+        }
+        return accumulator
+    }, {})
+    const legacyViewPanelVisible = typeof props.view === 'boolean' ? props.view : undefined
+    const legacyEditPanelVisible = typeof props.edit === 'boolean' ? props.edit : undefined
+    const hideFilters = typeof props.hideFilters === 'boolean' ? props.hideFilters : legacyEditPanelVisible === false
+    const hideResults = typeof props.hideResults === 'boolean' ? props.hideResults : legacyViewPanelVisible === false
+
+    if (hideFilters) {
+        nextProps.hideFilters = true
+    }
+    if (hideResults) {
+        nextProps.hideResults = true
+    }
+
+    return nextProps
+}
+
 function getOrderedComponentPropEntries(props: NotebookComponentProps): [string, NotebookPropValue][] {
     const entries = Object.entries(props)
-    const orderedKeys = ['view', 'edit']
+    const orderedKeys = ['hideFilters', 'hideResults']
     return [
         ...orderedKeys.flatMap((key): [string, NotebookPropValue][] =>
             Object.prototype.hasOwnProperty.call(props, key) ? [[key, props[key]]] : []

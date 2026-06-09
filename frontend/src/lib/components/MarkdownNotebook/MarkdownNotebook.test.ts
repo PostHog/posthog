@@ -18,6 +18,98 @@ const NOTEBOOK_TEST_EDITABLE_SELECTOR =
 const TEST_NOTEBOOK_TITLE = 'Notebook title'
 const TEST_NOTEBOOK_TITLE_MARKDOWN = `# ${TEST_NOTEBOOK_TITLE}`
 const TEST_AI_CHAT_ID = '10000000-1000-4000-8000-100000000001'
+const HJH8YSXW_MARKDOWN = [
+    '# banwefwefanan',
+    '',
+    'wefefeww',
+    '',
+    'efewwefef',
+    '',
+    'wefefewwefef',
+    '',
+    'wefef',
+    '',
+    '```',
+    'deddap llitr laer code comes here,  s',
+    '```',
+    '',
+    '<Tag data={[1,2,3]} />',
+    '',
+    '<Query noViewquery={{"kind":"DataTableNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"}}} isDefaultFilterApplied />',
+    '',
+    'asdasdas3',
+    '',
+    'rere',
+    '',
+    'asda [**blala**](http://localhost:8010/project/1/notebooks/hjH8ysXW) sdasdas',
+    '',
+    '[fgfghfhtrfhrth](http://localhost:8010/project/1/notebooks/hjH8ysXW)',
+    'asdasd',
+    'what is happening??',
+    '',
+    'asdasdasdasd',
+    '',
+    'asdasdasd',
+    '',
+    '```',
+    '',
+    '```',
+    '',
+    'ewfwef',
+    '',
+    '<Embed src="https://example.com" />',
+    '',
+    'esrgserg',
+    '',
+    'ereerrsgergserg',
+    '',
+    'sergserg',
+    '',
+    'is ewfewfewf',
+    'wefawef',
+    '',
+    ' ',
+    '',
+    '<Chat id="835f09ed-e58a-4a4a-93c3-813ced0d3e55" answer="A **toast** is a small, temporary notification that appears briefly on screen — usually at a corner or bottom of the UI — to give the user feedback about an action they just took. It \\"pops up\\" and then disappears automatically after a few seconds without requiring any interaction.\\n\\nCommon examples:\\n- \\"Link copied to clipboard\\"\\n- \\"Changes saved\\"\\n- \\"Error: something went wrong\\"\\n\\nThe name comes from the analogy of a piece of toast popping up from a toaster. They\'re distinct from modals or alerts because they\'re non-blocking — the user doesn\'t need to dismiss them." />',
+    '',
+    '```',
+    '',
+    '```',
+    '',
+    '<Chat id="d0ce6f26-acc0-4b78-a4d1-a6b4a0319d64" />',
+    '',
+    '<Query view edit query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[{"event":"$pageview","kind":"EventsNode"}],"properties":[]}}} isDefaultFilterApplied />',
+    '',
+    '<Query view edit query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[{"event":"$pageview","kind":"EventsNode"}],"properties":[]}}} isDefaultFilterApplied />',
+    '',
+    ' ',
+    '',
+    ' ',
+    '',
+    ' ',
+    '',
+    ' ',
+    '',
+    '<Embed />',
+    '',
+    ' ',
+    '',
+    ' ',
+    '',
+    ' ',
+    '',
+    ' ',
+    '',
+    ' ',
+    '',
+    ' ',
+    '',
+    ' ',
+    '',
+    ' ',
+    '',
+    ' ',
+].join('\n')
 
 function withNotebookTitle(markdown: string): string {
     return markdown ? `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${markdown}` : TEST_NOTEBOOK_TITLE_MARKDOWN
@@ -407,21 +499,41 @@ continued line
         expect(serializeMarkdownNotebook(parseMarkdownNotebook(canonicalMarkdown))).toEqual(canonicalMarkdown)
     })
 
-    it('serializes true boolean component props as bare JSX props', () => {
-        const markdown = `<Query query={{"kind":"DataTableNode"}} view={true} edit={true} disabled={false} />`
+    it('renders the hjH8ysXW notebook markdown without crashing', () => {
+        const { container } = render(createElement(MarkdownNotebook, { value: HJH8YSXW_MARKDOWN }))
+
+        expect(container.querySelector('.MarkdownNotebook__unknown-component')?.textContent).toContain(
+            'This tag is unknown.'
+        )
+        expect(container.querySelector('.MarkdownNotebook__code-block')?.textContent).toEqual(
+            'deddap llitr laer code comes here,  s'
+        )
+        expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeInstanceOf(HTMLElement)
+    })
+
+    it('serializes hidden component panel props as bare JSX props', () => {
+        const markdown = `<Query query={{"kind":"DataTableNode"}} hideFilters={true} hideResults={false} disabled={false} />`
         const document = parseMarkdownNotebook(markdown)
 
         expect(document.nodes[0]).toMatchObject({
             type: 'component',
             tagName: 'Query',
             props: {
-                view: true,
-                edit: true,
+                hideFilters: true,
+                hideResults: false,
                 disabled: false,
             },
         })
         expect(serializeMarkdownNotebook(document)).toEqual(
-            `<Query view edit query={{"kind":"DataTableNode"}} disabled={false} />`
+            `<Query hideFilters query={{"kind":"DataTableNode"}} disabled={false} />`
+        )
+    })
+
+    it('normalizes legacy component panel props to hidden panel props', () => {
+        const markdown = `<Query query={{"kind":"DataTableNode"}} view={false} edit={false} />`
+
+        expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(
+            `<Query hideFilters hideResults query={{"kind":"DataTableNode"}} />`
         )
     })
 
@@ -594,6 +706,38 @@ Activation improved today.`
         expect(textBlocks.map((block) => block.textContent)).toEqual(['', 'NotebookTitle'])
         expect(document.activeElement).toEqual(textBlocks[1])
         expect(onChange).toHaveBeenLastCalledWith(`# \n\nNotebookTitle`)
+    })
+
+    it('scrolls newly focused rows into view when repeated Enter presses create rows', () => {
+        const scrollIntoView = jest.fn()
+        const scrollIntoViewDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
+        Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+            configurable: true,
+            value: scrollIntoView,
+        })
+
+        try {
+            const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle('bla') }))
+            const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+            const enterCount = 8
+
+            selectTextInElement(getBodyTextBlock(container), 'bla'.length, 'bla'.length)
+            for (let index = 0; index < enterCount; index++) {
+                fireEvent.keyDown(canvas, { key: 'Enter' })
+            }
+
+            const textBlocks = getEditableTextBlocks(container)
+            expect(textBlocks).toHaveLength(enterCount + 2)
+            expect(document.activeElement).toEqual(textBlocks[textBlocks.length - 1])
+            expect(scrollIntoView).toHaveBeenCalledTimes(enterCount)
+            expect(scrollIntoView).toHaveBeenLastCalledWith({ block: 'nearest', inline: 'nearest' })
+        } finally {
+            if (scrollIntoViewDescriptor) {
+                Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', scrollIntoViewDescriptor)
+            } else {
+                delete (HTMLElement.prototype as { scrollIntoView?: Element['scrollIntoView'] }).scrollIntoView
+            }
+        }
     })
 
     it('splits the notebook title from native insertParagraph events', () => {
@@ -898,14 +1042,14 @@ Repeated block`),
         ])
         const initialMarkdown = `# Embeds
 
-<Embed src="https://posthog.com" title="PostHog" />`
+<Embed hideFilters src="https://posthog.com" title="PostHog" />`
         const { rerender } = render(createElement(MarkdownNotebook, { value: initialMarkdown, registry }))
 
         rerender(
             createElement(MarkdownNotebook, {
                 value: `# Updated embeds
 
-<Embed src="https://posthog.com" title="PostHog" />`,
+<Embed hideFilters src="https://posthog.com" title="PostHog" />`,
                 registry,
             })
         )
@@ -956,7 +1100,7 @@ Repeated block`),
 
         const savedMarkdown = onChange.mock.calls[onChange.mock.calls.length - 1][0]
         expect(savedMarkdown).toEqual(
-            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Embed view edit src="https://posthog.com" title="PostHog" />`
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Embed src="https://posthog.com" title="PostHog" />`
         )
 
         const renderCountBeforeRemoteSave = renderComponent.mock.calls.length
@@ -1314,9 +1458,7 @@ Repeated block`),
         expect(revenueButton).toBeInstanceOf(HTMLButtonElement)
         fireEvent.click(revenueButton as HTMLButtonElement)
 
-        expect(onChange).toHaveBeenLastCalledWith(
-            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<RevenueCard view edit metric="arr" />`
-        )
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<RevenueCard metric="arr" />`)
         expect(container.querySelector('[data-testid="revenue-card"]')?.textContent).toEqual('arr')
     })
 
@@ -3250,6 +3392,58 @@ Second paragraph`,
         expect(onChange).toHaveBeenLastCalledWith(expect.stringContaining('<Query'))
     })
 
+    it('continues keyboard input into a code block inserted after a paragraph', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const selectEnd = (element: HTMLElement): void => {
+            act(() => {
+                const range = document.createRange()
+                range.selectNodeContents(element)
+                range.collapse(false)
+                const selection = window.getSelection()
+                selection?.removeAllRanges()
+                selection?.addRange(range)
+            })
+        }
+
+        let textBlock = getBodyTextBlock(container)
+        textBlock.textContent = 'bla'
+        selectEnd(textBlock)
+        fireEvent.input(canvas)
+        fireEvent.keyDown(canvas, { key: 'Enter' })
+
+        textBlock = getBodyTextBlock(container, 1)
+        textBlock.textContent = '/code'
+        selectEnd(textBlock)
+        fireEvent.input(canvas)
+        fireEvent.keyDown(canvas, { key: 'Enter' })
+
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
+        expect(codeBlock).toBeInstanceOf(HTMLElement)
+        expect(document.activeElement).toEqual(codeBlock)
+
+        codeBlock.textContent = 'this is some text'
+        selectEnd(codeBlock)
+        fireEvent.input(codeBlock)
+        fireEvent.keyDown(codeBlock, { key: 'Enter' })
+
+        codeBlock.textContent = 'this is some text\nsecond line'
+        selectEnd(codeBlock)
+        fireEvent.input(codeBlock)
+
+        expect(getEditableTextBlocks(container).map((block) => block.textContent)).toEqual([TEST_NOTEBOOK_TITLE, 'bla'])
+        expect(codeBlock.textContent).toEqual('this is some text\nsecond line')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+bla
+
+\`\`\`
+this is some text
+second line
+\`\`\``)
+    })
+
     it('submits an Ask AI prompt when Enter is dispatched from the root editable surface', () => {
         const onAskAI = jest.fn()
         const { container } = render(
@@ -3612,9 +3806,7 @@ Closing`
 
             expect(components).toHaveLength(2)
             expect(clipboard.readText).toHaveBeenCalled()
-            expect(onChange).toHaveBeenLastCalledWith(
-                `# \n\n${markdown}\n\n<Query view edit query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
-            )
+            expect(onChange).toHaveBeenLastCalledWith(`# \n\n${markdown}\n\n${markdown}`)
             expect(document.activeElement).toEqual(components[1])
         } finally {
             Object.defineProperty(navigator, 'clipboard', {
@@ -3631,11 +3823,6 @@ Closing`
 <Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />
 
 Tail with **bold** text`
-        const persistedPastedMarkdown = `# Pasted heading
-
-<Query view edit query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />
-
-Tail with **bold** text`
         const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
         const textBlock = getBodyTextBlock(container)
 
@@ -3648,7 +3835,7 @@ Tail with **bold** text`
         expect(getEditableTextBlocks(container)[1].textContent).toEqual('Pasted heading')
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeInstanceOf(HTMLElement)
         expect(container.querySelector('p.MarkdownNotebook__text-block')?.textContent).toEqual('Tail with bold text')
-        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${persistedPastedMarkdown}`)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${pastedMarkdown}`)
     })
 
     it('pastes inline markdown into the active text block', () => {
@@ -4576,7 +4763,7 @@ After component`,
         expect(document.activeElement).toEqual(textBlocks[2])
     })
 
-    it('toggles component edit and view panels independently with edit above view', () => {
+    it('toggles component filters and results panels independently with filters above results', () => {
         const markdown = `<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: markdown, onChange }))
@@ -4594,17 +4781,25 @@ After component`,
         expect(toolbarLeftChildren[0].classList.contains('MarkdownNotebook__component-title')).toBe(true)
         expect(toolbarLeftChildren[1].classList.contains('MarkdownNotebook__component-mode-actions')).toBe(true)
         expect(deleteButton).toBeInstanceOf(HTMLButtonElement)
-        expect(container.querySelector('.MarkdownNotebook__component-preview')).toBeInstanceOf(HTMLElement)
-        expect(container.querySelector('.MarkdownNotebook__component-edit')).toBeNull()
-
-        fireEvent.click(modeButtons[0])
-
         const stackedPanels = Array.from(shell?.querySelectorAll('.MarkdownNotebook__component-panel') ?? [])
         expect(stackedPanels).toHaveLength(2)
         expect(stackedPanels[0].querySelector('.MarkdownNotebook__component-edit')).toBeInstanceOf(HTMLElement)
         expect(stackedPanels[1].querySelector('.MarkdownNotebook__component-preview')).toBeInstanceOf(HTMLElement)
+
+        fireEvent.click(modeButtons[0])
+
+        expect(container.querySelector('.MarkdownNotebook__component-edit')).toBeNull()
+        expect(container.querySelector('.MarkdownNotebook__component-preview')).toBeInstanceOf(HTMLElement)
         expect(onChange).toHaveBeenLastCalledWith(
-            `# \n\n<Query view edit query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
+            `# \n\n<Query hideFilters query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
+        )
+
+        fireEvent.click(modeButtons[0])
+
+        expect(container.querySelector('.MarkdownNotebook__component-edit')).toBeInstanceOf(HTMLElement)
+        expect(container.querySelector('.MarkdownNotebook__component-preview')).toBeInstanceOf(HTMLElement)
+        expect(onChange).toHaveBeenLastCalledWith(
+            `# \n\n<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
         )
 
         fireEvent.click(modeButtons[1])
@@ -4612,7 +4807,7 @@ After component`,
         expect(container.querySelector('.MarkdownNotebook__component-preview')).toBeNull()
         expect(container.querySelector('.MarkdownNotebook__component-edit')).toBeInstanceOf(HTMLElement)
         expect(onChange).toHaveBeenLastCalledWith(
-            `# \n\n<Query view={false} edit query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
+            `# \n\n<Query hideResults query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
         )
     })
 
@@ -4652,6 +4847,87 @@ After component`,
         expect(stackedPanels[1].querySelector('.MarkdownNotebook__component-preview')).toBeInstanceOf(HTMLElement)
     })
 
+    it('preserves hidden component panel props inserted through a value update', () => {
+        const { container, rerender } = render(createElement(MarkdownNotebook, { value: 'Intro paragraph' }))
+
+        rerender(
+            createElement(MarkdownNotebook, {
+                value: `Intro paragraph
+
+<Query hideResults query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`,
+            })
+        )
+
+        expect(container.querySelector('.MarkdownNotebook__component-edit')).toBeInstanceOf(HTMLElement)
+        expect(container.querySelector('.MarkdownNotebook__component-preview')).toBeNull()
+    })
+
+    it('shows component toolbar titles when filters are hidden', () => {
+        const { container, rerender } = render(
+            createElement(MarkdownNotebook, {
+                value: '<Embed hideFilters title="PostHog docs" src="https://posthog.com/docs" />',
+            })
+        )
+        const toolbarChildren = Array.from(
+            container.querySelector('.MarkdownNotebook__component-toolbar')?.children ?? []
+        )
+
+        expect(container.querySelector('.MarkdownNotebook__component-toolbar-title')?.textContent).toEqual(
+            'PostHog docs'
+        )
+        expect(toolbarChildren[1].classList.contains('MarkdownNotebook__component-toolbar-title')).toBe(true)
+
+        rerender(
+            createElement(MarkdownNotebook, {
+                value: '<Embed title="PostHog docs" src="https://posthog.com/docs" />',
+            })
+        )
+
+        expect(container.querySelector('.MarkdownNotebook__component-toolbar-title')).toBeNull()
+    })
+
+    it('shows component toolbar titles for single-mode components', () => {
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Chat',
+                label: 'AI chat',
+                category: 'AI',
+                hideModeActions: true,
+                getTitle: () => 'Cached answer summary',
+                ViewComponent: () => createElement('div', { 'data-testid': 'chat-output' }, 'Answer'),
+            },
+        ])
+        const { container } = render(createElement(MarkdownNotebook, { value: '<Chat id="chat-id" />', registry }))
+
+        expect(container.querySelector('[data-testid="chat-output"]')).toBeInstanceOf(HTMLElement)
+        expect(container.querySelector('.MarkdownNotebook__component-mode-actions')).toBeNull()
+        expect(container.querySelector('.MarkdownNotebook__component-toolbar-title')?.textContent).toEqual(
+            'Cached answer summary'
+        )
+    })
+
+    it('renders unknown component tags with a props toggle', () => {
+        const { container } = render(createElement(MarkdownNotebook, { value: `<Tag foo="bar" />` }))
+        const fallback = container.querySelector('.MarkdownNotebook__unknown-component')
+
+        expect(fallback).toBeInstanceOf(HTMLElement)
+        expect(fallback?.textContent).toContain('This tag is unknown.')
+        expect(fallback?.textContent).toContain('<Tag />')
+        expect(fallback?.querySelector('pre')?.textContent).toContain('"foo": "bar"')
+        expect(container.querySelector('.MarkdownNotebook__component-mode-actions')).toBeNull()
+
+        const getFallbackButton = (label: string): HTMLButtonElement | undefined =>
+            Array.from(fallback?.querySelectorAll('button') ?? []).find((button) => button.textContent === label)
+
+        fireEvent.click(getFallbackButton('Hide props') as HTMLButtonElement)
+
+        expect(fallback?.querySelector('pre')).toBeNull()
+
+        fireEvent.click(getFallbackButton('Show props') as HTMLButtonElement)
+
+        expect(fallback?.querySelector('pre')?.textContent).toContain('"foo": "bar"')
+    })
+
     it('shows SQL component titles as colored tags with icons', () => {
         const markdown = `<Query query={{"kind":"DataTableNode","source":{"kind":"HogQLQuery","query":"select event from events"}}} />`
         const { container } = render(createElement(MarkdownNotebook, { value: markdown }))
@@ -4664,7 +4940,7 @@ After component`,
     })
 
     it('does not duplicate component titles inside view content', () => {
-        const markdown = `<DuckSQL title="SQL (DuckDB)" code="select * from events" returnVariable="duck_df" />`
+        const markdown = `<DuckSQL hideFilters title="SQL (DuckDB)" code="select * from events" returnVariable="duck_df" />`
         const { container } = render(createElement(MarkdownNotebook, { value: markdown }))
         const shell = container.querySelector('.MarkdownNotebook__component-shell')
 

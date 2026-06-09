@@ -16,9 +16,11 @@ import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import {
     NotebookComponentDefinition,
+    NotebookComponentBlockNode,
     NotebookComponentProps,
     NotebookComponentRegistry,
     NotebookComponentRenderProps,
+    NotebookPropValue,
 } from './types'
 import { isNotebookComponentProps } from './utils'
 
@@ -66,6 +68,7 @@ export function getMarkdownNotebookDefaultRegistry(): NotebookComponentRegistry 
             description: 'Image block',
             icon: <IconUpload />,
             defaultProps: { src: '', alt: '' },
+            getTitle: getImageComponentTitle,
             ViewComponent: ImageView,
             EditComponent: ImageEdit,
         }),
@@ -76,6 +79,7 @@ export function getMarkdownNotebookDefaultRegistry(): NotebookComponentRegistry 
             description: 'Embedded external content',
             icon: <IconCode />,
             defaultProps: { src: '', title: 'Embedded content' },
+            getTitle: getEmbedComponentTitle,
             ViewComponent: EmbedView,
             EditComponent: EmbedEdit,
         }),
@@ -86,6 +90,7 @@ export function getMarkdownNotebookDefaultRegistry(): NotebookComponentRegistry 
             description: 'Math expression',
             icon: <IconCode />,
             defaultProps: { content: 'E=mc^2' },
+            getTitle: (node) => getStringProp(node.props.title) ?? summarizeText(getStringProp(node.props.content)),
             ViewComponent: LatexView,
             EditComponent: LatexEdit,
         }),
@@ -96,6 +101,7 @@ export function getMarkdownNotebookDefaultRegistry(): NotebookComponentRegistry 
             description: 'Python analysis block',
             icon: <IconCode />,
             defaultProps: { code: '', title: 'Python' },
+            getTitle: (node) => getCodeComponentTitle(node, 'Python'),
             ViewComponent: CodeView,
         }),
         makeDefinition({
@@ -105,6 +111,7 @@ export function getMarkdownNotebookDefaultRegistry(): NotebookComponentRegistry 
             description: 'DuckDB SQL block',
             icon: <IconDatabase />,
             defaultProps: { code: '', returnVariable: 'duck_df', title: 'SQL (DuckDB)' },
+            getTitle: (node) => getCodeComponentTitle(node, 'SQL (DuckDB)'),
             ViewComponent: CodeView,
         }),
         makeDefinition({
@@ -114,6 +121,7 @@ export function getMarkdownNotebookDefaultRegistry(): NotebookComponentRegistry 
             description: 'HogQL SQL block',
             icon: <IconDatabase />,
             defaultProps: { code: '', returnVariable: 'hogql_df', title: 'SQL (HogQL)' },
+            getTitle: (node) => getCodeComponentTitle(node, 'SQL (HogQL)'),
             ViewComponent: CodeView,
         }),
         makeDefinition({
@@ -216,6 +224,7 @@ function makeQueryDefinition(): NotebookComponentDefinition {
         category: 'Insight',
         description: 'Insight or query-backed block',
         icon: <IconGraph />,
+        getTitle: getQueryComponentTitle,
         defaultProps: {
             query: {
                 kind: 'DataTableNode',
@@ -248,6 +257,7 @@ function makeDefinition(
 ): NotebookComponentDefinition {
     return {
         EditComponent: GenericComponentEdit,
+        getTitle: getDefaultComponentTitle,
         ...definition,
     }
 }
@@ -355,6 +365,93 @@ function SummaryView({ node }: NotebookComponentRenderProps): JSX.Element {
             <pre>{JSON.stringify(node.props, null, 2)}</pre>
         </div>
     )
+}
+
+function getDefaultComponentTitle(node: NotebookComponentBlockNode): string | null {
+    return (
+        getStringProp(node.props.title) ??
+        getStringProp(node.props.name) ??
+        getStringProp(node.props.url) ??
+        getStringProp(node.props.href) ??
+        getStringProp(node.props.src) ??
+        getStringProp(node.props.id)
+    )
+}
+
+function getImageComponentTitle(node: NotebookComponentBlockNode): string | null {
+    return (
+        getStringProp(node.props.title) ??
+        getStringProp(node.props.alt) ??
+        getStringProp(node.props.src) ??
+        getDefaultComponentTitle(node)
+    )
+}
+
+function getEmbedComponentTitle(node: NotebookComponentBlockNode): string | null {
+    return getStringProp(node.props.title) ?? getStringProp(node.props.src) ?? getDefaultComponentTitle(node)
+}
+
+function getCodeComponentTitle(node: NotebookComponentBlockNode, fallback: string): string | null {
+    return getStringProp(node.props.title) ?? summarizeText(getStringProp(node.props.code)) ?? fallback
+}
+
+function getQueryComponentTitle(node: NotebookComponentBlockNode): string | null {
+    const explicitTitle = getStringProp(node.props.title)
+    if (explicitTitle) {
+        return explicitTitle
+    }
+
+    const query = getObjectProp(node.props.query)
+    const source = getObjectProp(query?.source)
+    const queryKind = getStringProp(query?.kind)
+    const sourceKind = getStringProp(source?.kind)
+
+    if (queryKind === 'SavedInsightNode') {
+        return getStringProp(query?.name) ?? getStringProp(query?.shortId) ?? 'Saved insight'
+    }
+    if (sourceKind === 'HogQLQuery') {
+        return summarizeText(getStringProp(source?.query)) ?? 'SQL query'
+    }
+    if (sourceKind === 'TrendsQuery') {
+        return source ? (getSeriesSummary(source) ?? 'Trend') : 'Trend'
+    }
+    if (sourceKind === 'FunnelsQuery') {
+        return 'Funnel'
+    }
+    if (sourceKind === 'EventsQuery') {
+        return 'Events'
+    }
+
+    return queryKind ?? sourceKind ?? getDefaultComponentTitle(node)
+}
+
+function getSeriesSummary(query: Record<string, NotebookPropValue>): string | null {
+    const series = query.series
+    if (!Array.isArray(series)) {
+        return null
+    }
+
+    const names = series
+        .map((seriesItem) => (getObjectProp(seriesItem) ? getStringProp(getObjectProp(seriesItem)?.event) : null))
+        .filter(Boolean)
+
+    return names.length ? names.join(', ') : null
+}
+
+function getStringProp(value: NotebookPropValue | undefined): string | null {
+    return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function getObjectProp(value: NotebookPropValue | undefined): Record<string, NotebookPropValue> | null {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null
+}
+
+function summarizeText(value: string | null): string | null {
+    const oneLineValue = value?.replace(/\s+/g, ' ').trim()
+    if (!oneLineValue) {
+        return null
+    }
+    return oneLineValue.length > 120 ? `${oneLineValue.slice(0, 117)}...` : oneLineValue
 }
 
 function GenericComponentEdit({ node, updateProps }: NotebookComponentRenderProps): JSX.Element {

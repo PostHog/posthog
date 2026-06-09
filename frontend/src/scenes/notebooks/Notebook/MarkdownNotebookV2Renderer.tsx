@@ -39,6 +39,7 @@ import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 import { MarkdownNotebook, createMarkdownNotebookRegistry } from 'lib/components/MarkdownNotebook'
 import type { MarkdownNotebookAskAIRequest } from 'lib/components/MarkdownNotebook'
 import {
+    NotebookComponentBlockNode,
     NotebookComponentDefinition,
     NotebookComponentProps,
     NotebookComponentRenderProps,
@@ -480,6 +481,8 @@ const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkdownNote
             EditComponent: definition.EditComponent ?? RealNotebookNodeEdit,
             exclusiveEditPanel: definition.exclusiveEditPanel,
             insertCommand: definition.insertCommand,
+            getTitle: (node: NotebookComponentBlockNode) =>
+                getMarkdownNotebookNodeTitle(node, nodeType, options, label),
         }
     }),
     {
@@ -492,8 +495,60 @@ const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkdownNote
         EditComponent: NotebookAIChat,
         exclusiveEditPanel: true,
         hideModeActions: true,
+        getTitle: getNotebookAIChatTitle,
     },
 ])
+
+function getMarkdownNotebookNodeTitle(
+    node: NotebookComponentBlockNode,
+    nodeType: NotebookNodeType | undefined,
+    options: CreatePostHogWidgetNodeOptions<any> | null,
+    fallback: string
+): string | null {
+    const attributes = getNodeAttributes(node.props, node.id, options, nodeType, false)
+    const explicitTitle = getUnknownStringProp(attributes.title)
+
+    if (explicitTitle) {
+        return explicitTitle
+    }
+
+    if (nodeType === NotebookNodeType.Query) {
+        return getQueryTitle(attributes.query) ?? fallback
+    }
+    if (nodeType === NotebookNodeType.Embed) {
+        return getUnknownStringProp(attributes.src) ?? fallback
+    }
+    if (nodeType === NotebookNodeType.Image) {
+        return (
+            getUnknownStringProp(attributes.alt) ??
+            getUnknownStringProp((attributes.file as { name?: unknown } | undefined)?.name) ??
+            getUnknownStringProp(attributes.src) ??
+            fallback
+        )
+    }
+    if (
+        nodeType === NotebookNodeType.Python ||
+        nodeType === NotebookNodeType.DuckSQL ||
+        nodeType === NotebookNodeType.HogQLSQL
+    ) {
+        return summarizeTitle(getUnknownStringProp(attributes.code)) ?? fallback
+    }
+
+    return (
+        summarizeTitle(options?.serializedText?.(attributes)) ??
+        getUnknownStringProp(attributes.name) ??
+        getUnknownStringProp(attributes.id) ??
+        fallback
+    )
+}
+
+function getNotebookAIChatTitle(node: NotebookComponentBlockNode): string | null {
+    return (
+        getNotebookStringProp(node.props.title) ??
+        summarizeTitle(getNotebookStringProp(node.props.answer)) ??
+        (getNotebookStringProp(node.props.id) ? 'Thinking ...' : 'AI chat')
+    )
+}
 
 function getInlineNotebookAITabId(chatId: string): string {
     return `notebook-inline-${chatId}`
@@ -501,6 +556,67 @@ function getInlineNotebookAITabId(chatId: string): string {
 
 function getNotebookStringProp(value: NotebookPropValue | undefined): string | null {
     return typeof value === 'string' ? value : null
+}
+
+function getNotebookObjectProp(value: NotebookPropValue | undefined): Record<string, NotebookPropValue> | null {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null
+}
+
+function getUnknownStringProp(value: unknown): string | null {
+    return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function getQueryTitle(queryValue: unknown): string | null {
+    if (!queryValue || typeof queryValue !== 'object' || Array.isArray(queryValue)) {
+        return null
+    }
+
+    const query = queryValue as Record<string, NotebookPropValue>
+    const source = getNotebookObjectProp(query.source)
+    const queryKind = getNotebookStringProp(query.kind)
+    const sourceKind = getNotebookStringProp(source?.kind)
+
+    if (queryKind === 'SavedInsightNode') {
+        return getNotebookStringProp(query.name) ?? getNotebookStringProp(query.shortId) ?? 'Saved insight'
+    }
+    if (sourceKind === 'HogQLQuery') {
+        return summarizeTitle(getNotebookStringProp(source?.query)) ?? 'SQL query'
+    }
+    if (sourceKind === 'TrendsQuery') {
+        return source ? (getSeriesTitle(source) ?? 'Trend') : 'Trend'
+    }
+    if (sourceKind === 'FunnelsQuery') {
+        return 'Funnel'
+    }
+    if (sourceKind === 'EventsQuery') {
+        return 'Events'
+    }
+
+    return queryKind ?? sourceKind
+}
+
+function getSeriesTitle(query: Record<string, NotebookPropValue>): string | null {
+    const series = query.series
+    if (!Array.isArray(series)) {
+        return null
+    }
+
+    const events = series
+        .map((seriesItem) => {
+            const seriesObject = getNotebookObjectProp(seriesItem)
+            return getNotebookStringProp(seriesObject?.event)
+        })
+        .filter(Boolean)
+
+    return events.length ? events.join(', ') : null
+}
+
+function summarizeTitle(value: string | null | undefined): string | null {
+    const oneLineValue = value?.replace(/\s+/g, ' ').trim()
+    if (!oneLineValue) {
+        return null
+    }
+    return oneLineValue.length > 120 ? `${oneLineValue.slice(0, 117)}...` : oneLineValue
 }
 
 function NotebookAIChat({ node, updateProps }: NotebookComponentRenderProps): JSX.Element {
@@ -860,7 +976,7 @@ function getNodeAttributes(
 
 function getNodeAttributeProps(props: NotebookComponentProps): NotebookComponentProps {
     return Object.entries(props).reduce<NotebookComponentProps>((attributeProps, [key, value]) => {
-        if (key !== 'view' && key !== 'edit') {
+        if (key !== 'view' && key !== 'edit' && key !== 'hideFilters' && key !== 'hideResults') {
             attributeProps[key] = value
         }
         return attributeProps

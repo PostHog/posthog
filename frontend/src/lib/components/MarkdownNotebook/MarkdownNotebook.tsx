@@ -30,6 +30,7 @@ import {
     IconDatabase,
     IconEye,
     IconGraph,
+    IconHide,
     IconList,
     IconMinus,
     IconPencil,
@@ -216,7 +217,7 @@ type InlineLinkPasteResult = {
     end: number
 }
 
-type ComponentPanel = 'view' | 'edit'
+type ComponentPanel = 'filters' | 'results'
 
 type ComponentPanelVisibility = Record<ComponentPanel, boolean>
 
@@ -257,13 +258,13 @@ type NotebookComponentShellProps = {
 }
 
 const DEFAULT_COMPONENT_PANEL_VISIBILITY: ComponentPanelVisibility = {
-    view: true,
-    edit: false,
+    filters: true,
+    results: true,
 }
 
 const INSERTED_COMPONENT_PANEL_VISIBILITY: ComponentPanelVisibility = {
-    view: true,
-    edit: true,
+    filters: true,
+    results: true,
 }
 
 const FLOATING_TOOLBAR_ESTIMATED_HEIGHT = 36
@@ -291,9 +292,18 @@ function getComponentPanelVisibility(
     node: NotebookComponentBlockNode,
     fallbackPanels: ComponentPanelVisibility
 ): ComponentPanelVisibility {
+    const legacyViewPanelVisible = typeof node.props.view === 'boolean' ? node.props.view : undefined
+    const legacyEditPanelVisible = typeof node.props.edit === 'boolean' ? node.props.edit : undefined
+
     return {
-        view: typeof node.props.view === 'boolean' ? node.props.view : fallbackPanels.view,
-        edit: typeof node.props.edit === 'boolean' ? node.props.edit : fallbackPanels.edit,
+        filters:
+            typeof node.props.hideFilters === 'boolean'
+                ? !node.props.hideFilters
+                : (legacyEditPanelVisible ?? fallbackPanels.filters),
+        results:
+            typeof node.props.hideResults === 'boolean'
+                ? !node.props.hideResults
+                : (legacyViewPanelVisible ?? fallbackPanels.results),
     }
 }
 
@@ -315,12 +325,29 @@ function withPersistedComponentPanelProps(
 
     return {
         ...node,
-        props: {
-            ...node.props,
-            view: panels.view,
-            edit: panels.edit,
-        },
+        props: getComponentPropsWithPanelVisibility(node.props, panels),
     }
+}
+
+function getComponentPropsWithPanelVisibility(
+    props: NotebookComponentProps,
+    panels: ComponentPanelVisibility
+): NotebookComponentProps {
+    const nextProps = Object.entries(props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
+        if (key !== 'view' && key !== 'edit' && key !== 'hideFilters' && key !== 'hideResults') {
+            accumulator[key] = value
+        }
+        return accumulator
+    }, {})
+
+    if (!panels.filters) {
+        nextProps.hideFilters = true
+    }
+    if (!panels.results) {
+        nextProps.hideResults = true
+    }
+
+    return nextProps
 }
 
 export function MarkdownNotebook({
@@ -449,6 +476,7 @@ export function MarkdownNotebook({
             if (element) {
                 element.focus()
                 restoreSelection(element, request.start, request.end)
+                scrollNotebookElementIntoView(element)
             }
             return
         }
@@ -456,7 +484,11 @@ export function MarkdownNotebook({
         const focusNodeId = focusNodeRef.current
         if (focusNodeId) {
             focusNodeRef.current = null
-            blockRefs.current[focusNodeId]?.focus()
+            const element = blockRefs.current[focusNodeId]
+            element?.focus()
+            if (element) {
+                scrollNotebookElementIntoView(element)
+            }
         }
     }, [debugMarkdown, document])
 
@@ -1056,11 +1088,8 @@ export function MarkdownNotebook({
     const replaceNodeWithInsertedComponent = useCallback(
         (nodeId: string, nextNode: NotebookComponentBlockNode): void => {
             const definition = getMarkdownNotebookComponentDefinition(mergedRegistry, nextNode.tagName)
-            const insertedNode = withPersistedComponentPanelProps(
-                nextNode,
-                definition,
-                INSERTED_COMPONENT_PANEL_VISIBILITY
-            )
+            const insertedPanels = getComponentPanelVisibility(nextNode, INSERTED_COMPONENT_PANEL_VISIBILITY)
+            const insertedNode = withPersistedComponentPanelProps(nextNode, definition, insertedPanels)
             focusNodeRef.current = nextNode.id
             replaceNode(nodeId, insertedNode)
         },
@@ -1279,7 +1308,8 @@ export function MarkdownNotebook({
             }
 
             const definition = getMarkdownNotebookComponentDefinition(mergedRegistry, node.tagName)
-            return withPersistedComponentPanelProps(node, definition, INSERTED_COMPONENT_PANEL_VISIBILITY)
+            const insertedPanels = getComponentPanelVisibility(node, INSERTED_COMPONENT_PANEL_VISIBILITY)
+            return withPersistedComponentPanelProps(node, definition, insertedPanels)
         })
         if (areNotebookDocumentsEqual(document, { ...document, nodes: nextNodes })) {
             return
@@ -5697,11 +5727,13 @@ function NotebookComponentShell({
     const errors = [...(node.errors ?? []), ...(definition?.validateProps?.(node.props) ?? [])]
     const ViewComponent = definition?.ViewComponent
     const EditComponent = definition?.EditComponent ?? definition?.ViewComponent
-    const showEditPanel = mode === 'edit' && componentPanels.edit
+    const showEditPanel = mode === 'edit' && componentPanels.filters
     const showViewPanel =
-        (mode === 'view' || componentPanels.view) && !(showEditPanel && definition?.exclusiveEditPanel)
-    const showModeActions = mode === 'edit' && !definition?.hideModeActions
+        (mode === 'view' || componentPanels.results) && !(showEditPanel && definition?.exclusiveEditPanel)
+    const showModeActions = mode === 'edit' && !!definition && !definition.hideModeActions
     const titleDisplay = getComponentTitleDisplay(node, definition)
+    const toolbarTitle = getComponentToolbarTitle(node, definition, titleDisplay.label)
+    const showToolbarTitle = !!toolbarTitle && (mode === 'view' || !componentPanels.filters || !showModeActions)
     const updateProps = (props: Partial<NotebookComponentProps>): void => {
         const nextProps = Object.entries(props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
             if (value !== undefined) {
@@ -5781,24 +5813,29 @@ function NotebookComponentShell({
                     {showModeActions ? (
                         <div className="MarkdownNotebook__component-mode-actions">
                             <LemonButton
-                                aria-label="Edit mode"
+                                aria-label="Filters"
                                 size="xsmall"
                                 icon={<IconPencil />}
-                                active={componentPanels.edit}
-                                tooltip="Edit mode"
-                                onClick={() => toggleComponentPanel('edit')}
+                                active={componentPanels.filters}
+                                tooltip="Filters"
+                                onClick={() => toggleComponentPanel('filters')}
                             />
                             <LemonButton
-                                aria-label="View mode"
+                                aria-label="Results"
                                 size="xsmall"
                                 icon={<IconEye />}
-                                active={componentPanels.view}
-                                tooltip="View mode"
-                                onClick={() => toggleComponentPanel('view')}
+                                active={componentPanels.results}
+                                tooltip="Results"
+                                onClick={() => toggleComponentPanel('results')}
                             />
                         </div>
                     ) : null}
                 </div>
+                {showToolbarTitle ? (
+                    <div className="MarkdownNotebook__component-toolbar-title" title={toolbarTitle}>
+                        {toolbarTitle}
+                    </div>
+                ) : null}
                 {mode === 'edit' ? (
                     <div className="MarkdownNotebook__component-actions">
                         <LemonButton
@@ -5829,10 +5866,35 @@ function NotebookComponentShell({
                     {ViewComponent ? (
                         <ViewComponent node={node} mode="view" updateProps={updateProps} />
                     ) : (
-                        <pre>{JSON.stringify(node.props, null, 2)}</pre>
+                        <UnknownComponentView node={node} />
                     )}
                 </div>
             ) : null}
+        </div>
+    )
+}
+
+function UnknownComponentView({ node }: { node: NotebookComponentBlockNode }): JSX.Element {
+    const [arePropsVisible, setArePropsVisible] = useState(true)
+
+    return (
+        <div className="MarkdownNotebook__unknown-component">
+            <div className="MarkdownNotebook__unknown-component-header">
+                <div className="MarkdownNotebook__unknown-component-message">
+                    <strong>This tag is unknown.</strong>
+                    <span>
+                        The <code>{`<${node.tagName} />`}</code> tag is not registered as a markdown notebook component.
+                    </span>
+                </div>
+                <LemonButton
+                    size="xsmall"
+                    icon={arePropsVisible ? <IconHide /> : <IconEye />}
+                    onClick={() => setArePropsVisible(!arePropsVisible)}
+                >
+                    {arePropsVisible ? 'Hide props' : 'Show props'}
+                </LemonButton>
+            </div>
+            {arePropsVisible ? <pre>{JSON.stringify(node.props, null, 2)}</pre> : null}
         </div>
     )
 }
@@ -5857,8 +5919,8 @@ function areNotebookComponentShellPropsEqual(
         previousDefinition === nextDefinition &&
         previousProps.node.id === nextProps.node.id &&
         previousProps.isSelected === nextProps.isSelected &&
-        previousProps.componentPanels.view === nextProps.componentPanels.view &&
-        previousProps.componentPanels.edit === nextProps.componentPanels.edit &&
+        previousProps.componentPanels.filters === nextProps.componentPanels.filters &&
+        previousProps.componentPanels.results === nextProps.componentPanels.results &&
         getNodeFingerprint(previousProps.node) === getNodeFingerprint(nextProps.node)
     )
 }
@@ -5879,6 +5941,16 @@ function getComponentTitleDisplay(
         tone,
         icon: definition?.icon ?? getComponentTitleFallbackIcon(tone),
     }
+}
+
+function getComponentToolbarTitle(
+    node: NotebookComponentBlockNode,
+    definition: NotebookComponentDefinition | null,
+    label: string
+): string | null {
+    const title = definition?.getTitle?.(node) ?? getNotebookStringProp(node.props.title)
+    const trimmedTitle = title?.trim()
+    return trimmedTitle && trimmedTitle !== label ? trimmedTitle : null
 }
 
 function getQueryComponentTitleDisplay(
@@ -6876,6 +6948,14 @@ function restoreSelection(element: HTMLElement, start: number, end: number): voi
     range.setEnd(endPosition.node, endPosition.offset)
     selection.removeAllRanges()
     selection.addRange(range)
+}
+
+function scrollNotebookElementIntoView(element: HTMLElement): void {
+    if (typeof element.scrollIntoView !== 'function') {
+        return
+    }
+
+    element.scrollIntoView({ block: 'nearest', inline: 'nearest' })
 }
 
 function setNotebookSelectionStart(range: Range, node: NotebookBlockNode, element: HTMLElement): void {

@@ -40,6 +40,7 @@ const revenueRegistry = createMarkdownNotebookRegistry([
         description: 'Revenue summary',
         aliases: ['arr', 'mrr'],
         defaultProps: { metric: 'arr' },
+        getTitle: ({ props }) => `Revenue: ${String(props.metric ?? 'arr').toUpperCase()}`,
         insertCommand: {
             aliases: ['arr', 'mrr'],
         },
@@ -71,6 +72,10 @@ If it is omitted, the component can still render from markdown but does not appe
 `validateProps` returns user-facing validation errors.
 The notebook shell renders those above the component.
 
+`getTitle(node)` returns the toolbar title shown when the component filters panel is hidden.
+Use it for the compact summary a reader needs while filters are collapsed, such as a URL, insight name, code title, or cached AI answer summary.
+If omitted, the shell falls back to string props such as `title`, `name`, `url`, `href`, `src`, or `id`.
+
 `ViewComponent` renders the read panel.
 `EditComponent` is optional; if omitted, the component only has a view panel.
 Call `updateProps(partialProps)` from either component to update persisted markdown props.
@@ -78,7 +83,7 @@ Call `updateProps(partialProps)` from either component to update persisted markd
 `exclusiveEditPanel` hides the view panel while the edit panel is open.
 Use it for expensive or stateful components that should not mount twice.
 
-`hideModeActions` hides the view/edit toggle buttons while preserving the component toolbar and delete action.
+`hideModeActions` hides the filters/results toggle buttons while preserving the component toolbar and delete action.
 Use it for components with a single meaningful display mode.
 
 ## Prop rules
@@ -110,13 +115,14 @@ Boolean `true` props serialize as bare JSX props.
 Boolean `false` props stay explicit:
 
 ```md
-<RevenueCard view edit disabled={false} metric="arr" />
+<RevenueCard hideFilters disabled={false} metric="arr" />
 ```
 
-`view` and `edit` are reserved props used by the notebook shell to persist which panels are open.
+`hideFilters` and `hideResults` are reserved props used by the notebook shell to persist which panels are hidden.
+When a panel is shown, omit its prop.
 Components with visible mode actions should allow these props to round-trip.
 Components with `hideModeActions` do not persist them.
-`Prompt` is a special AI input tag and should not use `view` or `edit`.
+`Prompt` is a special AI input tag and should not use `hideFilters` or `hideResults`.
 
 ## Adding a standalone component
 
@@ -169,6 +175,7 @@ The V2 adapter supplies:
 - `defaultProps`
 - icon from `NODE_ICONS`
 - title fallback from `KNOWN_NODES[nodeType].titlePlaceholder`
+- toolbar title from `title`, URL-ish props, code/query summaries, or the node's serialized text
 
 If the node type does not exist yet, create the notebook node first under `frontend/src/scenes/notebooks/Nodes`, register it in `KNOWN_NODES`, add an icon in `NODE_ICONS`, then follow the steps above.
 
@@ -183,6 +190,7 @@ Add or update tests for:
 
 - parsing and serializing the tag
 - rendering the view component
+- toolbar title behavior when filters are hidden
 - editing props through `updateProps`
 - slash-menu insertion when `insertCommand` is present
 - validation errors when `validateProps` rejects invalid props

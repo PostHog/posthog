@@ -694,7 +694,7 @@ h3.MarkdownNotebook__text-block--heading {
     width: calc(100% - var(--markdown-notebook-content-offset));
     min-width: 0;
     min-height: 3rem;
-    padding: 0.875rem 1rem;
+    padding: 0.875rem 1rem 0.875rem calc(1rem + var(--markdown-notebook-content-offset));
     font-family: var(--font-mono);
     font-size: 0.8125rem;
     line-height: 1.55;
@@ -765,9 +765,25 @@ h3.MarkdownNotebook__text-block--heading {
 
 .MarkdownNotebook__component-toolbar-left {
     display: flex;
+    flex: 0 1 auto;
     gap: 0.5rem;
     align-items: center;
     min-width: 0;
+}
+
+.MarkdownNotebook__component-toolbar-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    color: var(--color-text-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.MarkdownNotebook__component-actions {
+    flex: 0 0 auto;
 }
 
 .MarkdownNotebook__component-panel + .MarkdownNotebook__component-panel {
@@ -855,6 +871,48 @@ h3.MarkdownNotebook__text-block--heading {
     gap: 0.5rem;
     padding: 0.75rem;
     background: var(--markdown-notebook-component-background);
+}
+
+.MarkdownNotebook__unknown-component {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: var(--markdown-notebook-component-background);
+}
+
+.MarkdownNotebook__unknown-component-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: flex-start;
+    justify-content: space-between;
+}
+
+.MarkdownNotebook__unknown-component-message {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+}
+
+.MarkdownNotebook__unknown-component-message strong {
+    color: var(--color-text-primary);
+}
+
+.MarkdownNotebook__unknown-component-message code {
+    color: var(--color-text-primary);
+}
+
+.MarkdownNotebook__unknown-component pre {
+    padding: 0.875rem;
+    margin: 0;
+    overflow: auto;
+    font-size: 0.8125rem;
+    background: var(--bg-light);
+    border-radius: 0.375rem;
 }
 
 .MarkdownNotebook__component-edit textarea {

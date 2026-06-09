@@ -130,6 +130,7 @@ export type NotebookComponentDefinition = {
     icon?: ReactNode
     defaultProps?: NotebookComponentProps | (() => NotebookComponentProps)
     validateProps?: (props: NotebookComponentProps) => string[]
+    getTitle?: (node: NotebookComponentBlockNode) => string | null | undefined
     ViewComponent: (props: NotebookComponentRenderProps) => JSX.Element
     EditComponent?: (props: NotebookComponentRenderProps) => JSX.Element
     exclusiveEditPanel?: boolean
