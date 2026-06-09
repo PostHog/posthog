@@ -105,42 +105,27 @@ describe('workflowLogic email step "from" validation', () => {
         logic?.unmount()
     })
 
-    it('flags the step as invalid when "from" has an email but no integrationId (no sender picked)', async () => {
+    it.each([
+        ['"from" has no integrationId (no sender picked)', {}],
+        ['"from" is completely missing', undefined],
+    ])('flags the step as invalid when %s', async (_name, fromValue) => {
         useMocks({
             get: {
-                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ email: 'sender@example.com' }),
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow(fromValue),
                 '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
             },
         })
         initKeaTests()
-        logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+        logic = workflowLogic({ id: WORKFLOW_ID })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
         const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
-        expect(result).not.toBeNull()
         expect(result?.valid).toBe(false)
         expect(result?.errors.email).toBe('Choose who to send this email from')
     })
 
-    it('flags the step as invalid when "from" is completely missing', async () => {
-        useMocks({
-            get: {
-                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow(undefined),
-                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
-            },
-        })
-        initKeaTests()
-        logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
-
-        const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
-        expect(result?.valid).toBe(false)
-        expect(result?.errors.email).toContain('Choose who to send this email from')
-    })
-
-    it('flags the step as invalid when integrationId is set but from.email is missing', async () => {
+    it('does not flag a "from" error when an integration sender has been picked', async () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ integrationId: 42 }),
@@ -148,27 +133,7 @@ describe('workflowLogic email step "from" validation', () => {
             },
         })
         initKeaTests()
-        logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
-
-        const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
-        expect(result?.valid).toBe(false)
-        expect(result?.errors.email).toContain('Choose who to send this email from')
-    })
-
-    it('does not flag a "from" error when an integration sender has been picked', async () => {
-        useMocks({
-            get: {
-                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({
-                    email: 'sender@example.com',
-                    integrationId: 42,
-                }),
-                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
-            },
-        })
-        initKeaTests()
-        logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+        logic = workflowLogic({ id: WORKFLOW_ID })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
@@ -180,12 +145,12 @@ describe('workflowLogic email step "from" validation', () => {
     it('keeps the email-block error after templates load (function-action branch must not clobber it)', async () => {
         useMocks({
             get: {
-                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ email: 'sender@example.com' }),
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({}),
                 '/api/projects/:team_id/hog_function_templates/': loadedTemplatesResponse,
             },
         })
         initKeaTests()
-        logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+        logic = workflowLogic({ id: WORKFLOW_ID })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess', 'loadHogFunctionTemplatesByIdSuccess'])
 
@@ -197,12 +162,12 @@ describe('workflowLogic email step "from" validation', () => {
     it('propagates the step error into workflowHasActionErrors', async () => {
         useMocks({
             get: {
-                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ email: 'sender@example.com' }),
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({}),
                 '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
             },
         })
         initKeaTests()
-        logic = workflowLogic({ id: WORKFLOW_ID, tabId: 'default' })
+        logic = workflowLogic({ id: WORKFLOW_ID })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 

@@ -236,7 +236,8 @@ describe('PersonHogGroupRepository', () => {
                     expect(mockPostgres.fetchGroupsByKeys).toHaveBeenCalledWith(
                         [TEAM_ID],
                         [GROUP_TYPE_INDEX],
-                        [GROUP_KEY]
+                        [GROUP_KEY],
+                        undefined
                     )
                     expect(handlers.getGroupsBatch).not.toHaveBeenCalled()
                 }
@@ -265,7 +266,7 @@ describe('PersonHogGroupRepository', () => {
                     expect(handlers.getGroupTypeMappingsByTeamIds).toHaveBeenCalled()
                     expect(mockPostgres.fetchGroupTypesByTeamIds).not.toHaveBeenCalled()
                 } else {
-                    expect(mockPostgres.fetchGroupTypesByTeamIds).toHaveBeenCalledWith([TEAM_ID])
+                    expect(mockPostgres.fetchGroupTypesByTeamIds).toHaveBeenCalledWith([TEAM_ID], undefined)
                     expect(handlers.getGroupTypeMappingsByTeamIds).not.toHaveBeenCalled()
                 }
             })
@@ -284,7 +285,7 @@ describe('PersonHogGroupRepository', () => {
                     expect(handlers.getGroupTypeMappingsByProjectIds).toHaveBeenCalled()
                     expect(mockPostgres.fetchGroupTypesByProjectIds).not.toHaveBeenCalled()
                 } else {
-                    expect(mockPostgres.fetchGroupTypesByProjectIds).toHaveBeenCalledWith([PROJECT_ID])
+                    expect(mockPostgres.fetchGroupTypesByProjectIds).toHaveBeenCalledWith([PROJECT_ID], undefined)
                     expect(handlers.getGroupTypeMappingsByProjectIds).not.toHaveBeenCalled()
                 }
             })

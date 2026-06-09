@@ -38,6 +38,8 @@ services:
                         path /i/v0
                         path /i/v0/
                         path /i/v0/*
+                        path /i/v1/analytics/events
+                        path /i/v1/analytics/events/
                         path /batch
                         path /batch/
                         path /batch/*
@@ -62,6 +64,10 @@ services:
                         path /flags
                         path /flags/
                         path /flags/*
+                        # Local evaluation (flag definitions) — mirrors cloud Contour routing to Rust
+                        path /api/feature_flag/local_evaluation
+                        path /api/feature_flag/local_evaluation/
+                        path /api/feature_flag/local_evaluation/*
                     }
 
                     @surveys {
@@ -293,6 +299,15 @@ services:
             REDIS_URL: 'redis://redis7:6379/'
             CAPTURE_MODE: events
             RUST_LOG: 'info,rdkafka=warn'
+            CAPTURE_V1_SINKS: 'msk'
+            CAPTURE_V1_SINK_MSK_KAFKA_HOSTS: 'kafka:9092'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_MAIN: 'events_plugin_ingestion'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HISTORICAL: 'events_plugin_ingestion_historical'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_OVERFLOW: 'events_plugin_ingestion_overflow'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_DLQ: 'events_plugin_ingestion_dlq'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_EXCEPTION: 'ingestion-errortracking-main'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HEATMAP: 'heatmaps_ingestion'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_CLIENT_INGESTION_WARNING: 'ingestion-clientwarnings-main-1'
 
     replay-capture:
         image: ghcr.io/posthog/posthog/capture:master
@@ -508,7 +523,6 @@ services:
         environment:
             PLUGIN_SERVER_MODE: 'ingestion-errortracking'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis7:6379/'
             CDP_REDIS_HOST: redis7

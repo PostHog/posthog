@@ -12,6 +12,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
+    ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE,
     ACCESS_CONTROL_RESOURCES,
     AccessControlLevel,
     AccessSource,
@@ -148,6 +149,28 @@ class AccessControlSerializer(serializers.ModelSerializer):
             # Check that they have the right access level for this specific resource object
             if not access_control.check_can_modify_access_levels_for_object(the_object):
                 raise exceptions.PermissionDenied(f"Must be {required_level} to modify {resource} permissions.")
+
+            # Cap distinct objects with per-object overrides.
+            # Only run the count when adding a rule for a previously-unrestricted object.
+            if (
+                data.get("access_level") is not None
+                and not AccessControl.objects.filter(team=team, resource=resource, resource_id=resource_id).exists()
+            ):
+                distinct_objects = (
+                    AccessControl.objects.filter(
+                        team=team,
+                        resource=resource,
+                        resource_id__isnull=False,
+                    )
+                    .values("resource_id")
+                    .distinct()
+                    .count()
+                )
+                if distinct_objects >= ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE:
+                    raise serializers.ValidationError(
+                        f"Reached the limit of {ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE} {resource}s "
+                        f"with access control overrides."
+                    )
         else:
             # If modifying the base resource rules then we are checking the parent membership (project or organization)
             # NOTE: Currently we only support org level in the UI so its simply an org level check

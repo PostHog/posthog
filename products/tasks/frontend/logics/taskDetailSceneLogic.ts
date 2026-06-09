@@ -16,10 +16,12 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { isUUIDLike } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { LogEntry, parseLogEvent } from '../lib/parse-logs'
+import { phDebugQueryParams, phDebugQuerySuffix } from '../lib/ph-debug'
 import { TaskRun, TaskRunStatus } from '../types'
 import type { taskDetailSceneLogicType } from './taskDetailSceneLogicType'
 import { TaskLogicProps, taskLogic } from './taskLogic'
@@ -222,7 +224,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             [] as TaskRun[],
             {
                 loadRuns: async () => {
-                    const response = await api.tasks.runs.list(props.taskId)
+                    const response = await api.tasks.runs.list(props.taskId, phDebugQueryParams())
                     return response.results
                 },
             },
@@ -234,10 +236,10 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                     if (!values.selectedRunId) {
                         return null
                     }
-                    const run = await api.tasks.runs.get(props.taskId, values.selectedRunId)
+                    const run = await api.tasks.runs.get(props.taskId, values.selectedRunId, phDebugQueryParams())
                     // Use proxy endpoint to avoid CORS issues with direct S3 access
                     actions.loadLogs({
-                        url: `/api/projects/${values.currentProjectId}/tasks/${props.taskId}/runs/${values.selectedRunId}/logs/`,
+                        url: `/api/projects/${values.currentProjectId}/tasks/${props.taskId}/runs/${values.selectedRunId}/logs/${phDebugQuerySuffix()}`,
                     })
                     return run
                 },
@@ -536,7 +538,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 return
             }
             const runIdFromUrl = searchParams.runId
-            if (runIdFromUrl && runIdFromUrl !== values.selectedRunId) {
+            if (runIdFromUrl && isUUIDLike(runIdFromUrl) && runIdFromUrl !== values.selectedRunId) {
                 actions.setSelectedRunId(runIdFromUrl, props.taskId)
             }
         },

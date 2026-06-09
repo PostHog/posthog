@@ -124,7 +124,6 @@ class TestUpdateFeatureFlagActionExtractIntent(APIBaseTest):
     def test_extract_intent_captures_rollout_percentage_from_all_locations(self):
         old_filters = {
             "groups": [{"properties": [], "rollout_percentage": 50}],
-            "super_groups": [{"properties": [], "rollout_percentage": 100}],
             "holdout": {"id": 1, "exclusion_percentage": 70},
             "multivariate": {"variants": [{"key": "control", "rollout_percentage": 50}]},
         }
@@ -132,7 +131,6 @@ class TestUpdateFeatureFlagActionExtractIntent(APIBaseTest):
 
         new_filters = {
             "groups": [{"properties": [], "rollout_percentage": 80}],
-            "super_groups": [{"properties": [], "rollout_percentage": 100}],
             "holdout": {"id": 1, "exclusion_percentage": 70},
             "multivariate": {"variants": [{"key": "control", "rollout_percentage": 60}]},
         }

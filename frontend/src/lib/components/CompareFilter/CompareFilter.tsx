@@ -14,6 +14,8 @@ type CompareFilterProps = {
     updateCompareFilter: (compareFilter: CompareFilterType) => void
     disabled?: boolean
     disableReason?: string | null
+    /** Shown on hover, e.g. the resolved comparison date range */
+    tooltip?: string | null
 }
 
 export function CompareFilter({
@@ -21,6 +23,7 @@ export function CompareFilter({
     updateCompareFilter,
     disabled,
     disableReason,
+    tooltip,
 }: CompareFilterProps): JSX.Element | null {
     // This keeps the state of the rolling date range filter, even when different drop down options are selected
     // The default value for this is one month
@@ -112,6 +115,7 @@ export function CompareFilter({
             size="small"
             disabled={disabled}
             disabledReason={disableReason}
+            tooltip={tooltip}
         />
     )
 }

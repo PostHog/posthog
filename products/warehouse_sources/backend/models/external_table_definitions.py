@@ -519,6 +519,10 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "cancel_at": StringDatabaseField(name="cancel_at"),
         "cancel_at_period_end": BooleanDatabaseField(name="cancel_at_period_end"),
         "cancellation_details": StringJSONDatabaseField(name="cancellation_details"),
+        # Expanded via API sync (`expand=data.discounts`); contains full Discount objects
+        # with embedded Coupon. Under webhook-only mode this is an array of `di_*` IDs —
+        # join to `stripe_discount.id` for full details.
+        "discounts": StringJSONDatabaseField(name="discounts"),
         "__trial_end": IntegerDatabaseField(name="trial_end", hidden=True),
         "trial_end": ast.ExpressionField(
             isolate_scope=True,
@@ -796,6 +800,73 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "redaction": StringJSONDatabaseField(name="redaction"),
         "metadata": StringJSONDatabaseField(name="metadata"),
         "type": StringDatabaseField(name="type"),
+    },
+    "stripe_coupon": {
+        "id": StringDatabaseField(name="id"),
+        "object": StringDatabaseField(name="object"),
+        "__created": IntegerDatabaseField(name="created", hidden=True),
+        "created_at": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[ast.Call(name="toString", args=[ast.Field(chain=["__created"])])],
+            ),
+            name="created_at",
+        ),
+        "amount_off": IntegerDatabaseField(name="amount_off"),
+        "percent_off": FloatDatabaseField(name="percent_off"),
+        "currency": StringDatabaseField(name="currency"),
+        "duration": StringDatabaseField(name="duration"),
+        "duration_in_months": IntegerDatabaseField(name="duration_in_months"),
+        "max_redemptions": IntegerDatabaseField(name="max_redemptions"),
+        "__redeem_by": IntegerDatabaseField(name="redeem_by", hidden=True),
+        "redeem_by": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[ast.Call(name="toString", args=[ast.Field(chain=["__redeem_by"])])],
+            ),
+            name="redeem_by",
+        ),
+        "times_redeemed": IntegerDatabaseField(name="times_redeemed"),
+        "valid": BooleanDatabaseField(name="valid"),
+        "name": StringDatabaseField(name="name"),
+        "livemode": BooleanDatabaseField(name="livemode"),
+        "metadata": StringJSONDatabaseField(name="metadata"),
+        "applies_to": StringJSONDatabaseField(name="applies_to"),
+    },
+    # Webhook-only — populated by `customer.discount.created|updated|deleted` events.
+    # Discount has no API list endpoint, so this table backfills only forward.
+    "stripe_discount": {
+        "id": StringDatabaseField(name="id"),
+        "object": StringDatabaseField(name="object"),
+        "customer": StringDatabaseField(name="customer"),
+        "subscription": StringDatabaseField(name="subscription"),
+        "subscription_item": StringDatabaseField(name="subscription_item"),
+        "invoice": StringDatabaseField(name="invoice"),
+        "invoice_item": StringDatabaseField(name="invoice_item"),
+        "promotion_code": StringDatabaseField(name="promotion_code"),
+        "checkout_session": StringDatabaseField(name="checkout_session"),
+        # Coupon is always embedded inline in a Discount object — full coupon details live here.
+        "coupon": StringJSONDatabaseField(name="coupon"),
+        "__start": IntegerDatabaseField(name="start", hidden=True),
+        "start": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[ast.Call(name="toString", args=[ast.Field(chain=["__start"])])],
+            ),
+            name="start",
+        ),
+        "__end": IntegerDatabaseField(name="end", hidden=True),
+        "end": ast.ExpressionField(
+            isolate_scope=True,
+            expr=ast.Call(
+                name="toDateTime",
+                args=[ast.Call(name="toString", args=[ast.Field(chain=["__end"])])],
+            ),
+            name="end",
+        ),
     },
     "zendesk_brands": {
         "id": IntegerDatabaseField(name="id"),

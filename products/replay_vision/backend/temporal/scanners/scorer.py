@@ -5,7 +5,7 @@ from typing import Any, ClassVar, Literal
 from pydantic import BaseModel, Field, create_model, model_validator
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
-from products.replay_vision.backend.temporal.scanners.base import BaseScanner, BaseScannerOutput
+from products.replay_vision.backend.temporal.scanners.base import BaseScanner, BaseScannerOutput, Segment
 
 
 class ScoreScale(BaseModel, frozen=True):
@@ -24,6 +24,7 @@ class ScorerOutput(BaseScannerOutput, frozen=True):
     scanner_type: Literal[ScannerType.SCORER] = ScannerType.SCORER
     score: float = Field(description="Numeric score on the configured scale.")
     reasoning: str = Field(description="One paragraph grounding the score in concrete moments.")
+    reasoning_segments: list[Segment] = Field(default_factory=list)
     label: str | None = Field(
         default=None, description="Echoes `scanner_config.scale.label`; workflow-stamped, not model-generated."
     )
@@ -31,7 +32,6 @@ class ScorerOutput(BaseScannerOutput, frozen=True):
 
 class ScorerScanner(BaseScanner, frozen=True):
     scanner_type: Literal[ScannerType.SCORER] = ScannerType.SCORER
-    prompt: str
     prompt_template: ClassVar[str] = "scorer.jinja"
     citation_fields: ClassVar[tuple[str, ...]] = ("reasoning",)
     output_cls: ClassVar[type[BaseScannerOutput]] = ScorerOutput

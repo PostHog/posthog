@@ -126,7 +126,7 @@ class ErrorTrackingIssueCohort(UUIDTModel):
         related_name="cohorts",
     )
     cohort = models.ForeignKey(
-        "posthog.Cohort",
+        "cohorts.Cohort",
         on_delete=models.CASCADE,
     )
     created_at = models.DateTimeField(auto_now_add=True)

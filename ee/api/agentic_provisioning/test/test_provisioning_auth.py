@@ -370,7 +370,7 @@ class TestProvisioningAuthentication(APIBaseTest):
 
     # --- PAT scopes ---
 
-    def test_provisioned_pat_created(self):
+    def test_default_off_app_mints_no_provisioned_pat(self):
         from posthog.models.personal_api_key import PersonalAPIKey
 
         verifier, challenge = _pkce_pair()
@@ -414,8 +414,9 @@ class TestProvisioningAuthentication(APIBaseTest):
         from posthog.models.user import User
 
         user = User.objects.get(email=email)
+        # The wizard app does not set provisioning_issues_personal_api_key, so no PAT is minted.
         pat = PersonalAPIKey.objects.filter(user=user).first()
-        assert pat is not None
+        assert pat is None
 
     # --- is_active kill switch ---
 

@@ -466,7 +466,7 @@ class HogFunctionFilterSet(FilterSet):
         fields = ["type", "enabled", "id", "created_by", "created_at", "updated_at"]
 
 
-@extend_schema(tags=["hog_functions", "cdp"])
+@extend_schema(tags=["hog_functions"], extensions={"x-product": "cdp"})
 class HogFunctionViewSet(
     TeamAndOrgViewSetMixin,
     LogEntryMixin,
@@ -743,7 +743,7 @@ class HogFunctionViewSet(
 
     @action(detail=True, methods=["POST"])
     def enable_backfills(self, request: Request, *args, **kwargs):
-        from posthog.batch_exports.http import BatchExportSerializer
+        from products.batch_exports.backend.api.batch_export import BatchExportSerializer
 
         hog_function = self.get_object()
 

@@ -180,10 +180,6 @@ def render_query(request: HttpRequest) -> HttpResponse:
 def preflight_check(request: HttpRequest) -> JsonResponse:
     with tracer.start_as_current_span("preflight.slack_config_main"):
         slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
-    with tracer.start_as_current_span("preflight.posthog_code_slack_config"):
-        posthog_code_slack_config = SlackIntegration.posthog_code_slack_config()
-        posthog_code_slack_client_id = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_ID")
-        posthog_code_slack_signing_secret = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_SIGNING_SECRET")
     hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
     salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
 
@@ -213,12 +209,6 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "slack_service": {
             "available": bool(slack_client_id),
             "client_id": slack_client_id or None,
-        },
-        "posthog_code_slack_service": {
-            "available": bool(posthog_code_slack_client_id)
-            and bool(posthog_code_slack_signing_secret)
-            and bool(posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_SECRET")),
-            "client_id": posthog_code_slack_client_id or None,
         },
         "data_warehouse_integrations": {
             "hubspot": {"client_id": hubspot_client_id},

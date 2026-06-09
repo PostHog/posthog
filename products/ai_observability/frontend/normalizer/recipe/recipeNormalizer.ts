@@ -1,0 +1,47 @@
+import { CompatMessage } from '../../types'
+import { AVAILABLE_TOOLS_ROLE } from '../../utils'
+import { loadRecipes } from './registry'
+import { NO_MATCH, RecipePipeline } from './runtime/pipeline'
+import { Recipe } from './spec/recipe'
+
+export class RecipeNormalizer {
+    private pipeline: RecipePipeline
+
+    constructor(recipes: Recipe[] = loadRecipes()) {
+        this.pipeline = new RecipePipeline(recipes)
+    }
+
+    setRecipes(recipes: Recipe[]): void {
+        this.pipeline = new RecipePipeline(recipes)
+    }
+
+    normalizeMessage(input: unknown, defaultRole: string): CompatMessage[] {
+        // `undefined` carries no message (a missing field, a sparse array slot). cajole
+        // intentionally doesn't match it, so handle it here rather than dispatch a miss.
+        if (input === undefined) {
+            return []
+        }
+        const result = this.pipeline.run(input, defaultRole)
+        if (result === NO_MATCH) {
+            // cajole.yaml matches anything, so NO_MATCH means a coverage gap, not a normal miss.
+            throw new Error(`RecipeNormalizer: no recipe matched — cajole.yaml should be the final catch-all`)
+        }
+        return result
+    }
+
+    normalizeMessages(input: unknown, defaultRole: string, tools?: unknown): CompatMessage[] {
+        const messages: CompatMessage[] = []
+        if (tools) {
+            // `tools` is a function parameter, not a message shape, so it has no recipe.
+            messages.push({ role: AVAILABLE_TOOLS_ROLE, content: '', tools })
+        }
+        if (carriesMessages(input)) {
+            messages.push(...this.normalizeMessage(input, defaultRole))
+        }
+        return messages
+    }
+}
+
+function carriesMessages(input: unknown): boolean {
+    return Array.isArray(input) || typeof input === 'string' || (typeof input === 'object' && input !== null)
+}

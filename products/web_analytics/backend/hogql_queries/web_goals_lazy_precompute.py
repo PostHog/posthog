@@ -237,7 +237,7 @@ def _build_insert_query(actions: Sequence) -> str:
     return f"""
 SELECT
     toStartOfHour(start_timestamp) AS time_window_start,
-    action_id,
+    action_id AS action_id,
     sumState(assumeNotNull(toInt(action_count))) AS count_state,
     uniqStateIf(
         session_person_id,

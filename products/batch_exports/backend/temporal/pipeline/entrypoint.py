@@ -7,10 +7,10 @@ from django.conf import settings
 from temporalio import exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.models import BatchExportRun
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.service import (
     BackfillDetails,
     BatchExportField,
@@ -72,7 +72,6 @@ async def execute_batch_export_using_internal_stage(
     maximum_retry_interval_seconds: int = DEFAULT_MAX_RETRY_INTERVAL_SECONDS,
     maximum_stage_retry_interval_seconds: int = DEFAULT_MAX_STAGE_RETRY_INTERVAL_SECONDS,
     override_start_to_close_timeout_seconds: int | None = None,
-    num_partitions: int | None = None,
     is_workflows: bool = False,
 ) -> BatchExportResultType:
     """
@@ -99,8 +98,6 @@ async def execute_batch_export_using_internal_stage(
         override_start_to_close_timeout_seconds: Optionally, override the start-to-close
             timeout of the main activity. If this is lower than the calculated default
             timeout for the main activity, then the default will be preferred.
-        num_partitions: Optionally, set a number of partitions for the internal stage
-            activity.
     """
     if hasattr(inputs, "batch_export"):
         batch_export_inputs: _BatchExportInputsProtocol = inputs.batch_export  # ty: ignore[invalid-assignment]
@@ -131,7 +128,7 @@ async def execute_batch_export_using_internal_stage(
     if interval == "hour":
         # TODO - we should reduce this to 1 hour once we are more confident about hitting 1 hour SLAs.
         # TODO: Review timeouts for internal stage activity.
-        main_activity_start_to_close_timeout = max(dt.timedelta(hours=2), override_start_to_close_timeout_timedelta)
+        main_activity_start_to_close_timeout = max(dt.timedelta(hours=6), override_start_to_close_timeout_timedelta)
         stage_activity_start_to_close_timeout = dt.timedelta(hours=1)
     elif interval == "day":
         main_activity_start_to_close_timeout = max(dt.timedelta(days=1), override_start_to_close_timeout_timedelta)
@@ -164,7 +161,6 @@ async def execute_batch_export_using_internal_stage(
                 run_id=batch_export_inputs.run_id,
                 backfill_details=batch_export_inputs.backfill_details,
                 batch_export_model=batch_export_inputs.batch_export_model,
-                num_partitions=num_partitions,
                 is_workflows=is_workflows,
                 batch_export_schema=batch_export_inputs.batch_export_schema,
                 destination_default_fields=batch_export_inputs.destination_default_fields,
@@ -175,7 +171,7 @@ async def execute_batch_export_using_internal_stage(
                 initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
                 maximum_interval=dt.timedelta(seconds=maximum_stage_retry_interval_seconds),
                 maximum_attempts=maximum_attempts,
-                non_retryable_error_types=["InvalidFilterError"],
+                non_retryable_error_types=["InvalidFilterError", "DataIntervalEndInFutureError"],
             ),
         )
         batch_export_inputs.stage_folder = stage_folder

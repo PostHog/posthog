@@ -31,6 +31,8 @@ export interface KeyedRateLimiterConfig {
 export interface KeyedRateLimitRequest {
     id: string
     cost: number
+    /** Used by guard-style limiters to scope per-team state. Ignored by the base service. */
+    teamId?: number
     bucketSize?: number
     refillRate?: number
     ttlSeconds?: number
@@ -46,12 +48,24 @@ export type KeyedRateLimit = {
     isRateLimited: boolean
 }
 
+export interface KeyedRateLimiter {
+    /**
+     * Rate-limit a batch of requests.
+     *
+     * Contract: the resolved array is a 1:1 positional mapping to `requests` —
+     * same length, exactly one decision per input request, in input order.
+     * Callers (e.g. `createKeyedRateLimiterStep`) correlate results by index, so
+     * implementations must not deduplicate, group, or reorder the returned array.
+     */
+    rateLimitGrouped(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]>
+}
+
 const buildKeyPrefix = (name: string): string => {
     const root = process.env.NODE_ENV === 'test' ? '@posthog-test' : '@posthog'
     return `${root}/${name}/tokens`
 }
 
-export class KeyedRateLimiterService {
+export class KeyedRateLimiterService implements KeyedRateLimiter {
     private readonly keyPrefix: string
 
     constructor(

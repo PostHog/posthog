@@ -673,6 +673,30 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Analyzing session replays...'
         },
     },
+    summarize_replay_vision_summaries: {
+        name: 'Summarize session summaries',
+        description: 'Summarize session summaries across a Replay Vision summarizer scanner',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Summarized session summaries'
+            }
+            return 'Summarizing session summaries...'
+        },
+    },
+    draft_replay_vision_scanner_prompt: {
+        name: 'Write scanner prompts',
+        description: 'Write scanner prompts for Replay Vision scanners',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Drafted scanner prompt'
+            }
+            return 'Drafting scanner prompt...'
+        },
+    },
     create_survey: {
         name: 'Create surveys',
         description: 'Create surveys in seconds',
@@ -765,6 +789,16 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         icon: iconForType('web_analytics'),
         displayFormatter: (toolCall) => {
             return toolCall.status === 'completed' ? 'Diagnosed web analytics' : 'Diagnosing web analytics...'
+        },
+    },
+    assess_heatmap: {
+        name: 'Assess a heatmap',
+        description:
+            'Assess a heatmap for a page — click, rageclick, and scroll-depth data plus the elements under the hot spots — and recommend concrete changes',
+        product: Scene.WebAnalytics,
+        icon: iconForType('web_analytics'),
+        displayFormatter: (toolCall) => {
+            return toolCall.status === 'completed' ? 'Assessed heatmap' : 'Assessing heatmap...'
         },
     },
     marketing_diagnose_setup: {

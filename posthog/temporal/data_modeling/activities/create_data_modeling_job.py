@@ -4,7 +4,7 @@ from structlog import get_logger
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 
 from products.data_modeling.backend.models import Node
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobEngine
@@ -21,7 +21,7 @@ class CreateDataModelingJobInputs:
     parent_workflow_id: str | None = None
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _create_data_modeling_job(inputs: CreateDataModelingJobInputs, workflow_id: str, workflow_run_id: str) -> str:
     node = Node.objects.prefetch_related("saved_query").get(
         id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id

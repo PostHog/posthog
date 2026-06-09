@@ -8,7 +8,7 @@ from rest_framework import status
 
 from posthog.models.team.team import Team
 
-from ee.models.assistant import CORE_MEMORY_MAX_CHARACTERS, CoreMemory
+from products.posthog_ai.backend.models.assistant import CORE_MEMORY_MAX_CHARACTERS, CoreMemory
 
 
 class TestCoreMemoryAPI(APIBaseTest):

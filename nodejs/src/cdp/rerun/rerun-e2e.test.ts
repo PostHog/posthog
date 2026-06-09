@@ -11,15 +11,15 @@ import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
+import { PersonReadRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
 import { KAFKA_HOG_INVOCATION_RESULTS, KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { UUIDT } from '../../utils/utils'
 import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { insertHogFunction as _insertHogFunction, createHogExecutionGlobals } from '../_tests/fixtures'
+import { CdpConsumerBaseDeps } from '../consumers/cdp-base.consumer'
 import { CdpCyclotronWorker } from '../consumers/cdp-cyclotron-worker.consumer'
 import { CdpEventsConsumer } from '../consumers/cdp-events.consumer'
 import { CdpRerunWorkerConsumer } from '../consumers/cdp-rerun-worker.consumer'
@@ -133,6 +133,7 @@ describe('CDP hog invocation rerun e2e', () => {
     let postgresV2Queue: CyclotronJobQueuePostgresV2
     let nodeAssertPool: Pool
     let clickhouse: Clickhouse
+    let cdpDeps: CdpConsumerBaseDeps
 
     beforeAll(() => {
         clickhouse = Clickhouse.create()
@@ -164,19 +165,29 @@ describe('CDP hog invocation rerun e2e', () => {
         team = await getFirstTeam(hub.postgres)
 
         // The rerun strips `person` from invocation_globals — the cyclotron
-        // worker reloads it via getCyclotronPerson(distinct_id). Seed a real
+        // worker reloads it via getCyclotronPerson(distinct_id). Provide a mock
         // person so the rerun can resolve `{person}` in the function's inputs.
-        await new PostgresPersonRepository(hub.postgres).createPerson(
-            DateTime.now(),
-            { email: 'rerun-e2e@posthog.com' },
-            {},
-            {},
-            team.id,
-            null,
-            true,
-            new UUIDT().toString(),
-            { distinctId: 'distinct_id' }
-        )
+        const mockPersonRepo: jest.Mocked<PersonReadRepository> = {
+            fetchPerson: jest.fn().mockResolvedValue(undefined),
+            fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([
+                {
+                    id: '1',
+                    uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
+                    team_id: team.id,
+                    properties: { email: 'rerun-e2e@posthog.com' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: null,
+                    created_at: DateTime.utc(),
+                    version: 1,
+                    is_identified: true,
+                    is_user_id: null,
+                    last_seen_at: null,
+                    distinct_id: 'distinct_id',
+                },
+            ]),
+            fetchPersonsByPersonIds: jest.fn().mockResolvedValue([]),
+            fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
+        }
 
         mockProducerObserver.resetKafkaProducer()
 
@@ -212,7 +223,9 @@ describe('CDP hog invocation rerun e2e', () => {
         kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
         postgresV2Queue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
 
-        eventsConsumer = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+        cdpDeps = { ...createCdpConsumerDeps(hub, kafkaProducer), personRepository: mockPersonRepo }
+
+        eventsConsumer = new CdpEventsConsumer(hub, cdpDeps, {
             hogQueue: kafkaQueue,
             hogflowQueue: postgresV2Queue,
         })
@@ -226,7 +239,7 @@ describe('CDP hog invocation rerun e2e', () => {
         } as any
         await eventsConsumer.start()
 
-        cyclotronWorker = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub, kafkaProducer), kafkaQueue)
+        cyclotronWorker = new CdpCyclotronWorker(hub, cdpDeps, kafkaQueue)
         await cyclotronWorker.start()
 
         rerunManager = new RerunJobManager({ dbUrl: NODE_DB_URL, maxCount: 10000 })
@@ -299,12 +312,15 @@ describe('CDP hog invocation rerun e2e', () => {
         // having to manually delete the row.
 
         // ── 2. Mimic Django POST /rerun — only the request itself is faked ──────
-        // The rerun request requires a time window; we use a wide one and
-        // restrict to a specific invocation_id via the optional filter field.
+        // The rerun request requires a time window; we use a wide one around
+        // "now" (the lifecycle row's scheduled_at = current time) and restrict
+        // to a specific invocation_id via the optional filter field.
+        const windowStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+        const windowEnd = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
         const rerunJobId = await rerunManager.enqueue(team.id, 'hog_function', fnFetch.id, {
             filter: {
-                window_start: '2026-05-01T00:00:00Z',
-                window_end: '2026-05-31T00:00:00Z',
+                window_start: windowStart,
+                window_end: windowEnd,
                 status: ['succeeded'],
                 invocation_ids: [originalInvocationId],
             },
@@ -324,7 +340,7 @@ describe('CDP hog invocation rerun e2e', () => {
         // ── 3. Rerun worker drains the wrapper job ────────────────────────────────
         rerunWorker = new CdpRerunWorkerConsumer(
             { ...hub, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres' },
-            createCdpConsumerDeps(hub, kafkaProducer),
+            cdpDeps,
             { hog_function: kafkaQueue, hog_flow: postgresV2Queue }
         )
         await rerunWorker.start()
