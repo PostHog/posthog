@@ -1506,8 +1506,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         dashboard_json = self.dashboard_api.get_dashboard(existing_dashboard.pk)
         assert len(dashboard_json["tiles"]) == 3
-        tile_to_delete = dashboard_json["tiles"][2]
-        assert tile_to_delete["insight"]["id"] == insight_two_id
+        tile_to_delete = next(
+            tile
+            for tile in dashboard_json["tiles"]
+            if tile["insight"] is not None and tile["insight"]["id"] == insight_two_id
+        )
 
         self.dashboard_api.update_dashboard(
             existing_dashboard.pk,
