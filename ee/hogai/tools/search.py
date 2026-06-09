@@ -191,7 +191,10 @@ class SearchTool(MaxTool):
         query_embedding = await self._get_query_embedding(query)
         use_semantic = query_embedding is not None
 
-        results = await database_sync_to_async(search_knowledge)(
+        # thread_sensitive=False: the hybrid path issues a ClickHouse query that
+        # can take seconds; the default shared sync thread would serialize all
+        # such calls and block other DB work. Run it on the general pool.
+        results = await database_sync_to_async(search_knowledge, thread_sensitive=False)(
             self._team.id,
             query,
             use_semantic=use_semantic,

@@ -1554,7 +1554,7 @@ def _semantic_chunk_candidates(
     }
 
     team = Team.objects.get(pk=team_id)
-    tag_queries(product=Product.MAX_AI, feature=Feature.SEMANTIC_SEARCH)
+    tag_queries(product=Product.CONVERSATIONS, feature=Feature.SEMANTIC_SEARCH)
     result = execute_hogql_query(
         query=hogql_query,
         team=team,
