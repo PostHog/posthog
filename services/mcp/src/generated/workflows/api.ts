@@ -378,6 +378,8 @@ export const HogFlowsInvocationResultsRetrieveParams = /* @__PURE__ */ zod.objec
         ),
 })
 
+export const hogFlowsInvocationResultsRetrieveQueryAfterDefault = `-7d`
+
 export const hogFlowsInvocationResultsRetrieveQueryLimitDefault = 50
 export const hogFlowsInvocationResultsRetrieveQueryLimitMax = 500
 
@@ -385,8 +387,10 @@ export const HogFlowsInvocationResultsRetrieveQueryParams = /* @__PURE__ */ zod.
     after: zod
         .string()
         .min(1)
-        .optional()
-        .describe("Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601."),
+        .default(hogFlowsInvocationResultsRetrieveQueryAfterDefault)
+        .describe(
+            "Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs."
+        ),
     before: zod
         .string()
         .min(1)

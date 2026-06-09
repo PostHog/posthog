@@ -2,7 +2,7 @@ import gzip
 import json
 import base64
 import dataclasses
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
 from drf_spectacular.types import OpenApiTypes
@@ -139,7 +139,9 @@ class HogInvocationResultsRequestSerializer(serializers.Serializer):
     )
     after = serializers.CharField(
         required=False,
-        help_text="Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601.",
+        default="-7d",
+        help_text="Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. "
+        "Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.",
     )
     before = serializers.CharField(
         required=False,
@@ -203,12 +205,15 @@ def fetch_hog_invocation_results(
     if distinct_id:
         where.append("distinct_id = %(distinct_id)s")
         kwargs["distinct_id"] = distinct_id
+    # `after`/`before` come in as team-timezone-aware datetimes; convert to UTC before formatting so
+    # the naive string matches the UTC `scheduled_at` column (toDateTime64 reads it as UTC). Skipping
+    # this shifts the window by the team's offset — wrong for short windows on non-UTC teams.
     if after:
         where.append("scheduled_at >= toDateTime64(%(after)s, 6)")
-        kwargs["after"] = after.strftime("%Y-%m-%dT%H:%M:%S")
+        kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
     if before:
         where.append("scheduled_at <= toDateTime64(%(before)s, 6)")
-        kwargs["before"] = before.strftime("%Y-%m-%dT%H:%M:%S")
+        kwargs["before"] = before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
 
     outer_where = ["latest_is_deleted = 0"]
     if status:

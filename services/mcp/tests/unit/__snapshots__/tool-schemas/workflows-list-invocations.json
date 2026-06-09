@@ -2,7 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "after": {
-            "description": "Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601.",
+            "default": "-7d",
+            "description": "Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.",
             "minLength": 1,
             "type": "string"
         },

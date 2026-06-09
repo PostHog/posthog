@@ -1,7 +1,7 @@
 import gzip
 import json
 import base64
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -38,7 +38,8 @@ def create_hog_invocation_result(
     is_retry: int = 0,
     invocation_globals: str = "{}",
 ) -> None:
-    scheduled = scheduled_at or datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
+    # Default to "now" so rows land inside the endpoint's default -7d window.
+    scheduled = scheduled_at or datetime.now(tz=UTC)
     params: dict[str, Any] = {
         "team_id": team_id,
         "function_kind": function_kind,
@@ -148,17 +149,38 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ({"after": "2024-01-05T00:00:00"}, {"inv-mid", "inv-late"}),
-            ({"before": "2024-01-15T00:00:00"}, {"inv-early", "inv-mid"}),
-            ({"after": "2024-01-05T00:00:00", "before": "2024-01-15T00:00:00"}, {"inv-mid"}),
+            ({"after": "-15d"}, {"inv-mid", "inv-late"}),
+            ({"after": "-30d", "before": "-5d"}, {"inv-early", "inv-mid"}),
+            ({"after": "-15d", "before": "-5d"}, {"inv-mid"}),
         ]
     )
     def test_filters_by_time_range(self, params: dict, expected_ids: set):
-        self._seed("inv-early", scheduled_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC))
-        self._seed("inv-mid", scheduled_at=datetime(2024, 1, 10, 12, 0, 0, tzinfo=UTC))
-        self._seed("inv-late", scheduled_at=datetime(2024, 1, 20, 12, 0, 0, tzinfo=UTC))
+        # Relative to now, since the endpoint defaults `after` to -7d.
+        now = datetime.now(tz=UTC)
+        self._seed("inv-early", scheduled_at=now - timedelta(days=20))
+        self._seed("inv-mid", scheduled_at=now - timedelta(days=10))
+        self._seed("inv-late", scheduled_at=now - timedelta(days=2))
         results = self._list(params).json()
         assert {r["invocation_id"] for r in results} == expected_ids
+
+    def test_default_window_excludes_rows_older_than_7d(self):
+        # No `after` → default -7d window bounds the partition scan, so older runs drop out.
+        now = datetime.now(tz=UTC)
+        self._seed("recent", scheduled_at=now - timedelta(days=2))
+        self._seed("old", scheduled_at=now - timedelta(days=30))
+        results = self._list().json()
+        assert {r["invocation_id"] for r in results} == {"recent"}
+
+    def test_after_filter_respects_team_timezone(self):
+        # PT is UTC-7 in June, so after='2026-06-08T00:00:00' (no offset) resolves to 07:00 UTC.
+        # The row at 06:00 UTC must be excluded and the one at 08:00 UTC included — a naive
+        # conversion that read the bound as 00:00 UTC would wrongly include both.
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save()
+        self._seed("before-bound", scheduled_at=datetime(2026, 6, 8, 6, 0, 0, tzinfo=UTC))
+        self._seed("after-bound", scheduled_at=datetime(2026, 6, 8, 8, 0, 0, tzinfo=UTC))
+        results = self._list({"after": "2026-06-08T00:00:00", "before": "2026-06-09T00:00:00"}).json()
+        assert {r["invocation_id"] for r in results} == {"after-bound"}
 
     def test_isolated_from_other_flow_and_function_kind(self):
         self._seed("inv-mine", invocation_status="success")

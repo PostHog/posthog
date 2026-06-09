@@ -43520,7 +43520,7 @@ export namespace Schemas {
 
     export type EnvironmentsHogFlowsInvocationResultsRetrieveParams = {
     /**
-     * Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601.
+     * Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.
      * @minLength 1
      */
     after?: string;
@@ -49237,7 +49237,7 @@ export namespace Schemas {
 
     export type HogFlowsInvocationResultsRetrieveParams = {
     /**
-     * Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601.
+     * Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.
      * @minLength 1
      */
     after?: string;

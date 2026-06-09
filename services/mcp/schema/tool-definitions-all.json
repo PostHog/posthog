@@ -6826,7 +6826,7 @@
         }
     },
     "workflows-global-stats": {
-        "description": "At-a-glance health across ALL workflows in one call: per-workflow succeeded/failed counts over a window (after/before, default last 7 days), sorted most-failing first. Start here when debugging — find which workflows are red, then drill into those with workflows-list-invocations (who it failed for) → workflows-get-invocation (the triggering payload) → workflows-logs (the failing step). Avoids scanning every workflow one at a time. For a single workflow's time-series, use workflows-stats.",
+        "description": "At-a-glance health across ALL workflows in one call: per-workflow succeeded/failed counts over a window (after/before, default last 7 days), sorted most-failing first. Start here when debugging — find which workflows are failing, then drill into those with workflows-list-invocations (who it failed for) → workflows-get-invocation (the triggering payload) → workflows-logs (the failing step). Avoids scanning every workflow one at a time. For a single workflow's time-series, use workflows-stats.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Workflow stats overview",
@@ -6943,7 +6943,7 @@
         "feature": "workflows",
         "summary": "Test-run workflow",
         "title": "Test-run workflow",
-        "required_scopes": ["hog_flow:write"],
+        "required_scopes": ["hog_flow:write", "group:read"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
