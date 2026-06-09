@@ -4,6 +4,7 @@ import graphlib
 from typing import Any, Literal, NamedTuple, Optional, cast
 from urllib.parse import urlparse
 
+import structlog
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from requests import Response
 from urllib3.util.retry import Retry
@@ -43,6 +44,8 @@ from products.data_warehouse.backend.types import ExternalDataSourceType, Increm
 # Credential keys that must NOT appear inline in the manifest — they belong in
 # the dedicated secret `auth_*` config fields so the API layer can redact them.
 INLINE_SECRET_KEYS = ("token", "api_key", "password")
+
+logger = structlog.get_logger(__name__)
 
 # Outbound create-time probe tunables. The probe runs inline on the API request
 # thread, the same as business_knowledge's URL fetch, so it borrows that feature's
@@ -851,13 +854,20 @@ def _fanout_chain(manifest: dict[str, Any], chosen_name: str) -> FanoutChain:
         raise ValueError(f"Resource {chosen_name!r} not found in config")
     try:
         _, _, resolved = _build_resource_graph(manifest)
-    except (ValueError, NotImplementedError, KeyError):
+    except (ValueError, NotImplementedError, KeyError) as exc:
         # Graph rules are enforced at create/update time, but a stored manifest
         # can predate them. A graph error on an UNRELATED resource must not sink
         # this schema's sync — fall back to handing the engine just the chosen
         # resource (the pre-fan-out behavior). If the chosen resource itself is
         # the broken one, the engine rejects it at build time with the
         # underlying error, which the caller converts to a non-retryable failure.
+        # Logged so the size of the predates-the-rules population is measurable;
+        # once this stops firing in production the fallback can be deleted.
+        logger.warning(
+            "custom_source_fanout_graph_fallback",
+            schema_name=chosen_name,
+            error=str(exc),
+        )
         return FanoutChain(ancestors=[], child=chosen)
     ancestor_names: list[str] = []
     seen: set[str] = {chosen_name}

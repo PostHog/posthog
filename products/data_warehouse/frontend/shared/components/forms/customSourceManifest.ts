@@ -95,6 +95,11 @@ export interface StreamForm {
     parent_resolve_field: string
     parent_path_param: string
     include_from_parent: string
+    // Raw-authored `endpoint.params` entries the builder has no UI for (static
+    // query params, the engine's incremental specs, extra resolve params).
+    // Carried verbatim through parse → build so editing a stream in the builder
+    // never silently drops a query param the manifest author wrote by hand.
+    passthrough_params: Record<string, unknown>
 }
 
 export interface ManifestState {
@@ -145,6 +150,7 @@ export function emptyStream(): StreamForm {
         cursor_path: '',
         cursor_type: 'datetime',
         start_param: '',
+        passthrough_params: {},
         ...EMPTY_PARENT_FIELDS,
     }
 }
@@ -278,21 +284,23 @@ export function buildManifest(state: ManifestState): Record<string, unknown> {
             endpoint.incremental = incremental
         }
         // Fan-out: bind the parent's field into the path placeholder via a
-        // `resolve` param. The REST engine fetches the parent first, then calls
-        // this stream once per parent row. Emitted whenever a parent is selected,
+        // `resolve` param, merged onto the raw-authored params the builder has
+        // no UI for. The dependency is emitted whenever a parent is selected,
         // even half-filled: an incomplete dependency must fail backend validation
         // loudly (the builder UI flags the missing pieces inline) rather than be
         // silently dropped — that would sync this stream as an unrelated
         // top-level endpoint.
         const parentStream = stream.parent_stream.trim()
+        const params: Record<string, unknown> = { ...stream.passthrough_params }
         if (parentStream) {
-            endpoint.params = {
-                [stream.parent_path_param.trim()]: {
-                    type: 'resolve',
-                    resource: parentStream,
-                    field: stream.parent_resolve_field.trim(),
-                },
+            params[stream.parent_path_param.trim()] = {
+                type: 'resolve',
+                resource: parentStream,
+                field: stream.parent_resolve_field.trim(),
             }
+        }
+        if (Object.keys(params).length > 0) {
+            endpoint.params = params
         }
         const primaryKeys = splitCsv(stream.primary_key)
         const resource: Record<string, unknown> = {
@@ -440,17 +448,22 @@ function parseStream(resource: unknown): StreamForm {
     const primaryKey = r.primary_key
     // Recover a fan-out dependency from the first `resolve` param: its key is the
     // path placeholder, and it names the parent stream + the parent field bound in.
+    // Every other params entry (static query params, incremental specs, extra
+    // resolve params on a malformed manifest) is preserved verbatim so a builder
+    // edit can't silently drop it.
     const params = asObject(endpoint.params)
     let parentStream = ''
     let parentResolveField = ''
     let parentPathParam = ''
+    const passthroughParams: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(params)) {
         const spec = asObject(value)
-        if (spec.type === 'resolve') {
+        if (spec.type === 'resolve' && !parentPathParam) {
             parentPathParam = key
             parentStream = asString(spec.resource)
             parentResolveField = asString(spec.field)
-            break
+        } else {
+            passthroughParams[key] = value
         }
     }
     const includeFromParent = Array.isArray(r.include_from_parent)
@@ -473,5 +486,6 @@ function parseStream(resource: unknown): StreamForm {
         parent_resolve_field: parentResolveField,
         parent_path_param: parentPathParam,
         include_from_parent: includeFromParent,
+        passthrough_params: passthroughParams,
     }
 }

@@ -37,6 +37,7 @@ const baseState = (): ManifestState => ({
             parent_resolve_field: '',
             parent_path_param: '',
             include_from_parent: '',
+            passthrough_params: {},
         },
     ],
 })
@@ -276,6 +277,7 @@ describe('parseManifestIntoState', () => {
                 parent_resolve_field: '',
                 parent_path_param: '',
                 include_from_parent: '',
+                passthrough_params: {},
             },
         ]
 
@@ -420,6 +422,7 @@ describe('parseManifestIntoState', () => {
                 parent_resolve_field: '',
                 parent_path_param: '',
                 include_from_parent: '',
+                passthrough_params: {},
             },
         ]
 
@@ -544,14 +547,35 @@ describe('fan-out (parent/child)', () => {
         expect(streams[1].parent_stream).toBe('surveys')
     })
 
-    it('keeps the first resolve param when a manifest carries two', () => {
+    it('keeps the first resolve param as the dependency when a manifest carries two', () => {
         // The backend rejects multi-resolve manifests, but the parse path can
-        // still be handed one (raw JSON authoring) — the lossy pick-first
-        // behavior is intentional, pinned here.
+        // still be handed one (raw JSON authoring) — the first becomes the
+        // editable dependency, the rest ride along in passthrough_params so a
+        // builder edit re-emits (and the backend re-rejects) them honestly.
         const manifest = buildManifest(childState()) as any
         manifest.resources[1].endpoint.params.other_id = { type: 'resolve', resource: 'forms', field: 'id' }
         const child = parseManifestIntoState(JSON.stringify(manifest)).streams[1]
         expect(child.parent_path_param).toBe('form_id')
+        expect(child.passthrough_params).toEqual({ other_id: { type: 'resolve', resource: 'forms', field: 'id' } })
+    })
+
+    it('preserves raw-authored static params through a builder round-trip', () => {
+        // The builder has no UI for static query params, but editing a stream
+        // must not silently drop ones authored in raw JSON.
+        const manifest = buildManifest(childState()) as any
+        manifest.resources[1].endpoint.params.status = 'active'
+        const rebuilt = buildManifest(parseManifestIntoState(JSON.stringify(manifest))) as any
+        expect(rebuilt.resources[1].endpoint.params).toEqual({
+            status: 'active',
+            form_id: { type: 'resolve', resource: 'forms', field: 'id' },
+        })
+    })
+
+    it('preserves a top-level stream’s static params even with no parent dependency', () => {
+        const manifest = buildManifest(childState()) as any
+        manifest.resources[0].endpoint.params = { limit: 100 }
+        const rebuilt = buildManifest(parseManifestIntoState(JSON.stringify(manifest))) as any
+        expect(rebuilt.resources[0].endpoint.params).toEqual({ limit: 100 })
     })
 
     it('hydrates the parent dependency back out on parse', () => {
