@@ -2169,6 +2169,58 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         assert disposable_domain in str(exc.value)
         assert "not supported" in str(exc.value)
 
+    @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    def test_cross_org_guard_blocks_mixed_case_domain(self, mock_create_email_domain):
+        mock_create_email_domain.return_value = {"status": "success", "domain": "example.com"}
+        other_org = Organization.objects.create(name="other org")
+        other_team = Team.objects.create(organization=other_org, name="other team")
+        EmailIntegration.create_native_integration(
+            {"email": "owner@example.com", "name": "Owner"},
+            team_id=other_team.id,
+            organization_id=str(other_org.id),
+            created_by=self.user,
+        )
+
+        with pytest.raises(ValidationError) as exc:
+            EmailIntegration.create_native_integration(
+                {"email": "attacker@Example.com", "name": "Attacker"},
+                team_id=self.team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
+            )
+        assert "already exists in another organization" in str(exc.value)
+
+    @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    def test_stored_domain_is_lowercased(self, mock_create_email_domain):
+        mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
+        integration = EmailIntegration.create_native_integration(
+            {"email": "user@SuccessDomain.COM", "name": "Test User", "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+        assert integration.config["domain"] == "successdomain.com"
+
+    @parameterized.expand(
+        [
+            ("gmail_titlecase", "user@Gmail.com"),
+            ("gmail_uppercase", "user@GMAIL.COM"),
+            ("gmail_mixed", "user@gMaIl.cOm"),
+            ("yahoo_titlecase", "user@Yahoo.com"),
+            ("hotmail_uppercase", "user@HOTMAIL.COM"),
+        ]
+    )
+    def test_free_email_block_is_case_insensitive(self, _name, email):
+        config = {"email": email, "name": "Test User"}
+        with pytest.raises(ValidationError) as exc:
+            EmailIntegration.create_native_integration(
+                config,
+                team_id=self.team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
+            )
+        assert "not supported" in str(exc.value)
+
 
 class TestGitLabIntegrationSSRFProtection:
     """Test SSRF protections in GitLabIntegration."""

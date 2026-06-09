@@ -150,6 +150,9 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
     provider = serializers.ChoiceField(choices=["ses", "maildev"] if settings.DEBUG else ["ses"])
     mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
 
+    def validate_email(self, value: str) -> str:
+        return value.lower()
+
 
 class GitHubRepoSerializer(serializers.Serializer):
     id = serializers.IntegerField()
