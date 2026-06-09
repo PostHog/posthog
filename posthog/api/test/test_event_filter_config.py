@@ -149,11 +149,13 @@ class TestEventFilterConfigAPI(APIBaseTest):
         self.assertEqual(EventFilterConfig.objects.filter(team=self.team).count(), 1)
 
     def test_create_prunes_filter_tree_on_save(self):
-        tree = _and(_cond())
+        # A nested single-child group collapses, but the root stays a group so the
+        # saved one-condition filter remains editable.
+        tree = _and(_or(_cond()))
         response = self.client.post(self._url(), data={"filter_tree": tree}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["filter_tree"], _cond())
+        self.assertEqual(response.json()["filter_tree"], _and(_cond()))
 
     def test_create_timestamps_are_read_only(self):
         response = self.client.post(

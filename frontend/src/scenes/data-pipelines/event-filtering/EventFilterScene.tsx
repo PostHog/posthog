@@ -200,7 +200,7 @@ export function EventFilterScene(): JSX.Element {
                                     Build a filter expression. Drag conditions and groups to reorder or move between
                                     groups. Maximum {EVENT_FILTER_MAX_CONDITIONS} conditions and{' '}
                                     {EVENT_FILTER_MAX_DEPTH} levels of nesting. Empty groups are removed automatically
-                                    on save.
+                                    on save; use the trash icon to remove a condition.
                                 </p>
                             </div>
                             <LemonButton

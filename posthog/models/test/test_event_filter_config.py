@@ -155,9 +155,19 @@ class TestPruneFilterTree(SimpleTestCase):
     def test_removes_empty_group(self):
         self.assertIsNone(prune_filter_tree({"type": "and", "children": []}))
 
-    def test_collapses_single_child_group(self):
+    def test_keeps_single_child_group_at_root(self):
+        # The root stays an and/or group so the editor can always render a delete
+        # button on the condition; it is not collapsed down to a bare condition.
         cond = _cond()
-        self.assertEqual(prune_filter_tree(_and(cond)), cond)
+        self.assertEqual(prune_filter_tree(_and(cond)), _and(cond))
+
+    def test_wraps_bare_condition_root_in_or(self):
+        cond = _cond()
+        self.assertEqual(prune_filter_tree(cond), _or(cond))
+
+    def test_wraps_bare_not_root_in_or(self):
+        node = _not(_cond())
+        self.assertEqual(prune_filter_tree(node), _or(node))
 
     def test_removes_not_with_empty_child(self):
         self.assertIsNone(prune_filter_tree(_not({"type": "or", "children": []})))
@@ -167,9 +177,10 @@ class TestPruneFilterTree(SimpleTestCase):
         self.assertEqual(prune_filter_tree(tree), tree)
 
     def test_collapses_nested_single_child_groups(self):
+        # Nested single-child groups still collapse; only the root group is kept.
         cond = _cond()
-        tree = _or(_and(cond))
-        self.assertEqual(prune_filter_tree(tree), cond)
+        tree = _or(_and(_or(cond)), _cond(value="click"))
+        self.assertEqual(prune_filter_tree(tree), _or(cond, _cond(value="click")))
 
 
 class TestEvaluateFilterTree(SimpleTestCase):
@@ -358,14 +369,26 @@ class TestEventFilterConfigModel(BaseTest):
         retrieved = EventFilterConfig.objects.get(pk=config.pk)
         self.assertIsNone(retrieved.filter_tree)
 
-    def test_save_prunes_filter_tree(self):
-        tree = _and(_cond("event_name", "exact", "pageview"))
+    def test_save_prunes_filter_tree_but_keeps_group_at_root(self):
+        # A nested single-child group collapses, but the root stays a group so the
+        # saved one-condition filter remains editable (the condition keeps a delete
+        # button in the editor).
+        tree = _and(_or(_cond("event_name", "exact", "pageview")))
         config = EventFilterConfig.objects.create(
             team=self.team,
             mode=EventFilterMode.LIVE,
             filter_tree=tree,
         )
-        self.assertEqual(config.filter_tree, _cond("event_name", "exact", "pageview"))
+        self.assertEqual(config.filter_tree, _and(_cond("event_name", "exact", "pageview")))
+
+    def test_save_wraps_bare_condition_root_in_group(self):
+        # Heals legacy records that were saved as a bare condition at the root.
+        config = EventFilterConfig.objects.create(
+            team=self.team,
+            mode=EventFilterMode.LIVE,
+            filter_tree=_cond("event_name", "exact", "pageview"),
+        )
+        self.assertEqual(config.filter_tree, _or(_cond("event_name", "exact", "pageview")))
 
     def test_save_rejects_invalid_filter_tree(self):
         with self.assertRaises(ValidationError):

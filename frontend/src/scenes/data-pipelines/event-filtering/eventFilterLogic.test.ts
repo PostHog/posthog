@@ -2,6 +2,7 @@ import {
     countConditions,
     evaluateFilterTree,
     FilterNode,
+    normalizeRootToGroup,
     treeHasConditions,
     treeHasEmptyValues,
     updateAtPath,
@@ -312,5 +313,24 @@ describe('treeHasEmptyValues', () => {
         ['deeply nested empty value', and(or(cond(), not(cond('event_name', 'exact', '')))), true],
     ])('%s', (_name, tree, expected) => {
         expect(treeHasEmptyValues(tree)).toBe(expected)
+    })
+})
+
+describe('normalizeRootToGroup', () => {
+    it('leaves an AND/OR group untouched', () => {
+        const tree = and(cond())
+        expect(normalizeRootToGroup(tree)).toBe(tree)
+        const orTree = or(cond())
+        expect(normalizeRootToGroup(orTree)).toBe(orTree)
+    })
+
+    it('wraps a bare condition root in an OR so it becomes a deletable group child', () => {
+        const tree = cond('event_name', 'exact', 'pageview')
+        expect(normalizeRootToGroup(tree)).toEqual(or(tree))
+    })
+
+    it('wraps a NOT root in an OR', () => {
+        const tree = not(cond())
+        expect(normalizeRootToGroup(tree)).toEqual(or(tree))
     })
 })

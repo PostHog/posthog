@@ -198,6 +198,20 @@ export function treeHasEmptyValues(node: FilterNode): boolean {
     }
 }
 
+/**
+ * Ensure the root is an and/or group. The editor only renders a delete (trash)
+ * button on a group's children, and the backend prunes single-child groups — so a
+ * saved one-condition filter loads back as a bare condition (or NOT) at the root
+ * with no way to remove it. Wrap any non-group root in an OR so every condition is
+ * always a deletable group child.
+ */
+export function normalizeRootToGroup(node: FilterNode): FilterNode {
+    if (node.type === 'and' || node.type === 'or') {
+        return node
+    }
+    return { type: 'or', children: [node] }
+}
+
 // --- Immutable tree updates ---
 
 /**
@@ -260,7 +274,7 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
                         return 'Filter must have at least one condition to be activated'
                     }
                     if (treeHasConditions(filter_tree) && treeHasEmptyValues(filter_tree)) {
-                        return 'All conditions must have a value'
+                        return "All conditions must have a value. Use the trash icon to remove a condition you don't need."
                     }
                     if (mode === 'live' && treeHasConditions(filter_tree) && test_cases.length === 0) {
                         return 'Add at least one test case before going live'
@@ -421,7 +435,7 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
                 actions.setFilterFormValue('id', data.id)
                 actions.setFilterFormValue('mode', data.mode ?? 'disabled')
                 if (data.filter_tree?.type) {
-                    actions.setFilterFormValue('filter_tree', data.filter_tree)
+                    actions.setFilterFormValue('filter_tree', normalizeRootToGroup(data.filter_tree))
                 }
                 const testCases = (data.test_cases ?? []).map((tc: Omit<TestCase, '_key'>) => ({
                     ...tc,
