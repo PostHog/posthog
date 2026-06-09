@@ -116,7 +116,7 @@ function getAncestorSelectors(element: HTMLElement, config: InferenceConfig): Ar
 
     while (parent && parent.tagName !== 'BODY') {
         const parentTag = parent.tagName?.toLowerCase()
-        if (parentTag && TAGS_TO_IGNORE.includes(parentTag)) {
+        if (!parentTag || TAGS_TO_IGNORE.includes(parentTag)) {
             parent = getParent(parent)
             continue
         }
@@ -156,7 +156,7 @@ function getElementText(element: HTMLElement): string | null {
 
 function elementMatchesText(element: HTMLElement, text: string): boolean {
     const elementText = getElementText(element)
-    return elementText?.toLowerCase() === text?.toLowerCase()
+    return elementText?.toLowerCase() === text.toLowerCase()
 }
 
 // generator to query elements, filtering by text and visibility
