@@ -6,9 +6,8 @@ from unittest import mock
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
-from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
-
+from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
