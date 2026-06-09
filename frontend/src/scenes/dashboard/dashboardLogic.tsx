@@ -120,6 +120,7 @@ import {
     parseURLVariables,
     runWithLimit,
     shouldSharedDashboardAutoForceForStaleTime,
+    shouldSnapshotUrlAtEditModeEntry,
 } from './dashboardUtils'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
@@ -324,7 +325,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         saveEditModeChanges: () => true,
         resetUrlFilters: () => true,
         resetIntermittentFilters: () => true,
-        restoreUrlStateAtEditModeEntry: true,
+        restoreUrlStateAtEditModeEntry: (snapshot: { filters?: unknown; variables?: unknown } | null) => ({
+            snapshot,
+        }),
+        setUrlSearchParamsAtEditModeEntry: (snapshot: { filters?: unknown; variables?: unknown }) => ({ snapshot }),
         applyFilters: true,
         resetUrlVariables: true,
         setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
@@ -1065,26 +1069,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     if (isLayoutEditEventSource(source)) {
                         return true
                     }
-                    return state
+                    return false
                 },
             },
         ],
         urlSearchParamsAtEditModeEntry: [
             null as { filters?: unknown; variables?: unknown } | null,
             {
-                setDashboardMode: (snapshot, { mode }) => {
-                    if (mode === DashboardMode.Edit && snapshot === null) {
-                        try {
-                            const { searchParams } = router.values.currentLocation
-                            return {
-                                filters: searchParams[SEARCH_PARAM_FILTERS_KEY],
-                                variables: searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY],
-                            }
-                        } catch {
-                            return { filters: undefined, variables: undefined }
-                        }
-                    }
-                    if (mode === null) {
+                setUrlSearchParamsAtEditModeEntry: (_, { snapshot }) => snapshot,
+                setDashboardMode: (snapshot, { mode, source }) => {
+                    if (mode === null && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
                         return null
                     }
                     return snapshot
@@ -2657,6 +2651,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setDashboardMode: async ({ mode, source }) => {
             if (
                 mode === DashboardMode.Edit &&
+                values.urlSearchParamsAtEditModeEntry === null &&
+                shouldSnapshotUrlAtEditModeEntry(source)
+            ) {
+                const encodedFilters = encodeURLFilters(values.urlFilters)
+                const encodedVariables = encodeURLVariables(parseURLVariables(router.values.searchParams))
+                actions.setUrlSearchParamsAtEditModeEntry({
+                    filters: encodedFilters[SEARCH_PARAM_FILTERS_KEY],
+                    variables: encodedVariables[SEARCH_PARAM_QUERY_VARIABLES_KEY],
+                })
+            }
+
+            if (
+                mode === DashboardMode.Edit &&
                 source !== DashboardEventSource.DashboardHeaderDiscardChanges &&
                 isLayoutEditEventSource(source)
             ) {
@@ -2665,7 +2672,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             } else if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
                 // reset filters to that before previewing
                 actions.resetIntermittentFilters()
-                actions.restoreUrlStateAtEditModeEntry()
+                actions.restoreUrlStateAtEditModeEntry(values.urlSearchParamsAtEditModeEntry)
 
                 // reset tile data by reloading dashboard
                 actions.refreshDashboardItems({
@@ -3144,10 +3151,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             delete newSearchParams[SEARCH_PARAM_FILTERS_KEY]
             return [currentLocation.pathname, newSearchParams, currentLocation.hashParams]
         },
-        restoreUrlStateAtEditModeEntry: () => {
+        restoreUrlStateAtEditModeEntry: ({ snapshot }) => {
             try {
                 const { currentLocation } = router.values
-                const snapshot = values.urlSearchParamsAtEditModeEntry
                 const newSearchParams = { ...currentLocation.searchParams }
                 delete newSearchParams[SEARCH_PARAM_FILTERS_KEY]
                 delete newSearchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]

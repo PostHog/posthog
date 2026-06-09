@@ -566,29 +566,90 @@ describe('dashboardLogic', () => {
                 reportModeToggled.mockRestore()
             })
 
-            it('discarding filter edit restores url state from before edit', async () => {
+            it('restoreUrlStateAtEditModeEntry applies snapshot payload to url', async () => {
+                const editedFilters = JSON.stringify({ date_from: '-14d', date_to: null })
+                const originalFilters = JSON.stringify({ date_from: '-7d', date_to: null })
+
+                logic.unmount()
+                router.actions.push('/dashboard/5', {
+                    [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: editedFilters,
+                })
+                logic = dashboardLogic({ id: 5 })
+                logic.mount()
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
+                    logic.actions.restoreUrlStateAtEditModeEntry({
+                        filters: originalFilters,
+                        variables: undefined,
+                    })
+                }).toFinishAllListeners()
+
+                expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).toBe(originalFilters)
+            })
+
+            it('discarding filter edit passes url snapshot into restore action', async () => {
+                const originalFilters = JSON.stringify({ date_from: '-7d', date_to: null })
+
+                logic.unmount()
+                router.actions.push('/dashboard/5', {
+                    [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: originalFilters,
+                })
+                logic = dashboardLogic({ id: 5 })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.urlFilters).toEqual(expect.objectContaining({ date_from: '-7d' }))
+                expect(logic.values.urlSearchParamsAtEditModeEntry).toBeNull()
+
+                const restoreSpy = jest.spyOn(logic.actions, 'restoreUrlStateAtEditModeEntry')
+
+                await expectLogic(logic, () => {
                     logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        urlSearchParamsAtEditModeEntry: {
+                            filters: originalFilters,
+                            variables: undefined,
+                        },
+                    })
+
+                await expectLogic(logic, () => {
                     logic.actions.setDates('-14d', null)
                 }).toFinishAllListeners()
 
+                restoreSpy.mockClear()
+
                 await expectLogic(logic, () => {
                     logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                }).toFinishAllListeners()
+
+                expect(restoreSpy).toHaveBeenCalledWith({
+                    filters: originalFilters,
+                    variables: undefined,
                 })
-                    .toDispatchActions(['restoreUrlStateAtEditModeEntry'])
+
+                restoreSpy.mockRestore()
+            })
+
+            it('filter edit source clears layout edit mode', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                })
                     .toFinishAllListeners()
                     .toMatchValues({
-                        dashboardMode: null,
-                        urlSearchParamsAtEditModeEntry: null,
-                        intermittentFilters: {
-                            date_from: undefined,
-                            date_to: undefined,
-                            properties: undefined,
-                            breakdown_filter: undefined,
-                            explicitDate: undefined,
-                        },
+                        layoutEditMode: true,
+                    })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        layoutEditMode: false,
                     })
             })
         })
