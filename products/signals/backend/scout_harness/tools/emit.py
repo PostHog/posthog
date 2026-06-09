@@ -47,6 +47,15 @@ SOURCE_TYPE = SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE.value
 # circuit breaker.
 MAX_EVIDENCE_ENTRIES = 20
 
+# Cap on a caller-supplied `finding_id`. The deterministic `source_id` is
+# `run:<uuid>:finding:<finding_id>` (~49 fixed chars), and both `finding_id` and `source_id`
+# persist in 200-char columns — so an unbounded id would overflow them, fail the emission insert
+# inside the (best-effort, exception-swallowing) tally transaction, and silently drop the emission
+# *and* the run tally. Rejecting an overlong id at the boundary keeps the write within bounds;
+# trimming is not an option here (an id is a join/dedupe key, and truncation could collide). The
+# auto-generated id is a 36-char uuid, so this only ever rejects pathological caller input.
+MAX_FINDING_ID_LENGTH = 100
+
 
 class InvalidEmitError(ValueError):
     """The agent tried to emit with an invalid shape (empty description, bad weight, etc)."""
@@ -103,7 +112,7 @@ async def emit_finding(
     Same (non-idempotent) emit behavior as `emit_finding_sync`.
     """
     _assert_team_owns_run(team, run)
-    _validate_inputs(description, weight, confidence, evidence)
+    _validate_inputs(description, weight, confidence, evidence, finding_id)
     finding_id = finding_id or _new_finding_id()
     extra = _build_extra(
         run_id=str(run.id),
@@ -193,7 +202,7 @@ def emit_finding_sync(
     from asgiref.sync import async_to_sync
 
     _assert_team_owns_run(team, run)
-    _validate_inputs(description, weight, confidence, evidence)
+    _validate_inputs(description, weight, confidence, evidence, finding_id)
     finding_id = finding_id or _new_finding_id()
     extra = _build_extra(
         run_id=str(run.id),
@@ -281,6 +290,7 @@ def _validate_inputs(
     weight: float,
     confidence: float,
     evidence: list[EvidenceEntry],
+    finding_id: str | None,
 ) -> None:
     if not description or not description.strip():
         raise InvalidEmitError("description must not be empty")
@@ -290,6 +300,10 @@ def _validate_inputs(
         raise InvalidEmitError(f"confidence must be in [0.0, 1.0], got {confidence}")
     if len(evidence) > MAX_EVIDENCE_ENTRIES:
         raise InvalidEmitError(f"evidence has {len(evidence)} entries, max is {MAX_EVIDENCE_ENTRIES}")
+    # Reject before defaulting — a generated id is a safe 36-char uuid; only a caller-supplied
+    # id can overflow `source_id` and silently drop the emission + tally (see MAX_FINDING_ID_LENGTH).
+    if finding_id is not None and len(finding_id) > MAX_FINDING_ID_LENGTH:
+        raise InvalidEmitError(f"finding_id exceeds {MAX_FINDING_ID_LENGTH} chars ({len(finding_id)})")
 
 
 def _build_extra(

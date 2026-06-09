@@ -14436,6 +14436,7 @@ export namespace Schemas {
       mcp_trace_id?: string | null;
       /**
          * Stable id for this finding, baked into the signal's source_id for traceability. NOT a dedupe key — re-emitting the same id creates another signal.
+         * @maxLength 100
          * @nullable
          */
       finding_id?: string | null;

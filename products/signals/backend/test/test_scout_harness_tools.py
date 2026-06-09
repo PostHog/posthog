@@ -28,6 +28,7 @@ from products.signals.backend.scout_harness.tools import (
     search_scratchpad,
 )
 from products.signals.backend.scout_harness.tools.emit import (
+    MAX_FINDING_ID_LENGTH,
     SOURCE_PRODUCT,
     SOURCE_TYPE,
     _build_extra,
@@ -345,31 +346,39 @@ class TestValidateEmitInputs:
 
     def test_empty_description_raises(self) -> None:
         with pytest.raises(InvalidEmitError, match="description"):
-            _validate_inputs("", 0.5, 0.5, [])
+            _validate_inputs("", 0.5, 0.5, [], None)
 
     def test_whitespace_only_description_raises(self) -> None:
         with pytest.raises(InvalidEmitError, match="description"):
-            _validate_inputs("   \n\t", 0.5, 0.5, [])
+            _validate_inputs("   \n\t", 0.5, 0.5, [], None)
 
     @pytest.mark.parametrize("weight", [-0.1, 1.1, 2.0])
     def test_weight_out_of_range_raises(self, weight: float) -> None:
         with pytest.raises(InvalidEmitError, match="weight"):
-            _validate_inputs("ok", weight, 0.5, [])
+            _validate_inputs("ok", weight, 0.5, [], None)
 
     @pytest.mark.parametrize("confidence", [-0.1, 1.1])
     def test_confidence_out_of_range_raises(self, confidence: float) -> None:
         with pytest.raises(InvalidEmitError, match="confidence"):
-            _validate_inputs("ok", 0.5, confidence, [])
+            _validate_inputs("ok", 0.5, confidence, [], None)
 
     def test_too_many_evidence_entries_raises(self) -> None:
         many = [EvidenceEntry(source_product="logs", summary=f"e{i}") for i in range(MAX_EVIDENCE_ENTRIES + 1)]
         with pytest.raises(InvalidEmitError, match="evidence"):
-            _validate_inputs("ok", 0.5, 0.5, many)
+            _validate_inputs("ok", 0.5, 0.5, many, None)
 
     def test_at_capacity_evidence_passes(self) -> None:
         many = [EvidenceEntry(source_product="logs", summary=f"e{i}") for i in range(MAX_EVIDENCE_ENTRIES)]
         # Should not raise.
-        _validate_inputs("ok", 0.5, 0.5, many)
+        _validate_inputs("ok", 0.5, 0.5, many, None)
+
+    def test_overlong_finding_id_raises(self) -> None:
+        with pytest.raises(InvalidEmitError, match="finding_id"):
+            _validate_inputs("ok", 0.5, 0.5, [], "x" * (MAX_FINDING_ID_LENGTH + 1))
+
+    def test_finding_id_at_capacity_passes(self) -> None:
+        # Should not raise — and a generated 36-char uuid is always well under the cap.
+        _validate_inputs("ok", 0.5, 0.5, [], "x" * MAX_FINDING_ID_LENGTH)
 
 
 class TestBuildEmitExtra:

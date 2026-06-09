@@ -67,6 +67,11 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
     search_scratchpad,
 )
 
+# Hard cap on the per-run emissions response. Far above any realistic run (a scout emits a
+# handful of findings), so it never truncates in practice — it just bounds a pathological
+# retry-heavy run rather than leaving the payload unbounded.
+MAX_EMISSIONS_PER_RUN = 1000
+
 
 def _caller_carries_scout_internal_scope(request: Request) -> bool:
     """True only when the request authenticates with the sandbox-internal scout scope.
@@ -233,7 +238,13 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Team-scope the run lookup first so a foreign-team UUID is a clean 404, not an empty list.
         if not SignalScoutRun.objects.filter(id=run_id, team_id=team_id).exists():
             raise exceptions.NotFound()
-        emissions = SignalScoutEmission.objects.filter(scout_run_id=run_id, team_id=team_id).order_by("-emitted_at")
+        # `-id` is the tie-breaker for rows sharing an `emitted_at` (the PK is a time-ordered
+        # uuid7, so it sorts consistently with creation order). The hard cap bounds the response:
+        # emissions per run are small in practice but nothing in the schema enforces that, so a
+        # retry-heavy run shouldn't be able to produce an unbounded payload.
+        emissions = SignalScoutEmission.objects.filter(scout_run_id=run_id, team_id=team_id).order_by(
+            "-emitted_at", "-id"
+        )[:MAX_EMISSIONS_PER_RUN]
         return Response(SignalScoutEmissionSerializer(emissions, many=True).data)
 
     @validated_request(

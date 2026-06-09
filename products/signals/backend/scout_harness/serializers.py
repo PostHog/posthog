@@ -13,6 +13,7 @@ from rest_framework import serializers
 from posthog.schema import Severity
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
+from products.signals.backend.scout_harness.tools.emit import MAX_FINDING_ID_LENGTH
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 
 # --- Run history -----------------------------------------------------------
@@ -305,6 +306,7 @@ class EmitFindingRequestSerializer(serializers.Serializer):
     finding_id = serializers.CharField(
         required=False,
         allow_null=True,
+        max_length=MAX_FINDING_ID_LENGTH,
         help_text="Stable id for this finding, baked into the signal's source_id for traceability. NOT a dedupe key — re-emitting the same id creates another signal.",
     )
 
