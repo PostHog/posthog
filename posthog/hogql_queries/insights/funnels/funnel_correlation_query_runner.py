@@ -490,7 +490,12 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         event_correlation_query = parse_select(
             f"""
             WITH
-                funnel_actors AS MATERIALIZED (
+                -- Defined once and shared by both branches of the UNION ALL below.
+                -- Deliberately not AS MATERIALIZED: materialized CTEs are an experimental
+                -- ClickHouse 26.3 feature behind enable_materialized_cte, which is off in
+                -- every environment we run, so the keyword would be inert today and would
+                -- silently change execution whenever that setting is turned on.
+                funnel_actors AS (
                     {{funnel_persons_query}}
                 ),
                 {{date_from}} AS date_from,
@@ -602,10 +607,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 funnel_actors AS (
                     {{funnel_persons_query}}
                 ),
-                {{date_from}} AS date_from,
-                {{date_to}} AS date_to,
-                {target_step} AS target_step,
-                {funnel_step_names} AS funnel_step_names
+                {target_step} AS target_step
 
             SELECT
                    if(prop.1 = {{total_identifier}}, {{total_identifier}}, concat(prop.1, '::', prop.2, '::', prop.3)) as name,
