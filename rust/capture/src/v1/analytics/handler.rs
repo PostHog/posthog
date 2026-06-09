@@ -173,7 +173,7 @@ mod tests {
         Router::new()
             .route(CAPTURE_V1_PATH, axum::routing::post(super::handle_request))
             .layer(axum::middleware::from_fn(
-                super::super::router::v1_common_headers,
+                crate::v1::middleware::v1_common_headers,
             ))
             .with_state(state)
     }
