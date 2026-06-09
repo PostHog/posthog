@@ -67,15 +67,16 @@ function openExperimentPersonsModalForSeries({
         order_type: experimentQuery.metric.funnel_order_type,
     })
 
-    // IMPORTANT: For experiment funnels, the frontend adds an "Experiment exposure" step at index 0
-    // But the backend actors query funnel doesn't include this - it only has the actual metric events
+    // IMPORTANT: For experiment funnels, the frontend adds an "Experiment exposure" step at index 0.
+    // The backend actors query treats exposure as step 0 (returning all exposed actors) and the
+    // actual metric events as steps 1..N, so frontend step indices map directly to backend steps.
     // Frontend: Step 0=Exposure, Step 1=$pageview, Step 2=click
-    // Backend:                  Step 1=$pageview, Step 2=click
-    // So we map frontend step indices to backend step numbers directly (stepIndex = backendStepNo)
+    // Backend:  Step 0=Exposure, Step 1=$pageview, Step 2=click
     const backendStepNo = stepIndex
 
-    // Skip if trying to query the "Experiment exposure" step (stepIndex 0, doesn't exist in backend)
-    if (backendStepNo < 1) {
+    // The exposure step (step 0) only supports conversions ("all exposed actors").
+    // A drop-off "before exposure" is not a meaningful query.
+    if (backendStepNo === 0 && !converted) {
         return
     }
 
@@ -210,11 +211,11 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
                     if (ref.current) {
                         const rect = ref.current.getBoundingClientRect()
                         // Only show "Click to inspect actors" hint when clicking will actually work:
-                        // - Step 0 (exposure) with new feature enabled: can't use actors query (returns early), so don't show hint
+                        // - Step 0 (exposure) with new feature enabled: conversion click returns all exposed actors
                         // - Step 1 (first metric) drop-offs with new feature: can't query (no exposure in backend funnel), conversions work
                         // - Step 2+ with new feature: both conversions and drop-offs work
                         // - Legacy mode: show hint if sessionData exists
-                        const hasClickableData = hasActorsQueryFeature ? stepIndex > 0 : !!sessionData
+                        const hasClickableData = hasActorsQueryFeature ? stepIndex >= 0 : !!sessionData
                         showTooltip([rect.x, rect.y, rect.width], stepIndex, step, hasClickableData)
                     }
                 }}
@@ -238,7 +239,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
                     onClick={handleConversionClick}
                     style={{
                         cursor: hasActorsQueryFeature
-                            ? stepIndex > 0
+                            ? stepIndex >= 0
                                 ? 'pointer'
                                 : 'default'
                             : sessionData

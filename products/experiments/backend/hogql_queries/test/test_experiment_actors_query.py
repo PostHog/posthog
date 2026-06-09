@@ -136,6 +136,8 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
 
     @parameterized.expand(
         [
+            ("exposure_control", 0, "control", 10),  # Step 0 = all exposed actors (control)
+            ("exposure_test", 0, "test", 10),  # Step 0 = all exposed actors (test)
             ("conversions_step1_control", 1, "control", 6),  # Step 1 conversions (signup)
             ("conversions_step2_control", 2, "control", 4),  # Step 2 conversions (purchase)
             ("dropoffs_control", -2, "control", 2),  # Step 2 drop-offs (signup but no purchase)
@@ -265,6 +267,38 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         assert isinstance(response.results[0][2], list)
 
     @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_experiment_exposure_actors_with_recordings(self):
+        """
+        Step 0 (exposure) actors query should still expose matched_recordings,
+        sourced from the first exposure event rather than a metric step.
+        """
+        feature_flag, _experiment, experiment_query = self._create_experiment_with_funnel()
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        self._create_funnel_data_both_variants(feature_flag_property)
+        flush_persons_and_events()
+
+        experiment_actors_query = ExperimentActorsQuery(
+            kind="ExperimentActorsQuery",
+            source=experiment_query,
+            funnelStep=0,
+            funnelStepBreakdown="control",
+            includeRecordings=True,
+        )
+
+        actors_query = ActorsQuery(
+            source=experiment_actors_query,
+            select=["id", "person", "matched_recordings"],
+        )
+
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        assert len(response.results) == 10
+        assert len(response.results[0]) == 3
+        assert isinstance(response.results[0][2], list)
+
+    @freeze_time("2020-01-01T12:00:00Z")
     def test_experiment_funnel_actors_invalid_steps(self):
         """
         Test that invalid funnelStep values are properly rejected with helpful error messages.
@@ -276,9 +310,8 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         4. Use clear, actionable language
 
         Experiment funnels have unique constraints:
-        - Exposure is step 0 in main query but excluded from actors query
+        - Exposure is step 0 in main query and queryable via the actors query (returns all exposed actors)
         - funnelStep=-1 is invalid (would mean "exposed but never entered funnel")
-        - funnelStep=0 is invalid (steps are 1-indexed)
         - Out-of-range steps should be rejected
         """
         feature_flag, experiment, experiment_query = self._create_experiment_with_funnel()
@@ -310,30 +343,6 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         self.assertIn("exposed but never entered the funnel", error_message)  # Explains WHY invalid
         self.assertIn("Valid drop-off steps: -2", error_message)  # Shows valid range
         self.assertIn("-3", error_message)  # Shows upper bound of valid range
-
-        # Test 0: Invalid step (steps are 1-indexed)
-        # Error message should explain that step 0 doesn't exist and show valid range
-        experiment_actors_query_zero = ExperimentActorsQuery(
-            kind="ExperimentActorsQuery",
-            source=experiment_query,
-            funnelStep=0,
-            funnelStepBreakdown="control",
-            includeRecordings=False,
-        )
-
-        actors_query_zero = ActorsQuery(
-            source=experiment_actors_query_zero,
-            select=["id", "person"],
-        )
-
-        with self.assertRaises(Exception) as context:
-            ActorsQueryRunner(query=actors_query_zero, team=self.team).calculate()
-
-        error_message = str(context.exception)
-        self.assertIn("Funnel steps are 1-indexed", error_message)
-        self.assertIn("Step 0 does not exist", error_message)
-        self.assertIn("Valid conversion steps: 1", error_message)  # Shows start of valid range
-        self.assertIn("2", error_message)  # Shows end of valid range (2 metric steps)
 
         # Test out-of-range drop-off (2-step funnel, so -3 is last valid, -4 is invalid)
         # Error message should show the invalid step, number of metric steps, and valid range
