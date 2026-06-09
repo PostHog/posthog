@@ -135,12 +135,12 @@ TERMINAL = InboxNotificationState(has_implementation_task=True, pr_available=Fal
 
 @pytest.mark.asyncio
 @override_settings(SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS=10, SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS=1)
-async def test_workflow_notifies_immediately_without_task():
+async def test_workflow_skips_when_no_task_and_no_pr():
     recorder = _Recorder([NO_TASK])
     sent = await _run_workflow(recorder)
-    assert sent == 1
-    assert recorder.state_calls == 1  # no polling
-    assert recorder.dispatch_calls == 1
+    assert sent == 0  # no PR to link, so no notification
+    assert recorder.state_calls == 1  # no polling — a taskless report can never produce a PR
+    assert recorder.dispatch_calls == 0
 
 
 @pytest.mark.asyncio
