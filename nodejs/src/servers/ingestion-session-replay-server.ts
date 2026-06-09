@@ -16,9 +16,7 @@ import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '../ses
 import { createProducerRegistry } from '../session-recording/outputs/producer-registry'
 import { createOutputsRegistry } from '../session-recording/outputs/registry'
 import {
-    KafkaDefaultProducerEnvConfig,
     KafkaSessionreplayProducerEnvConfig,
-    getDefaultKafkaDefaultProducerEnvConfig,
     getDefaultKafkaSessionreplayProducerEnvConfig,
 } from '../session-replay/shared/outputs/producer-config'
 import { RedisPool } from '../types'
@@ -43,7 +41,6 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
 export type IngestionSessionReplayServerConfig = BaseServerConfig &
     SessionRecordingIngesterConfig &
     KafkaBrokerConfig &
-    KafkaDefaultProducerEnvConfig &
     KafkaDownstreamProducerEnvConfig &
     KafkaSessionreplayProducerEnvConfig &
     SessionReplayOutputsConfig &
@@ -66,7 +63,6 @@ export class IngestionSessionReplayServer implements NodeServer {
     constructor(config: Partial<IngestionSessionReplayServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
-            ...overrideConfigWithEnv(getDefaultKafkaDefaultProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaSessionreplayProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultSessionReplayOutputsConfig()),

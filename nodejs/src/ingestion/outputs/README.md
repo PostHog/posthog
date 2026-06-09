@@ -94,7 +94,7 @@ To add a new output:
 To add a new producer:
 
 1. Add the name constant and config map to the pipeline's `producers.ts`
-2. Add the config keys to `KafkaProducerEnvConfig` with defaults
+2. Add the config keys to the pipeline's producer env config type (e.g. `KafkaDownstreamProducerEnvConfig`) with defaults
 3. Add a `.register()` call on the `KafkaProducerRegistryBuilder` in the server
 
 To enable dual writes for an existing output, set the `secondaryTopicEnvVar` and `secondaryProducerEnvVar` fields on the output definition, then configure the env vars at deploy time.
