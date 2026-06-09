@@ -15,7 +15,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture_dispatch import capture_internal_routed
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
@@ -1065,7 +1065,7 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
 
         event_timestamp = datetime.now(UTC)
 
-        resp = capture_internal(
+        capture_result = capture_internal_routed(
             token=team.api_token,
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
@@ -1074,7 +1074,7 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             properties=properties,
             process_person_profile=True,
         )
-        resp.raise_for_status()
+        capture_result.raise_for_status()
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
