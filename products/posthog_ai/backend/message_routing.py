@@ -25,7 +25,8 @@ from products.posthog_ai.backend.context_wrapper import (
     AttachedContext,
     ContextService,
 )
-from products.posthog_ai.backend.system_prompt import BaseSandboxService, PromptService
+from products.posthog_ai.backend.helpers import BaseSandboxService
+from products.posthog_ai.backend.system_prompt import PromptService
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 

@@ -30,7 +30,6 @@ class TestPostHogAISystemPrompt(APIBaseTest):
         prompt = self._build()
         assert "<identity>" in prompt
         assert "<capabilities>" in prompt
-        assert "<capabilities_by_domain>" in prompt
         assert "<product_awareness>" in prompt
         # Project context is injected by the MCP server, not built into the system prompt.
         assert "<project_context>" not in prompt

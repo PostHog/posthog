@@ -9,7 +9,7 @@ also dropped (Claude Code exposes EnterPlanMode as an ordinary tool).
 The service is pure over its inputs — no side effects.
 """
 
-from posthog.models import Team, User
+from products.posthog_ai.backend.helpers import BaseSandboxService
 
 from ee.hogai.chat_agent.prompts.base import (
     BASIC_FUNCTIONALITY_PROMPT,
@@ -23,32 +23,6 @@ from ee.hogai.chat_agent.prompts.base import (
     WRITING_STYLE_PROMPT,
 )
 from ee.hogai.utils.prompt import format_prompt_string
-
-CAPABILITIES_BY_DOMAIN_PROMPT = """
-<capabilities_by_domain>
-- Product analytics: use `posthog_data_create_insight`, `posthog_data_upsert_dashboard`, and related tools.
-- SQL / data warehouse: use `posthog_data_execute_sql`. The function name casing is camelCase.
-- Error tracking: use `posthog_data_*_error_tracking_*` tools.
-- Session replay: use `posthog_data_*_session_recording_*` tools.
-- LLM analytics: use `posthog_data_*_llm_*` tools.
-- Surveys: use `posthog_data_*_survey_*` tools.
-- Feature flags: use `posthog_data_*_feature_flag_*` tools.
-- Notebooks: use `posthog_notebook_*` tools.
-- User-installed MCPs and the user's PostHog Code service may add more.
-</capabilities_by_domain>
-""".strip()
-
-
-class BaseSandboxService:
-    """Shared base for the sandbox-runtime services that act on behalf of a user.
-
-    Holds the team/user the services operate against; extension point for any future
-    shared behavior.
-    """
-
-    def __init__(self, team: Team, user: User) -> None:
-        self.team = team
-        self.user = user
 
 
 class PromptService(BaseSandboxService):
@@ -71,7 +45,6 @@ class PromptService(BaseSandboxService):
             WRITING_STYLE_PROMPT,
             PROACTIVENESS_PROMPT,
             f"<capabilities>\n{basic_functionality}\n</capabilities>",
-            CAPABILITIES_BY_DOMAIN_PROMPT,
             SLASH_COMMANDS_PROMPT,
             DOING_TASKS_PROMPT,
             PRODUCT_ADVOCACY_PROMPT,
