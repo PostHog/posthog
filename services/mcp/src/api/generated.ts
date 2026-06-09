@@ -27876,6 +27876,7 @@ export namespace Schemas {
     * `new_product` - New Product
     * `sales_led` - Sales Led
     * `onboarding_delegated` - Onboarding Delegated
+    * `has_product_data` - Has Product Data
      */
     export type UserProductListReasonEnum = typeof UserProductListReasonEnum[keyof typeof UserProductListReasonEnum];
 
@@ -27889,6 +27890,7 @@ export namespace Schemas {
       NewProduct: 'new_product',
       SalesLed: 'sales_led',
       OnboardingDelegated: 'onboarding_delegated',
+      HasProductData: 'has_product_data',
     } as const;
 
     export interface UserProductList {
