@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
 import { IconCopy } from '@posthog/icons'
@@ -7,6 +7,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import type { AcpMessage } from '../conversation/acp-types'
+import { buildConversationItems } from '../conversation/buildConversationItems'
 import { ConversationView } from '../conversation/ConversationView'
 import { TaskRun } from '../types'
 import { TaskRunStatusBadge } from './TaskRunStatusBadge'
@@ -68,6 +69,11 @@ export function TaskSessionView({
     isStreaming,
     run,
 }: TaskSessionViewProps): JSX.Element {
+    // Count rendered conversation items, not raw events: a single turn produces
+    // many JSON-RPC messages (a chunk per streamed token, tool_call + tool_call_update
+    // per tool), so events.length would wildly overstate what the user actually sees.
+    const itemCount = useMemo(() => buildConversationItems(events, null).items.length, [events])
+
     const handleCopyLogs = (): void => {
         navigator.clipboard.writeText(logs).then(
             () => lemonToast.success('Logs copied to clipboard'),
@@ -95,7 +101,7 @@ export function TaskSessionView({
             <div className="flex justify-between items-center px-4 py-2 border-b">
                 <div className="flex items-center gap-2">
                     {run && <TaskRunStatusBadge run={run} />}
-                    <span className="text-sm font-semibold">Logs ({events.length})</span>
+                    <span className="text-sm font-semibold">Logs ({itemCount})</span>
                 </div>
                 <LemonButton size="xsmall" icon={<IconCopy />} onClick={handleCopyLogs}>
                     Copy
