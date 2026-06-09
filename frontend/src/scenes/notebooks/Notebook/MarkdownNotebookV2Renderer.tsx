@@ -33,6 +33,7 @@ import '../Nodes/NotebookNodeZendeskTickets'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { IconSparkles } from '@posthog/icons'
 import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { MarkdownNotebook, createMarkdownNotebookRegistry } from 'lib/components/MarkdownNotebook'
@@ -45,10 +46,15 @@ import {
     NotebookPropValue,
 } from 'lib/components/MarkdownNotebook/types'
 import { isNotebookPropValue } from 'lib/components/MarkdownNotebook/utils'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { uuid } from 'lib/utils'
+import { MarkdownMessage } from 'scenes/max/MarkdownMessage'
 import { maxLogic } from 'scenes/max/maxLogic'
+import type { maxLogicType } from 'scenes/max/maxLogicType'
+import { MaxThreadLogicProps, ThreadMessage, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { MaxContextType } from 'scenes/max/maxTypes'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
+
+import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
@@ -102,6 +108,7 @@ const MARKDOWN_NODE_DEFINITIONS: {
     label?: string
     EditComponent?: NotebookComponentDefinition['EditComponent']
     exclusiveEditPanel?: boolean
+    insertCommand?: NotebookComponentDefinition['insertCommand']
 }[] = [
     { tagName: 'Query', category: 'Insight' },
     { tagName: 'Python', category: 'Code', exclusiveEditPanel: true },
@@ -141,16 +148,20 @@ const MARKDOWN_NODE_DEFINITIONS: {
     },
 ]
 
+type InlineNotebookAIRequest = MarkdownNotebookAskAIRequest & {
+    tabId: string
+    uiContext?: Partial<MaxUIContext>
+}
+
 export function MarkdownNotebookV2(): JSX.Element {
     const { content, isEditable, notebook } = useValues(notebookLogic)
     const { setLocalContent, setAutosavePaused } = useActions(notebookLogic)
-    const { openSidePanelMax } = useActions(maxGlobalLogic)
-    const { askMax } = useActions(maxLogic({ tabId: 'sidepanel' }))
     const markdown = getMarkdownNotebookMarkdown(content)
     const remoteMarkdown = getMarkdownNotebookMarkdown(notebook?.content)
     const nodeId = getMarkdownNotebookNodeId(content)
     const [isInteractionActive, setIsInteractionActive] = useState(false)
     const [draftMarkdown, setDraftMarkdown] = useState<string | null>(null)
+    const [inlineAIRequests, setInlineAIRequests] = useState<InlineNotebookAIRequest[]>([])
     const isInteractionActiveRef = useRef(false)
     const latestMarkdownRef = useRef(markdown)
     const bufferedMarkdownRef = useRef<string | null>(null)
@@ -227,10 +238,14 @@ export function MarkdownNotebookV2(): JSX.Element {
     )
     const handleAskAI = useCallback(
         ({
+            chatId,
             query,
-            placeholderNodeId,
-            insertionPlaceholder,
-            markdownWithPlaceholder,
+            source,
+            chatNodeId,
+            chatMarker,
+            markdown,
+            markdownWithChat,
+            selectedMarkdown,
         }: MarkdownNotebookAskAIRequest): void => {
             const notebookShortId = notebook?.short_id
             const notebookTitle = notebook?.title ?? 'Untitled notebook'
@@ -241,41 +256,216 @@ export function MarkdownNotebookV2(): JSX.Element {
                               type: MaxContextType.NOTEBOOK,
                               id: notebookShortId,
                               name: notebookTitle,
-                              markdown_with_insertion_placeholder: markdownWithPlaceholder,
-                              insertion_placeholder_block_id: placeholderNodeId,
-                              insertion_placeholder_marker: insertionPlaceholder,
+                              markdown_with_insertion_placeholder: markdownWithChat,
+                              insertion_placeholder_block_id: chatId,
+                              insertion_placeholder_marker: chatMarker,
                           },
                       ],
                   }
                 : undefined
 
-            openSidePanelMax()
-            window.setTimeout(() => {
-                askMax(query, true, uiContext)
-            }, 100)
+            const inlineAIRequest: InlineNotebookAIRequest = {
+                chatId,
+                tabId: getInlineNotebookAITabId(chatId),
+                query,
+                source,
+                chatNodeId,
+                chatMarker,
+                markdown,
+                markdownWithChat,
+                selectedMarkdown,
+                uiContext,
+            }
+            setInlineAIRequests((currentRequests) => [
+                ...currentRequests.filter((currentRequest) => currentRequest.chatId !== chatId),
+                inlineAIRequest,
+            ])
         },
-        [askMax, notebook?.short_id, notebook?.title, openSidePanelMax]
+        [notebook?.short_id, notebook?.title]
     )
 
+    const handleInlineAIComplete = useCallback((request: InlineNotebookAIRequest): void => {
+        window.setTimeout(() => {
+            setInlineAIRequests((currentRequests) =>
+                currentRequests.filter((currentRequest) => currentRequest.chatId !== request.chatId)
+            )
+        }, 0)
+    }, [])
+
+    const handleInlineAIError = useCallback((request: InlineNotebookAIRequest): void => {
+        setInlineAIRequests((currentRequests) =>
+            currentRequests.filter((currentRequest) => currentRequest.chatId !== request.chatId)
+        )
+    }, [])
+
     return (
-        <MarkdownNotebook
-            value={renderedMarkdown}
-            remoteValue={remoteMarkdown}
-            mode={isEditable ? 'edit' : 'view'}
-            registry={NOTEBOOK_MARKDOWN_REGISTRY}
-            onChange={isEditable ? handleChange : undefined}
-            onAskAI={isEditable ? handleAskAI : undefined}
-            deferRemoteValue={isInteractionActive}
-            onInteractionStateChange={handleInteractionStateChange}
-            className="Notebook__markdown-v2"
-            data-attr="notebook-markdown-v2"
-            autoFocus={isEditable}
+        <>
+            <MarkdownNotebook
+                value={renderedMarkdown}
+                remoteValue={remoteMarkdown}
+                mode={isEditable ? 'edit' : 'view'}
+                registry={NOTEBOOK_MARKDOWN_REGISTRY}
+                onChange={isEditable ? handleChange : undefined}
+                onAskAI={isEditable ? handleAskAI : undefined}
+                createAIChatId={uuid}
+                deferRemoteValue={isInteractionActive}
+                onInteractionStateChange={handleInteractionStateChange}
+                className="Notebook__markdown-v2"
+                data-attr="notebook-markdown-v2"
+                autoFocus={isEditable}
+                showDebug={isEditable}
+            />
+            {inlineAIRequests.map((request) => (
+                <InlineNotebookAIRunner
+                    key={request.chatId}
+                    request={request}
+                    onComplete={handleInlineAIComplete}
+                    onError={handleInlineAIError}
+                />
+            ))}
+        </>
+    )
+}
+
+function InlineNotebookAIRunner({
+    request,
+    onComplete,
+    onError,
+}: {
+    request: InlineNotebookAIRequest
+    onComplete: (request: InlineNotebookAIRequest) => void
+    onError: (request: InlineNotebookAIRequest) => void
+}): JSX.Element {
+    const maxLogicProps = useMemo<maxLogicType['props']>(
+        () => ({ tabId: request.tabId, initialFrontendConversationId: request.chatId }),
+        [request.chatId, request.tabId]
+    )
+    const maxLogicInstance = maxLogic(maxLogicProps)
+    useMountedLogic(maxLogicInstance)
+
+    const { askMax } = useActions(maxLogicInstance)
+    const { threadLogicProps } = useValues(maxLogicInstance)
+
+    if (threadLogicProps.conversationId !== request.chatId) {
+        return <></>
+    }
+
+    return (
+        <InlineNotebookAIThread
+            request={request}
+            threadLogicProps={threadLogicProps}
+            askMax={askMax}
+            onComplete={onComplete}
+            onError={onError}
         />
     )
 }
 
-const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkdownNotebookRegistry(
-    MARKDOWN_NODE_DEFINITIONS.map((definition) => {
+function InlineNotebookAIThread({
+    request,
+    threadLogicProps,
+    askMax,
+    onComplete,
+    onError,
+}: {
+    request: InlineNotebookAIRequest
+    threadLogicProps: MaxThreadLogicProps
+    askMax: (prompt: string | null, addToThread?: boolean, uiContext?: Partial<MaxUIContext>) => void
+    onComplete: (request: InlineNotebookAIRequest) => void
+    onError: (request: InlineNotebookAIRequest) => void
+}): null {
+    const threadLogicInstance = maxThreadLogic(threadLogicProps)
+    useMountedLogic(threadLogicInstance)
+
+    const { threadRaw, threadLoading } = useValues(threadLogicInstance)
+    const didAskRef = useRef(false)
+    const didCompleteRef = useRef(false)
+
+    useEffect(() => {
+        if (didAskRef.current) {
+            return
+        }
+
+        didAskRef.current = true
+        askMax(request.query, true, request.uiContext)
+    }, [askMax, request])
+
+    useEffect(() => {
+        if (!didAskRef.current || didCompleteRef.current || threadLoading) {
+            return
+        }
+
+        const completion = getInlineAICompletion(threadRaw)
+        if (!completion) {
+            return
+        }
+
+        didCompleteRef.current = true
+        if (completion.status === 'error') {
+            onError(request)
+            return
+        }
+
+        onComplete(request)
+    }, [onComplete, onError, request, threadLoading, threadRaw])
+
+    return null
+}
+
+function getInlineAICompletion(threadRaw: ThreadMessage[]): { status: 'done' | 'error'; message: string } | null {
+    const lastErrorMessage = [...threadRaw]
+        .reverse()
+        .find((message) => message.type === AssistantMessageType.Failure || message.status === 'error')
+    if (lastErrorMessage) {
+        return {
+            status: 'error',
+            message: getInlineAIStatusText(
+                'content' in lastErrorMessage && typeof lastErrorMessage.content === 'string'
+                    ? lastErrorMessage.content
+                    : undefined,
+                'PostHog AI could not finish this request.'
+            ),
+        }
+    }
+
+    const completedMessages = threadRaw.filter((message) => message.status === 'completed')
+    const lastAssistantMessage = [...completedMessages]
+        .reverse()
+        .find((message) => message.type !== AssistantMessageType.Human)
+    if (!lastAssistantMessage) {
+        return null
+    }
+
+    if (lastAssistantMessage.type === AssistantMessageType.Assistant) {
+        return {
+            status: 'done',
+            message: getInlineAIStatusText(lastAssistantMessage.content, 'PostHog AI finished.'),
+        }
+    }
+
+    if (lastAssistantMessage.type === AssistantMessageType.Notebook) {
+        return {
+            status: 'done',
+            message: 'Updated the notebook.',
+        }
+    }
+
+    return {
+        status: 'done',
+        message: 'PostHog AI finished.',
+    }
+}
+
+function getInlineAIStatusText(value: string | undefined, fallback: string): string {
+    const oneLineValue = value?.replace(/\s+/g, ' ').trim()
+    if (!oneLineValue) {
+        return fallback
+    }
+    return oneLineValue.length > 160 ? `${oneLineValue.slice(0, 157)}...` : oneLineValue
+}
+
+const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkdownNotebookRegistry([
+    ...MARKDOWN_NODE_DEFINITIONS.map((definition) => {
         const nodeType = MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE[definition.tagName]
         const options = nodeType ? KNOWN_NODES[nodeType] : null
         const label = definition.label ?? options?.titlePlaceholder ?? splitTagName(definition.tagName)
@@ -289,9 +479,199 @@ const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkdownNote
             ViewComponent: RealNotebookNodeView,
             EditComponent: definition.EditComponent ?? RealNotebookNodeEdit,
             exclusiveEditPanel: definition.exclusiveEditPanel,
+            insertCommand: definition.insertCommand,
         }
-    })
-)
+    }),
+    {
+        tagName: 'Chat',
+        label: 'AI chat',
+        category: 'AI',
+        icon: <IconSparkles />,
+        defaultProps: { id: '' },
+        ViewComponent: NotebookAIChat,
+        EditComponent: NotebookAIChat,
+        exclusiveEditPanel: true,
+        hideModeActions: true,
+    },
+])
+
+function getInlineNotebookAITabId(chatId: string): string {
+    return `notebook-inline-${chatId}`
+}
+
+function getNotebookStringProp(value: NotebookPropValue | undefined): string | null {
+    return typeof value === 'string' ? value : null
+}
+
+function NotebookAIChat({ node, updateProps }: NotebookComponentRenderProps): JSX.Element {
+    const cachedAnswer = getNotebookStringProp(node.props.answer)
+    const chatId = getNotebookStringProp(node.props.id)
+
+    if (cachedAnswer) {
+        return <NotebookAIChatAnswer id={chatId ?? 'notebook-ai-chat-cached-answer'} content={cachedAnswer} />
+    }
+
+    if (!chatId) {
+        return <div className="MarkdownNotebook__component-preview">Missing AI chat id.</div>
+    }
+
+    return <NotebookAIChatById chatId={chatId} updateProps={updateProps} />
+}
+
+function NotebookAIChatById({
+    chatId,
+    updateProps,
+}: {
+    chatId: string
+    updateProps: (props: Partial<NotebookComponentProps>) => void
+}): JSX.Element {
+    const tabId = getInlineNotebookAITabId(chatId)
+    const maxLogicProps = useMemo<maxLogicType['props']>(
+        () => ({ tabId, initialFrontendConversationId: chatId }),
+        [chatId, tabId]
+    )
+    const maxLogicInstance = maxLogic(maxLogicProps)
+    useMountedLogic(maxLogicInstance)
+
+    const { setConversationId } = useActions(maxLogicInstance)
+    const { threadLogicProps } = useValues(maxLogicInstance)
+
+    useEffect(() => {
+        const timeout = window.setTimeout(() => {
+            if (!maxLogicInstance.values.conversationId && maxLogicInstance.values.activeStreamingThreads === 0) {
+                setConversationId(chatId)
+            }
+        }, 1500)
+        return () => window.clearTimeout(timeout)
+    }, [chatId, maxLogicInstance, setConversationId])
+
+    if (threadLogicProps.conversationId !== chatId) {
+        return <NotebookAIChatThinking message="Thinking ..." />
+    }
+
+    return <NotebookAIChatThread threadLogicProps={threadLogicProps} updateProps={updateProps} />
+}
+
+function NotebookAIChatThread({
+    threadLogicProps,
+    updateProps,
+}: {
+    threadLogicProps: MaxThreadLogicProps
+    updateProps: (props: Partial<NotebookComponentProps>) => void
+}): JSX.Element {
+    const threadLogicInstance = maxThreadLogic(threadLogicProps)
+    useMountedLogic(threadLogicInstance)
+
+    const { threadGrouped, threadLoading } = useValues(threadLogicInstance)
+    const display = getNotebookAIChatDisplay(threadGrouped, threadLoading)
+
+    useEffect(() => {
+        if (display.type !== 'answer') {
+            return
+        }
+
+        updateProps({ answer: display.content })
+    }, [display, updateProps])
+
+    if (display.type === 'answer') {
+        return <NotebookAIChatAnswer id={display.id} content={display.content} />
+    }
+
+    if (display.type === 'error') {
+        return <div className="MarkdownNotebook__ai-chat-error">{display.content}</div>
+    }
+
+    return <NotebookAIChatThinking message={display.message} />
+}
+
+function NotebookAIChatAnswer({ id, content }: { id: string; content: string }): JSX.Element {
+    return (
+        <div className="MarkdownNotebook__ai-chat-answer">
+            <MarkdownMessage content={content} id={id} />
+        </div>
+    )
+}
+
+function NotebookAIChatThinking({ message }: { message: string }): JSX.Element {
+    return (
+        <div className="MarkdownNotebook__ai-chat-thinking">
+            <IconSparkles />
+            <span>{message}</span>
+        </div>
+    )
+}
+
+type NotebookAIChatDisplay =
+    | { type: 'thinking'; message: string }
+    | { type: 'answer'; id: string; content: string }
+    | { type: 'error'; content: string }
+
+function getNotebookAIChatDisplay(threadGrouped: ThreadMessage[], threadLoading: boolean): NotebookAIChatDisplay {
+    const errorMessage = [...threadGrouped]
+        .reverse()
+        .find((message) => message.type === AssistantMessageType.Failure || message.status === 'error')
+    if (errorMessage) {
+        return {
+            type: 'error',
+            content: getMessageContent(errorMessage) || 'PostHog AI could not finish this request.',
+        }
+    }
+
+    const assistantMessage = [...threadGrouped]
+        .reverse()
+        .find(
+            (message) =>
+                message.type === AssistantMessageType.Assistant &&
+                message.status === 'completed' &&
+                getMessageContent(message).trim().length > 0
+        )
+    if (assistantMessage) {
+        return {
+            type: 'answer',
+            id: assistantMessage.id || 'notebook-ai-chat-answer',
+            content: getMessageContent(assistantMessage),
+        }
+    }
+
+    const notebookMessage = [...threadGrouped]
+        .reverse()
+        .find((message) => message.type === AssistantMessageType.Notebook && message.status === 'completed')
+    if (notebookMessage) {
+        return {
+            type: 'answer',
+            id: notebookMessage.id || 'notebook-ai-chat-notebook-update',
+            content: 'Updated the notebook.',
+        }
+    }
+
+    const thinkingMessage = [...threadGrouped].reverse().map(getThinkingMessage).find(Boolean)
+    return {
+        type: 'thinking',
+        message: threadLoading || thinkingMessage ? (thinkingMessage ?? 'Thinking ...') : 'Thinking ...',
+    }
+}
+
+function getMessageContent(message: ThreadMessage): string {
+    return 'content' in message && typeof message.content === 'string' ? message.content : ''
+}
+
+function getThinkingMessage(message: ThreadMessage): string | null {
+    if (message.type !== AssistantMessageType.Assistant) {
+        return null
+    }
+
+    const thinking = message.meta?.thinking?.find(isThinkingMetadataEntry)
+    return thinking?.thinking ?? null
+}
+
+function isThinkingMetadataEntry(entry: unknown): entry is { type: 'thinking'; thinking: string } {
+    if (!entry || typeof entry !== 'object') {
+        return false
+    }
+
+    const metadataEntry = entry as { type?: unknown; thinking?: unknown }
+    return metadataEntry.type === 'thinking' && typeof metadataEntry.thinking === 'string'
+}
 
 function RealNotebookNodeView(props: NotebookComponentRenderProps): JSX.Element {
     return <RealNotebookNodeComponent {...props} />

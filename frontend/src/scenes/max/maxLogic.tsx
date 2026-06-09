@@ -138,6 +138,7 @@ export const SIDE_PANEL_PANEL_ID = 'sidepanel'
 
 export interface MaxLogicProps {
     panelId?: string
+    initialFrontendConversationId?: string
     onAcceptSessionFilters?: (filters: RecordingUniversalFilters) => void
 }
 
@@ -218,7 +219,7 @@ export const maxLogic = kea<maxLogicType>([
         setAutoRun: (autoRun: boolean) => ({ autoRun }),
     }),
 
-    reducers({
+    reducers(({ props }) => ({
         activeStreamingThreads: [
             0,
             {
@@ -246,7 +247,7 @@ export const maxLogic = kea<maxLogicType>([
 
         // The frontend-generated UUID for new conversations
         frontendConversationId: [
-            (() => uuid()) as any as string,
+            (props.initialFrontendConversationId ?? uuid()) as string,
             {
                 startNewConversation: () => uuid(),
             },
@@ -283,7 +284,7 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         autoRun: [false as boolean, { setAutoRun: (_, { autoRun }) => autoRun, startNewConversation: () => false }],
-    }),
+    })),
 
     selectors({
         panelId: [() => [(_, props) => props?.panelId || ''], (panelId) => panelId],

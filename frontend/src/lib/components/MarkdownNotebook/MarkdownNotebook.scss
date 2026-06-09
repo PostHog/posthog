@@ -23,15 +23,19 @@
 }
 
 .MarkdownNotebook__main {
+    position: relative;
     flex: 1 1 auto;
     min-width: 0;
     min-height: 100%;
 }
 
 .MarkdownNotebook__debug-toolbar {
+    position: absolute;
+    top: 0.25rem;
+    right: 0;
+    z-index: var(--z-raised);
     display: flex;
     justify-content: flex-end;
-    min-height: 2rem;
 }
 
 .MarkdownNotebook__debug-drawer {
@@ -44,7 +48,7 @@
     width: min(33vw, 28rem);
     min-width: min(18rem, 33vw);
     max-width: 33vw;
-    height: 100vh;
+    height: 90vh;
     max-height: 100vh;
     padding: 0.5rem;
     overflow: auto;
@@ -208,10 +212,6 @@
     grid-column: 3;
 }
 
-.MarkdownNotebook__text-row--ai-thinking .MarkdownNotebook__text-block {
-    display: none;
-}
-
 .MarkdownNotebook__ai-prompt-tag {
     display: inline-flex;
     grid-column: 2;
@@ -236,21 +236,9 @@
     outline-offset: 2px;
 }
 
-.MarkdownNotebook__ai-prompt-tag--thinking:focus {
-    outline: 2px solid var(--color-accent);
-    outline-offset: 2px;
-}
-
 .MarkdownNotebook__ai-prompt-tag svg {
     width: 0.875rem;
     height: 0.875rem;
-}
-
-.MarkdownNotebook__ai-prompt-tag--thinking {
-    color: var(--color-text-secondary);
-    background: var(--color-bg-fill-tertiary);
-    border-color: var(--color-border-primary);
-    box-shadow: none;
 }
 
 .MarkdownNotebook__text-block:focus {
@@ -308,6 +296,17 @@ h3.MarkdownNotebook__text-block--heading {
     padding-left: 0.75rem;
     color: var(--secondary);
     border-left: 3px solid var(--border-bold);
+}
+
+.MarkdownNotebook__text-block code {
+    padding: 0.0625rem 0.25rem;
+    font: var(--font-mono);
+    font-size: 0.9em;
+    color: var(--color-text-primary);
+    white-space: break-spaces;
+    background: var(--color-bg-surface-secondary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: 0.25rem;
 }
 
 .MarkdownNotebook__format-toolbar {
@@ -659,6 +658,59 @@ h3.MarkdownNotebook__text-block--heading {
     font-size: 0.8125rem;
     background: var(--bg-light);
     border-radius: 0.375rem;
+}
+
+.MarkdownNotebook__ai-chat-thinking,
+.MarkdownNotebook__ai-chat-error {
+    display: flex;
+    gap: 0.375rem;
+    align-items: center;
+    min-height: 2.5rem;
+    padding: 0.75rem;
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+    background: var(--color-bg-fill-tertiary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: 0.375rem;
+}
+
+.MarkdownNotebook__ai-chat-thinking svg {
+    flex: 0 0 auto;
+    width: 1rem;
+    height: 1rem;
+}
+
+.MarkdownNotebook__ai-chat-error {
+    color: var(--color-text-danger);
+    border-color: var(--color-border-danger);
+}
+
+.MarkdownNotebook__ai-chat-answer {
+    padding: 0.75rem 1rem;
+}
+
+.MarkdownNotebook__code-block {
+    min-height: 3rem;
+    padding: 0.875rem 1rem;
+    font: var(--font-mono);
+    line-height: 1.55;
+    color: var(--color-text-primary);
+    word-break: break-word;
+    white-space: pre-wrap;
+    background: var(--color-bg-surface-secondary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: 0.5rem;
+    outline: none;
+}
+
+.MarkdownNotebook__code-block:empty::before {
+    color: var(--color-text-tertiary);
+    content: attr(data-placeholder);
+}
+
+.MarkdownNotebook__code-block[contenteditable='true']:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 1px var(--primary);
 }
 
 .MarkdownNotebook__component-shell {

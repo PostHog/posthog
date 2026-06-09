@@ -14,7 +14,12 @@ import {
 } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
-import { NotebookComponentDefinition, NotebookComponentRegistry, NotebookComponentRenderProps } from './types'
+import {
+    NotebookComponentDefinition,
+    NotebookComponentProps,
+    NotebookComponentRegistry,
+    NotebookComponentRenderProps,
+} from './types'
 import { isNotebookComponentProps } from './utils'
 
 export function createMarkdownNotebookRegistry(definitions: NotebookComponentDefinition[]): NotebookComponentRegistry {
@@ -43,6 +48,12 @@ export function getMarkdownNotebookComponentDefinition(
     tagName: string
 ): NotebookComponentDefinition | null {
     return registry.components[tagName] ?? null
+}
+
+export function getMarkdownNotebookComponentDefaultProps(
+    definition: NotebookComponentDefinition
+): NotebookComponentProps {
+    return typeof definition.defaultProps === 'function' ? definition.defaultProps() : (definition.defaultProps ?? {})
 }
 
 export function getMarkdownNotebookDefaultRegistry(): NotebookComponentRegistry {

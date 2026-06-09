@@ -112,6 +112,15 @@ export type NotebookComponentRenderProps = {
     updateProps: (props: Partial<NotebookComponentProps>) => void
 }
 
+export type NotebookComponentInsertCommand = {
+    label?: string
+    category?: string
+    description?: string
+    aliases?: string[]
+    icon?: ReactNode
+    defaultProps?: NotebookComponentProps | (() => NotebookComponentProps)
+}
+
 export type NotebookComponentDefinition = {
     tagName: string
     label: string
@@ -124,6 +133,8 @@ export type NotebookComponentDefinition = {
     ViewComponent: (props: NotebookComponentRenderProps) => JSX.Element
     EditComponent?: (props: NotebookComponentRenderProps) => JSX.Element
     exclusiveEditPanel?: boolean
+    hideModeActions?: boolean
+    insertCommand?: NotebookComponentInsertCommand
 }
 
 export type NotebookComponentRegistry = {

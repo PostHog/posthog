@@ -19,6 +19,7 @@ import {
     getNodeFingerprint,
     hashString,
     isNotebookPropValue,
+    normalizeInlineMarks,
     normalizeInlineNodes,
 } from './utils'
 
@@ -837,7 +838,10 @@ function serializeInlineNode(node: NotebookInlineNode): string {
         return '\n'
     }
 
-    return (node.marks ?? []).reduce((text, mark) => wrapInlineText(text, mark), escapeMarkdownText(node.text))
+    return normalizeInlineMarks(node.marks ?? []).reduce(
+        (text, mark) => wrapInlineText(text, mark),
+        escapeMarkdownText(node.text)
+    )
 }
 
 function wrapInlineText(text: string, mark: NotebookInlineMark): string {
@@ -943,7 +947,10 @@ function inlineNodeToHtml(node: NotebookInlineNode): string {
         return '<br />'
     }
 
-    return (node.marks ?? []).reduce((html, mark) => wrapHtmlText(html, mark), escapeHtml(node.text))
+    return normalizeInlineMarks(node.marks ?? []).reduce(
+        (html, mark) => wrapHtmlText(html, mark),
+        escapeHtml(node.text)
+    )
 }
 
 function wrapHtmlText(html: string, mark: NotebookInlineMark): string {

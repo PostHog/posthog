@@ -341,11 +341,8 @@ class AssistantContextManager(AssistantContextMixin):
 
     def _format_markdown_notebook_context(self, notebook: MaxNotebookContext) -> str:
         title = notebook.name or f"Notebook {notebook.id}"
-        placeholder_block_id = notebook.insertion_placeholder_block_id or "unknown"
-        placeholder_marker = (
-            notebook.insertion_placeholder_marker
-            or f"<!-- Ask PostHog AI insertion placeholder block id: {placeholder_block_id} -->"
-        )
+        chat_id = notebook.insertion_placeholder_block_id or "unknown"
+        chat_marker = notebook.insertion_placeholder_marker or f'<Chat id="{chat_id}" />'
         markdown = notebook.markdown_with_insertion_placeholder or ""
 
         return "\n".join(
@@ -354,12 +351,12 @@ class AssistantContextManager(AssistantContextMixin):
                 f"short_id: {notebook.id}",
                 "",
                 "The user is asking from a Markdown notebook v2 editor.",
-                f"AI insertion placeholder block id: {placeholder_block_id}",
+                f"Inline AI chat id: {chat_id}",
                 (
-                    'The placeholder block is currently shown in the notebook as "Thinking ...". '
-                    "In the markdown below, the exact insertion point is marked with "
-                    f'`{placeholder_marker}`. If the user says "here", "this spot", "below", '
-                    '"above", or similar, they mean this placeholder location.'
+                    'The inline AI chat is currently shown in the notebook as "Thinking ...". '
+                    "In the markdown below, the exact answer anchor is "
+                    f'`{chat_marker}`. If the user says "here", "this spot", "below", '
+                    '"above", or similar, they mean this Chat block.'
                 ),
                 (
                     "Use notebook tools against the current notebook when changing notebook content. "
@@ -367,7 +364,7 @@ class AssistantContextManager(AssistantContextMixin):
                     "its attrs.markdown with valid markdown instead of replacing it with legacy rich-text blocks."
                 ),
                 "",
-                "Current notebook markdown with insertion placeholder:",
+                "Current notebook markdown with inline AI chat:",
                 "```markdown",
                 markdown,
                 "```",

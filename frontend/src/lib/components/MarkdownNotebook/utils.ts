@@ -173,7 +173,38 @@ function normalizeForSimilarity(value: string): string {
 }
 
 export function marksEqual(left: NotebookInlineMark[], right: NotebookInlineMark[]): boolean {
-    return JSON.stringify(left) === JSON.stringify(right)
+    return JSON.stringify(normalizeInlineMarks(left)) === JSON.stringify(normalizeInlineMarks(right))
+}
+
+export function normalizeInlineMarks(marks: NotebookInlineMark[]): NotebookInlineMark[] {
+    const dedupedMarks: NotebookInlineMark[] = []
+    const seenTypes = new Set<NotebookInlineMark['type']>()
+
+    marks.forEach((mark) => {
+        if (seenTypes.has(mark.type)) {
+            return
+        }
+        seenTypes.add(mark.type)
+        dedupedMarks.push(mark)
+    })
+
+    return dedupedMarks.sort((left, right) => getInlineMarkOrder(left) - getInlineMarkOrder(right))
+}
+
+function getInlineMarkOrder(mark: NotebookInlineMark): number {
+    if (mark.type === 'code') {
+        return 0
+    }
+    if (mark.type === 'bold') {
+        return 1
+    }
+    if (mark.type === 'italic') {
+        return 2
+    }
+    if (mark.type === 'underline') {
+        return 3
+    }
+    return 4
 }
 
 export function normalizeInlineNodes(nodes: NotebookInlineNode[]): NotebookInlineNode[] {
@@ -191,15 +222,16 @@ export function normalizeInlineNodes(nodes: NotebookInlineNode[]): NotebookInlin
             return
         }
 
+        const marks = normalizeInlineMarks(node.marks ?? [])
         const previous = normalized[normalized.length - 1]
-        if (previous?.type === 'text' && marksEqual(previous.marks ?? [], node.marks ?? [])) {
+        if (previous?.type === 'text' && marksEqual(previous.marks ?? [], marks)) {
             previous.text += node.text
             return
         }
 
         normalized.push({
             ...node,
-            marks: node.marks?.length ? node.marks : undefined,
+            marks: marks.length ? marks : undefined,
         })
     })
 

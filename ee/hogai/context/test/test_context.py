@@ -197,12 +197,10 @@ class TestAssistantContextManager(BaseTest):
                 MaxNotebookContext(
                     id="hjH8ysXW",
                     name="Rando notebook",
-                    insertion_placeholder_block_id="mdn-15iekr0-1",
-                    insertion_placeholder_marker=(
-                        "<!-- Ask PostHog AI insertion placeholder block id: mdn-15iekr0-1 -->"
-                    ),
+                    insertion_placeholder_block_id="835f09ed-e58a-4a4a-93c3-813ced0d3e55",
+                    insertion_placeholder_marker='<Chat id="835f09ed-e58a-4a4a-93c3-813ced0d3e55" />',
                     markdown_with_insertion_placeholder=(
-                        "# Rando notebook\n\n<!-- Ask PostHog AI insertion placeholder block id: mdn-15iekr0-1 -->"
+                        '# Rando notebook\n\n<Chat id="835f09ed-e58a-4a4a-93c3-813ced0d3e55" />'
                     ),
                 )
             ]
@@ -214,8 +212,8 @@ class TestAssistantContextManager(BaseTest):
         assert result is not None
         self.assertIn("# Notebooks", result)
         self.assertIn("The user is asking from a Markdown notebook v2 editor.", result)
-        self.assertIn("AI insertion placeholder block id: mdn-15iekr0-1", result)
-        self.assertIn("<!-- Ask PostHog AI insertion placeholder block id: mdn-15iekr0-1 -->", result)
+        self.assertIn("Inline AI chat id: 835f09ed-e58a-4a4a-93c3-813ced0d3e55", result)
+        self.assertIn('<Chat id="835f09ed-e58a-4a4a-93c3-813ced0d3e55" />', result)
         self.assertIn("single ph-markdown-notebook node", result)
         mock_from_short_id.assert_not_called()
 

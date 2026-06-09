@@ -52,12 +52,14 @@ import {
 } from './markdown'
 import { reconcileNotebookDocuments } from './reconcile'
 import {
+    getMarkdownNotebookComponentDefaultProps,
     getMarkdownNotebookComponentDefinition,
     getMarkdownNotebookDefaultRegistry,
     mergeMarkdownNotebookRegistries,
 } from './registry'
 import {
     NotebookBlockNode,
+    NotebookCodeBlockNode,
     NotebookCollaborationConflict,
     NotebookComponentBlockNode,
     NotebookComponentDefinition,
@@ -88,6 +90,7 @@ export type MarkdownNotebookProps = {
     value: string
     onChange?: (value: string) => void
     onAskAI?: (request: MarkdownNotebookAskAIRequest) => void
+    createAIChatId?: () => string
     mode?: NotebookMode
     registry?: NotebookComponentRegistry
     remoteValue?: string
@@ -104,11 +107,14 @@ export type MarkdownNotebookProps = {
 }
 
 export type MarkdownNotebookAskAIRequest = {
+    chatId: string
     query: string
-    placeholderNodeId: string
-    insertionPlaceholder: string
+    source: 'slash' | 'selection'
+    chatNodeId: string
+    chatMarker: string
     markdown: string
-    markdownWithPlaceholder: string
+    markdownWithChat: string
+    selectedMarkdown?: string
 }
 
 type RestoreInlineSelectionRequest = {
@@ -131,7 +137,7 @@ type InsertCommand = {
     category: string
     description?: string
     aliases?: string[]
-    icon?: JSX.Element
+    icon?: ReactNode
     closeOnRun?: boolean
     run: (targetNodeId: string) => void
 }
@@ -140,10 +146,17 @@ type InsertMenuState = {
     nodeId: string
     query: string
     selectedIndex: number
-    mode?: 'tools' | 'ai' | 'thinking'
+    mode?: 'tools' | 'ai'
+    source?: 'slash' | 'selection'
+    selectedMarkdown?: string
 }
 
 type InsertMenuSelectionDirection = 'next' | 'previous'
+type DebugTextareaSelection = {
+    start: number
+    end: number
+    direction: 'forward' | 'backward' | 'none'
+}
 
 type InsertMenuPosition = {
     placement: 'above' | 'below'
@@ -174,7 +187,7 @@ type FloatingToolbarPointerAnchor = {
 }
 
 type FloatingToolbarPosition = Pick<FloatingToolbarState, 'placement' | 'top' | 'left'>
-type TextBlockStyle = 'paragraph' | 'blockquote' | 1 | 2 | 3
+type TextBlockStyle = 'paragraph' | 'blockquote' | 'code' | 1 | 2 | 3
 
 type TextSelectionPointerState = {
     originX: number
@@ -262,18 +275,23 @@ const INSERT_MENU_WIDTH = 384
 const INSERT_MENU_VIEWPORT_PADDING = 12
 const MAX_UNDO_HISTORY_ENTRIES = 100
 const FLOATING_TOOLBAR_REVEAL_DELAY_MS = 200
+const FLOATING_TOOLBAR_GAP = 8
 const NOTEBOOK_TITLE_PLACEHOLDER = 'Untitled notebook'
 const NOTEBOOK_EDITABLE_BLOCK_SELECTOR =
-    '.MarkdownNotebook__text-block, .MarkdownNotebook__list-item-content, .MarkdownNotebook__table-cell-content'
+    '.MarkdownNotebook__text-block, .MarkdownNotebook__list-item-content, .MarkdownNotebook__table-cell-content, .MarkdownNotebook__code-block'
 
-function getAskAIMarkdownPlaceholder(placeholderNodeId: string): string {
-    return `<!-- Ask PostHog AI insertion placeholder block id: ${placeholderNodeId} -->`
+function createDefaultAIChatId(): string {
+    if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
+        return window.crypto.randomUUID()
+    }
+    return makeEmptyParagraph('ai-chat').id
 }
 
 export function MarkdownNotebook({
     value,
     onChange,
     onAskAI,
+    createAIChatId = createDefaultAIChatId,
     mode = 'edit',
     registry,
     remoteValue,
@@ -305,13 +323,15 @@ export function MarkdownNotebook({
     const [isDebugOpen, setIsDebugOpen] = useState(false)
     const [debugMarkdown, setDebugMarkdown] = useState(() => serializeMarkdownNotebook(document))
     const debugDrawerId = useId()
+    const debugTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+    const pendingDebugSelectionRef = useRef<DebugTextareaSelection | null>(null)
     const notebookRef = useRef<HTMLDivElement | null>(null)
     const canvasRef = useRef<HTMLDivElement | null>(null)
     const documentRef = useRef(document)
     const blockRefs = useRef<Record<string, HTMLElement | null>>({})
     const listItemRefs = useRef<Record<string, HTMLElement | null>>({})
     const tableCellRefs = useRef<Record<string, HTMLElement | null>>({})
-    const aiThinkingTagRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+    const rootEditableInputHtmlByNodeIdRef = useRef<Record<string, string>>({})
     const isTextSelectionPointerActiveRef = useRef(false)
     const floatingToolbarRevealTimeoutRef = useRef<number | null>(null)
     const floatingToolbarRevealAfterRef = useRef(0)
@@ -365,6 +385,18 @@ export function MarkdownNotebook({
     }, [value])
 
     useLayoutEffect(() => {
+        const debugSelection = pendingDebugSelectionRef.current
+        const debugTextarea = debugTextareaRef.current
+        if (debugSelection) {
+            pendingDebugSelectionRef.current = null
+            if (debugTextarea && window.document.activeElement === debugTextarea) {
+                const selectionStart = Math.min(debugSelection.start, debugTextarea.value.length)
+                const selectionEnd = Math.min(debugSelection.end, debugTextarea.value.length)
+                debugTextarea.setSelectionRange(selectionStart, selectionEnd, debugSelection.direction)
+                return
+            }
+        }
+
         const request = restoreSelectionRef.current
         if (request) {
             restoreSelectionRef.current = null
@@ -391,7 +423,7 @@ export function MarkdownNotebook({
             focusNodeRef.current = null
             blockRefs.current[focusNodeId]?.focus()
         }
-    }, [document])
+    }, [debugMarkdown, document])
 
     useEffect(() => {
         if (!autoFocus || mode !== 'edit') {
@@ -457,9 +489,15 @@ export function MarkdownNotebook({
                 remoteMarkdown: nextRemoteValue,
             })
             const reconciledDocument = reconcileNotebookDocuments(documentRef.current, mergeResult.document).document
+            const restoreSelectionRequest = notebookRef.current
+                ? getCollapsedSelectionRestoreRequest(window.getSelection(), notebookRef.current)
+                : null
             lastRemoteValueRef.current = nextRemoteValue
             lastBaseValueRef.current = mergeResult.mergedMarkdown
             historyRef.current = { undo: [], redo: [] }
+            if (restoreSelectionRequest) {
+                restoreSelectionRef.current = restoreSelectionRequest
+            }
             commitDocument(reconciledDocument, { addToHistory: false })
 
             if (mergeResult.conflicts.length) {
@@ -485,13 +523,10 @@ export function MarkdownNotebook({
         }
 
         pendingRemoteValueRef.current = null
-        if (insertMenu?.mode === 'thinking') {
-            setInsertMenu(null)
-        }
         applyRemoteValue(nextRemoteValue)
-    }, [remoteValue, deferRemoteValue, applyRemoteValue, insertMenu?.mode])
+    }, [remoteValue, deferRemoteValue, applyRemoteValue])
 
-    const isInsertMenuInteractionActive = !!insertMenu && insertMenu.mode !== 'thinking'
+    const isInsertMenuInteractionActive = !!insertMenu
     const isTransientInteractionActive = mode === 'edit' && (isInsertMenuInteractionActive || !!floatingToolbar)
 
     useEffect(() => {
@@ -1113,16 +1148,32 @@ export function MarkdownNotebook({
     )
 
     const openAIPrompt = useCallback(
-        (nodeId: string): void => {
+        (nodeId: string, options?: { source?: 'slash' | 'selection'; selectedMarkdown?: string }): void => {
             onInteractionStateChange?.(true)
             updateNode(nodeId, (currentNode) => {
-                if (!isTextBlockNode(currentNode)) {
+                if (!isTextBlockNode(currentNode) && currentNode.type !== 'component') {
                     return currentNode
                 }
-                return { ...currentNode, children: [] }
+                const promptProps: NotebookComponentProps = { question: '' }
+                if (options?.source === 'selection') {
+                    promptProps.source = 'selection'
+                    promptProps.selectedMarkdown = options.selectedMarkdown ?? ''
+                }
+                return {
+                    id: currentNode.id,
+                    type: 'component',
+                    tagName: 'Prompt',
+                    props: promptProps,
+                }
             })
-            restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
-            setInsertMenu({ nodeId, query: '', selectedIndex: 0, mode: 'ai' })
+            setInsertMenu({
+                nodeId,
+                query: '',
+                selectedIndex: 0,
+                mode: 'ai',
+                source: options?.source ?? 'slash',
+                selectedMarkdown: options?.selectedMarkdown,
+            })
         },
         [onInteractionStateChange, updateNode]
     )
@@ -1152,6 +1203,9 @@ export function MarkdownNotebook({
                         start: 0,
                         end: 8,
                     }
+                },
+                (nodeId) => {
+                    restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
                 },
                 onAskAI ? openAIPrompt : undefined
             ),
@@ -1245,8 +1299,18 @@ export function MarkdownNotebook({
         const shouldPlaceBelow = pointerAnchor
             ? pointerAnchor.placement === 'below'
             : selectionRect.top < FLOATING_TOOLBAR_ESTIMATED_HEIGHT + lineHeight
+        const pointerOverlapsSelection =
+            pointerAnchor && pointerAnchor.y >= selectionRect.top && pointerAnchor.y <= selectionRect.bottom
         const toolbarTop = pointerAnchor
-            ? Math.round(pointerAnchor.placement === 'below' ? pointerAnchor.y + 8 : pointerAnchor.y)
+            ? Math.round(
+                  shouldPlaceBelow
+                      ? pointerOverlapsSelection
+                          ? selectionRect.bottom + FLOATING_TOOLBAR_GAP
+                          : pointerAnchor.y + FLOATING_TOOLBAR_GAP
+                      : pointerOverlapsSelection
+                        ? selectionRect.top
+                        : pointerAnchor.y
+              )
             : Math.round(shouldPlaceBelow ? selectionRect.bottom + lineHeight : selectionRect.top)
         const toolbarLeft = pointerAnchor
             ? Math.round(pointerAnchor.x)
@@ -1578,6 +1642,52 @@ export function MarkdownNotebook({
         }
     }
 
+    const handleCut = (event: ReactClipboardEvent<HTMLDivElement>): void => {
+        if (mode !== 'edit' || (event.target instanceof HTMLElement && isNativeEditableElement(event.target))) {
+            return
+        }
+
+        const selection = window.getSelection()
+        if (getComponentNodeForSelection(selection, documentRef.current.nodes, blockRefs.current)) {
+            return
+        }
+
+        const notebookElement = notebookRef.current
+        const markdown = notebookElement
+            ? getSelectedNotebookMarkdown(
+                  selection,
+                  notebookElement,
+                  documentRef.current.nodes,
+                  blockRefs.current,
+                  listItemRefs.current
+              )
+            : null
+        if (markdown) {
+            event.preventDefault()
+            notebookClipboardMarkdownRef.current = markdown
+            setClipboardMarkdown(event.clipboardData, markdown)
+            if (!deleteSelectedNotebookBlocks()) {
+                deleteTextAtCurrentSelection('forward')
+            }
+            return
+        }
+
+        const focusedComponentNode = getFocusedComponentNode(
+            window.document.activeElement,
+            documentRef.current.nodes,
+            blockRefs.current
+        )
+        if (focusedComponentNode) {
+            const markdown = serializeNotebookNodes([focusedComponentNode])
+            notebookClipboardMarkdownRef.current = markdown
+            event.preventDefault()
+            setClipboardMarkdown(event.clipboardData, markdown)
+            requestFocusAfterRemovingNode(focusedComponentNode.id)
+            updateNode(focusedComponentNode.id, () => null)
+            return
+        }
+    }
+
     const handleNotebookPaste = (event: ReactClipboardEvent<HTMLDivElement>): void => {
         if (mode !== 'edit' || !(event.target instanceof HTMLElement) || isNativeEditableElement(event.target)) {
             return
@@ -1607,6 +1717,11 @@ export function MarkdownNotebook({
     }
 
     const handleDebugMarkdownChange = (event: ReactChangeEvent<HTMLTextAreaElement>): void => {
+        pendingDebugSelectionRef.current = {
+            start: event.currentTarget.selectionStart,
+            end: event.currentTarget.selectionEnd,
+            direction: event.currentTarget.selectionDirection,
+        }
         const nextMarkdown = event.currentTarget.value
         const nextDocument = parseMarkdownNotebook(nextMarkdown)
         const reconciledDocument = ensureEditableNotebookDocument(
@@ -1617,7 +1732,7 @@ export function MarkdownNotebook({
         documentRef.current = reconciledDocument
         lastSerializedValueRef.current = serialized
         lastBaseValueRef.current = serialized
-        setDebugMarkdown(serialized)
+        setDebugMarkdown(nextMarkdown)
         setDocument(reconciledDocument)
         onChange?.(serialized)
     }
@@ -1681,6 +1796,14 @@ export function MarkdownNotebook({
             return false
         }
 
+        if (floatingToolbar) {
+            floatingToolbarPositionLockRef.current = {
+                placement: floatingToolbar.placement,
+                top: floatingToolbar.top,
+                left: floatingToolbar.left,
+            }
+        }
+
         const currentNodesById = new Map(
             (documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current])
                 .filter(isTextBlockNode)
@@ -1704,7 +1827,7 @@ export function MarkdownNotebook({
         setFloatingToolbar(null)
     }
 
-    const setSelectedBlockStyle = (style: 'paragraph' | 'blockquote' | 1 | 2 | 3): void => {
+    const setSelectedBlockStyle = (style: TextBlockStyle): void => {
         const activeTextRanges = floatingToolbar?.textRanges
         if (!activeTextRanges?.length) {
             return
@@ -1721,6 +1844,13 @@ export function MarkdownNotebook({
                 if (!selectedNodeIds.has(node.id) || !isTextBlockNode(node)) {
                     return node
                 }
+                if (style === 'code') {
+                    return {
+                        id: node.id,
+                        type: 'code',
+                        text: getInlineText(node.children),
+                    }
+                }
                 if (typeof style === 'number') {
                     return { ...node, type: 'heading', level: style }
                 }
@@ -1734,29 +1864,44 @@ export function MarkdownNotebook({
             return
         }
 
-        const placeholderNodeId = floatingToolbar.textRanges[0]?.node.id
-        const selectionStartRange = floatingToolbar.textRanges[0]?.range
-        if (!placeholderNodeId || !selectionStartRange) {
+        const selectedMarkdown = floatingToolbar.selectedMarkdown
+        const targetNodeId = floatingToolbar.textRanges.at(-1)?.node.id
+        if (!targetNodeId || !selectedMarkdown.trim()) {
             return
         }
 
-        const insertionPlaceholder = getAskAIMarkdownPlaceholder(placeholderNodeId)
         const currentDocument = documentRef.current
-        const markdown = serializeMarkdownNotebook(currentDocument)
-        const markdownWithPlaceholder = getMarkdownWithSelectionPlaceholder(
-            currentDocument,
-            selectionStartRange,
-            insertionPlaceholder
-        )
+        const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+        const targetNodeIndex = nodes.findIndex((node) => node.id === targetNodeId)
+        if (targetNodeIndex < 0) {
+            return
+        }
+
+        const promptNode: NotebookComponentBlockNode = {
+            id: makeEmptyParagraph(`ai-selection-${targetNodeId}`).id,
+            type: 'component',
+            tagName: 'Prompt',
+            props: {
+                question: '',
+                source: 'selection',
+                selectedMarkdown,
+            },
+        }
+        onInteractionStateChange?.(true)
+        commitDocument({
+            ...currentDocument,
+            nodes: nodes.flatMap((node, index) => (index === targetNodeIndex ? [node, promptNode] : [node])),
+        })
 
         floatingToolbarPositionLockRef.current = null
         setFloatingToolbar(null)
-        onAskAI({
-            query: getAskAISelectionQuery(floatingToolbar.selectedMarkdown),
-            placeholderNodeId,
-            insertionPlaceholder,
-            markdown,
-            markdownWithPlaceholder,
+        setInsertMenu({
+            nodeId: promptNode.id,
+            query: '',
+            selectedIndex: 0,
+            mode: 'ai',
+            source: 'selection',
+            selectedMarkdown,
         })
     }
 
@@ -1808,7 +1953,7 @@ export function MarkdownNotebook({
     }, [insertMenu, updateInsertMenuPosition])
 
     useEffect(() => {
-        if (!insertMenu || insertMenu.mode === 'thinking') {
+        if (!insertMenu) {
             return
         }
 
@@ -1888,15 +2033,6 @@ export function MarkdownNotebook({
             const node = nodes[nodeIndex]
 
             if (isTextBlockNode(node)) {
-                const thinkingElement =
-                    insertMenu?.mode === 'thinking' && insertMenu.nodeId === node.id
-                        ? aiThinkingTagRefs.current[node.id]
-                        : null
-                if (thinkingElement) {
-                    thinkingElement.focus()
-                    return true
-                }
-
                 const element = blockRefs.current[node.id]
                 if (!element) {
                     continue
@@ -2015,8 +2151,7 @@ export function MarkdownNotebook({
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
         const lastNode = nodes[nodes.length - 1]
-        const isLastNodeAIThinking = insertMenu?.mode === 'thinking' && insertMenu.nodeId === lastNode?.id
-        if (isTextBlockNode(lastNode) && !getInlineText(lastNode.children).trim() && !isLastNodeAIThinking) {
+        if (isTextBlockNode(lastNode) && !getInlineText(lastNode.children).trim()) {
             const element = blockRefs.current[lastNode.id]
             if (element) {
                 element.focus()
@@ -2038,7 +2173,7 @@ export function MarkdownNotebook({
             nodes: [...currentDocument.nodes, insertedNode],
         })
         return true
-    }, [commitDocument, focusLowestNotebookRow, insertMenu])
+    }, [commitDocument, focusLowestNotebookRow])
 
     const moveFocusToAdjacentNode = useCallback(
         (nodeId: string, direction: InsertMenuSelectionDirection, offset: number): boolean => {
@@ -2053,15 +2188,6 @@ export function MarkdownNotebook({
             while (targetIndex >= 0 && targetIndex < nodes.length) {
                 const targetNode = nodes[targetIndex]
                 if (isTextBlockNode(targetNode)) {
-                    const thinkingElement =
-                        insertMenu?.mode === 'thinking' && insertMenu.nodeId === targetNode.id
-                            ? aiThinkingTagRefs.current[targetNode.id]
-                            : null
-                    if (thinkingElement) {
-                        thinkingElement.focus()
-                        return true
-                    }
-
                     const element = blockRefs.current[targetNode.id]
                     if (!element) {
                         return false
@@ -2229,6 +2355,22 @@ export function MarkdownNotebook({
         return true
     }
 
+    const selectAIPromptContents = (target: EventTarget | null): boolean => {
+        if (!(target instanceof HTMLElement)) {
+            return false
+        }
+
+        const aiPromptTextBlock = target.closest('.MarkdownNotebook__text-block--ai-prompt')
+        if (!(aiPromptTextBlock instanceof HTMLElement) || !canvasRef.current?.contains(aiPromptTextBlock)) {
+            return false
+        }
+
+        aiPromptTextBlock.focus()
+        restoreSelection(aiPromptTextBlock, 0, aiPromptTextBlock.textContent?.length ?? 0)
+        scheduleFloatingToolbarUpdateFromSelection()
+        return true
+    }
+
     const handleNotebookKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
         if (mode !== 'edit' || event.altKey || !(event.metaKey || event.ctrlKey)) {
             return
@@ -2249,6 +2391,12 @@ export function MarkdownNotebook({
         }
 
         if (!event.shiftKey && key === 'a') {
+            if (selectAIPromptContents(event.target)) {
+                event.preventDefault()
+                event.stopPropagation()
+                return
+            }
+
             if (insertMenu) {
                 return
             }
@@ -2401,9 +2549,29 @@ export function MarkdownNotebook({
             const node = nodes[nodeIndex]
             const nextText = getInlineText(nextChildren)
             const slashQuery = getSlashCommandQuery(nextText)
+            if (node && isPromptComponentNode(node)) {
+                rootEditableInputHtmlByNodeIdRef.current[nodeId] = inlineNodesToHtml(nextChildren)
+                if (getNotebookStringProp(node.props.question) !== nextText) {
+                    updateNode(nodeId, (currentNode) => {
+                        if (!isPromptComponentNode(currentNode)) {
+                            return currentNode
+                        }
+                        return {
+                            ...currentNode,
+                            props: {
+                                ...currentNode.props,
+                                question: nextText,
+                            },
+                        }
+                    })
+                }
+                updateAIPromptQuery(nodeId, nextText)
+                return
+            }
             if (nodeIndex > 0 && node && isTextBlockNode(node) && slashQuery !== null) {
                 const queryChildren: NotebookInlineNode[] = slashQuery ? [{ type: 'text', text: slashQuery }] : []
                 const nextHtml = inlineNodesToHtml(queryChildren)
+                rootEditableInputHtmlByNodeIdRef.current[nodeId] = nextHtml
                 if (inlineEditableElement.innerHTML !== nextHtml) {
                     inlineEditableElement.innerHTML = nextHtml
                 }
@@ -2422,6 +2590,7 @@ export function MarkdownNotebook({
                 return
             }
 
+            rootEditableInputHtmlByNodeIdRef.current[nodeId] = inlineNodesToHtml(nextChildren)
             updateNode(nodeId, (currentNode) => {
                 if (!isTextBlockNode(currentNode)) {
                     return currentNode
@@ -2489,6 +2658,163 @@ export function MarkdownNotebook({
         }
     }
 
+    const submitInsertMenuSelectionForNode = (nodeId: string, queryOverride?: string): boolean => {
+        const isToolInsertMenuOpen =
+            insertMenu?.nodeId === nodeId && (insertMenu.mode === undefined || insertMenu.mode === 'tools')
+        if (!isToolInsertMenuOpen) {
+            return false
+        }
+
+        const query = queryOverride ?? insertMenu.query
+        const filteredCommands = getFilteredInsertCommands(insertCommands, query)
+        const selectedIndex =
+            query === insertMenu.query
+                ? getClampedInsertMenuSelectedIndex(insertMenu.selectedIndex, filteredCommands.length)
+                : 0
+        const selectedCommand = filteredCommands[selectedIndex]
+        if (!selectedCommand) {
+            if (query.length > 0) {
+                updateNode(nodeId, (currentNode) => {
+                    if (!isTextBlockNode(currentNode)) {
+                        return currentNode
+                    }
+                    return { ...currentNode, children: [] }
+                })
+                restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
+                setInsertMenu({ nodeId, query: '', selectedIndex: 0 })
+                return true
+            }
+            return false
+        }
+
+        selectedCommand.run(nodeId)
+        if (selectedCommand.closeOnRun === false) {
+            return true
+        }
+        if (selectedCommand.key.startsWith('text-')) {
+            updateNode(nodeId, (currentNode) => {
+                if (!isTextBlockNode(currentNode)) {
+                    return currentNode
+                }
+                return { ...currentNode, children: [] }
+            })
+            restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
+        }
+        setInsertMenu(null)
+        return true
+    }
+
+    const submitAIPromptForNode = (nodeId: string, queryOverride?: string): boolean => {
+        const activeAIPromptMenu = insertMenu?.nodeId === nodeId && insertMenu.mode === 'ai' ? insertMenu : null
+        const currentDocument = documentRef.current
+        const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+        const currentPromptNode = nodes.find(
+            (currentNode): currentNode is NotebookComponentBlockNode =>
+                currentNode.id === nodeId && isPromptComponentNode(currentNode)
+        )
+        if ((!activeAIPromptMenu && !currentPromptNode) || !onAskAI) {
+            return false
+        }
+
+        const query = (
+            queryOverride ??
+            activeAIPromptMenu?.query ??
+            getNotebookStringProp(currentPromptNode?.props.question) ??
+            ''
+        ).trim()
+        if (!query) {
+            return false
+        }
+
+        const chatId = createAIChatId()
+        const nextDocument: NotebookDocument = {
+            ...currentDocument,
+            nodes: nodes.map((currentNode): NotebookBlockNode => {
+                if (currentNode.id !== nodeId || !isPromptComponentNode(currentNode)) {
+                    return currentNode
+                }
+                return {
+                    id: currentNode.id,
+                    type: 'component',
+                    tagName: 'Chat',
+                    props: {
+                        id: chatId,
+                    },
+                }
+            }),
+        }
+        commitDocument(nextDocument)
+        setInsertMenu(null)
+        const markdown = serializeMarkdownNotebook(nextDocument)
+        const chatMarker = `<Chat id="${chatId}" />`
+        const source = activeAIPromptMenu?.source ?? getPromptSource(currentPromptNode?.props.source)
+        const selectedMarkdown =
+            activeAIPromptMenu?.selectedMarkdown ?? getNotebookStringProp(currentPromptNode?.props.selectedMarkdown)
+        onAskAI({
+            chatId,
+            query:
+                source === 'selection' && selectedMarkdown
+                    ? getAskAISelectionQuery(selectedMarkdown, query, chatId)
+                    : query,
+            source,
+            chatNodeId: nodeId,
+            chatMarker,
+            markdown,
+            markdownWithChat: markdown,
+            selectedMarkdown,
+        })
+        return true
+    }
+
+    const submitActiveRootInsertMenu = (canvasElement: HTMLElement): boolean => {
+        const inlineEditableElement = getInlineEditableElementForSelection(window.getSelection(), canvasElement)
+        const nodeId = inlineEditableElement?.dataset.markdownNotebookNodeId
+        if (!nodeId || insertMenu?.nodeId !== nodeId) {
+            return false
+        }
+
+        const inputText = inlineEditableElement.textContent ?? ''
+        if (insertMenu.mode === 'ai') {
+            return submitAIPromptForNode(nodeId, inputText)
+        }
+
+        if (insertMenu.mode === undefined || insertMenu.mode === 'tools') {
+            const slashQuery = getSlashCommandQuery(inputText)
+            return submitInsertMenuSelectionForNode(nodeId, slashQuery ?? inputText)
+        }
+
+        return false
+    }
+
+    const moveActiveRootInsertMenuSelection = (
+        canvasElement: HTMLElement,
+        direction: InsertMenuSelectionDirection
+    ): boolean => {
+        const inlineEditableElement = getInlineEditableElementForSelection(window.getSelection(), canvasElement)
+        const nodeId = inlineEditableElement?.dataset.markdownNotebookNodeId
+        const isToolInsertMenuOpen =
+            !!nodeId && insertMenu?.nodeId === nodeId && (insertMenu.mode === undefined || insertMenu.mode === 'tools')
+        if (!isToolInsertMenuOpen) {
+            return false
+        }
+
+        setInsertMenu((currentMenu) => {
+            if (!currentMenu || currentMenu.nodeId !== nodeId) {
+                return currentMenu
+            }
+
+            return {
+                ...currentMenu,
+                selectedIndex: getNextInsertMenuSelectedIndex(
+                    currentMenu.selectedIndex,
+                    getFilteredInsertCommands(insertCommands, currentMenu.query).length,
+                    direction
+                ),
+            }
+        })
+        return true
+    }
+
     const handleRootEditableKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
         if (
             mode === 'edit' &&
@@ -2506,6 +2832,21 @@ export function MarkdownNotebook({
         }
 
         if (
+            mode === 'edit' &&
+            event.target === event.currentTarget &&
+            (event.key === 'ArrowDown' || event.key === 'ArrowUp') &&
+            !event.shiftKey &&
+            !event.altKey &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            moveActiveRootInsertMenuSelection(event.currentTarget, event.key === 'ArrowDown' ? 'next' : 'previous')
+        ) {
+            event.preventDefault()
+            event.stopPropagation()
+            return
+        }
+
+        if (
             mode !== 'edit' ||
             event.target !== event.currentTarget ||
             event.key !== 'Enter' ||
@@ -2514,6 +2855,12 @@ export function MarkdownNotebook({
             event.metaKey ||
             event.ctrlKey
         ) {
+            return
+        }
+
+        if (submitActiveRootInsertMenu(event.currentTarget)) {
+            event.preventDefault()
+            event.stopPropagation()
             return
         }
 
@@ -2541,6 +2888,7 @@ export function MarkdownNotebook({
             data-attr={dataAttr}
             ref={notebookRef}
             onCopy={handleCopy}
+            onCut={handleCut}
             onPaste={handleNotebookPaste}
             onKeyDownCapture={handleNotebookKeyDown}
         >
@@ -2597,116 +2945,14 @@ export function MarkdownNotebook({
                             const isInsertMenuOpen = insertMenu?.nodeId === node.id
                             const insertMenuMode = isInsertMenuOpen ? (insertMenu.mode ?? 'tools') : null
                             const isToolInsertMenuOpen = isInsertMenuOpen && insertMenuMode === 'tools'
-                            const isAIPromptOpen = isInsertMenuOpen && insertMenuMode === 'ai'
-                            const isAIThinking = isInsertMenuOpen && insertMenuMode === 'thinking'
+                            const isAIPromptOpen = isPromptComponentNode(node)
                             const shouldShowInlineInsertMenuButton =
                                 !isTitleRow &&
-                                !isAIThinking &&
-                                (isBlankInsertMenuButtonRow(node) ||
-                                    ((isToolInsertMenuOpen || isAIPromptOpen) && isTextBlockNode(node)))
+                                (isBlankInsertMenuButtonRow(node) || (isToolInsertMenuOpen && isTextBlockNode(node)))
                             const hasInvalidInsertMenuQuery =
                                 isToolInsertMenuOpen &&
                                 insertMenu.query.length > 0 &&
                                 getFilteredInsertCommands(insertCommands, insertMenu.query).length === 0
-                            const submitInsertMenuSelection = (queryOverride?: string): boolean => {
-                                if (!isToolInsertMenuOpen) {
-                                    return false
-                                }
-
-                                const query = queryOverride ?? insertMenu.query
-                                const filteredCommands = getFilteredInsertCommands(insertCommands, query)
-                                const selectedIndex =
-                                    query === insertMenu.query
-                                        ? getClampedInsertMenuSelectedIndex(
-                                              insertMenu.selectedIndex,
-                                              filteredCommands.length
-                                          )
-                                        : 0
-                                const selectedCommand = filteredCommands[selectedIndex]
-                                if (!selectedCommand) {
-                                    if (query.length > 0) {
-                                        updateNode(node.id, (currentNode) => {
-                                            if (!isTextBlockNode(currentNode)) {
-                                                return currentNode
-                                            }
-                                            return { ...currentNode, children: [] }
-                                        })
-                                        restoreSelectionRef.current = { nodeId: node.id, start: 0, end: 0 }
-                                        setInsertMenu({ nodeId: node.id, query: '', selectedIndex: 0 })
-                                        return true
-                                    }
-                                    return false
-                                }
-
-                                selectedCommand.run(node.id)
-                                if (selectedCommand.closeOnRun === false) {
-                                    return true
-                                }
-                                if (selectedCommand.key.startsWith('text-')) {
-                                    updateNode(node.id, (currentNode) => {
-                                        if (!isTextBlockNode(currentNode)) {
-                                            return currentNode
-                                        }
-                                        return { ...currentNode, children: [] }
-                                    })
-                                    restoreSelectionRef.current = { nodeId: node.id, start: 0, end: 0 }
-                                }
-                                setInsertMenu(null)
-                                return true
-                            }
-                            const submitAIPrompt = (queryOverride?: string): boolean => {
-                                if (!isAIPromptOpen || !onAskAI) {
-                                    return false
-                                }
-
-                                const query = (queryOverride ?? insertMenu.query).trim()
-                                if (!query) {
-                                    return false
-                                }
-
-                                const currentDocument = documentRef.current
-                                const nodes = currentDocument.nodes.length
-                                    ? currentDocument.nodes
-                                    : [emptyNodeRef.current]
-                                const nextDocument = {
-                                    ...currentDocument,
-                                    nodes: nodes.map((currentNode) => {
-                                        if (currentNode.id !== node.id || !isTextBlockNode(currentNode)) {
-                                            return currentNode
-                                        }
-                                        return { ...currentNode, children: [] }
-                                    }),
-                                }
-                                commitDocument(nextDocument)
-                                restoreSelectionRef.current = { nodeId: node.id, start: 0, end: 0 }
-                                setInsertMenu({ nodeId: node.id, query: '', selectedIndex: 0, mode: 'thinking' })
-                                const insertionPlaceholder = getAskAIMarkdownPlaceholder(node.id)
-                                const markdownWithPlaceholder = serializeMarkdownNotebook({
-                                    ...nextDocument,
-                                    nodes: nextDocument.nodes.map((currentNode) =>
-                                        currentNode.id === node.id
-                                            ? {
-                                                  id: currentNode.id,
-                                                  type: 'paragraph',
-                                                  children: [
-                                                      {
-                                                          type: 'text',
-                                                          text: insertionPlaceholder,
-                                                      },
-                                                  ],
-                                              }
-                                            : currentNode
-                                    ),
-                                })
-                                onAskAI({
-                                    query,
-                                    placeholderNodeId: node.id,
-                                    insertionPlaceholder,
-                                    markdown: serializeMarkdownNotebook(nextDocument),
-                                    markdownWithPlaceholder,
-                                })
-                                return true
-                            }
 
                             return (
                                 <Fragment key={node.id}>
@@ -2751,9 +2997,6 @@ export function MarkdownNotebook({
                                                 }),
                                             setBlockRef: (element) => {
                                                 blockRefs.current[node.id] = element
-                                            },
-                                            setAIThinkingTagRef: (element) => {
-                                                aiThinkingTagRefs.current[node.id] = element
                                             },
                                             setListItemRef: (itemIndex, element) => {
                                                 listItemRefs.current[getListItemRefKey(node.id, itemIndex)] = element
@@ -2814,11 +3057,14 @@ export function MarkdownNotebook({
                                             isInsertMenuOpen,
                                             insertMenuMode,
                                             hasInvalidInsertMenuQuery,
-                                            submitInsertMenuSelection,
-                                            submitAIPrompt,
+                                            submitInsertMenuSelection: (queryOverride) =>
+                                                submitInsertMenuSelectionForNode(node.id, queryOverride),
+                                            submitAIPrompt: (queryOverride) =>
+                                                submitAIPromptForNode(node.id, queryOverride),
                                             handleSelectionChange,
                                             startTextSelectionPointer,
                                             restoreSelectionRef,
+                                            rootEditableInputHtmlByNodeIdRef,
                                         })}
                                         {isToolInsertMenuOpen ? (
                                             <InsertMenu
@@ -2887,6 +3133,7 @@ export function MarkdownNotebook({
                             </LemonButton>
                         </div>
                         <textarea
+                            ref={debugTextareaRef}
                             className="MarkdownNotebook__debug-markdown"
                             aria-label="Markdown debug output"
                             value={debugMarkdown}
@@ -2909,7 +3156,6 @@ function renderNode({
     isSelected,
     toggleComponentPanel,
     setBlockRef,
-    setAIThinkingTagRef,
     setListItemRef,
     setTableCellRef,
     getTableCellElement,
@@ -2939,6 +3185,7 @@ function renderNode({
     handleSelectionChange,
     startTextSelectionPointer,
     restoreSelectionRef,
+    rootEditableInputHtmlByNodeIdRef,
 }: {
     node: NotebookBlockNode
     nodeIndex: number
@@ -2949,7 +3196,6 @@ function renderNode({
     isSelected: boolean
     toggleComponentPanel: (panel: ComponentPanel) => void
     setBlockRef: (element: HTMLElement | null) => void
-    setAIThinkingTagRef: (element: HTMLButtonElement | null) => void
     setListItemRef: (itemIndex: number, element: HTMLElement | null) => void
     setTableCellRef: (position: TableCellPosition, element: HTMLElement | null) => void
     getTableCellElement: (position: TableCellPosition) => HTMLElement | null
@@ -2989,8 +3235,28 @@ function renderNode({
     handleSelectionChange: () => void
     startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
+    rootEditableInputHtmlByNodeIdRef: MutableRefObject<Record<string, string>>
 }): JSX.Element {
     if (node.type === 'component') {
+        if (isPromptComponentNode(node)) {
+            return (
+                <EditablePromptComponent
+                    node={node}
+                    mode={mode}
+                    setBlockRef={setBlockRef}
+                    updateNode={updateNode}
+                    deleteNodeAndFocusAdjacent={deleteNodeAndFocusAdjacent}
+                    moveFocusToAdjacentNode={moveFocusToAdjacentNode}
+                    updateAIPromptQuery={updateAIPromptQuery}
+                    submitAIPrompt={submitAIPrompt}
+                    isActive={isInsertMenuOpen && insertMenuMode === 'ai'}
+                    handleSelectionChange={handleSelectionChange}
+                    startTextSelectionPointer={startTextSelectionPointer}
+                    restoreSelectionRef={restoreSelectionRef}
+                />
+            )
+        }
+
         return (
             <MemoizedNotebookComponentShell
                 node={node}
@@ -3046,9 +3312,13 @@ function renderNode({
 
     if (node.type === 'code') {
         return (
-            <pre className="MarkdownNotebook__code-block" ref={setBlockRef} contentEditable={false}>
-                <code>{node.text}</code>
-            </pre>
+            <EditableCodeBlock
+                node={node}
+                mode={mode}
+                setBlockRef={setBlockRef}
+                updateNode={updateNode}
+                deleteNodeAndFocusAdjacent={deleteNodeAndFocusAdjacent}
+            />
         )
     }
 
@@ -3059,15 +3329,12 @@ function renderNode({
             mode={mode}
             placeholder={placeholder}
             setBlockRef={setBlockRef}
-            setAIThinkingTagRef={setAIThinkingTagRef}
             updateNode={updateNode}
             replaceNodeWithNodes={replaceNodeWithNodes}
-            deleteNodeAndFocusAdjacent={deleteNodeAndFocusAdjacent}
             deleteSelectedNotebookBlocks={deleteSelectedNotebookBlocks}
             deleteNodeBefore={deleteNodeBefore}
             moveFocusToAdjacentNode={moveFocusToAdjacentNode}
             openInsertMenu={openInsertMenu}
-            updateAIPromptQuery={updateAIPromptQuery}
             closeInsertMenu={closeInsertMenu}
             moveInsertMenuSelection={moveInsertMenuSelection}
             toggleInsertMenu={toggleInsertMenu}
@@ -3078,11 +3345,282 @@ function renderNode({
             insertMenuMode={insertMenuMode}
             hasInvalidInsertMenuQuery={hasInvalidInsertMenuQuery}
             submitInsertMenuSelection={submitInsertMenuSelection}
-            submitAIPrompt={submitAIPrompt}
             handleSelectionChange={handleSelectionChange}
             startTextSelectionPointer={startTextSelectionPointer}
             restoreSelectionRef={restoreSelectionRef}
+            rootEditableInputHtmlByNodeIdRef={rootEditableInputHtmlByNodeIdRef}
         />
+    )
+}
+
+function EditableCodeBlock({
+    node,
+    mode,
+    setBlockRef,
+    updateNode,
+    deleteNodeAndFocusAdjacent,
+}: {
+    node: NotebookCodeBlockNode
+    mode: NotebookMode
+    setBlockRef: (element: HTMLElement | null) => void
+    updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
+    deleteNodeAndFocusAdjacent: () => void
+}): JSX.Element {
+    const elementRef = useRef<HTMLPreElement | null>(null)
+    const skipDomSyncForTextRef = useRef<string | null>(null)
+
+    const setElementRef = useCallback(
+        (element: HTMLPreElement | null): void => {
+            elementRef.current = element
+            setBlockRef(element)
+        },
+        [setBlockRef]
+    )
+
+    useLayoutEffect(() => {
+        const element = elementRef.current
+        if (!element) {
+            return
+        }
+
+        const selection = window.getSelection()
+        const shouldSkipOwnInputSync =
+            (document.activeElement === element || isSelectionAnchoredInsideElement(selection, element)) &&
+            skipDomSyncForTextRef.current === node.text
+        skipDomSyncForTextRef.current = null
+
+        if (shouldSkipOwnInputSync || element.textContent === node.text) {
+            return
+        }
+
+        element.textContent = node.text
+    }, [node.id, node.text])
+
+    const updateText = (text: string): void => {
+        skipDomSyncForTextRef.current = text
+        updateNode(node.id, (currentNode) => {
+            if (currentNode.type !== 'code') {
+                return currentNode
+            }
+
+            return { ...currentNode, text }
+        })
+    }
+
+    const handleInput = (event: FormEvent<HTMLPreElement>): void => {
+        updateText(event.currentTarget.textContent ?? '')
+    }
+
+    const handleKeyDown = (event: KeyboardEvent<HTMLPreElement>): void => {
+        if ((event.key === 'Backspace' || event.key === 'Delete') && !node.text.length) {
+            event.preventDefault()
+            deleteNodeAndFocusAdjacent()
+            return
+        }
+
+        if (event.key === 'Tab') {
+            event.preventDefault()
+            document.execCommand('insertText', false, '    ')
+            updateText(event.currentTarget.textContent ?? '')
+        }
+    }
+
+    return (
+        <pre
+            className="MarkdownNotebook__code-block"
+            ref={setElementRef}
+            contentEditable={mode === 'edit'}
+            data-markdown-notebook-node-id={node.id}
+            data-placeholder="Code"
+            onInput={handleInput}
+            onKeyDown={handleKeyDown}
+            spellCheck={false}
+            suppressContentEditableWarning
+        >
+            {node.text}
+        </pre>
+    )
+}
+
+function EditablePromptComponent({
+    node,
+    mode,
+    setBlockRef,
+    updateNode,
+    deleteNodeAndFocusAdjacent,
+    moveFocusToAdjacentNode,
+    updateAIPromptQuery,
+    submitAIPrompt,
+    isActive,
+    handleSelectionChange,
+    startTextSelectionPointer,
+    restoreSelectionRef,
+}: {
+    node: NotebookComponentBlockNode
+    mode: NotebookMode
+    setBlockRef: (element: HTMLElement | null) => void
+    updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
+    deleteNodeAndFocusAdjacent: () => void
+    moveFocusToAdjacentNode: (nodeId: string, direction: InsertMenuSelectionDirection, offset: number) => boolean
+    updateAIPromptQuery: (query: string) => void
+    submitAIPrompt: (queryOverride?: string) => boolean
+    isActive: boolean
+    handleSelectionChange: () => void
+    startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
+    restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
+}): JSX.Element {
+    const elementRef = useRef<HTMLParagraphElement | null>(null)
+    const skipDomSyncForTextRef = useRef<string | null>(null)
+    const question = getNotebookStringProp(node.props.question) ?? ''
+    const isEmpty = question.length === 0
+
+    const setElementRef = useCallback(
+        (element: HTMLParagraphElement | null): void => {
+            elementRef.current = element
+            setBlockRef(element)
+        },
+        [setBlockRef]
+    )
+
+    useLayoutEffect(() => {
+        const element = elementRef.current
+        if (!element) {
+            return
+        }
+
+        const shouldSkipOwnInputSync = document.activeElement === element && skipDomSyncForTextRef.current === question
+        skipDomSyncForTextRef.current = null
+
+        if (shouldSkipOwnInputSync || element.textContent === question) {
+            return
+        }
+
+        element.textContent = question
+    }, [question])
+
+    useEffect(() => {
+        const element = elementRef.current
+        if (!isActive || !element || document.activeElement === element) {
+            return
+        }
+
+        element.focus()
+        restoreSelection(element, question.length, question.length)
+    }, [isActive, question.length])
+
+    const updateQuestion = (nextQuestion: string): void => {
+        skipDomSyncForTextRef.current = nextQuestion
+        updateNode(node.id, (currentNode) => {
+            if (!isPromptComponentNode(currentNode)) {
+                return currentNode
+            }
+            return {
+                ...currentNode,
+                props: {
+                    ...currentNode.props,
+                    question: nextQuestion,
+                },
+            }
+        })
+        updateAIPromptQuery(nextQuestion)
+    }
+
+    const handleInput = (event: FormEvent<HTMLParagraphElement>): void => {
+        updateQuestion(event.currentTarget.textContent ?? '')
+    }
+
+    const handleKeyDown = (event: KeyboardEvent<HTMLParagraphElement>): void => {
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a') {
+            event.preventDefault()
+            event.stopPropagation()
+            restoreSelection(event.currentTarget, 0, question.length)
+            return
+        }
+
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            const selection = getCollapsedSelectionRange(event.currentTarget, node.id)
+            if (
+                selection &&
+                moveFocusToAdjacentNode(node.id, event.key === 'ArrowDown' ? 'next' : 'previous', selection.start)
+            ) {
+                event.preventDefault()
+                return
+            }
+        }
+
+        if (event.key === 'Enter' && !event.shiftKey) {
+            if (submitAIPrompt(event.currentTarget.textContent ?? '')) {
+                event.preventDefault()
+            }
+            return
+        }
+
+        if (event.key === 'Backspace' || event.key === 'Delete') {
+            const expandedSelection = getSelectionRange(event.currentTarget, node.id)
+            if (expandedSelection && expandedSelection.start !== expandedSelection.end) {
+                const selectionStart = Math.max(0, Math.min(expandedSelection.start, expandedSelection.end))
+                const selectionEnd = Math.max(selectionStart, Math.max(expandedSelection.start, expandedSelection.end))
+                const nextQuestion = `${question.slice(0, selectionStart)}${question.slice(selectionEnd)}`
+
+                event.preventDefault()
+                event.currentTarget.textContent = nextQuestion
+                restoreSelection(event.currentTarget, selectionStart, selectionStart)
+                updateQuestion(nextQuestion)
+                return
+            }
+        }
+
+        const selection = getCollapsedSelectionRange(event.currentTarget, node.id)
+        if (event.key === 'Backspace' && selection?.start === 0 && selection.end === 0) {
+            event.preventDefault()
+            updateNode(node.id, (currentNode) => {
+                if (!isPromptComponentNode(currentNode)) {
+                    return currentNode
+                }
+                return {
+                    id: currentNode.id,
+                    type: 'paragraph',
+                    children: question ? [{ type: 'text', text: question }] : [],
+                }
+            })
+            restoreSelectionRef.current = { nodeId: node.id, start: 0, end: 0 }
+            return
+        }
+
+        if ((event.key === 'Backspace' || event.key === 'Delete') && isEmpty) {
+            event.preventDefault()
+            deleteNodeAndFocusAdjacent()
+        }
+    }
+
+    return (
+        <div
+            className={clsx(
+                'MarkdownNotebook__text-row',
+                'MarkdownNotebook__text-row--ai-prompt',
+                'MarkdownNotebook__text-row--inline-menu-visible'
+            )}
+        >
+            <span className="MarkdownNotebook__ai-prompt-tag" contentEditable={false} aria-label="Ask AI prompt">
+                <IconSparkles />
+                Ask AI
+            </span>
+            <p
+                ref={setElementRef}
+                className="MarkdownNotebook__text-block MarkdownNotebook__text-block--paragraph MarkdownNotebook__text-block--ai-prompt"
+                data-markdown-notebook-node-id={node.id}
+                contentEditable={mode === 'edit'}
+                suppressContentEditableWarning
+                data-placeholder={isEmpty ? 'Ask PostHog AI...' : undefined}
+                onInput={handleInput}
+                onKeyDown={handleKeyDown}
+                onMouseDown={startTextSelectionPointer}
+                onPointerDown={startTextSelectionPointer}
+                onTouchStart={startTextSelectionPointer}
+                onMouseUp={handleSelectionChange}
+                onKeyUp={handleSelectionChange}
+            />
+        </div>
     )
 }
 
@@ -4204,15 +4742,12 @@ function EditableTextBlock({
     mode,
     placeholder,
     setBlockRef,
-    setAIThinkingTagRef,
     updateNode,
     replaceNodeWithNodes,
-    deleteNodeAndFocusAdjacent,
     deleteSelectedNotebookBlocks,
     deleteNodeBefore,
     moveFocusToAdjacentNode,
     openInsertMenu,
-    updateAIPromptQuery,
     closeInsertMenu,
     moveInsertMenuSelection,
     toggleInsertMenu,
@@ -4223,25 +4758,22 @@ function EditableTextBlock({
     insertMenuMode,
     hasInvalidInsertMenuQuery,
     submitInsertMenuSelection,
-    submitAIPrompt,
     handleSelectionChange,
     startTextSelectionPointer,
     restoreSelectionRef,
+    rootEditableInputHtmlByNodeIdRef,
 }: {
     node: NotebookTextBlockNode
     isTitleBlock: boolean
     mode: NotebookMode
     placeholder: string | undefined
     setBlockRef: (element: HTMLElement | null) => void
-    setAIThinkingTagRef: (element: HTMLButtonElement | null) => void
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
     replaceNodeWithNodes: (nodeId: string, replacementNodes: NotebookBlockNode[]) => void
-    deleteNodeAndFocusAdjacent: () => void
     deleteSelectedNotebookBlocks: () => boolean
     deleteNodeBefore: (nodeId: string, options?: { requireSameTextStyle?: boolean }) => boolean
     moveFocusToAdjacentNode: (nodeId: string, direction: InsertMenuSelectionDirection, offset: number) => boolean
     openInsertMenu: (query?: string) => void
-    updateAIPromptQuery: (query: string) => void
     closeInsertMenu: () => void
     moveInsertMenuSelection: (direction: InsertMenuSelectionDirection) => void
     toggleInsertMenu: () => void
@@ -4252,10 +4784,10 @@ function EditableTextBlock({
     insertMenuMode: InsertMenuState['mode'] | null
     hasInvalidInsertMenuQuery: boolean
     submitInsertMenuSelection: (queryOverride?: string) => boolean
-    submitAIPrompt: (queryOverride?: string) => boolean
     handleSelectionChange: () => void
     startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
+    rootEditableInputHtmlByNodeIdRef: MutableRefObject<Record<string, string>>
 }): JSX.Element {
     const elementRef = useRef<HTMLElement | null>(null)
     const skipDomSyncForHtmlRef = useRef<string | null>(null)
@@ -4263,8 +4795,6 @@ function EditableTextBlock({
     const text = getInlineText(node.children)
     const isEmpty = text.length === 0
     const isToolInsertMenuOpen = isInsertMenuOpen && (!insertMenuMode || insertMenuMode === 'tools')
-    const isAIPromptOpen = isInsertMenuOpen && insertMenuMode === 'ai'
-    const isAIThinking = isInsertMenuOpen && insertMenuMode === 'thinking'
     const TextTag =
         node.type === 'heading' ? (`h${node.level ?? 1}` as const) : node.type === 'blockquote' ? 'blockquote' : 'p'
 
@@ -4283,9 +4813,12 @@ function EditableTextBlock({
         }
 
         const selection = window.getSelection()
+        const rootEditableInputHtml = rootEditableInputHtmlByNodeIdRef.current[node.id]
+        delete rootEditableInputHtmlByNodeIdRef.current[node.id]
+
         const shouldSkipOwnInputSync =
             (document.activeElement === element || isSelectionAnchoredInsideElement(selection, element)) &&
-            skipDomSyncForHtmlRef.current === renderedHtml
+            (skipDomSyncForHtmlRef.current === renderedHtml || rootEditableInputHtml === renderedHtml)
         skipDomSyncForHtmlRef.current = null
 
         if (shouldSkipOwnInputSync || element.innerHTML === renderedHtml) {
@@ -4293,7 +4826,7 @@ function EditableTextBlock({
         }
 
         element.innerHTML = renderedHtml
-    }, [renderedHtml, TextTag])
+    }, [renderedHtml, TextTag, node.id, rootEditableInputHtmlByNodeIdRef])
 
     const updateChildren = (nextChildren: NotebookInlineNode[]): NotebookInlineNode[] => {
         skipDomSyncForHtmlRef.current = inlineNodesToHtml(nextChildren)
@@ -4334,15 +4867,11 @@ function EditableTextBlock({
             return {
                 ...currentNode,
                 type: 'paragraph',
+                level: undefined,
                 children: currentNode.children,
             }
         })
         restoreSelectionRef.current = { nodeId: node.id, start, end }
-    }
-
-    const removeAIThinkingPlaceholder = (): void => {
-        closeInsertMenu()
-        deleteNodeAndFocusAdjacent()
     }
 
     const pasteMarkdownNodes = (
@@ -4474,16 +5003,6 @@ function EditableTextBlock({
         const elementChildren = htmlElementToInlineNodes(element)
         const elementText = getInlineText(elementChildren)
 
-        if (isAIThinking) {
-            return
-        }
-
-        if (isAIPromptOpen) {
-            const nextChildren = updateChildren(elementChildren)
-            updateAIPromptQuery(getInlineText(nextChildren))
-            return
-        }
-
         const headingShortcut = isTitleBlock
             ? null
             : getHeadingShortcut(elementText, node.type === 'heading' ? (node.level ?? 1) : null)
@@ -4598,6 +5117,7 @@ function EditableTextBlock({
     const handleKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
         if (isToolInsertMenuOpen && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a') {
             event.preventDefault()
+            event.stopPropagation()
             const textLength = getInlineText(node.children).length
             restoreSelection(event.currentTarget, 0, textLength)
             return
@@ -4622,13 +5142,6 @@ function EditableTextBlock({
 
         if (event.key === 'Enter' && !event.shiftKey) {
             const inputText = event.currentTarget.textContent ?? ''
-            if (isAIPromptOpen) {
-                if (submitAIPrompt(inputText)) {
-                    event.preventDefault()
-                }
-                return
-            }
-
             const slashQuery = getSlashCommandQuery(inputText)
             const insertMenuQuery = slashQuery ?? (isToolInsertMenuOpen ? inputText : undefined)
 
@@ -4747,12 +5260,6 @@ function EditableTextBlock({
             }
 
             const selection = getCollapsedSelectionRange(event.currentTarget, node.id)
-            if (event.key === 'Backspace' && isAIPromptOpen && selection?.start === 0 && selection.end === 0) {
-                event.preventDefault()
-                replaceWithParagraph(0)
-                return
-            }
-
             if (
                 !isTitleBlock &&
                 event.key === 'Backspace' &&
@@ -4801,26 +5308,10 @@ function EditableTextBlock({
         focusEditableBlock()
     }
 
-    const handleAIThinkingTagKeyDown = (event: KeyboardEvent<HTMLButtonElement>): void => {
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-            if (moveFocusToAdjacentNode(node.id, event.key === 'ArrowDown' ? 'next' : 'previous', 0)) {
-                event.preventDefault()
-            }
-            return
-        }
-
-        if (event.key === 'Backspace' || event.key === 'Delete') {
-            event.preventDefault()
-            removeAIThinkingPlaceholder()
-        }
-    }
-
     return (
         <div
             className={clsx(
                 'MarkdownNotebook__text-row',
-                (isAIPromptOpen || isAIThinking) && 'MarkdownNotebook__text-row--ai-prompt',
-                isAIThinking && 'MarkdownNotebook__text-row--ai-thinking',
                 showInlineInsertMenuButton &&
                     isInlineInsertMenuButtonVisible &&
                     'MarkdownNotebook__text-row--inline-menu-visible'
@@ -4846,28 +5337,6 @@ function EditableTextBlock({
                     />
                 </span>
             ) : null}
-            {isAIPromptOpen || isAIThinking ? (
-                <button
-                    type="button"
-                    ref={isAIThinking ? setAIThinkingTagRef : undefined}
-                    contentEditable={false}
-                    className={clsx(
-                        'MarkdownNotebook__ai-prompt-tag',
-                        isAIThinking && 'MarkdownNotebook__ai-prompt-tag--thinking'
-                    )}
-                    aria-label={isAIThinking ? 'AI response placeholder' : 'Ask AI prompt'}
-                    tabIndex={isAIThinking ? 0 : -1}
-                    onClick={(event) => {
-                        if (isAIThinking) {
-                            event.currentTarget.focus()
-                        }
-                    }}
-                    onKeyDown={isAIThinking ? handleAIThinkingTagKeyDown : undefined}
-                >
-                    <IconSparkles />
-                    {isAIThinking ? 'Thinking ...' : 'Ask AI'}
-                </button>
-            ) : null}
             <TextTag
                 ref={setElementRef}
                 className={clsx(
@@ -4875,11 +5344,10 @@ function EditableTextBlock({
                     `MarkdownNotebook__text-block--${node.type}`,
                     isTitleBlock && 'MarkdownNotebook__text-block--title',
                     isToolInsertMenuOpen && 'MarkdownNotebook__text-block--insert-placeholder',
-                    isAIPromptOpen && 'MarkdownNotebook__text-block--ai-prompt',
                     hasInvalidInsertMenuQuery && 'MarkdownNotebook__text-block--invalid-insert-filter'
                 )}
                 data-markdown-notebook-node-id={node.id}
-                contentEditable={mode === 'edit' && !isAIThinking}
+                contentEditable={mode === 'edit'}
                 suppressContentEditableWarning
                 data-placeholder={isEmpty ? placeholder : undefined}
                 onInput={handleInput}
@@ -4963,7 +5431,7 @@ function FormattingToolbar({
     applyInlineLink: (href: string | null) => void
     currentLinkHref: string | null
     initialLinkEditorOpen: boolean
-    setBlockStyle: (style: 'paragraph' | 'blockquote' | 1 | 2 | 3) => void
+    setBlockStyle: (style: TextBlockStyle) => void
     copySelection: () => void
     askAIAboutSelection?: () => void
     lockPosition: () => void
@@ -5035,6 +5503,7 @@ function FormattingToolbar({
                     { label: 'Heading 2', onClick: () => setBlockStyle(2) },
                     { label: 'Heading 3', onClick: () => setBlockStyle(3) },
                     { label: 'Quote', onClick: () => setBlockStyle('blockquote') },
+                    { label: 'Code', onClick: () => setBlockStyle('code') },
                 ]}
             >
                 <LemonButton
@@ -5068,6 +5537,13 @@ function FormattingToolbar({
             >
                 <span className="font-semibold underline">U</span>
             </LemonButton>
+            <LemonButton
+                size="xsmall"
+                icon={<IconCode />}
+                tooltip="Code"
+                aria-label="Code"
+                onClick={() => applyInlineMark('code')}
+            />
             <LemonButton
                 size="xsmall"
                 icon={<IconLink />}
@@ -5139,6 +5615,7 @@ function NotebookComponentShell({
     const showEditPanel = mode === 'edit' && componentPanels.edit
     const showViewPanel =
         (mode === 'view' || componentPanels.view) && !(showEditPanel && definition?.exclusiveEditPanel)
+    const showModeActions = mode === 'edit' && !definition?.hideModeActions
     const titleDisplay = getComponentTitleDisplay(node, definition)
     const updateProps = (props: Partial<NotebookComponentProps>): void => {
         const nextProps = Object.entries(props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
@@ -5216,7 +5693,7 @@ function NotebookComponentShell({
                         ) : null}
                         <span>{titleDisplay.label}</span>
                     </div>
-                    {mode === 'edit' ? (
+                    {showModeActions ? (
                         <div className="MarkdownNotebook__component-mode-actions">
                             <LemonButton
                                 aria-label="Edit mode"
@@ -5538,6 +6015,7 @@ function buildInsertCommands(
     replaceNodeWithInsertedComponent: (nodeId: string, nextNode: NotebookComponentBlockNode) => void,
     replaceNode: (nodeId: string, nextNode: NotebookBlockNode) => void,
     focusInsertedTable: (nodeId: string) => void,
+    focusInsertedCode: (nodeId: string) => void,
     openAIPrompt?: (nodeId: string) => void
 ): InsertCommand[] {
     const insertComponent = (targetNodeId: string, tagName: string, props: NotebookComponentProps): void => {
@@ -5557,14 +6035,15 @@ function buildInsertCommands(
             return
         }
 
-        insertComponent(
-            targetNodeId,
-            tagName,
-            props ??
-                (typeof definition.defaultProps === 'function'
-                    ? definition.defaultProps()
-                    : (definition.defaultProps ?? {}))
-        )
+        insertComponent(targetNodeId, tagName, props ?? getMarkdownNotebookComponentDefaultProps(definition))
+    }
+
+    const getRegisteredComponentInsertProps = (definition: NotebookComponentDefinition): NotebookComponentProps => {
+        const insertDefaultProps = definition.insertCommand?.defaultProps
+        if (typeof insertDefaultProps === 'function') {
+            return insertDefaultProps()
+        }
+        return insertDefaultProps ?? getMarkdownNotebookComponentDefaultProps(definition)
     }
 
     const insertTable = (targetNodeId: string): void => {
@@ -5579,6 +6058,15 @@ function buildInsertCommands(
             rows: [[{ children: [] }, { children: [] }]],
         })
         focusInsertedTable(nodeId)
+    }
+
+    const insertCode = (targetNodeId: string): void => {
+        replaceNode(targetNodeId, {
+            id: targetNodeId,
+            type: 'code',
+            text: '',
+        })
+        focusInsertedCode(targetNodeId)
     }
 
     const aiCommands: InsertCommand[] = openAIPrompt
@@ -5728,7 +6216,52 @@ function buildInsertCommands(
         },
     ]
 
+    const componentCommands: InsertCommand[] = Object.values(registry.components).flatMap((definition) => {
+        const insertCommand = definition.insertCommand
+        if (!insertCommand) {
+            return []
+        }
+
+        return [
+            {
+                key: `component-${definition.tagName}`,
+                label: insertCommand.label ?? definition.label,
+                category: insertCommand.category ?? definition.category,
+                description: insertCommand.description ?? definition.description,
+                aliases: insertCommand.aliases ?? definition.aliases,
+                icon: insertCommand.icon ?? definition.icon,
+                run: (targetNodeId) =>
+                    insertRegisteredComponent(
+                        targetNodeId,
+                        definition.tagName,
+                        getRegisteredComponentInsertProps(definition)
+                    ),
+            },
+        ]
+    })
+
     const textCommands: InsertCommand[] = [
+        {
+            key: 'text-quote',
+            label: 'Quote',
+            category: 'Text',
+            aliases: ['blockquote'],
+            icon: <IconPencil />,
+            run: (targetNodeId) =>
+                replaceNode(targetNodeId, {
+                    id: targetNodeId,
+                    type: 'blockquote',
+                    children: [],
+                }),
+        },
+        {
+            key: 'text-code',
+            label: 'Code',
+            category: 'Text',
+            aliases: ['code block', 'fenced code'],
+            icon: <IconCode />,
+            run: insertCode,
+        },
         {
             key: 'text-heading-1',
             label: 'Heading 1',
@@ -5773,11 +6306,27 @@ function buildInsertCommands(
         },
     ]
 
-    return [...aiCommands, ...queryCommands, ...dataCommands, ...experimentCommands, ...mediaCommands, ...textCommands]
+    return [
+        ...aiCommands,
+        ...queryCommands,
+        ...dataCommands,
+        ...experimentCommands,
+        ...mediaCommands,
+        ...componentCommands,
+        ...textCommands,
+    ]
 }
 
 function isTextBlockNode(node: NotebookBlockNode): node is NotebookTextBlockNode {
     return node.type === 'paragraph' || node.type === 'heading' || node.type === 'blockquote'
+}
+
+function isPromptComponentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
+    return node.type === 'component' && node.tagName === 'Prompt'
+}
+
+function getPromptSource(value: NotebookPropValue | undefined): 'slash' | 'selection' {
+    return value === 'selection' ? 'selection' : 'slash'
 }
 
 function textBlocksShareContinuationStyle(left: NotebookTextBlockNode, right: NotebookTextBlockNode): boolean {
@@ -6322,6 +6871,10 @@ function getTextBlockStyleLabel(style: TextBlockStyle | null): string {
         return 'Quote'
     }
 
+    if (style === 'code') {
+        return 'Code'
+    }
+
     return `H${style}`
 }
 
@@ -6343,6 +6896,54 @@ function getInlineEditableElementForSelection(
     }
 
     return getClosestEditableBlockElement(getElementForNode(selection.anchorNode))
+}
+
+function getCollapsedSelectionRestoreRequest(
+    selection: Selection | null,
+    rootElement: HTMLElement
+): RestoreSelectionRequest | null {
+    if (!selection || !selection.isCollapsed) {
+        return null
+    }
+
+    const element = getInlineEditableElementForSelection(selection, rootElement)
+    const nodeId = element?.dataset.markdownNotebookNodeId
+    if (!element || !nodeId) {
+        return null
+    }
+
+    const range = getSelectionRange(element, nodeId)
+    if (!range) {
+        return null
+    }
+
+    const offset = range.end
+    const listItemIndex = element.dataset.markdownNotebookListItemIndex
+    if (listItemIndex !== undefined) {
+        return { nodeId, listItemIndex: Number(listItemIndex), start: offset, end: offset }
+    }
+
+    const tableSection = element.dataset.markdownNotebookTableSection
+    const tableRowIndex = element.dataset.markdownNotebookTableRowIndex
+    const tableColumnIndex = element.dataset.markdownNotebookTableColumnIndex
+    if (
+        (tableSection === 'header' || tableSection === 'body') &&
+        tableRowIndex !== undefined &&
+        tableColumnIndex !== undefined
+    ) {
+        return {
+            nodeId,
+            tableCell: {
+                section: tableSection,
+                rowIndex: Number(tableRowIndex),
+                columnIndex: Number(tableColumnIndex),
+            },
+            start: offset,
+            end: offset,
+        }
+    }
+
+    return { nodeId, start: offset, end: offset }
 }
 
 function getSelectedNotebookMarkdown(
@@ -6427,51 +7028,24 @@ function serializeNotebookNodes(nodes: NotebookBlockNode[]): string {
     return serializeMarkdownNotebook({ type: 'doc', nodes, errors: [] })
 }
 
-function getAskAISelectionQuery(selectedMarkdown: string): string {
+function getAskAISelectionQuery(selectedMarkdown: string, userQuery: string, chatId: string): string {
     const highlightedMarkdown = selectedMarkdown.trim()
 
     return [
-        'The user highlighted content in a markdown notebook and clicked the AI toolbar button.',
+        'The user highlighted content in a markdown notebook and asked PostHog AI to help with it.',
+        '',
+        'User request:',
+        userQuery,
         '',
         'Highlighted markdown:',
         '```markdown',
         highlightedMarkdown,
         '```',
         '',
-        'Use the notebook context as the source of truth. It includes an insertion placeholder at the start of the highlighted location.',
-        'If the user asks to replace, rewrite, shorten, expand, summarize, or otherwise change the highlighted content, update the notebook at that location and replace the highlighted content.',
+        `Use the notebook context as the source of truth. The inline <Chat id="${chatId}" /> block is the answer anchor directly below the highlighted content.`,
+        'If the user asks to replace, rewrite, shorten, expand, summarize, or otherwise change the highlighted content, update the notebook near the highlighted content and keep that Chat block as the anchor for the answer.',
         'If the user asks to explain or analyze the highlighted content, answer directly without editing the notebook unless they explicitly ask for a change.',
     ].join('\n')
-}
-
-function getMarkdownWithSelectionPlaceholder(
-    document: NotebookDocument,
-    range: NotebookTextSelectionRange,
-    insertionPlaceholder: string
-): string {
-    const selectionStart = Math.min(range.start, range.end)
-
-    return serializeMarkdownNotebook({
-        ...document,
-        nodes: document.nodes.map((node) => {
-            if (!isTextBlockNode(node) || node.id !== range.nodeId) {
-                return node
-            }
-
-            const textLength = getInlineText(node.children).length
-            const clampedStart = Math.max(0, Math.min(selectionStart, textLength))
-            const [beforeSelectionStart, afterSelectionStart] = splitInlineNodesAt(node.children, clampedStart)
-
-            return {
-                ...node,
-                children: normalizeInlineNodes([
-                    ...beforeSelectionStart,
-                    { type: 'text', text: insertionPlaceholder },
-                    ...afterSelectionStart,
-                ]),
-            }
-        }),
-    })
 }
 
 function setClipboardMarkdown(clipboardData: DataTransfer, markdown: string): void {

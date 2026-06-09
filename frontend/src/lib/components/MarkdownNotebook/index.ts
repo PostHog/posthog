@@ -4,6 +4,7 @@ export {
     getMarkdownNotebookDefaultRegistry,
     createMarkdownNotebookRegistry,
     getMarkdownNotebookComponentDefinition,
+    getMarkdownNotebookComponentDefaultProps,
     mergeMarkdownNotebookRegistries,
 } from './registry'
 export {
@@ -20,10 +21,13 @@ export type {
     NotebookCollaborationConflict,
     NotebookComponentBlockNode,
     NotebookComponentDefinition,
+    NotebookComponentInsertCommand,
     NotebookComponentProps,
+    NotebookComponentRenderProps,
     NotebookComponentRegistry,
     NotebookDocument,
     NotebookInlineNode,
     NotebookMode,
+    NotebookPropValue,
     NotebookTextSelectionRange,
 } from './types'
