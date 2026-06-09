@@ -1289,8 +1289,25 @@ class SignalReportArtefactViewSet(
             )
         result = github.get_branch_diff(repository, branch, base_branch)
         if not result.get("success"):
+            # Surface a clean message rather than the raw GitHub error body. A 404 from the
+            # compare API means the branch (or repo) isn't on the remote — most often a branch
+            # that was deleted or never pushed.
+            if result.get("status_code") == 404:
+                return Response(
+                    {
+                        "error": f"Branch '{branch}' or repository '{repository}' was not found on GitHub — "
+                        "it may have been deleted, or the branch was never pushed."
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            logger.warning(
+                "signals pushed_branch diff fetch failed",
+                repository=repository,
+                branch=branch,
+                status_code=result.get("status_code"),
+            )
             return Response(
-                {"error": result.get("error", "Failed to fetch diff from GitHub.")},
+                {"error": "GitHub could not produce the diff for this branch."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         return Response({"diff": result["diff"], "base_branch": result["base_branch"]})

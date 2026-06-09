@@ -22,6 +22,7 @@ import type {
     PauseResponseApi,
     PauseUntilRequestApi,
     ProjectProfileApi,
+    PushedBranchDiffResponseApi,
     RememberRequestApi,
     ScratchpadEntryApi,
     SignalReportApi,
@@ -269,6 +270,26 @@ export const signalsReportArtefactsDestroy = async (
     return apiMutator<void>(getSignalsReportArtefactsDestroyUrl(projectId, reportId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsReportArtefactsDiffUrl = (projectId: string, reportId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/diff/`
+}
+
+/**
+ * Fetch the unified diff of a `pushed_branch` artefact's branch against its base branch via the team's GitHub integration — lets the UI render the would-be PR diff without a PR being opened.
+ * @summary Fetch the diff for a pushed_branch artefact
+ */
+export const signalsReportArtefactsDiff = async (
+    projectId: string,
+    reportId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PushedBranchDiffResponseApi> => {
+    return apiMutator<PushedBranchDiffResponseApi>(getSignalsReportArtefactsDiffUrl(projectId, reportId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -36687,6 +36687,16 @@ export namespace Schemas {
       Web: 'web',
     } as const;
 
+    /**
+     * Response for the `pushed_branch` artefact diff endpoint — the branch rendered against base.
+     */
+    export interface PushedBranchDiffResponse {
+      /** Unified diff (patch) text of the pushed branch against its base branch, from the GitHub compare API. */
+      readonly diff: string;
+      /** The base branch the diff was computed against (resolved to the repo default when the artefact omits one). */
+      readonly base_branch: string;
+    }
+
     export interface QuarantineInput {
       /**
          * Snapshot identifier to quarantine.

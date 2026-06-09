@@ -182,6 +182,16 @@ export interface PatchedSignalReportArtefactLogUpdateApi {
 }
 
 /**
+ * Response for the `pushed_branch` artefact diff endpoint — the branch rendered against base.
+ */
+export interface PushedBranchDiffResponseApi {
+    /** Unified diff (patch) text of the pushed branch against its base branch, from the GitHub compare API. */
+    readonly diff: string
+    /** The base branch the diff was computed against (resolved to the repo default when the artefact omits one). */
+    readonly base_branch: string
+}
+
+/**
  * Per-(team, skill) scout config: schedule, enablement, and emit posture.
  *
  * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
