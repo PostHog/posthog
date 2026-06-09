@@ -50,7 +50,7 @@ MAX_EVIDENCE_ENTRIES = 20
 # Scouts don't reason about weight. Every finding that clears the confidence emit-gate
 # promotes on its first signal — weight is the pipeline's promotion knob, not a scout
 # judgment. Pinned to 1.0 so a fresh report's `total_weight` meets `WEIGHT_THRESHOLD`
-# (default 1.0) immediately. See products/signals/backend/scout_harness/CLAUDE.md.
+# (default 1.0) immediately. See products/signals/backend/scout_harness/AGENTS.md.
 SCOUT_SIGNAL_WEIGHT = 1.0
 
 
