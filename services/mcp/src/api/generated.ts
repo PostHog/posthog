@@ -26482,8 +26482,12 @@ export namespace Schemas {
          * @nullable
          */
       invite_message?: string | null;
+      /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
       summary_enabled?: boolean;
-      /** @maxLength 500 */
+      /**
+         * Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.
+         * @maxLength 500
+         */
       summary_prompt_guide?: string;
     }
 
@@ -32500,8 +32504,12 @@ export namespace Schemas {
          * @nullable
          */
       invite_message?: string | null;
+      /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
       summary_enabled?: boolean;
-      /** @maxLength 500 */
+      /**
+         * Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.
+         * @maxLength 500
+         */
       summary_prompt_guide?: string;
     }
 
