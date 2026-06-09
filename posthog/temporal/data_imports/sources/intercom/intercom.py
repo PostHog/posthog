@@ -2,6 +2,7 @@ from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from typing import Any, Optional
 
 from requests import Request, Response, Session
+from urllib3.util.retry import Retry
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
@@ -31,6 +32,21 @@ def _auth_headers(access_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {access_token}", **_default_headers()}
 
 
+# The substream walk reaches `/conversations/search` and `/companies/list` via
+# POST. The shared `DEFAULT_RETRY` excludes POST from `allowed_methods`, so a
+# transient read timeout on those calls is *not* retried — unlike the GET calls
+# in the same walk, which retry transparently. These POSTs are read-only,
+# idempotent queries (the body just carries the query + cursor), so it's safe to
+# retry them on transient read timeouts and 429/5xx like everything else.
+_INTERCOM_RETRY = Retry(
+    total=3,
+    backoff_factor=0.5,
+    status_forcelist=(429, 500, 502, 503, 504),
+    allowed_methods=frozenset(["GET", "HEAD", "OPTIONS", "POST"]),
+    raise_on_status=False,
+)
+
+
 def _make_intercom_session(access_token: str) -> Session:
     """Build a tracked session with Intercom auth + default headers baked in.
 
@@ -38,7 +54,7 @@ def _make_intercom_session(access_token: str) -> Session:
     keep the underlying TCP+TLS connection alive — the substream generators
     (one GET per parent row) are the main beneficiary.
     """
-    return make_tracked_session(headers=_auth_headers(access_token))
+    return make_tracked_session(headers=_auth_headers(access_token), retry=_INTERCOM_RETRY)
 
 
 class IntercomSearchPaginator(BasePaginator):
