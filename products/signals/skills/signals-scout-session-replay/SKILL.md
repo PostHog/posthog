@@ -126,8 +126,7 @@ ORDER BY day
 
 Traffic drives the join: a zero-recording day — the exact cliff this scout exists to
 catch — must show `capture_ratio` 0, and an inner join would silently drop it.
-`$pageview` keeps the traffic side cheap; if the project doesn't capture it, substitute
-its top web event — you need a stable denominator, not completeness.
+`$pageview` is the cheap denominator; if absent, substitute the project's top web event.
 
 Friction side — where rage clicks concentrate, last day vs the prior two weeks. Group by
 host plus an **ID-normalized path**, never the raw URL: full `$current_url` values carry
