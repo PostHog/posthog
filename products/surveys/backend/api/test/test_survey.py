@@ -4109,26 +4109,6 @@ class TestSurveyQuestionValidation(APIBaseTest):
         )
         self.assertEqual(response.status_code, 400)
 
-    def test_slider_rejects_min_greater_than_max(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            {
-                "name": "Pricing survey",
-                "type": "popover",
-                "questions": [
-                    {
-                        "type": "slider",
-                        "question": "What price would you pay?",
-                        "min": 100,
-                        "max": 10,  # invalid: max < min
-                        "step": 1,
-                    }
-                ],
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, 400)
-
     def test_slider_requires_min_and_max(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",

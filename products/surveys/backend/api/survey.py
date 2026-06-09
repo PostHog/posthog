@@ -495,9 +495,11 @@ class SurveySliderQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
     type = serializers.ChoiceField(choices=["slider"], required=True)
     min = serializers.FloatField(required=True, help_text="Minimum value of the slider.")
     max = serializers.FloatField(required=True, help_text="Maximum value of the slider.")
-    step = serializers.FloatField(required=False, help_text="Step size for the slider.")
+    step = serializers.FloatField(required=True, help_text="Step size for the slider.")
     prefix = serializers.CharField(required=False, help_text="Prefix for the slider value (e.g., '$').")
     suffix = serializers.CharField(required=False, help_text="Suffix for the slider value (e.g., '%').")
+    lowerBoundLabel = serializers.CharField(required=False, help_text="Label shown at the slider's lower bound.")
+    upperBoundLabel = serializers.CharField(required=False, help_text="Label shown at the slider's upper bound.")
 
 
 _SurveyQuestionUnion = PolymorphicProxySerializer(

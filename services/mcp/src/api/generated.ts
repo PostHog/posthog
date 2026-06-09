@@ -32537,11 +32537,15 @@ export namespace Schemas {
       /** Maximum value of the slider. */
       max: number;
       /** Step size for the slider. */
-      step?: number;
+      step: number;
       /** Prefix for the slider value (e.g., '$'). */
       prefix?: string;
       /** Suffix for the slider value (e.g., '%'). */
       suffix?: string;
+      /** Label shown at the slider's lower bound. */
+      lowerBoundLabel?: string;
+      /** Label shown at the slider's upper bound. */
+      upperBoundLabel?: string;
     }
 
     export type SurveyQuestionInputSchema = SurveyOpenQuestionSchema | SurveyLinkQuestionSchema | SurveyRatingQuestionSchema | SurveySingleChoiceQuestionSchema | SurveyMultipleChoiceQuestionSchema | SurveySliderQuestionSchema;

@@ -25,6 +25,7 @@ import {
 
 import { ValidationRulesEditor } from './components/ValidationRulesEditor'
 import { NewSurvey, SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } from './constants'
+import { isSliderQuestion } from './questionTypeGuards'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
 import { surveyLogic } from './surveyLogic'
@@ -50,9 +51,6 @@ const isLinkQuestion = (question: SurveyQuestion): question is LinkSurveyQuestio
 
 const isRatingQuestion = (question: SurveyQuestion): question is RatingSurveyQuestion =>
     question.type === SurveyQuestionType.Rating
-
-const isSliderQuestion = (question: SurveyQuestion): question is SliderSurveyQuestion =>
-    question.type === SurveyQuestionType.Slider
 
 export function SurveyEditQuestionHeader({
     index,

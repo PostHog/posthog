@@ -624,9 +624,11 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     buttonText: zod.string().optional().describe('Custom button label.'),
                     min: zod.number().describe('Minimum value of the slider.'),
                     max: zod.number().describe('Maximum value of the slider.'),
-                    step: zod.number().optional().describe('Step size for the slider.'),
+                    step: zod.number().describe('Step size for the slider.'),
                     prefix: zod.string().optional().describe("Prefix for the slider value (e.g., '$')."),
                     suffix: zod.string().optional().describe("Suffix for the slider value (e.g., '%')."),
+                    lowerBoundLabel: zod.string().optional().describe("Label shown at the slider's lower bound."),
+                    upperBoundLabel: zod.string().optional().describe("Label shown at the slider's upper bound."),
                 }),
             ])
         )
@@ -1531,9 +1533,11 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     buttonText: zod.string().optional().describe('Custom button label.'),
                     min: zod.number().describe('Minimum value of the slider.'),
                     max: zod.number().describe('Maximum value of the slider.'),
-                    step: zod.number().optional().describe('Step size for the slider.'),
+                    step: zod.number().describe('Step size for the slider.'),
                     prefix: zod.string().optional().describe("Prefix for the slider value (e.g., '$')."),
                     suffix: zod.string().optional().describe("Suffix for the slider value (e.g., '%')."),
+                    lowerBoundLabel: zod.string().optional().describe("Label shown at the slider's lower bound."),
+                    upperBoundLabel: zod.string().optional().describe("Label shown at the slider's upper bound."),
                 }),
             ])
         )
