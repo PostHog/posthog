@@ -129,8 +129,8 @@ which evals deserve more or less weight.
 For each candidate finding:
 
 - **Emit** via `signals-scout-emit-signal` if it clears the confidence bar.
-  Findings carry a hypothesis, evidence, severity, weight ∈ [0, 1], and confidence ∈ [0, 1].
-  Strong scout findings: weight ≥ 0.7, confidence ≥ 0.85, with concrete trace IDs or
+  Findings carry a hypothesis, evidence, severity, and confidence ∈ [0, 1].
+  Strong scout findings: confidence ≥ 0.85, with concrete trace IDs or
   query results in the evidence.
 - **Remember** if it's below the bar but worth carrying forward, or to record what you
   ruled out and why.

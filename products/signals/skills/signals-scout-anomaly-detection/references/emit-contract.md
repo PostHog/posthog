@@ -9,7 +9,6 @@ contract the whole signals-scout fleet runs on.
 | Field         | Type                   | Required     | Notes                                                  |
 | ------------- | ---------------------- | ------------ | ------------------------------------------------------ |
 | `description` | string                 | ✅           | Non-empty prose — the inbox surface and dedupe target. |
-| `weight`      | float `[0,1]`          | ✅           | How much human attention this deserves.                |
 | `confidence`  | float `[0,1]`          | ✅           | How sure you are the finding is real.                  |
 | `evidence`    | list (0–20)            | ✅           | `{source_product, summary, entity_id?}` per entry.     |
 | `hypothesis`  | string                 | recommended  | One-line root-cause hypothesis.                        |
@@ -18,13 +17,11 @@ contract the whole signals-scout fleet runs on.
 | `time_range`  | `{date_from, date_to}` | when bounded | The anomalous window.                                  |
 | `finding_id`  | string                 | recommended  | Stable trace id, **not** a dedupe key (see below).     |
 
-## Weight vs confidence — keep distinct
+## Confidence — the emit gate
 
-`weight` = how much attention it deserves; `confidence` = how sure it's real. A confidently
-real but minor blip is high-confidence, low-weight.
-
-**Weight:** 0.85–1.00 active customer/business impact or large blast radius; 0.65–0.84
-material move worth looking at today; 0.40–0.64 notable but speculative; < 0.20 don't emit.
+`confidence` = how sure you are the finding is real. It is the emit gate: a finding you can't
+stand behind belongs in the scratchpad, not the inbox. You do not rank findings yourself — the
+inbox handles ordering once you emit.
 
 **Confidence:** 0.85–1.00 unambiguous (high z, guards passed, seasonality ruled out, not
 already reported); 0.65–0.84 one strong read + plausible cause, minor unknowns; < 0.65 don't
@@ -33,7 +30,7 @@ emit — refresh the baseline instead.
 **The emit gate:** if you can't reach `confidence ≥ 0.65`, write a scratchpad entry, don't
 emit. For this scout, a strong finding is **robust z ≥ ~3.5 on the latest complete bucket**,
 the guards in `anomaly-methods.md` passed, the move not explained by seasonality or a pipeline
-gap, weight ≥ 0.7, confidence ≥ 0.85.
+gap, confidence ≥ 0.85.
 
 ## Severity
 
@@ -206,7 +203,6 @@ may already have succeeded.** A recurrence on a later day is a new finding citin
 
 ```yaml
 finding_id: anomaly-daily-signups-9aBcDeF-2026-06-07
-weight: 0.86
 confidence: 0.88
 severity: P1
 hypothesis: >

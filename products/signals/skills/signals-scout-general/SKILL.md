@@ -55,7 +55,7 @@ anomalies), leave the deep dive to it on a future tick. Spend your time on
 For each candidate finding:
 
 - **Emit** via `signals-scout-emit-signal` if it clears the confidence
-  bar. The emit contract — schema, weight/confidence rubrics, severity, dedupe
+  bar. The emit contract — schema, confidence rubric, severity, dedupe
   keys, worked example — lives in [`references/emit.md`](references/emit.md).
 - **Remember** via `signals-scout-scratchpad-remember` if it's below the bar but
   worth carrying forward, or to record what you ruled out and why.

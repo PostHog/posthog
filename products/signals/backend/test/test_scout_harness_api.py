@@ -273,7 +273,6 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def _payload(self, **overrides) -> dict:
         body: dict = {
             "description": "Checkout 500s spike correlates with payment-flag rollout",
-            "weight": 0.6,
             "confidence": 0.7,
             "evidence": [
                 {
@@ -304,11 +303,6 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def test_emit_finding_rejects_non_in_progress_run(self) -> None:
         run = _make_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
         response = self.client.post(self._emit_signal_url(str(run.id)), data=self._payload(), format="json")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    def test_emit_finding_validates_weight_range(self) -> None:
-        run = _make_run(self.team)
-        response = self.client.post(self._emit_signal_url(str(run.id)), data=self._payload(weight=2.0), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_emit_finding_unknown_run_returns_404(self) -> None:
