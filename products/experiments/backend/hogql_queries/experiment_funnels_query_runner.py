@@ -27,7 +27,6 @@ from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQ
 from posthog.hogql_queries.query_runner import QueryRunner
 
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY
-from products.experiments.backend.hogql_queries.base_query_utils import resolve_feature_flag_key
 from products.experiments.backend.hogql_queries.funnels_statistics_v2 import (
     are_results_significant_v2,
     calculate_credible_intervals_v2,
@@ -48,7 +47,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         self.feature_flag = self.experiment.feature_flag
-        self.feature_flag_key = resolve_feature_flag_key(self.feature_flag)
+        self.feature_flag_key = self.feature_flag.key_without_tombstone()
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")

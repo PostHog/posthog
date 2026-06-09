@@ -1575,7 +1575,7 @@ class FeatureFlagSerializer(
                         f"Cannot reuse key '{flag.key}': a soft-deleted flag with this key is still "
                         f"referenced by {' and '.join(blockers)}. Please contact support."
                     )
-                flag.key = f"{flag.key}:deleted:{flag.id}"
+                flag.key = flag.tombstoned_key()
                 flag.save(update_fields=["key"])
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
@@ -1694,15 +1694,14 @@ class FeatureFlagSerializer(
             # Append ID to the key when soft-deleting to prevent key conflicts.
             # Experiments reference the flag by FK, so referential integrity is preserved.
             if instance.experiment_set.exists():
-                validated_data["key"] = f"{instance.key}:deleted:{instance.id}"
+                validated_data["key"] = instance.tombstoned_key()
 
         if "deleted" in validated_data and validated_data["deleted"] is False:
             # Restoring a soft-deleted flag — if the key was renamed during
             # soft-delete, restore the original key. If the original key has
             # been claimed by another flag, append a numeric suffix.
-            deleted_suffix = f":deleted:{instance.id}"
-            if instance.key.endswith(deleted_suffix):
-                original_key = instance.key[: -len(deleted_suffix)]
+            original_key = instance.key_without_tombstone()
+            if original_key != instance.key:
                 candidate = original_key
                 counter = 2
                 while (
@@ -3307,7 +3306,7 @@ class FeatureFlagViewSet(
                         flag.deleted = True
                         flag.last_modified_by = current_user
                         flag.updated_at = now_timestamp
-                        flag.key = f"{flag.key}:deleted:{flag.id}"
+                        flag.key = flag.tombstoned_key()
                     FeatureFlag.objects.bulk_update(
                         flags_to_delete_with_rename,
                         ["deleted", "last_modified_by", "updated_at", "key"],

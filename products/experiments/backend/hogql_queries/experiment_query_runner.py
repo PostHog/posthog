@@ -40,10 +40,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ensure_precomputed,
 )
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, MULTIPLE_VARIANT_KEY
-from products.experiments.backend.hogql_queries.base_query_utils import (
-    get_experiment_date_range,
-    resolve_feature_flag_key,
-)
+from products.experiments.backend.hogql_queries.base_query_utils import get_experiment_date_range
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
@@ -142,7 +139,7 @@ class ExperimentQueryRunner(QueryRunner):
         except Experiment.DoesNotExist:
             raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
         self.feature_flag = self.experiment.feature_flag
-        self.feature_flag_key = resolve_feature_flag_key(self.feature_flag)
+        self.feature_flag_key = self.feature_flag.key_without_tombstone()
         self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
         self.entity_key = get_entity_key(self.group_type_index)
 

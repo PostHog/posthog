@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional, Protocol, Union
+from typing import Literal, Optional, Union
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -36,24 +36,6 @@ from products.experiments.backend.hogql_queries.hogql_aggregation_utils import (
     extract_aggregation_and_inner_expr,
 )
 from products.experiments.backend.models.experiment import Experiment
-
-
-class FeatureFlagKeyCandidate(Protocol):
-    # Read-only members so structural matching is covariant — a model whose
-    # `deleted` is `bool` still satisfies the wider `bool | None` here.
-    @property
-    def id(self) -> int: ...
-    @property
-    def key(self) -> str: ...
-    @property
-    def deleted(self) -> bool | None: ...
-
-
-def resolve_feature_flag_key(feature_flag: FeatureFlagKeyCandidate) -> str:
-    deleted_suffix = f":deleted:{feature_flag.id}"
-    if feature_flag.deleted and feature_flag.key.endswith(deleted_suffix):
-        return feature_flag.key[: -len(deleted_suffix)]
-    return feature_flag.key
 
 
 def is_session_property_metric(source: Union[EventsNode, ActionsNode]) -> bool:
