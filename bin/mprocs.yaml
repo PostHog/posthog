@@ -251,6 +251,9 @@ procs:
             layer: Processing
             tech: Node
         env:
+            # /healthz liveness server port. Lines up after ingress (3030) and
+            # janitor (3031) so the local agent services increment cleanly.
+            AGENT_RUNNER_HEALTH_PORT: '3032'
             # Local LLM analytics — same target the ai-gateway uses. Project
             # token writes to the dev team's project; without this the runner
             # falls back to NoopAnalyticsSink and `$ai_*` events vanish.

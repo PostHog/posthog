@@ -35,9 +35,9 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .number()
         .int()
         .positive()
-        .default(9100)
+        .default(8083)
         .describe(
-            'Port for the minimal GET /healthz liveness server. The worker has no request path; this is its only listener.'
+            'Port for the minimal GET /healthz liveness server. The worker has no request path; this is its only listener. Local dev overrides to 3032 (see bin/mprocs.yaml); deployed sets it explicitly in the chart.'
         ),
     maxOutputTokens: z.coerce
         .number()
