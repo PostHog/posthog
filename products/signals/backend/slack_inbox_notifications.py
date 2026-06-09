@@ -57,12 +57,13 @@ _PRIORITY_ORDER: tuple[str, ...] = (
     AutonomyPriority.P4,
 )
 
+# Only the two highest priorities get a red, alarming emoji; the rest use a calmer severity gradient.
 _SLACK_PRIORITY_LABELS: dict[str, str] = {
-    AutonomyPriority.P0: "🆘 P0",
-    AutonomyPriority.P1: "‼️ P1",
-    AutonomyPriority.P2: "❗ P2",
-    AutonomyPriority.P3: "⚠️ P3",
-    AutonomyPriority.P4: "👀 P4",
+    AutonomyPriority.P0: "‼️ P0",
+    AutonomyPriority.P1: "❗ P1",
+    AutonomyPriority.P2: "🟠 P2",
+    AutonomyPriority.P3: "🟡 P3",
+    AutonomyPriority.P4: "🔵 P4",
 }
 
 _SOURCE_PRODUCT_LABELS: dict[str, str] = {
@@ -294,7 +295,7 @@ def _build_message_blocks(
     dismiss_button_value: str | None = None,
 ) -> tuple[list[dict], str]:
     title_line = report.title or "New signals inbox item"
-    header_text = f"📬 {title_line}"
+    header_text = title_line
     if len(header_text) > _SLACK_HEADER_MAX_LEN:
         header_text = header_text[: _SLACK_HEADER_MAX_LEN - 3] + "..."
 
@@ -379,6 +380,133 @@ def _build_message_blocks(
     return blocks, fallback_text
 
 
+# Bound how many evidence signals we post into a thread so a large report can't flood a channel.
+_MAX_THREAD_SIGNALS = 30
+# Slack section text caps at 3000 chars; leave headroom for the ellipsis.
+_SIGNAL_CONTENT_MAX_LEN = 2900
+
+# Mirrors ERROR_TRACKING_SOURCE_TYPE_LABELS in the frontend (lib/signals/errorTracking.ts).
+_ERROR_TRACKING_TYPE_LABELS: dict[str, str] = {
+    "issue_created": "New issue",
+    "issue_reopened": "Issue reopened",
+    "issue_spiking": "Volume spike",
+}
+
+
+def _signal_source_line(source_product: str, source_type: str) -> str:
+    """Human-readable "Product · Signal type" line, mirroring `signalCardSourceLine` in the inbox UI."""
+    if source_product == "error_tracking":
+        type_label = _ERROR_TRACKING_TYPE_LABELS.get(source_type, source_type.replace("_", " "))
+        return f"Error tracking · {type_label}"
+    product_label = _SOURCE_PRODUCT_LABELS.get(source_product, source_product.replace("_", " "))
+    type_label = source_type.replace("_", " ")
+    return f"{product_label} · {type_label}" if type_label else product_label
+
+
+def _is_safe_http_url(value: object) -> bool:
+    # mrkdwn link injection guard: only plain http(s) URLs without the chars that break `<url|text>`.
+    if not isinstance(value, str):
+        return False
+    if not (value.startswith("http://") or value.startswith("https://")):
+        return False
+    return not any(char in value for char in ("<", ">", "|"))
+
+
+def _signal_detail_parts(source_product: str, extra: dict) -> list[str]:
+    """A compact, source-specific metadata line mirroring the inbox SignalCard footer."""
+    parts: list[str] = []
+    if source_product == "github":
+        number = extra.get("number")
+        if number is not None:
+            parts.append(f"#{_escape_mrkdwn(str(number))}")
+        labels = extra.get("labels")
+        if isinstance(labels, list) and labels:
+            parts.append(", ".join(_escape_mrkdwn(str(label)) for label in labels[:5]))
+        if _is_safe_http_url(extra.get("html_url")):
+            parts.append(f"<{extra['html_url']}|View on GitHub>")
+    elif source_product == "zendesk":
+        if extra.get("priority"):
+            parts.append(f"Priority: {_escape_mrkdwn(str(extra['priority']))}")
+        if extra.get("status"):
+            parts.append(f"Status: {_escape_mrkdwn(str(extra['status']))}")
+        if _is_safe_http_url(extra.get("url")):
+            parts.append(f"<{extra['url']}|Open ticket>")
+    elif source_product == "llm_analytics":
+        if extra.get("model"):
+            parts.append(f"Model: {_escape_mrkdwn(str(extra['model']))}")
+        if extra.get("provider"):
+            parts.append(f"Provider: {_escape_mrkdwn(str(extra['provider']))}")
+        trace_id = extra.get("trace_id")
+        if trace_id:
+            parts.append(f"Trace: `{_escape_mrkdwn(str(trace_id)[:12])}…`")
+    elif source_product == "error_tracking":
+        fingerprint = extra.get("fingerprint")
+        if fingerprint:
+            text = str(fingerprint)
+            short = text if len(text) <= 14 else text[:14] + "…"
+            parts.append(f"Fingerprint: `{_escape_mrkdwn(short)}`")
+    elif source_product == "session_replay":
+        if extra.get("problem_type"):
+            parts.append(f"Problem: {_escape_mrkdwn(str(extra['problem_type']).replace('_', ' '))}")
+    return parts
+
+
+def _build_signal_thread_blocks(signal: dict) -> tuple[list[dict], str]:
+    """Render one evidence signal as Slack blocks, mirroring an inbox SignalCard."""
+    source_product = str(signal.get("source_product") or "")
+    source_type = str(signal.get("source_type") or "")
+    try:
+        weight = float(signal.get("weight") or 0.0)
+    except (TypeError, ValueError):
+        weight = 0.0
+
+    source_line = _signal_source_line(source_product, source_type)
+    header_line = f"*{_escape_mrkdwn(source_line)}*  ·  Weight: {weight:.1f}"
+    blocks: list[dict] = [{"type": "context", "elements": [{"type": "mrkdwn", "text": header_line}]}]
+
+    content = (signal.get("content") or "").strip()
+    if content:
+        if len(content) > _SIGNAL_CONTENT_MAX_LEN:
+            content = content[: _SIGNAL_CONTENT_MAX_LEN - 1].rstrip() + "…"
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _escape_mrkdwn(content)}})
+
+    extra = signal.get("extra")
+    detail_parts = _signal_detail_parts(source_product, extra) if isinstance(extra, dict) else []
+    if detail_parts:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "  ·  ".join(detail_parts)}]})
+
+    fallback = source_line if not content else f"{source_line}: {content[:120]}"
+    return blocks, fallback
+
+
+def _post_signal_evidence_thread(
+    slack: SlackIntegration,
+    channel_id: str,
+    thread_ts: str,
+    signals: list[dict],
+) -> None:
+    """Post each evidence signal as a reply in the notification's Slack thread. Best-effort."""
+    posted = 0
+    for signal in signals[:_MAX_THREAD_SIGNALS]:
+        blocks, text = _build_signal_thread_blocks(signal)
+        try:
+            slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, blocks=blocks, text=text)
+            posted += 1
+        except Exception:
+            logger.exception("Failed to post signal evidence to inbox notification thread")
+
+    remaining = len(signals) - posted
+    if remaining > 0:
+        try:
+            slack.client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                text=f"+{remaining} more {'signal' if remaining == 1 else 'signals'} in PostHog",
+            )
+        except Exception:
+            logger.exception("Failed to post signal evidence overflow note to inbox notification thread")
+
+
 class _ChannelRoute:
     """One Slack channel and the reviewers routed to it (mentioned only there)."""
 
@@ -448,8 +576,12 @@ def dispatch_inbox_item_notifications(
     report_id: str,
     team_id: int,
     source_products: list[str] | None = None,
+    signals: list[dict] | None = None,
 ) -> int:
     """Send Slack notifications for a newly-ready report. Returns count of messages sent.
+
+    When ``signals`` is provided, each evidence signal is posted as a reply in the
+    notification's thread, mirroring the inbox UI so reviewers can scan it from Slack.
 
     Best-effort: per-destination Slack errors are logged, not raised.
     """
@@ -511,8 +643,11 @@ def dispatch_inbox_item_notifications(
                 implementation_pr_url=implementation_pr_url,
                 dismiss_button_value=dismiss_button_value,
             )
-            slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
+            response = slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
             sent += 1
+            thread_ts = response.get("ts") if hasattr(response, "get") else None
+            if signals and thread_ts:
+                _post_signal_evidence_thread(slack, channel_id, str(thread_ts), signals)
         except Exception:
             logger.exception("Failed to deliver signals inbox-item Slack notification", extra=log_context)
     return sent

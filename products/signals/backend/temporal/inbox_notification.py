@@ -96,7 +96,12 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
     # Re-derive source products at send time so a deferred notification reflects the current signals.
     signals = fetch_signals_for_report_sync(team, report_id)
     source_products = sorted({s["source_product"] for s in signals if s.get("source_product")})
-    return dispatch_inbox_item_notifications(report_id=report_id, team_id=team_id, source_products=source_products)
+    return dispatch_inbox_item_notifications(
+        report_id=report_id,
+        team_id=team_id,
+        source_products=source_products,
+        signals=signals,
+    )
 
 
 @temporalio.activity.defn
