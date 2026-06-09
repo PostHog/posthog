@@ -10,6 +10,7 @@ from asgiref.sync import sync_to_async
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
+from posthog.models import OrganizationMembership
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
@@ -135,9 +136,19 @@ def _skip_ai_delivery_over_credit_limit_sync(subscription: Subscription) -> date
     subscription.next_delivery_date = reset_date
     subscription.save(update_fields=["next_delivery_date"])
 
-    if subscription.created_by and subscription.created_by.email:
+    creator = subscription.created_by
+    # Skip the notice if the creator has left the org: they can no longer act on the credit limit,
+    # and emailing them their former org's billing status leaks it outside the org. The org still
+    # learns it's over budget through the normal billing/quota path.
+    creator_is_org_member = (
+        creator is not None
+        and OrganizationMembership.objects.filter(
+            organization_id=subscription.team.organization_id, user=creator
+        ).exists()
+    )
+    if creator and creator.email and creator_is_org_member:
         send_email_ai_subscription_credit_limited(
-            email=subscription.created_by.email,
+            email=creator.email,
             subscription=subscription,
             resume_date=reset_date,
             # Stable within a billing period (reset_date is the period end), so MessagingRecord

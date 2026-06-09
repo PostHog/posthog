@@ -23,6 +23,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorS3Error
+from posthog.models import OrganizationMembership
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import Integration
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
@@ -2009,6 +2010,9 @@ async def test_deliver_subscription_emits_success_slo_when_disabling(
 
 @sync_to_async
 def _create_ai_subscription(team, user, *, target_type="email", target_value="ai@posthog.com") -> Subscription:
+    # The creator is a member of the team's org when they make the subscription — the credit-limit
+    # notice is gated on that membership, so tests asserting the email send need it to hold.
+    OrganizationMembership.objects.get_or_create(organization_id=team.organization_id, user=user)
     return create_subscription(
         team=team,
         created_by=user,
@@ -2329,6 +2333,22 @@ async def test_skip_helper_no_owner_reschedules_without_emailing(team, user):
     assert reset_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
     await sync_to_async(sub.refresh_from_db)()
     assert sub.next_delivery_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
+    mock_email.assert_not_called()
+
+
+async def test_skip_helper_no_email_when_creator_left_org(team, user):
+    # The creator was removed from the org after making the sub — don't email a former member their
+    # old org's billing status (it leaks outside the org). Still reschedules; org learns via billing.
+    await _set_org_usage(team, {"period": ["2025-01-01T00:00:00Z", "2099-02-01T00:00:00Z"]})
+    sub = await _create_ai_subscription(team, user)
+    await sync_to_async(OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).delete)()
+
+    with patch(_CREDIT_LIMITED_EMAIL) as mock_email:
+        reset_date = await sync_to_async(_skip_ai_delivery_over_credit_limit_sync)(sub)
+
+    assert reset_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
+    await sync_to_async(sub.refresh_from_db)()
+    assert sub.next_delivery_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC")), "still reschedules past reset"
     mock_email.assert_not_called()
 
 
