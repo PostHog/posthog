@@ -181,40 +181,20 @@ class TestPruneFilterTreePreservesGroupRoot(SimpleTestCase):
     so a bare-condition root strands the user with no "Add condition" button.
     """
 
-    def test_root_or_with_single_condition_stays_a_group(self):
-        cond = _cond()
-        pruned = prune_filter_tree(_or(cond))
-        assert pruned is not None
-        self.assertEqual(pruned["type"], "or")
-        self.assertEqual(pruned["children"], [cond])
-
-    def test_root_and_with_single_condition_stays_a_group(self):
-        cond = _cond()
-        pruned = prune_filter_tree(_and(cond))
-        assert pruned is not None
-        self.assertEqual(pruned["type"], "and")
-        self.assertEqual(pruned["children"], [cond])
-
-    def test_bare_condition_root_is_wrapped_in_group(self):
-        cond = _cond("distinct_id", "contains", "bot")
-        pruned = prune_filter_tree(cond)
+    @parameterized.expand(
+        [
+            ("root_or_single_condition", _or(_cond()), [_cond()]),
+            ("root_and_single_condition", _and(_cond()), [_cond()]),
+            ("bare_condition_root", _cond("distinct_id", "contains", "bot"), [_cond("distinct_id", "contains", "bot")]),
+            ("bare_not_root", _not(_cond()), [_not(_cond())]),
+            ("nested_single_child_collapses", _or(_and(_cond())), [_cond()]),
+        ]
+    )
+    def test_root_is_a_group_wrapping_children(self, _name: str, tree: dict, expected_children: list[dict]):
+        pruned = prune_filter_tree(tree)
         assert pruned is not None
         self.assertIn(pruned["type"], ("and", "or"))
-        self.assertEqual(pruned["children"], [cond])
-
-    def test_bare_not_root_is_wrapped_in_group(self):
-        node = _not(_cond())
-        pruned = prune_filter_tree(node)
-        assert pruned is not None
-        self.assertIn(pruned["type"], ("and", "or"))
-        self.assertEqual(pruned["children"], [node])
-
-    def test_nested_single_child_group_collapses_but_root_stays_a_group(self):
-        cond = _cond()
-        pruned = prune_filter_tree(_or(_and(cond)))
-        assert pruned is not None
-        self.assertEqual(pruned["type"], "or")
-        self.assertEqual(pruned["children"], [cond])
+        self.assertEqual(pruned["children"], expected_children)
 
     def test_root_collapses_to_inner_group(self):
         # The lone child is itself a group, so collapsing keeps a group root.
@@ -429,6 +409,7 @@ class TestEventFilterConfigModel(BaseTest):
             mode=EventFilterMode.LIVE,
             filter_tree=_or(_cond("distinct_id", "contains", "bot")),
         )
+        assert config.filter_tree is not None
         self.assertIn(config.filter_tree["type"], ("and", "or"))
         self.assertEqual(config.filter_tree, _or(_cond("distinct_id", "contains", "bot")))
 
@@ -440,6 +421,7 @@ class TestEventFilterConfigModel(BaseTest):
             mode=EventFilterMode.LIVE,
             filter_tree=_cond("distinct_id", "contains", "bot"),
         )
+        assert config.filter_tree is not None
         self.assertIn(config.filter_tree["type"], ("and", "or"))
         self.assertEqual(config.filter_tree["children"], [_cond("distinct_id", "contains", "bot")])
 

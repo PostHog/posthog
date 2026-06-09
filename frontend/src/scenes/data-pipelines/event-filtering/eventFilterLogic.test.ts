@@ -277,23 +277,17 @@ describe('normalizeRootToGroup', () => {
     // Regression: the backend prunes single-child groups, so a saved one-condition
     // filter loads back as a bare condition (or NOT) with no group to host the
     // "Add condition"/"Add group" buttons. Re-wrap any non-group root in an OR.
-    it('wraps a bare condition root in an OR group', () => {
-        expect(normalizeRootToGroup(cond('distinct_id', 'contains', 'bot'))).toEqual(
-            or(cond('distinct_id', 'contains', 'bot'))
-        )
+    it.each([
+        ['bare condition', cond('distinct_id', 'contains', 'bot')],
+        ['NOT node', not(cond())],
+    ])('wraps a %s root in an OR group', (_name, node) => {
+        expect(normalizeRootToGroup(node)).toEqual(or(node))
     })
 
-    it('wraps a NOT root in an OR group', () => {
-        expect(normalizeRootToGroup(not(cond()))).toEqual(or(not(cond())))
-    })
-
-    it('leaves an OR root unchanged (same reference)', () => {
-        const tree = or(cond(), cond('distinct_id', 'exact', 'u1'))
-        expect(normalizeRootToGroup(tree)).toBe(tree)
-    })
-
-    it('leaves an AND root unchanged (same reference)', () => {
-        const tree = and(cond())
+    it.each([
+        ['OR', or(cond(), cond('distinct_id', 'exact', 'u1'))],
+        ['AND', and(cond())],
+    ])('leaves an %s root unchanged (same reference)', (_name, tree) => {
         expect(normalizeRootToGroup(tree)).toBe(tree)
     })
 })

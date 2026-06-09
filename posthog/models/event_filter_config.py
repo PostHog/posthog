@@ -81,47 +81,46 @@ class EventFilterConfig(UUIDTModel):
         super().save(*args, **kwargs)
 
 
-def prune_filter_tree(node: dict, is_root: bool = True) -> dict | None:
+def prune_filter_tree(node: dict) -> dict | None:
     """
-    Remove empty groups and collapse single-child groups.
+    Remove empty groups and collapse single-child groups, keeping an and/or
+    group at the root.
 
-    The root is kept as an and/or group: the tree editor can only add conditions
-    or groups inside a group node, so collapsing the root down to a bare condition
-    (or NOT) leaves the user with no "Add condition" button. Nested single-child
-    groups still collapse as before.
+    The tree editor can only add conditions or groups inside a group node, so a
+    bare condition (or NOT) at the root leaves the user with no "Add condition"
+    button. We prune freely, then wrap a non-group root in an OR as a final pass.
     """
+    pruned = _prune_node(node)
+    if pruned is not None and pruned.get("type") not in ("and", "or"):
+        return {"type": "or", "children": [pruned]}
+    return pruned
+
+
+def _prune_node(node: dict) -> dict | None:
+    """Remove empty groups and collapse single-child groups, depth-first."""
     node_type = node.get("type")
 
     if node_type == "condition":
-        return _ensure_group_root(node, is_root)
+        return node
 
     if node_type == "not":
-        child = prune_filter_tree(node.get("child", {}), is_root=False)
+        child = _prune_node(node.get("child", {}))
         if child is None:
             return None
-        return _ensure_group_root({**node, "child": child}, is_root)
+        return {**node, "child": child}
 
     if node_type in ("and", "or"):
-        children = [prune_filter_tree(c, is_root=False) for c in node.get("children", [])]
-        children = [c for c in children if c is not None]
+        children: list[dict] = []
+        for child in node.get("children", []):
+            pruned_child = _prune_node(child)
+            if pruned_child is not None:
+                children.append(pruned_child)
         if len(children) == 0:
             return None
         if len(children) == 1:
-            only = children[0]
-            # Collapsing to the lone child is fine unless it would leave a
-            # non-group at the root — in that case keep this group as the wrapper.
-            if is_root and only.get("type") not in ("and", "or"):
-                return {**node, "children": children}
-            return only
+            return children[0]
         return {**node, "children": children}
 
-    return node
-
-
-def _ensure_group_root(node: dict, is_root: bool) -> dict:
-    """Wrap a non-group node in an OR group when it would otherwise be the root."""
-    if is_root and node.get("type") not in ("and", "or"):
-        return {"type": "or", "children": [node]}
     return node
 
 
