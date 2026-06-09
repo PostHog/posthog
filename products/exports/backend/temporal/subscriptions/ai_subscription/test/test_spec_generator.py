@@ -4,15 +4,17 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.models import EventDefinition, PropertyDefinition
+from posthog.models import EventDefinition, EventProperty, PropertyDefinition
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import QueryPlan, QueryPlanStep
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH,
     PromptRejectedError,
+    _event_property_names,
     _group_type_labels,
     _no_data_event_names,
     _person_property_names,
+    _prompt_relevant_event_names,
     build_context_blob,
     generate_query_plan,
     sanitize_prompt,
@@ -93,6 +95,51 @@ class TestGroupTypeLabels(APIBaseTest):
         assert labels == ["group_0 = organization", "group_1 = project"]
 
 
+class TestPromptRelevantEventNames(APIBaseTest):
+    def test_matches_by_prompt_token_including_plural(self) -> None:
+        EventDefinition.objects.create(team=self.team, name="export created")
+        EventDefinition.objects.create(team=self.team, name="export failed")
+        EventDefinition.objects.create(team=self.team, name="alert created")
+        EventDefinition.objects.create(team=self.team, name="$pageview")
+
+        # "exports" (plural) must still match the singular "export ..." event names
+        names = _prompt_relevant_event_names(self.team, "how are exports doing?", limit=12)
+
+        assert "export created" in names
+        assert "export failed" in names
+        assert "alert created" not in names
+        assert "$pageview" not in names
+
+    def test_returns_empty_when_prompt_is_only_generic_filler(self) -> None:
+        EventDefinition.objects.create(team=self.team, name="export created")
+        assert _prompt_relevant_event_names(self.team, "give me a weekly summary", limit=12) == []
+
+    def test_respects_limit(self) -> None:
+        for i in range(5):
+            EventDefinition.objects.create(team=self.team, name=f"export variant {i}")
+        assert len(_prompt_relevant_event_names(self.team, "exports", limit=2)) == 2
+
+
+class TestEventPropertyNames(APIBaseTest):
+    def test_groups_properties_by_event_in_one_query(self) -> None:
+        EventProperty.objects.create(team=self.team, event="export created", property="status")
+        EventProperty.objects.create(team=self.team, event="export created", property="format")
+        EventProperty.objects.create(team=self.team, event="alert created", property="threshold")
+
+        by_event = _event_property_names(self.team, ["export created"], per_event_limit=15)
+
+        # ordered by property name; the un-queried event is absent
+        assert by_event == {"export created": ["format", "status"]}
+
+    def test_respects_per_event_limit(self) -> None:
+        for i in range(5):
+            EventProperty.objects.create(team=self.team, event="export created", property=f"prop_{i}")
+        assert len(_event_property_names(self.team, ["export created"], per_event_limit=2)["export created"]) == 2
+
+    def test_empty_for_no_events(self) -> None:
+        assert _event_property_names(self.team, [], per_event_limit=15) == {}
+
+
 class TestContextBlob(APIBaseTest):
     @patch(f"{_SG}.get_group_types_for_project", return_value=[{"group_type": "organization", "group_type_index": 0}])
     @patch(f"{_SG}._top_event_names", return_value=[])
@@ -109,6 +156,28 @@ class TestContextBlob(APIBaseTest):
         assert "plan" in blob
         assert "Group/account types (reference as group_<index>.properties.<name>" in blob
         assert "group_0 = organization" in blob
+
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    def test_surfaces_prompt_relevant_events_and_their_property_schema(
+        self, _mock_top: object, _mock_groups: object
+    ) -> None:
+        EventDefinition.objects.create(team=self.team, name="export created", last_seen_at=datetime.now(tz=UTC))
+        EventProperty.objects.create(team=self.team, event="export created", property="format")
+
+        blob = build_context_blob(self.team, window_days=7, prompt="how are exports doing?")
+
+        assert "Events matching your request: export created" in blob
+        assert "`export created` properties (use properties.<name>): format" in blob
+
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    def test_omits_relevant_section_without_a_prompt(self, _mock_top: object, _mock_groups: object) -> None:
+        EventDefinition.objects.create(team=self.team, name="export created", last_seen_at=datetime.now(tz=UTC))
+
+        blob = build_context_blob(self.team, window_days=7)
+
+        assert "Events matching your request" not in blob
 
 
 class TestGenerateQueryPlanSubstitution(APIBaseTest):

@@ -10,7 +10,7 @@ from posthog.schema import CachedTeamTaxonomyQueryResponse, SubscriptionAIPrompt
 
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import EventDefinition, PropertyDefinition, Team, User
+from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team, User
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.security.llm_prompt_sanitization import sanitize_user_text
 
@@ -36,6 +36,13 @@ EVENT_NAMES_SAMPLE_LIMIT = 20
 NO_DATA_EVENT_NAMES_LIMIT = 25
 PERSON_PROPERTY_NAMES_LIMIT = 30
 EVENT_NAME_MAX_LENGTH = 120
+# The top-events list is volume-ranked, so a targeted request ("how are exports doing?") never sees the
+# niche, low-volume events it needs. These bound a second, prompt-matched pass that surfaces those
+# events plus their property schema — the planner otherwise can't reference events it can't see.
+RELEVANT_EVENTS_LIMIT = 12
+EVENT_PROPERTIES_PER_EVENT_LIMIT = 15
+PROMPT_TOKEN_MIN_LENGTH = 4
+MAX_PROMPT_TOKENS = 12
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
 DEFAULT_SYNTHESIS_MODEL = "gpt-4.1"
@@ -113,7 +120,76 @@ def _group_type_labels(team: Team) -> list[str]:
     return labels
 
 
-def build_context_blob(team: Team, window_days: int) -> str:
+# Common digest/analytics filler — matching event names against these adds noise, not signal.
+_GENERIC_PROMPT_TOKENS = frozenset(
+    {
+        "week", "weekly", "month", "monthly", "year", "yearly", "daily", "data", "report", "digest",
+        "summary", "trend", "trends", "this", "that", "with", "from", "about", "give", "send", "show",
+        "users", "user", "over", "last", "prior", "compare", "versus", "into", "want", "would", "could",
+        "please", "health", "metric", "metrics", "number", "numbers", "have", "feature", "features",
+        "their", "they", "them", "performing", "performance", "across", "breakdown",
+    }
+)
+
+
+def _prompt_tokens(prompt: str) -> list[str]:
+    tokens: list[str] = []
+    seen: set[str] = set()
+    for raw in re.findall(r"[a-z0-9]+", prompt.lower()):
+        if len(raw) < PROMPT_TOKEN_MIN_LENGTH or raw in _GENERIC_PROMPT_TOKENS or raw in seen:
+            continue
+        seen.add(raw)
+        tokens.append(raw)
+        if len(tokens) >= MAX_PROMPT_TOKENS:
+            break
+    return tokens
+
+
+def _token_variants(token: str) -> list[str]:
+    # crude singularization so a plural in the prompt ("exports") still matches the singular event
+    # name ("export created"); substring match alone would miss it.
+    if token.endswith("s") and len(token) > PROMPT_TOKEN_MIN_LENGTH:
+        return [token, token[:-1]]
+    return [token]
+
+
+def _prompt_relevant_event_names(team: Team, prompt: str, limit: int) -> list[str]:
+    # Raw (unsanitized) event names whose text overlaps the prompt, most-recently-seen first. Returned
+    # raw so the EventProperty lookup matches the stored name; callers sanitize before the LLM sees them.
+    tokens = _prompt_tokens(prompt)
+    if not tokens:
+        return []
+    name_filter = Q()
+    for token in tokens:
+        for variant in _token_variants(token):
+            name_filter |= Q(name__icontains=variant)
+    return list(
+        EventDefinition.objects.filter(team_id=team.pk)
+        .filter(name_filter)
+        .order_by(F("last_seen_at").desc(nulls_last=True), "name")
+        .values_list("name", flat=True)[:limit]
+    )
+
+
+def _event_property_names(team: Team, events: list[str], per_event_limit: int) -> dict[str, list[str]]:
+    # Per-event property names in one indexed (team, event) query. Without this the planner gets no
+    # event-property schema and guesses property names — the top cause of InternalHogQLError.
+    if not events:
+        return {}
+    by_event: dict[str, list[str]] = {}
+    rows = (
+        EventProperty.objects.filter(team_id=team.pk, event__in=events)
+        .order_by("event", "property")
+        .values_list("event", "property")
+    )
+    for event, prop in rows:
+        props = by_event.setdefault(event, [])
+        if len(props) < per_event_limit:
+            props.append(prop)
+    return by_event
+
+
+def build_context_blob(team: Team, window_days: int, prompt: str = "") -> str:
     event_names = _top_event_names(team, EVENT_NAMES_SAMPLE_LIMIT)
     now_iso = datetime.now(tz=UTC).isoformat(timespec="seconds")
 
@@ -133,6 +209,27 @@ def build_context_blob(team: Team, window_days: int) -> str:
         lines.append("- Top events: " + ", ".join(event_names))
     else:
         lines.append("- Top events: (none recorded yet)")
+
+    relevant_raw = _prompt_relevant_event_names(team, prompt, RELEVANT_EVENTS_LIMIT) if prompt else []
+    if relevant_raw:
+        props_by_event = _event_property_names(team, relevant_raw, EVENT_PROPERTIES_PER_EVENT_LIMIT)
+        seen_clean = set(event_names)
+        relevant_pairs: list[tuple[str, str]] = []
+        for raw in relevant_raw:
+            clean = sanitize_user_text(raw, EVENT_NAME_MAX_LENGTH)
+            if clean and clean not in seen_clean:
+                seen_clean.add(clean)
+                relevant_pairs.append((raw, clean))
+        if relevant_pairs:
+            lines.append("- Events matching your request: " + ", ".join(clean for _, clean in relevant_pairs))
+            for raw, clean in relevant_pairs:
+                clean_props = [
+                    p
+                    for p in (sanitize_user_text(pr, EVENT_NAME_MAX_LENGTH) for pr in props_by_event.get(raw, []))
+                    if p
+                ]
+                if clean_props:
+                    lines.append(f"  - `{clean}` properties (use properties.<name>): " + ", ".join(clean_props))
 
     no_data_events = _no_data_event_names(team, window_days, NO_DATA_EVENT_NAMES_LIMIT)
     if no_data_events:
@@ -201,7 +298,7 @@ def build_enriched_prompt(
     trace_correlation_id: Optional[Union[int, str]] = None,
 ) -> EnrichedPromptSpec:
     cleaned = sanitize_prompt(prompt)
-    context_blob = build_context_blob(team, window_days)
+    context_blob = build_context_blob(team, window_days, prompt=cleaned)
     plan = generate_query_plan(
         cleaned_prompt=cleaned,
         context_blob=context_blob,

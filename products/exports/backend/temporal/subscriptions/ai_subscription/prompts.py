@@ -64,6 +64,9 @@ property") rather than splitting one comparison across two queries.
 Output rules:
 - Only emit HogQL SELECT statements; never DDL or INSERT/UPDATE/DELETE.
 - Prefer the `events` table. Filter by `event` against the project's known event names when relevant.
+  When context lists "Events matching your request", prefer those exact event names — they were
+  selected for this prompt. For an event's properties, use only the names listed under its
+  "`<event>` properties" line (access as `properties.<name>`); do not invent property names.
 - Use the suggested analysis window from context as the default timeframe. Override only if the prompt
   explicitly requests a different window.
 - Each step's `description` must briefly explain *why* that query is relevant to the prompt.
