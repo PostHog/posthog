@@ -217,7 +217,12 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         </div>
                         <div>
                             <div className="text-xs text-muted mb-0.5">Session</div>
-                            <Link to={urls.sessionProfile(observation.session_id)}>{observation.session_id}</Link>
+                            <Link
+                                to={urls.sessionProfile(observation.session_id)}
+                                data-attr="vision-observation-session-link"
+                            >
+                                {observation.session_id}
+                            </Link>
                         </div>
                     </div>
                 </LemonCard>
@@ -467,6 +472,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             e.stopPropagation()
                             setRecordingExpanded(!recordingExpanded)
                         }}
+                        data-attr="vision-observation-recording-toggle"
                     />
                     <IconVideoCamera className="text-muted-alt" />
                     <h3 className="text-lg font-semibold m-0">Recording</h3>

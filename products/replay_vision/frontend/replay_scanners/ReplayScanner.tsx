@@ -76,6 +76,8 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                                             secondaryButton: { children: 'Cancel' },
                                         })
                                     }
+                                    data-attr="vision-scanner-delete"
+                                    data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                                 >
                                     Delete
                                 </LemonButton>
@@ -95,6 +97,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         key: 'configuration',
                         header: 'Configuration',
                         content: <ScannerConfigReadonly scanner={scanner} />,
+                        dataAttr: 'vision-scanner-config-expand',
                     },
                 ]}
             />
@@ -106,7 +109,8 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                     <LemonButton
                         type="primary"
                         to={urls.replayVisionScannerConfigure(scannerId)}
-                        data-attr="edit-replay-scanner"
+                        data-attr="vision-scanner-edit"
+                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                     >
                         Edit scanner
                     </LemonButton>

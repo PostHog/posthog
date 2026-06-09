@@ -162,6 +162,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     icon={<IconRewindPlay />}
                     to={urls.replaySingle(obs.session_id)}
                     className="whitespace-nowrap"
+                    data-attr="vision-observation-view-recording"
                 >
                     View recording
                 </LemonButton>
@@ -223,6 +224,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                             icon={<IconRefresh />}
                             onClick={() => loadObservations()}
                             loading={observationsLoading}
+                            data-attr="vision-observations-refresh"
                         >
                             Refresh
                         </LemonButton>
