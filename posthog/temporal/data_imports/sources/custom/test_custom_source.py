@@ -1012,16 +1012,21 @@ class TestFanoutChain(SimpleTestCase):
         forms, responses, answers = manifest["resources"]
         assert _fanout_chain(manifest, "answers") == FanoutChain(ancestors=[forms, responses], child=answers)
 
-    def test_falls_back_to_chosen_when_unrelated_resource_breaks_the_graph(self):
+    @patch("posthog.temporal.data_imports.sources.custom.source.logger")
+    def test_falls_back_to_chosen_when_unrelated_resource_breaks_the_graph(self, mock_logger):
         # A stored manifest can predate the create-time graph rules. A graph
         # error on a sibling must not sink this schema — the chain degrades to
-        # the pre-fan-out single-resource behavior.
+        # the pre-fan-out single-resource behavior, and the degradation is
+        # logged so the affected population stays measurable.
         manifest = _fanout_manifest()
         _break_unknown_parent(manifest)
         manifest["resources"].append(
             {"name": "users", "primary_key": "id", "endpoint": {"path": "/users", "data_selector": "items"}}
         )
         assert _fanout_chain(manifest, "users") == FanoutChain(ancestors=[], child=manifest["resources"][2])
+        mock_logger.warning.assert_called_once()
+        assert mock_logger.warning.call_args.args[0] == "custom_source_fanout_graph_fallback"
+        assert mock_logger.warning.call_args.kwargs["schema_name"] == "users"
 
     def test_raises_for_chosen_resource_in_a_cycle(self):
         # The graph builder itself doesn't reject cycles (only create-time
