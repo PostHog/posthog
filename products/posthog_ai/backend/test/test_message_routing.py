@@ -91,6 +91,10 @@ class TestHandleSandboxMessage(APIBaseTest):
         assert self.conversation.task_id == task.id
 
         m_workflow.assert_called_once()
+        _, wf_kwargs = m_workflow.call_args
+        assert wf_kwargs["create_pr"] is False
+        # The agent needs write scopes to create insights/dashboards/notebooks.
+        assert wf_kwargs["posthog_mcp_scopes"] == "full"
         m_telemetry.assert_called_once()
 
     def test_first_message_without_context_forwards_bare_content(self):

@@ -89,7 +89,6 @@ class MessageRoutingService(BaseSandboxService):
             repository=None,
             create_pr=False,
             mode="interactive",
-            initial_permission_mode="default",
             # Defer the workflow so the initial run state can carry the PostHog AI keys.
             start_workflow=False,
         )
@@ -98,8 +97,9 @@ class MessageRoutingService(BaseSandboxService):
         if task_run is None:
             raise exceptions.ValidationError("Failed to create sandbox task run.")
 
-        # Enrich the initial run state with the PostHog AI per-Run keys, then start the
-        # workflow. `attached_context` stores the full, undeduped list.
+        # Seed the PostHog AI per-Run state keys. `attached_context` keeps the full,
+        # undeduped list. These aren't `create_and_run` arguments, so merge them into the
+        # run state here, before the workflow starts and reads it.
         run_state: dict[str, Any] = dict(task_run.state or {})
         run_state.update(
             {
@@ -118,14 +118,24 @@ class MessageRoutingService(BaseSandboxService):
             self.conversation.task = task
             self.conversation.save(update_fields=["task", "updated_at"])
 
-        # Side effects after the commit: start the run, then emit telemetry.
-        execute_task_processing_workflow(
-            task_id=str(task.id),
-            run_id=str(task_run.id),
-            team_id=self.team.id,
-            user_id=self.user.pk,
-            create_pr=False,
-        )
+        # Start the run after the commit. `posthog_mcp_scopes="full"` mirrors the legacy
+        # first-message path: the agent creates insights, dashboards, and notebooks, so it
+        # needs write scopes (the workflow client otherwise defaults to read-only). If the
+        # start fails, un-link the conversation so the user's retry is a fresh first message
+        # rather than the not-yet-supported follow-up branch.
+        try:
+            execute_task_processing_workflow(
+                task_id=str(task.id),
+                run_id=str(task_run.id),
+                team_id=self.team.id,
+                user_id=self.user.pk,
+                create_pr=False,
+                posthog_mcp_scopes="full",
+            )
+        except Exception:
+            self.conversation.task = None
+            self.conversation.save(update_fields=["task", "updated_at"])
+            raise
 
         report_user_action(
             self.user,
