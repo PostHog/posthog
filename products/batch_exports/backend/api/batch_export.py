@@ -1151,10 +1151,21 @@ class BatchExportSerializer(serializers.ModelSerializer):
             BatchExportDestination.Destination.POSTGRES,
             BatchExportDestination.Destination.REDSHIFT,
         ):
-            try:
-                resolve_and_validate_host(merged_config["host"])
-            except ValueError:
-                raise serializers.ValidationError(f"Invalid host: '{merged_config['host']}'")
+            # Integration-backed Postgres exports keep the host in the linked Integration
+            # rather than in `config`; inline configs (Redshift, legacy Postgres) keep it in
+            # `config`. Prefer the Integration's host when one is provided so we don't skip
+            # SSRF validation (and don't `KeyError` on a `config` that has no `host`).
+            integration = destination_attrs.get("integration")
+            if integration is not None:
+                host = integration.config.get("host")
+            else:
+                host = merged_config.get("host")
+
+            if host is not None:
+                try:
+                    resolve_and_validate_host(host)
+                except ValueError:
+                    raise serializers.ValidationError(f"Invalid host: '{host}'")
 
         return destination_attrs
 
