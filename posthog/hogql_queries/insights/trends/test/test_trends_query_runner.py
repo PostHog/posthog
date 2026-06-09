@@ -7562,67 +7562,56 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(formula_result["data"]) == len(formula_result["days"])
         assert formula_result["count"] == sum(formula_result["data"])
 
-    def test_hide_weekends_does_not_corrupt_wau(self):
-        # Hiding weekends must only drop weekend buckets, never weekend events from the WAU
-        # sliding window — each weekday's value must match the non-hidden query exactly.
-        self._create_test_events()
-
-        normal = self._run_trends_query(
-            "2020-01-09",
-            "2020-01-20",
-            IntervalType.DAY,
-            [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
-        )
-        hidden = self._run_trends_query(
-            "2020-01-09",
-            "2020-01-20",
-            IntervalType.DAY,
-            [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
-            trends_filters=TrendsFilter(hideWeekends=True),
-        )
-
-        normal_by_day = dict(zip(normal.results[0]["days"], normal.results[0]["data"]))
-
-        # 12-day range has 4 weekend days, leaving 8 weekdays
-        assert len(hidden.results[0]["days"]) == 8
-        for day_str, value in zip(hidden.results[0]["days"], hidden.results[0]["data"]):
-            assert datetime.strptime(day_str[:10], "%Y-%m-%d").weekday() < 5
-            assert value == normal_by_day[day_str], f"WAU for {day_str} changed: {value} != {normal_by_day[day_str]}"
-
-    def test_hide_weekends_does_not_corrupt_cumulative(self):
-        # The cumulative running total must keep weekend events folded in, so Monday's value
-        # still reflects the prior weekend — only the weekend buckets are hidden from the chart.
-        self._create_test_events()
-
-        normal = self._run_trends_query(
-            self.default_date_from,
-            self.default_date_to,
-            IntervalType.DAY,
-            [EventsNode(event="$pageview")],
-            trends_filters=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE),
-        )
-        hidden = self._run_trends_query(
-            self.default_date_from,
-            self.default_date_to,
-            IntervalType.DAY,
-            [EventsNode(event="$pageview")],
-            trends_filters=TrendsFilter(
-                display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE,
-                hideWeekends=True,
+    @parameterized.expand(
+        [
+            # Weekly active users: each weekday's sliding-window value must still count weekend
+            # events, so the weekday values match the non-hidden query (would drop under the bug).
+            (
+                "weekly_active",
+                "2020-01-09",
+                "2020-01-20",
+                [EventsNode(event="$pageview", math=BaseMathType.WEEKLY_ACTIVE)],
+                None,
+                [
+                    "2020-01-09",
+                    "2020-01-10",
+                    "2020-01-13",
+                    "2020-01-14",
+                    "2020-01-15",
+                    "2020-01-16",
+                    "2020-01-17",
+                    "2020-01-20",
+                ],
+                [1, 1, 3, 3, 4, 4, 4, 2],
             ),
+            # Cumulative: the running total keeps weekend events folded in, so Monday 2020-01-13
+            # is already 6 (would be lower if weekend events were filtered out of the aggregation).
+            (
+                "cumulative",
+                "2020-01-09",
+                "2020-01-19",
+                [EventsNode(event="$pageview")],
+                ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE,
+                ["2020-01-09", "2020-01-10", "2020-01-13", "2020-01-14", "2020-01-15", "2020-01-16", "2020-01-17"],
+                [1, 1, 6, 6, 8, 8, 9],
+            ),
+        ]
+    )
+    def test_hide_weekends_does_not_corrupt_windowed_math(
+        self, _name, date_from, date_to, series, display, expected_days, expected_data
+    ):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            date_from,
+            date_to,
+            IntervalType.DAY,
+            series,
+            trends_filters=TrendsFilter(hideWeekends=True, display=display),
         )
 
-        normal_by_day = dict(zip(normal.results[0]["days"], normal.results[0]["data"]))
-
-        for day_str, value in zip(hidden.results[0]["days"], hidden.results[0]["data"]):
-            assert datetime.strptime(day_str[:10], "%Y-%m-%d").weekday() < 5
-            assert value == normal_by_day[day_str]
-
-        # Monday 2020-01-13's running total still includes the prior weekend's events (would be
-        # lower if weekend events were filtered out of the aggregation).
-        monday_idx = hidden.results[0]["days"].index("2020-01-13")
-        assert hidden.results[0]["data"][monday_idx] == 6
-        assert hidden.results[0]["count"] == hidden.results[0]["data"][-1]
+        assert response.results[0]["days"] == expected_days
+        assert response.results[0]["data"] == expected_data
 
     @parameterized.expand(
         [
