@@ -66,6 +66,13 @@ def organization():
     org.delete()
 
 
+def _delete_team_and_exports(team: Team) -> None:
+    # delete_batch_exports() is the uncancellable personhog gRPC path that can hang
+    # teardown; the async fixtures run this bounded via arun_best_effort.
+    delete_batch_exports(team_ids=[team.pk])
+    team.delete()
+
+
 @pytest.fixture
 def team(organization):
     """A test team."""
@@ -74,8 +81,7 @@ def team(organization):
     team.save()
 
     yield team
-    delete_batch_exports(team_ids=[team.pk])
-    team.delete()
+    _delete_team_and_exports(team)
 
 
 @pytest_asyncio.fixture
@@ -94,10 +100,7 @@ async def ateam(aorganization):
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
 
     yield team
-    # delete_batch_exports() is the uncancellable personhog gRPC path that hangs
-    # teardown; bound it and the cascade delete so a wedge can't burn the shard.
-    await arun_best_effort(functools.partial(delete_batch_exports, team_ids=[team.pk]), label="delete_batch_exports")
-    await arun_best_effort(team.delete, label="team")
+    await arun_best_effort(functools.partial(_delete_team_and_exports, team), label="team_cleanup")
 
 
 @pytest_asyncio.fixture
@@ -106,8 +109,7 @@ async def another_ateam(aorganization):
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
 
     yield team
-    await arun_best_effort(functools.partial(delete_batch_exports, team_ids=[team.pk]), label="delete_batch_exports")
-    await arun_best_effort(team.delete, label="team")
+    await arun_best_effort(functools.partial(_delete_team_and_exports, team), label="team_cleanup")
 
 
 @pytest.fixture
