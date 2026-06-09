@@ -283,6 +283,7 @@ export enum AccessControlResourceType {
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
+    Endpoint = 'endpoint',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentSavedMetric = 'experiment_saved_metric',
@@ -528,6 +529,10 @@ export interface OrganizationDomainType {
     scim_enabled?: boolean
     scim_base_url?: string
     scim_bearer_token?: string
+    has_id_jag?: boolean
+    id_jag_issuer_url?: string | null
+    id_jag_jwks_url?: string | null
+    id_jag_allowed_clients?: string[]
 }
 
 export interface SCIMRequestLogType {
@@ -649,6 +654,7 @@ export interface CorrelationConfigType {
 
 export interface ProjectType extends ProjectBasicType {
     created_at: string
+    is_pending_deletion: boolean
 }
 
 export interface TeamSurveyConfigType {

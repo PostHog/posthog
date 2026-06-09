@@ -140,7 +140,7 @@ and burn less time on cold-start exploration.
 For each candidate finding:
 
 - **Emit** via `signals-scout-emit-signal` if it clears the confidence bar.
-  Strong scout findings: weight ≥ 0.7, confidence ≥ 0.85, with concrete issue ids,
+  Strong scout findings: confidence ≥ 0.85, with concrete issue ids,
   hourly count, distinct-user counts in the evidence.
 - **Remember** if below the bar but worth carrying forward.
 - **Skip** with a one-line note if a scratchpad entry with a `noise:` or `addressed:`
