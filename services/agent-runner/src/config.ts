@@ -31,6 +31,14 @@ const DEV_S3_SECRET_ACCESS_KEY = 'any'
 
 export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
     maxConcurrency: z.coerce.number().int().positive().default(8).describe('In-flight sessions per worker process.'),
+    healthPort: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(9100)
+        .describe(
+            'Port for the minimal GET /healthz liveness server. The worker has no request path; this is its only listener.'
+        ),
     maxOutputTokens: z.coerce
         .number()
         .int()
@@ -194,6 +202,7 @@ export type AgentRunnerConfig = z.infer<typeof AgentRunnerConfigSchema>
 
 const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     AGENT_MAX_CONCURRENCY: 'maxConcurrency',
+    AGENT_RUNNER_HEALTH_PORT: 'healthPort',
     AGENT_MAX_OUTPUT_TOKENS: 'maxOutputTokens',
     AGENT_USE_AI_GATEWAY: 'useAiGateway',
     POSTHOG_AI_GATEWAY_URL: 'aiGatewayUrl',

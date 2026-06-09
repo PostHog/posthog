@@ -18,6 +18,7 @@
  */
 
 import { S3Client } from '@aws-sdk/client-s3'
+import { createServer } from 'node:http'
 
 import {
     AnalyticsSink,
@@ -348,8 +349,25 @@ async function main(): Promise<void> {
         failureNotifier,
     })
 
+    // Minimal liveness surface. The worker is queue-driven and has no request
+    // path, so GET /healthz is the only thing on a port — 200 while running,
+    // 503 once draining so k8s pulls a shutting-down pod out promptly.
+    let healthy = true
+    const healthServer = createServer((req, res) => {
+        if (req.url === '/healthz') {
+            res.writeHead(healthy ? 200 : 503, { 'content-type': 'application/json' })
+            res.end(JSON.stringify({ ok: healthy }))
+            return
+        }
+        res.writeHead(404)
+        res.end()
+    })
+    healthServer.listen(config.healthPort, () => log.info({ port: config.healthPort }, 'health server listening'))
+
     const shutdown = (sig: string): void => {
         log.info({ sig }, 'shutdown signal received — suspending in-flight sessions')
+        healthy = false
+        healthServer.close()
         void worker.stop()
     }
     process.on('SIGTERM', () => shutdown('SIGTERM'))
