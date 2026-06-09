@@ -2170,10 +2170,8 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         assert "not supported" in str(exc.value)
 
     @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
-    @patch("products.workflows.backend.providers.SESProvider.verify_email_domain")
-    def test_cross_org_guard_blocks_mixed_case_domain(self, mock_verify_email_domain, mock_create_email_domain):
+    def test_cross_org_guard_blocks_mixed_case_domain(self, mock_create_email_domain):
         mock_create_email_domain.return_value = {"status": "success", "domain": "example.com"}
-        mock_verify_email_domain.return_value = {"status": "verified", "domain": "example.com"}
         other_org = Organization.objects.create(name="other org")
         other_team = Team.objects.create(organization=other_org, name="other team")
         EmailIntegration.create_native_integration(
@@ -2203,8 +2201,17 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         )
         assert integration.config["domain"] == "successdomain.com"
 
-    def test_free_email_block_is_case_insensitive(self):
-        config = {"email": "user@Gmail.com", "name": "Test User"}
+    @parameterized.expand(
+        [
+            ("gmail_titlecase", "user@Gmail.com"),
+            ("gmail_uppercase", "user@GMAIL.COM"),
+            ("gmail_mixed", "user@gMaIl.cOm"),
+            ("yahoo_titlecase", "user@Yahoo.com"),
+            ("hotmail_uppercase", "user@HOTMAIL.COM"),
+        ]
+    )
+    def test_free_email_block_is_case_insensitive(self, _name, email):
+        config = {"email": email, "name": "Test User"}
         with pytest.raises(ValidationError) as exc:
             EmailIntegration.create_native_integration(
                 config,
