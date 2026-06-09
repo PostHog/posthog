@@ -201,7 +201,7 @@ Both share the same skeleton:
 - **Discriminator:** a high-impact finding **attributed to recent changes** — a violation in
   a file that changed this week. Noise is the pre-existing backlog, low-severity style nits,
   and anything a sibling scout already emitted for the same file.
-- **Calibration:** P3 recommendations; `weight` ~0.4–0.6. **One finding per file** (bundle
+- **Calibration:** P3 recommendations. **One finding per file** (bundle
   that file's issues), **cap the emits per run** (worst offenders first), and cross-check
   sibling scouts' runs so two code scouts don't double-report the same file.
 - **Dedupe + memory:** `dedupe:<domain>:<repo>:<path>` (+ a `...:<rule-id>` qualifier);
@@ -306,7 +306,7 @@ These compose into any pattern above:
   overlapping, or unbounded source, track processed-through in scratchpad so each run is
   incremental and dedupe survives across runs.
 - **Blast-radius corroboration** — turn a qualitative signal into a quantified one by
-  cross-checking a second source over the same window. Raises confidence and weight, and
+  cross-checking a second source over the same window. Raises confidence, and
   gives the human a number to act on.
 
 ## Picking and combining
