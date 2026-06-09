@@ -1,5 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 
+import { instrument } from '@posthog/mcp-analytics'
+
 import { env } from '@/lib/env'
 
 import { getPostHogClient } from './client'
@@ -224,7 +226,6 @@ export async function initMcpAnalytics(
     }
 
     try {
-        const { instrument } = await import('@posthog/mcp-analytics') // Import only if needed
         const distinctId = await identity.getDistinctId()
 
         // `@posthog/mcp` 0.1.x: `instrument(server, posthogClient, options)` returns an
