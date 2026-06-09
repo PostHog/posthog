@@ -37,7 +37,7 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CreateFeatureFlagSchema = FeatureFlagsCreateBody.extend({
     is_remote_configuration: FeatureFlagsCreateBody.shape['is_remote_configuration'].describe(
-        'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string — there is no dedicated payload parameter.'
+        'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string. There is no dedicated payload parameter.'
     ),
 })
 
@@ -598,7 +598,7 @@ const UpdateFeatureFlagSchema = FeatureFlagsPartialUpdateParams.omit({ project_i
     .extend({
         id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams.shape['id']),
         is_remote_configuration: FeatureFlagsPartialUpdateBody.shape['is_remote_configuration'].describe(
-            'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string — there is no dedicated payload parameter.'
+            'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string. There is no dedicated payload parameter.'
         ),
     })
 
