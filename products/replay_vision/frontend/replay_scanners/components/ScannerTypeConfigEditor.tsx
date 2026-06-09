@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useCallback } from 'react'
 
 import { IconAI } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSegmentedButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
@@ -24,6 +25,15 @@ function ScannerPromptField({ scannerId, placeholder }: { scannerId: string; pla
     const { scanner } = useValues(logic)
     const { setScannerValue } = useActions(logic)
 
+    const onDraftedPrompt = useCallback(
+        (toolOutput: { prompt?: string; error?: string }) => {
+            if (!toolOutput?.error && toolOutput?.prompt) {
+                setScannerValue(['scanner_config', 'prompt'], toolOutput.prompt)
+            }
+        },
+        [setScannerValue]
+    )
+
     const { openMax } = useMaxTool({
         identifier: 'draft_replay_vision_scanner_prompt',
         active: !!scanner,
@@ -35,11 +45,7 @@ function ScannerPromptField({ scannerId, placeholder }: { scannerId: string; pla
             ? { text: `${scannerTypeLabel(scanner.scanner_type)} scanner`, icon: iconForType('session_replay') }
             : undefined,
         initialMaxPrompt: 'Help me write the prompt for this scanner',
-        callback: (toolOutput: { prompt?: string; error?: string }) => {
-            if (!toolOutput?.error && toolOutput?.prompt) {
-                setScannerValue(['scanner_config', 'prompt'], toolOutput.prompt)
-            }
-        },
+        callback: onDraftedPrompt,
     })
 
     return (
