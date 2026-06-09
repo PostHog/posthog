@@ -175,14 +175,10 @@ def load_integrations(
 
 @dataclass
 class UserAndIntegrationsResolution:
-    """Outcome of the combined workspace + user identification + access-filter step.
-
-    ``workspace_result`` is always set. Its ``.candidates`` empty means no local
-    workspace integration exists; the caller proxies / drops at the
-    region-routing layer.
+    """Outcome of the user identification + access-filter step.
 
     ``user`` is ``None`` when no PostHog user resolved or none had access — both
-    cases are silently logged inside ``resolve_user_and_integrations`` under
+    cases are silently logged inside ``resolve_user_for_workspace`` under
     ``posthog_code_no_integration_found``, and the specific case is exposed via
     ``failure_reason`` so the caller can post an actionable reply in-thread.
     ``integration`` and ``candidates`` are only populated on the happy path;
@@ -190,7 +186,6 @@ class UserAndIntegrationsResolution:
     resolved target was inaccessible and got dropped).
     """
 
-    workspace_result: ResolutionResult
     user: User | None = None
     integration: Integration | None = None
     candidates: list[Integration] = field(default_factory=list)
@@ -199,42 +194,23 @@ class UserAndIntegrationsResolution:
     slack_email: str | None = None
 
 
-def resolve_user_and_integrations(
+def resolve_user_for_workspace(
     *,
+    workspace_result: ResolutionResult,
     slack_team_id: str,
-    kinds: list[str],
     slack_user_id: str,
-    channel: str | None = None,
-    thread_ts: str | None = None,
     event_id: str | None = None,
 ) -> UserAndIntegrationsResolution:
-    """One-shot routing: workspace candidates + user identification + access filter.
-
-    On the happy path, ``user`` / ``integration`` / ``candidates`` / ``source``
-    are populated. The user gate fails silently with ``user=None`` (logged here
-    as ``posthog_code_no_integration_found``); the empty
-    ``workspace_result.candidates`` case is left for the caller to handle at the
-    region-routing layer (proxy or drop).
-
-    Region routing happens around this call: the user-resolution work runs even
-    on cross-region yielded events, but the ``SlackUserProfileCache`` typically
-    absorbs the Slack API hit.
+    """Given a pre-loaded workspace ``ResolutionResult``, identify the acting
+    Slack user and filter the workspace candidates down to ones they can
+    access. Split from ``resolve_user_and_integrations`` so the caller can
+    decide region routing (proxy / drop) before paying for the Slack API hit
+    and the membership query.
     """
     # The user resolver lives in api.py alongside the Slack-API helpers it
     # depends on (``_get_slack_user_info`` etc). Inline-imported to break the
     # cycle until those helpers are factored out into a shared module.
     from products.slack_app.backend.api import _get_slack_email_for_user, _resolve_posthog_user_from_event
-
-    workspace_result = load_integrations(
-        slack_team_id=slack_team_id,
-        kinds=kinds,
-        slack_user_id=slack_user_id,
-        user=None,
-        channel=channel,
-        thread_ts=thread_ts,
-    )
-    if not workspace_result.candidates:
-        return UserAndIntegrationsResolution(workspace_result=workspace_result)
 
     if not slack_user_id:
         logger.warning(
@@ -244,12 +220,11 @@ def resolve_user_and_integrations(
             slack_user_id=None,
             event_id=event_id,
         )
-        return UserAndIntegrationsResolution(workspace_result=workspace_result, failure_reason="user_not_found")
+        return UserAndIntegrationsResolution(failure_reason="user_not_found")
 
-    # The Slack profile lookup is cached, so calling it here and again inside
-    # ``_resolve_posthog_user_from_event`` only costs one DB hit on the second
-    # call. Surfaces the email so the routing layer can mention it in the
-    # user-facing failure reply.
+    # Look the Slack email up once and pass it through so the user resolver
+    # doesn't repeat the cache hit and so the routing layer can mention it in
+    # the user-facing failure reply.
     probe = workspace_result.candidates[0]
     slack_email = _get_slack_email_for_user(probe, slack_user_id)
 
@@ -257,6 +232,7 @@ def resolve_user_and_integrations(
         slack_user_id=slack_user_id,
         probe_integration=probe,
         candidate_integrations=workspace_result.candidates,
+        slack_email=slack_email,
     )
     if posthog_user is None:
         logger.warning(
@@ -266,11 +242,7 @@ def resolve_user_and_integrations(
             slack_user_id=slack_user_id,
             event_id=event_id,
         )
-        return UserAndIntegrationsResolution(
-            workspace_result=workspace_result,
-            failure_reason="user_not_found",
-            slack_email=slack_email,
-        )
+        return UserAndIntegrationsResolution(failure_reason="user_not_found", slack_email=slack_email)
 
     # Filter to integrations the user can access. A resolved target the user can't
     # reach is dropped so the caller falls through to the picker / sole-candidate
@@ -286,11 +258,7 @@ def resolve_user_and_integrations(
             user_id=posthog_user.id,
             event_id=event_id,
         )
-        return UserAndIntegrationsResolution(
-            workspace_result=workspace_result,
-            failure_reason="no_team_access",
-            slack_email=slack_email,
-        )
+        return UserAndIntegrationsResolution(failure_reason="no_team_access", slack_email=slack_email)
 
     target = (
         workspace_result.integration
@@ -298,7 +266,6 @@ def resolve_user_and_integrations(
         else None
     )
     return UserAndIntegrationsResolution(
-        workspace_result=workspace_result,
         user=posthog_user,
         integration=target,
         candidates=accessible_candidates,

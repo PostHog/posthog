@@ -298,12 +298,19 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_sync_connect.assert_not_called()
         mock_asyncio_run.assert_not_called()
 
+    @patch("products.slack_app.backend.api.posthoganalytics.capture")
+    @patch("products.slack_app.backend.api._post_slack_user_feedback")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False)
-    def test_app_mention_from_unknown_user_is_silently_dropped(self, mock_sync_connect, mock_asyncio_run):
+    def test_app_mention_from_unknown_user_posts_in_thread_failure_reply(
+        self, mock_sync_connect, mock_asyncio_run, mock_post_feedback, mock_capture
+    ):
         # A Slack user whose email doesn't map to any PostHog ``User`` in any connected
-        # org must produce no workflow and no Slack reply — only a server-side log line.
+        # org gets a public in-thread "Sorry, I couldn't find <email>…" reply that names
+        # the looked-up Slack email so they can self-correct. The mention is still
+        # captured to product analytics so the unknown-user funnel keeps its coverage.
+        # No workflow starts.
         SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
         self._seed_slack_user_cache("U123", "stranger@example.com")
 
@@ -315,6 +322,47 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert result == ROUTE_HANDLED_LOCALLY
         mock_sync_connect.assert_not_called()
         mock_asyncio_run.assert_not_called()
+
+        # Failure reply is posted in-thread and names the looked-up Slack email so the
+        # user can spot a wrong-email mismatch against their PostHog account.
+        mock_post_feedback.assert_called_once()
+        feedback_text = mock_post_feedback.call_args.args[4]
+        assert "stranger@example.com" in feedback_text
+        assert mock_post_feedback.call_args.kwargs.get("prefer_thread_message") is True
+
+        # The mention is still reported to analytics with ``posthog_user_identified=False``
+        # so the unknown-user volume stays comparable to the known-user funnel.
+        mock_capture.assert_called_once()
+        capture_kwargs = mock_capture.call_args.kwargs
+        assert capture_kwargs.get("event") == "posthog code slack mention received"
+        assert capture_kwargs.get("properties", {}).get("posthog_user_identified") is False
+
+    @patch("products.slack_app.backend.api.posthoganalytics.capture")
+    @patch("products.slack_app.backend.api._post_slack_user_feedback")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_unknown_user_in_unapproved_ext_shared_channel_suppresses_failure_reply(
+        self, mock_sync_connect, mock_asyncio_run, mock_post_feedback, mock_capture
+    ):
+        # Externally-shared channels that haven't been approved must not receive a
+        # public "Sorry, I couldn't find <email>" post — that leaks the integration's
+        # existence (and the user's email) to non-org members. The approval prompt
+        # itself requires a resolved user, so we stay completely silent in this case.
+        # Analytics still records the event for funnel coverage.
+        SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
+        self._seed_slack_user_cache("U123", "stranger@example.com")
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345", is_ext_shared_channel=True)
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_sync_connect.assert_not_called()
+        mock_asyncio_run.assert_not_called()
+        mock_post_feedback.assert_not_called()
+        mock_capture.assert_called_once()
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")

@@ -121,14 +121,17 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
             return
 
         # The picker activities are written against the mention workflow's input
-        # shape, but they only read ``integration_id`` / ``slack_team_id`` /
-        # ``event`` from it. Synthesise a compatible record for the resolved
+        # shape, but today they only read ``integration_id`` / ``slack_team_id``
+        # / ``event`` from it. Synthesise a compatible record for the resolved
         # target so we can reuse the existing picker plumbing without
-        # duplicating it.
+        # duplicating it. Forward ``user_id`` so any future activity that reads
+        # it (e.g. for attribution) stays consistent with the surrounding
+        # command workflow's resolved user.
         picker_inputs = PostHogCodeSlackMentionWorkflowInputs(
             event=inputs.event,
             integration_id=target_integration_id,
             slack_team_id=inputs.slack_team_id,
+            user_id=inputs.user_id,
         )
 
         workflow.deprecate_patch("posthog-code-command-block-no-personal-github-2026-06")
