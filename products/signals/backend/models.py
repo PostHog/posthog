@@ -3,7 +3,7 @@ from typing import Any
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 from django_deprecate_fields import deprecate_field
@@ -348,12 +348,48 @@ class SignalReportArtefact(UUIDModel):
         DISMISSAL = "dismissal"
         CODE_REFERENCE = "code_reference"
         CODE_DIFF = "code_diff"
+        LINE_REFERENCE = "line_reference"
+        PUSHED_BRANCH = "pushed_branch"
+        TASK_RUN = "task_run"
+        NOTE = "note"
+
+    # Artefacts come in two flavours:
+    #   - status artefacts are singletons: at most one per (report, type). They describe the
+    #     report's *current* state (judgments, repo selection, suggested reviewers). Writing one
+    #     replaces the existing row of that type via `upsert_status`.
+    #   - log artefacts are a log: many per (report, type), time-ordered, append-but-deletable.
+    #     They record the work done on a report (code references, diffs, branches, task runs,
+    #     notes) and make it read like a living document. Appended via `add_log`.
+    # `signal_finding` is N-per-report and owned by the agentic pipeline's bulk
+    # delete-and-replace (see temporal/agentic/report.py); it is intentionally in neither set.
+    STATUS_ARTEFACT_TYPES: frozenset[str] = frozenset(
+        {
+            ArtefactType.SAFETY_JUDGMENT,
+            ArtefactType.ACTIONABILITY_JUDGMENT,
+            ArtefactType.PRIORITY_JUDGMENT,
+            ArtefactType.REPO_SELECTION,
+            ArtefactType.SUGGESTED_REVIEWERS,
+        }
+    )
+    LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(
+        {
+            ArtefactType.CODE_REFERENCE,
+            ArtefactType.CODE_DIFF,
+            ArtefactType.LINE_REFERENCE,
+            ArtefactType.PUSHED_BRANCH,
+            ArtefactType.TASK_RUN,
+            ArtefactType.NOTE,
+        }
+    )
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")
     type = models.CharField(max_length=100, choices=ArtefactType)
     content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
+    # Nullable so the migration is a fast, rolling-deploy-safe `ADD COLUMN ... NULL`; `auto_now`
+    # populates it on every subsequent save, so existing rows fill in the next time they change.
+    updated_at = models.DateTimeField(auto_now=True, null=True)
 
     class Meta:
         indexes = [
@@ -361,6 +397,42 @@ class SignalReportArtefact(UUIDModel):
             # For JOINs involving matching a report to artifact of a certain type
             models.Index(fields=["report", "type"], name="signals_sig_report_type_idx"),
         ]
+
+    @classmethod
+    def upsert_status(cls, *, team_id: int, report_id: str, type: str, content: str) -> "SignalReportArtefact":
+        """Create or replace the single status artefact of `type` for a report.
+
+        Status artefacts are singletons (see `STATUS_ARTEFACT_TYPES`): the existing row of this
+        type is updated in place, and any accidental duplicates are removed so exactly one
+        remains. `content` is serialized JSON text.
+        """
+        if type not in cls.STATUS_ARTEFACT_TYPES:
+            raise ValueError(f"{type!r} is not a status artefact type")
+        with transaction.atomic():
+            existing = list(cls.objects.filter(report_id=report_id, type=type).order_by("created_at"))
+            if existing:
+                keep = existing[0]
+                keep.content = content
+                keep.save(update_fields=["content", "updated_at"])
+                if len(existing) > 1:
+                    cls.objects.filter(pk__in=[a.pk for a in existing[1:]]).delete()
+                return keep
+            return cls.objects.create(team_id=team_id, report_id=report_id, type=type, content=content)
+
+    @classmethod
+    def add_log(cls, *, team_id: int, report_id: str, type: str, content: str) -> "SignalReportArtefact":
+        """Append a log artefact (see `LOG_ARTEFACT_TYPES`) to a report and return it.
+
+        Log artefacts accumulate — each call creates a new row. `content` is serialized JSON text.
+        """
+        if type not in cls.LOG_ARTEFACT_TYPES:
+            raise ValueError(f"{type!r} is not a log artefact type")
+        return cls.objects.create(team_id=team_id, report_id=report_id, type=type, content=content)
+
+    def update_content(self, content: str) -> None:
+        """Replace this artefact's content in place (bumps `updated_at`). `content` is JSON text."""
+        self.content = content
+        self.save(update_fields=["content", "updated_at"])
 
 
 class SignalReportTask(UUIDModel):

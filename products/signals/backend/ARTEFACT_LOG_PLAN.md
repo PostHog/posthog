@@ -66,14 +66,21 @@ The split is expressed as two sets on the model (`STATUS_ARTEFACT_TYPES`,
 The model class is the home for artefact business logic; the viewset and deterministic
 producers stay thin and call into it:
 
-- `SignalReportArtefact.upsert_status(*, report, team, type, content)` — enforce the
-  singleton: update the existing same-type row or create one.
-- `SignalReportArtefact.add_log(*, report, team, type, content)` — append a log entry.
-- `update_content(content)` and a delete helper as needed.
+- `SignalReportArtefact.upsert_status(*, team_id, report_id, type, content)` — enforce the
+  singleton: update the existing same-type row or create one (and collapse any pre-existing
+  duplicates). Used by the viewset's status path and by deterministic producers — the safety
+  judge (`temporal/report_safety_judge.py`) now upserts its `safety_judgment` through this,
+  which also stops re-promotion from stacking duplicate judgments.
+- `SignalReportArtefact.add_log(*, team_id, report_id, type, content)` — append a log entry.
+- `update_content(content)` — replace an artefact's content in place (bumps `updated_at`).
+  Deletion is a plain `delete()` — no dedicated helper needed.
 
-Helpers take already-serialized `content`; the caller that holds the typed object
-serializes it. **No type→schema registry and no per-type validation dispatch** — that
-would over-complicate a simple change.
+Helpers take already-serialized `content` (JSON text); the caller that holds the typed object
+serializes it. **No type→schema registry and no per-type validation dispatch.** The generic
+write endpoint validates only (a) the artefact type is an allowed *log* type and (b) `content`
+is a JSON object/array, then stores it. The per-type Pydantic schemas in `artefact_schemas.py`
+are the source of truth for *producers* (deterministic code, the backfill command, and the
+shapes the MCP tool documents) — they are not wired into a server-side dispatch.
 
 ### Write surface
 
@@ -108,7 +115,10 @@ would over-complicate a simple change.
 | `task_run`      | reference to a `tasks.Task` run with a `relationship` enum (`signals_research`, `auto_implementation`, …) |
 | `note`          | free-form note authored by an agent or by code                                                    |
 
-Schemas are simple Pydantic models, placed alongside `CodeReference` / `CodeDiff`.
+Schemas are simple Pydantic models in `products/signals/backend/artefact_schemas.py`, a
+dependency-light module (pydantic only) so the API layer can import it without pulling in the
+report-research / sandbox machinery. `CodeReference` / `CodeDiff` were moved here from
+`report_generation/research.py` so all artefact content schemas live together.
 
 ## Implementation steps (this PR)
 
@@ -123,11 +133,28 @@ Schemas are simple Pydantic models, placed alongside `CodeReference` / `CodeDiff
    `delete` (DELETE by UUID) on `SignalReportArtefactViewSet`, reusing
    `scope_object = "task"`, delegating to the model helpers, with a log-type allow-list
    (non-allowed types → 400). The `suggested_reviewers` PUT stays as-is.
-4. **MCP tools.** Create / update / delete tools in `products/signals/mcp/tools.yaml`
-   (scopes `[task:write]`, `readOnly: false`), regenerated via the standard codegen.
+4. **MCP tools.** `inbox-report-artefacts-create` / `-update` / `-delete` in
+   `products/signals/mcp/tools.yaml` (scopes `[task:write]`, `readOnly: false`). Run
+   `hogli build:openapi` to regenerate the OpenAPI spec, MCP handlers, and frontend types
+   (not run in the authoring environment — no DB).
 5. **Backfill command.** `backfill_task_run_artefacts` converts every
    `SignalReportTask` into a `task_run` artefact; idempotent (skips a report that
    already has a `task_run` referencing that task), with `--dry-run` and `--team-id`.
+
+### Agent MCP activation (deferred)
+
+The sandbox agents (research / implementation / custom) run the `read_only` MCP preset, so the
+sandbox sends `x-posthog-read-only: true` (`products/tasks/backend/temporal/process_task/utils.py`)
+and the MCP server strips every `readOnly:false` tool — even though their token already carries
+`task:write` via `INTERNAL_SCOPES`. So the new write tools are live for full-scope MCP clients but
+do **not** yet surface to those agents.
+
+Surfacing them to the agents needs `has_write_scopes` to be true for their preset — the same
+mechanism the scout uses. The intended follow-up (no new *scope* — reuses `task:write`) is a
+dedicated `signals_report` MCP preset mirroring `signals_scout` in `posthog/temporal/oauth.py`
+(`McpScopePreset`, `MCP_SCOPE_PRESETS`, `resolve_scopes`, `has_write_scopes`), with the three agent
+call sites flipped from `"read_only"` to it. Deferred so this PR stays a focused data-model +
+API + tooling change; deterministic code can already write artefacts via the model helpers.
 
 ## Guardrails
 

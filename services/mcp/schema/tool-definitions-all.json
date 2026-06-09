@@ -3069,6 +3069,48 @@
         },
         "feature_flag": "heatmaps-mcp"
     },
+    "inbox-report-artefacts-create": {
+        "description": "Append a work-log entry to a signal report so it reads as a living document. `artefact_type` is one of the log types — `code_reference` (a contiguous span of source lines: file_path, start_line, end_line, contents, relevance_note), `code_diff` (a unified diff for one file: file_path, diff, relevance_note), `line_reference` (a single line: file_path, line, note), `pushed_branch` (a branch pushed without a PR, for rendering a would-be diff: repository, branch, base_branch), `task_run` (a reference to a tasks.Task run: task_id, relationship), or `note` (free-form: note). `content` is a JSON object matching the chosen type. Log artefacts accumulate — each call adds a new entry. Returns the created artefact including its id.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Append a log artefact to a report",
+        "title": "Append a log artefact to a report",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "inbox-report-artefacts-delete": {
+        "description": "Delete a log artefact by its id when it is no longer correct or relevant. Only log artefacts are deletable; status / pipeline-owned artefacts are not.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Delete a log artefact",
+        "title": "Delete a log artefact",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "inbox-report-artefacts-update": {
+        "description": "Replace the `content` of an existing log artefact, addressed by its id, when new information supersedes it. Only log artefacts (code_reference, code_diff, line_reference, pushed_branch, task_run, note) are editable; status / pipeline-owned artefacts are not.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Replace a log artefact's content",
+        "title": "Replace a log artefact's content",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-reports-list": {
         "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), and suggested_reviewers (PostHog user UUIDs). Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
         "category": "Signals",

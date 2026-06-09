@@ -6,7 +6,7 @@ import logging
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 # Deferred: importing temporal.types here runs the signals temporal package __init__, which
 # eager-imports agentic -> report -> back into this module, forming a circular import.
@@ -120,48 +120,6 @@ class PriorityAssessment(BaseModel):
     def explanation_must_not_be_empty(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("Explanation must not be empty")
-        return v
-
-
-class CodeReference(BaseModel):
-    """Content schema for a `code_reference` artefact: a contiguous span of source lines."""
-
-    file_path: str = Field(description="Repository-relative path to the referenced file.")
-    start_line: int = Field(ge=1, description="First line of the referenced range (1-indexed, inclusive).")
-    end_line: int = Field(ge=1, description="Last line of the referenced range (1-indexed, inclusive).")
-    contents: str = Field(description="The exact source text of lines start_line through end_line.")
-    relevance_note: str = Field(
-        description="Short note on why this code is relevant to the report.",
-    )
-
-    @field_validator("file_path", "contents", "relevance_note")
-    @classmethod
-    def fields_must_not_be_empty(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("must not be empty or whitespace-only")
-        return v
-
-    @model_validator(mode="after")
-    def end_line_must_not_precede_start_line(self) -> CodeReference:
-        if self.end_line < self.start_line:
-            raise ValueError("end_line must be greater than or equal to start_line")
-        return self
-
-
-class CodeDiff(BaseModel):
-    """Content schema for a `code_diff` artefact: a unified diff for a single file."""
-
-    file_path: str = Field(description="Repository-relative path to the file the diff applies to.")
-    diff: str = Field(description="Unified diff (patch) text for the file.")
-    relevance_note: str = Field(
-        description="Short note on why this diff is relevant to the report.",
-    )
-
-    @field_validator("file_path", "diff", "relevance_note")
-    @classmethod
-    def fields_must_not_be_empty(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("must not be empty or whitespace-only")
         return v
 
 

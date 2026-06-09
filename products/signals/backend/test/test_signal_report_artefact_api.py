@@ -359,6 +359,10 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             ("dismissal", SignalReportArtefact.ArtefactType.DISMISSAL),
             ("code_reference", SignalReportArtefact.ArtefactType.CODE_REFERENCE),
             ("code_diff", SignalReportArtefact.ArtefactType.CODE_DIFF),
+            ("line_reference", SignalReportArtefact.ArtefactType.LINE_REFERENCE),
+            ("pushed_branch", SignalReportArtefact.ArtefactType.PUSHED_BRANCH),
+            ("task_run", SignalReportArtefact.ArtefactType.TASK_RUN),
+            ("note", SignalReportArtefact.ArtefactType.NOTE),
         ]
     )
     def test_put_rejects_non_suggested_reviewers_types(self, _name, artefact_type):
@@ -396,32 +400,6 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-    def test_patch_not_allowed(self):
-        report = self._create_report()
-        artefact = self._create_artefact(report, content=[])
-
-        response = self.client.patch(
-            self._detail_url(str(report.id), str(artefact.id)),
-            data=json.dumps({"content": []}),
-            content_type="application/json",
-        )
-        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
-
-    def test_post_not_allowed(self):
-        report = self._create_report()
-        response = self.client.post(
-            self._list_url(str(report.id)),
-            data=json.dumps({"content": []}),
-            content_type="application/json",
-        )
-        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
-
-    def test_delete_not_allowed(self):
-        report = self._create_report()
-        artefact = self._create_artefact(report, content=[])
-        response = self.client.delete(self._detail_url(str(report.id), str(artefact.id)))
-        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
     def test_list_excludes_artefacts_when_parent_report_deleted(self):
         report = self._create_report()
@@ -504,3 +482,263 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert list_response.status_code == status.HTTP_200_OK
         ids = {r["id"] for r in list_response.json()["results"]}
         assert str(report.id) in ids
+
+
+_CODE_REFERENCE_CONTENT = {
+    "file_path": "products/signals/backend/models.py",
+    "start_line": 10,
+    "end_line": 12,
+    "contents": "class Foo:\n    pass\n",
+    "relevance_note": "where it lives",
+}
+
+
+class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
+    """The generic log-artefact write surface (POST / PATCH / DELETE).
+
+    Distinct from the bespoke `suggested_reviewers` PUT path covered above.
+    """
+
+    def _list_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/"
+
+    def _detail_url(self, report_id: str, artefact_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/{artefact_id}/"
+
+    def _create_report(self, team: Team | None = None) -> SignalReport:
+        return SignalReport.objects.create(
+            team=team or self.team,
+            status=SignalReport.Status.READY,
+            title="Test report",
+            summary="Test summary",
+            signal_count=1,
+            total_weight=1.0,
+        )
+
+    # --- POST (create log artefact) ---
+
+    def test_post_creates_log_artefact_and_returns_id(self):
+        report = self._create_report()
+
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "code_reference", "content": _CODE_REFERENCE_CONTENT}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        body = response.json()
+        assert body["type"] == "code_reference"
+        assert body["content"] == _CODE_REFERENCE_CONTENT
+        assert body["created_at"] is not None
+
+        artefact = SignalReportArtefact.objects.get(id=body["id"])
+        assert artefact.report_id == report.id
+        assert artefact.team_id == self.team.id
+        assert json.loads(artefact.content) == _CODE_REFERENCE_CONTENT
+
+    @parameterized.expand(
+        [
+            ("code_reference", _CODE_REFERENCE_CONTENT),
+            ("code_diff", {"file_path": "a.py", "diff": "@@ -1 +1 @@", "relevance_note": "x"}),
+            ("line_reference", {"file_path": "a.py", "line": 3, "note": "here"}),
+            ("pushed_branch", {"repository": "PostHog/posthog", "branch": "fix/foo", "base_branch": "master"}),
+            ("task_run", {"task_id": "abc", "relationship": "signals_research"}),
+            ("note", {"note": "a free-form note"}),
+        ]
+    )
+    def test_post_accepts_each_log_type(self, artefact_type, content):
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": artefact_type, "content": content}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["type"] == artefact_type
+
+    def test_post_log_artefacts_accumulate(self):
+        report = self._create_report()
+        for _ in range(3):
+            response = self.client.post(
+                self._list_url(str(report.id)),
+                data=json.dumps({"artefact_type": "note", "content": {"note": "tick"}}),
+                content_type="application/json",
+            )
+            assert response.status_code == status.HTTP_201_CREATED
+
+        assert (
+            SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.NOTE).count() == 3
+        )
+
+    @parameterized.expand(
+        [
+            ("safety_judgment",),
+            ("actionability_judgment",),
+            ("priority_judgment",),
+            ("repo_selection",),
+            ("suggested_reviewers",),
+            ("signal_finding",),
+            ("dismissal",),
+            ("video_segment",),
+        ]
+    )
+    def test_post_rejects_non_log_types(self, artefact_type):
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": artefact_type, "content": {}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "log artefact" in response.json()["error"]
+
+    def test_post_rejects_unknown_type(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "not_a_real_type", "content": {}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_post_rejects_scalar_content(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "note", "content": "not-an-object"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_post_on_deleted_report_returns_404(self):
+        report = self._create_report()
+        report.status = SignalReport.Status.DELETED
+        report.save(update_fields=["status"])
+
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "note", "content": {"note": "x"}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_post_on_other_team_report_returns_404(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_report = self._create_report(team=other_team)
+
+        response = self.client.post(
+            self._list_url(str(other_report.id)),
+            data=json.dumps({"artefact_type": "note", "content": {"note": "x"}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert not SignalReportArtefact.objects.filter(report=other_report).exists()
+
+    # --- PATCH (update log artefact content) ---
+
+    def test_patch_updates_log_artefact_content(self):
+        report = self._create_report()
+        artefact = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            type=SignalReportArtefact.ArtefactType.NOTE,
+            content=json.dumps({"note": "before"}),
+        )
+
+        response = self.client.patch(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": {"note": "after"}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["content"] == {"note": "after"}
+
+        artefact.refresh_from_db()
+        assert json.loads(artefact.content) == {"note": "after"}
+        assert artefact.updated_at is not None
+
+    def test_patch_rejects_status_artefact(self):
+        # suggested_reviewers is a status type — editable only via the bespoke PUT path.
+        report = self._create_report()
+        artefact = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([]),
+        )
+
+        response = self.client.patch(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": {"note": "x"}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Only log artefacts" in response.json()["error"]
+
+    def test_patch_other_team_returns_404(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_report = self._create_report(team=other_team)
+        artefact = SignalReportArtefact.add_log(
+            team_id=other_team.id,
+            report_id=str(other_report.id),
+            type=SignalReportArtefact.ArtefactType.NOTE,
+            content=json.dumps({"note": "x"}),
+        )
+
+        response = self.client.patch(
+            self._detail_url(str(other_report.id), str(artefact.id)),
+            data=json.dumps({"content": {"note": "y"}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    # --- DELETE (remove log artefact) ---
+
+    def test_delete_removes_log_artefact(self):
+        report = self._create_report()
+        artefact = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            type=SignalReportArtefact.ArtefactType.CODE_DIFF,
+            content=json.dumps({"file_path": "a.py", "diff": "d", "relevance_note": "r"}),
+        )
+
+        response = self.client.delete(self._detail_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not SignalReportArtefact.objects.filter(id=artefact.id).exists()
+
+    def test_delete_rejects_status_artefact(self):
+        report = self._create_report()
+        artefact = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+            content=json.dumps({"choice": True, "explanation": "safe"}),
+        )
+
+        response = self.client.delete(self._detail_url(str(report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert SignalReportArtefact.objects.filter(id=artefact.id).exists()
+
+    def test_delete_other_team_returns_404(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_report = self._create_report(team=other_team)
+        artefact = SignalReportArtefact.add_log(
+            team_id=other_team.id,
+            report_id=str(other_report.id),
+            type=SignalReportArtefact.ArtefactType.NOTE,
+            content=json.dumps({"note": "x"}),
+        )
+
+        response = self.client.delete(self._detail_url(str(other_report.id), str(artefact.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert SignalReportArtefact.objects.filter(id=artefact.id).exists()
+
+    def test_post_rejects_missing_artefact_type(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"content": []}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

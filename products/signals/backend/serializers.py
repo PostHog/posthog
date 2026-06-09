@@ -378,7 +378,7 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SignalReportArtefact
-        fields = ["id", "type", "content", "created_at"]
+        fields = ["id", "type", "content", "created_at", "updated_at"]
         read_only_fields = fields
 
     def get_content(self, obj: SignalReportArtefact) -> dict | list:
@@ -457,3 +457,56 @@ class SignalReportArtefactWriteSerializer(serializers.Serializer):
         if len(value) > self.MAX_ENTRIES:
             raise serializers.ValidationError(f"At most {self.MAX_ENTRIES} reviewers may be supplied.")
         return value
+
+
+_LOG_ARTEFACT_TYPES_HELP = (
+    "The log artefact type. One of: " + ", ".join(sorted(SignalReportArtefact.LOG_ARTEFACT_TYPES)) + "."
+)
+
+
+def _validate_artefact_content(value: object) -> dict | list:
+    if not isinstance(value, dict | list):
+        raise serializers.ValidationError("content must be a JSON object or array.")
+    return value
+
+
+class SignalReportArtefactLogCreateSerializer(serializers.Serializer):
+    """Body for appending a log artefact (a work-log entry) to a report.
+
+    Log artefacts accumulate — each create adds a new entry. The `content` shape depends on
+    `artefact_type` (see `products/signals/backend/artefact_schemas.py`); it is stored as-is.
+    """
+
+    # Plain CharField (not ChoiceField) on purpose: the value is validated against
+    # `LOG_ARTEFACT_TYPES` in the view, and avoiding a `choices=` enum keeps this off the
+    # collision-prone enum-name path in the generated OpenAPI types.
+    artefact_type = serializers.CharField(help_text=_LOG_ARTEFACT_TYPES_HELP)
+    content = serializers.JSONField(
+        help_text="The artefact payload as a JSON object or array; shape depends on artefact_type.",
+    )
+
+    def validate_content(self, value: object) -> dict | list:
+        return _validate_artefact_content(value)
+
+
+class SignalReportArtefactLogUpdateSerializer(serializers.Serializer):
+    """Body for replacing the content of an existing log artefact (addressed by id)."""
+
+    content = serializers.JSONField(help_text="The new artefact payload as a JSON object or array.")
+
+    def validate_content(self, value: object) -> dict | list:
+        return _validate_artefact_content(value)
+
+
+class SignalReportArtefactWriteResponseSerializer(serializers.Serializer):
+    """Response shape for the log-artefact create/update endpoints — echoes the stored row."""
+
+    id = serializers.UUIDField(read_only=True, help_text="The artefact's unique id.")
+    # Plain CharField (no `choices=`) to keep the model's full ArtefactType enum out of the
+    # generated OpenAPI schema; the value is simply echoed back.
+    type = serializers.CharField(read_only=True, help_text="The artefact type.")
+    content = serializers.JSONField(read_only=True, help_text="The artefact payload, parsed from storage.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the artefact was created.")
+    updated_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the artefact was last updated (null if never)."
+    )

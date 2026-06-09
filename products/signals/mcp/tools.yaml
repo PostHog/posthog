@@ -87,6 +87,52 @@ tools:
             'not_a_bug', 'wont_fix', 'duplicate') and a `dismissal_note` (free-form text, up to 4000 chars) — both are
             persisted as a DISMISSAL artefact on the report so the rationale is preserved even if the report transitions
             again later. Returns 409 if the transition is not allowed from the report's current status.
+    inbox-report-artefacts-create:
+        operation: signals_report_artefacts_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{report_id}'
+        title: Append a log artefact to a report
+        description: >
+            Append a work-log entry to a signal report so it reads as a living document. `artefact_type` is one of the
+            log types — `code_reference` (a contiguous span of source lines: file_path, start_line, end_line, contents,
+            relevance_note), `code_diff` (a unified diff for one file: file_path, diff, relevance_note), `line_reference`
+            (a single line: file_path, line, note), `pushed_branch` (a branch pushed without a PR, for rendering a
+            would-be diff: repository, branch, base_branch), `task_run` (a reference to a tasks.Task run: task_id,
+            relationship), or `note` (free-form: note). `content` is a JSON object matching the chosen type. Log
+            artefacts accumulate — each call adds a new entry. Returns the created artefact including its id.
+    inbox-report-artefacts-update:
+        operation: signals_report_artefacts_partial_update
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Replace a log artefact's content
+        description: >
+            Replace the `content` of an existing log artefact, addressed by its id, when new information supersedes it.
+            Only log artefacts (code_reference, code_diff, line_reference, pushed_branch, task_run, note) are editable;
+            status / pipeline-owned artefacts are not.
+    inbox-report-artefacts-delete:
+        operation: signals_report_artefacts_destroy
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a log artefact
+        description: >
+            Delete a log artefact by its id when it is no longer correct or relevant. Only log artefacts are deletable;
+            status / pipeline-owned artefacts are not.
     inbox-source-configs-create:
         operation: signals_source_configs_create
         enabled: true

@@ -6,6 +6,7 @@ import structlog
 import temporalio
 from pydantic import BaseModel, Field, model_validator
 
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
@@ -124,7 +125,9 @@ async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOu
             signals=input.signals,
         )
 
-        await SignalReportArtefact.objects.acreate(
+        # Singleton: a report carries at most one safety judgment. Upserting (rather than
+        # creating) keeps a re-promoted report from stacking duplicate safety_judgment rows.
+        await database_sync_to_async(SignalReportArtefact.upsert_status, thread_sensitive=False)(
             team_id=input.team_id,
             report_id=input.report_id,
             type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,

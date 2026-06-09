@@ -142,6 +142,46 @@ export interface SignalReportStateRequestApi {
 }
 
 /**
+ * Body for appending a log artefact (a work-log entry) to a report.
+
+Log artefacts accumulate — each create adds a new entry. The `content` shape depends on
+`artefact_type` (see `products/signals/backend/artefact_schemas.py`); it is stored as-is.
+ */
+export interface SignalReportArtefactLogCreateApi {
+    /** The log artefact type. One of: code_diff, code_reference, line_reference, note, pushed_branch, task_run. */
+    artefact_type: string
+    /** The artefact payload as a JSON object or array; shape depends on artefact_type. */
+    content: unknown
+}
+
+/**
+ * Response shape for the log-artefact create/update endpoints — echoes the stored row.
+ */
+export interface SignalReportArtefactWriteResponseApi {
+    /** The artefact's unique id. */
+    readonly id: string
+    /** The artefact type. */
+    readonly type: string
+    /** The artefact payload, parsed from storage. */
+    readonly content: unknown
+    /** When the artefact was created. */
+    readonly created_at: string
+    /**
+     * When the artefact was last updated (null if never).
+     * @nullable
+     */
+    readonly updated_at: string | null
+}
+
+/**
+ * Body for replacing the content of an existing log artefact (addressed by id).
+ */
+export interface PatchedSignalReportArtefactLogUpdateApi {
+    /** The new artefact payload as a JSON object or array. */
+    content?: unknown
+}
+
+/**
  * Per-(team, skill) scout config: schedule, enablement, and emit posture.
  *
  * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row

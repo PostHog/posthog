@@ -29,7 +29,7 @@ import structlog
 from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -41,6 +41,7 @@ from rest_framework.views import APIView
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import Team, User
@@ -70,7 +71,10 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
 )
 from products.signals.backend.serializers import (
+    SignalReportArtefactLogCreateSerializer,
+    SignalReportArtefactLogUpdateSerializer,
     SignalReportArtefactSerializer,
+    SignalReportArtefactWriteResponseSerializer,
     SignalReportArtefactWriteSerializer,
     SignalReportSerializer,
     SignalReportTaskSerializer,
@@ -961,19 +965,30 @@ class SignalReportArtefactViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
     mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    """Artefacts attached to a signal report. PUT replaces the content of a
-    `suggested_reviewers` artefact; other types return 400."""
+    """Artefacts attached to a signal report.
+
+    Two write surfaces, both gated by the `task:write` scope (already held by the agent tokens):
+
+    - PUT replaces the content of a `suggested_reviewers` artefact (bespoke reviewer enrichment);
+      other types return 400.
+    - POST / PATCH / DELETE manage *log* artefacts — the appendable work-log entries
+      (`code_reference`, `code_diff`, `line_reference`, `pushed_branch`, `task_run`, `note`).
+      Only log types are accepted; status / pipeline-owned types return 400. Team scoping is
+      enforced by `safely_get_queryset`, so an artefact id from another team / a deleted report
+      404s.
+    """
 
     serializer_class = SignalReportArtefactSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = SignalReportArtefact.objects.all().order_by("-created_at")
-    # No POST / PATCH / DELETE
-    http_method_names = ["get", "put", "head", "options"]
+    http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
 
     def safely_get_queryset(self, queryset):
         # Mirror SignalReportViewSet: a deleted parent report is unreachable, so
@@ -1113,6 +1128,117 @@ class SignalReportArtefactViewSet(
             },
         )
         return Response(read_serializer.data)
+
+    @staticmethod
+    def _write_response_data(artefact: SignalReportArtefact) -> dict:
+        """Build the create/update response payload, parsing stored JSON content for the echo."""
+        try:
+            parsed_content: dict | list = json.loads(artefact.content)
+        except (json.JSONDecodeError, ValueError):
+            parsed_content = {}
+        return SignalReportArtefactWriteResponseSerializer(
+            {
+                "id": artefact.id,
+                "type": artefact.type,
+                "content": parsed_content,
+                "created_at": artefact.created_at,
+                "updated_at": artefact.updated_at,
+            }
+        ).data
+
+    @validated_request(
+        request_serializer=SignalReportArtefactLogCreateSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=SignalReportArtefactWriteResponseSerializer, description="Log artefact created."
+            ),
+            400: OpenApiResponse(description="Unknown or non-log artefact type, or malformed content."),
+            404: OpenApiResponse(description="Report not found for this project."),
+        },
+        summary="Append a log artefact to a report",
+        description=(
+            "Append a work-log entry (code reference, code diff, line reference, pushed branch, "
+            "task run, or note) to a report. Log artefacts accumulate — each call adds a new entry. "
+            "Only log artefact types are accepted; status / pipeline-owned types are rejected."
+        ),
+        operation_id="signals_report_artefacts_create",
+    )
+    def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        report_id = self.parents_query_dict["report_id"]
+        # A deleted / foreign report is unreachable — don't let a known report_id attach
+        # artefacts to it. Mirrors the team-scoped filter in `safely_get_queryset`.
+        report_exists = (
+            SignalReport.objects.filter(id=report_id, team=self.team)
+            .exclude(status=SignalReport.Status.DELETED)
+            .exists()
+        )
+        if not report_exists:
+            raise NotFound()
+        artefact_type = request.validated_data["artefact_type"]
+        if artefact_type not in SignalReportArtefact.LOG_ARTEFACT_TYPES:
+            return Response(
+                {
+                    "error": (
+                        f"Only log artefact types may be created via this endpoint. Got '{artefact_type}'. "
+                        f"Allowed: {', '.join(sorted(SignalReportArtefact.LOG_ARTEFACT_TYPES))}."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        artefact = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=report_id,
+            type=artefact_type,
+            content=json.dumps(request.validated_data["content"]),
+        )
+        return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        request_serializer=SignalReportArtefactLogUpdateSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalReportArtefactWriteResponseSerializer, description="Log artefact updated."
+            ),
+            400: OpenApiResponse(description="Artefact is not a log type, or malformed content."),
+            404: OpenApiResponse(description="Artefact not found for this report / project."),
+        },
+        summary="Replace a log artefact's content",
+        description="Replace the content of an existing log artefact, addressed by id. Only log types are editable.",
+        operation_id="signals_report_artefacts_partial_update",
+    )
+    def partial_update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        artefact = cast(SignalReportArtefact, self.get_object())
+        if artefact.type not in SignalReportArtefact.LOG_ARTEFACT_TYPES:
+            return Response(
+                {
+                    "error": f"Only log artefacts may be edited via this endpoint. This artefact has type '{artefact.type}'."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        artefact.update_content(json.dumps(request.validated_data["content"]))
+        return Response(self._write_response_data(artefact))
+
+    @extend_schema(
+        responses={
+            204: OpenApiResponse(description="Log artefact deleted."),
+            400: OpenApiResponse(description="Artefact is not a log type."),
+            404: OpenApiResponse(description="Artefact not found for this report / project."),
+        },
+        summary="Delete a log artefact",
+        description="Delete a log artefact, addressed by id. Only log types are deletable.",
+        operation_id="signals_report_artefacts_destroy",
+    )
+    def destroy(self, request, *args, **kwargs) -> Response:
+        artefact = cast(SignalReportArtefact, self.get_object())
+        if artefact.type not in SignalReportArtefact.LOG_ARTEFACT_TYPES:
+            return Response(
+                {
+                    "error": f"Only log artefacts may be deleted via this endpoint. This artefact has type '{artefact.type}'."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        artefact.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @extend_schema_view(list=extend_schema(exclude=True))

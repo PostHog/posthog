@@ -68,39 +68,33 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting `run_interval_minutes`, `enabled`, and `emit` in the same call. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
- * @summary Create a scout config
+ * Append a work-log entry (code reference, code diff, line reference, pushed branch, task run, or note) to a report. Log artefacts accumulate — each call adds a new entry. Only log artefact types are accepted; status / pipeline-owned types are rejected.
+ * @summary Append a log artefact to a report
  */
-export const signalsScoutConfigCreateBodySkillNameMax = 200
-
-export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 10
-export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
-
-export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
+export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
     .object({
-        skill_name: zod
+        artefact_type: zod
             .string()
-            .max(signalsScoutConfigCreateBodySkillNameMax)
             .describe(
-                'The `signals-scout-\*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.'
+                'The log artefact type. One of: code_diff, code_reference, line_reference, note, pushed_branch, task_run.'
             ),
-        enabled: zod.boolean().optional().describe('Whether this scout runs on its schedule. Defaults to true.'),
-        emit: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.'
-            ),
-        run_interval_minutes: zod
-            .number()
-            .min(signalsScoutConfigCreateBodyRunIntervalMinutesMin)
-            .max(signalsScoutConfigCreateBodyRunIntervalMinutesMax)
-            .optional()
-            .describe('Minutes between runs (10–43200). Defaults to 60 (hourly).'),
+        content: zod
+            .unknown()
+            .describe('The artefact payload as a JSON object or array; shape depends on artefact_type.'),
     })
     .describe(
-        'Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.'
+        'Body for appending a log artefact (a work-log entry) to a report.\n\nLog artefacts accumulate — each create adds a new entry. The `content` shape depends on\n`artefact_type` (see `products\/signals\/backend\/artefact_schemas.py`); it is stored as-is.'
     )
+
+/**
+ * Replace the content of an existing log artefact, addressed by id. Only log types are editable.
+ * @summary Replace a log artefact's content
+ */
+export const SignalsReportArtefactsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod.unknown().optional().describe('The new artefact payload as a JSON object or array.'),
+    })
+    .describe('Body for replacing the content of an existing log artefact (addressed by id).')
 
 /**
  * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
@@ -144,10 +138,6 @@ export const signalsScoutEmitSignalBodyConfidenceMin = 0
 export const signalsScoutEmitSignalBodyConfidenceMax = 1
 
 export const signalsScoutEmitSignalBodyEvidenceMax = 20
-
-export const signalsScoutEmitSignalBodyTagsItemMax = 50
-
-export const signalsScoutEmitSignalBodyTagsMax = 10
 
 export const signalsScoutEmitSignalBodyFindingIdMax = 100
 
@@ -199,13 +189,6 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             .array(zod.string())
             .optional()
             .describe('Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`).'),
-        tags: zod
-            .array(zod.string().max(signalsScoutEmitSignalBodyTagsItemMax))
-            .max(signalsScoutEmitSignalBodyTagsMax)
-            .optional()
-            .describe(
-                "Optional category tags as lowercase kebab-case slugs (e.g. `cost-spike`, `silent-failure`), max 10. Reuse the vocabulary in your `tags:<domain>:taxonomy` scratchpad entry when a tag fits; coin a new slug when a genuinely new category emerges. Near-miss formats are normalized to slugs; persisted in the signal's `extra.tags` and on the emission row."
-            ),
         time_range: zod
             .union([
                 zod.object({

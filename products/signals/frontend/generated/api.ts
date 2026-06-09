@@ -16,6 +16,7 @@ import type {
     PaginatedPauseStateResponseListApi,
     PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
+    PatchedSignalReportArtefactLogUpdateApi,
     PatchedSignalScoutConfigApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
@@ -24,6 +25,8 @@ import type {
     RememberRequestApi,
     ScratchpadEntryApi,
     SignalReportApi,
+    SignalReportArtefactLogCreateApi,
+    SignalReportArtefactWriteResponseApi,
     SignalReportStateRequestApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
@@ -198,6 +201,74 @@ export const signalsReportsStateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportStateRequestApi),
+    })
+}
+
+export const getSignalsReportArtefactsCreateUrl = (projectId: string, reportId: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/`
+}
+
+/**
+ * Append a work-log entry (code reference, code diff, line reference, pushed branch, task run, or note) to a report. Log artefacts accumulate — each call adds a new entry. Only log artefact types are accepted; status / pipeline-owned types are rejected.
+ * @summary Append a log artefact to a report
+ */
+export const signalsReportArtefactsCreate = async (
+    projectId: string,
+    reportId: string,
+    signalReportArtefactLogCreateApi: SignalReportArtefactLogCreateApi,
+    options?: RequestInit
+): Promise<SignalReportArtefactWriteResponseApi> => {
+    return apiMutator<SignalReportArtefactWriteResponseApi>(getSignalsReportArtefactsCreateUrl(projectId, reportId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportArtefactLogCreateApi),
+    })
+}
+
+export const getSignalsReportArtefactsPartialUpdateUrl = (projectId: string, reportId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/`
+}
+
+/**
+ * Replace the content of an existing log artefact, addressed by id. Only log types are editable.
+ * @summary Replace a log artefact's content
+ */
+export const signalsReportArtefactsPartialUpdate = async (
+    projectId: string,
+    reportId: string,
+    id: string,
+    patchedSignalReportArtefactLogUpdateApi?: PatchedSignalReportArtefactLogUpdateApi,
+    options?: RequestInit
+): Promise<SignalReportArtefactWriteResponseApi> => {
+    return apiMutator<SignalReportArtefactWriteResponseApi>(
+        getSignalsReportArtefactsPartialUpdateUrl(projectId, reportId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedSignalReportArtefactLogUpdateApi),
+        }
+    )
+}
+
+export const getSignalsReportArtefactsDestroyUrl = (projectId: string, reportId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/`
+}
+
+/**
+ * Delete a log artefact, addressed by id. Only log types are deletable.
+ * @summary Delete a log artefact
+ */
+export const signalsReportArtefactsDestroy = async (
+    projectId: string,
+    reportId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSignalsReportArtefactsDestroyUrl(projectId, reportId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

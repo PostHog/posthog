@@ -33102,6 +33102,14 @@ export namespace Schemas {
     }
 
     /**
+     * Body for replacing the content of an existing log artefact (addressed by id).
+     */
+    export interface PatchedSignalReportArtefactLogUpdate {
+      /** The new artefact payload as a JSON object or array. */
+      content?: unknown;
+    }
+
+    /**
      * Per-(team, skill) scout config: schedule, enablement, and emit posture.
      *
      * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
@@ -39654,6 +39662,38 @@ export namespace Schemas {
       variant_key: string;
       /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
       release_to_everyone?: boolean;
+    }
+
+    /**
+     * Body for appending a log artefact (a work-log entry) to a report.
+
+    Log artefacts accumulate — each create adds a new entry. The `content` shape depends on
+    `artefact_type` (see `products/signals/backend/artefact_schemas.py`); it is stored as-is.
+     */
+    export interface SignalReportArtefactLogCreate {
+      /** The log artefact type. One of: code_diff, code_reference, line_reference, note, pushed_branch, task_run. */
+      artefact_type: string;
+      /** The artefact payload as a JSON object or array; shape depends on artefact_type. */
+      content: unknown;
+    }
+
+    /**
+     * Response shape for the log-artefact create/update endpoints — echoes the stored row.
+     */
+    export interface SignalReportArtefactWriteResponse {
+      /** The artefact's unique id. */
+      readonly id: string;
+      /** The artefact type. */
+      readonly type: string;
+      /** The artefact payload, parsed from storage. */
+      readonly content: unknown;
+      /** When the artefact was created. */
+      readonly created_at: string;
+      /**
+         * When the artefact was last updated (null if never).
+         * @nullable
+         */
+      readonly updated_at: string | null;
     }
 
     /**
