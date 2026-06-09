@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 from django.conf import settings
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
@@ -127,6 +128,24 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         ids = [row["run_id"] for row in response.json()]
         assert ids == [str(keep.id)]
 
+    def test_list_surfaces_emit_tally(self) -> None:
+        _make_run(self.team, emitted_count=2, emitted_finding_ids=["f-a", "f-b"])
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = response.json()[0]
+        assert row["emitted_count"] == 2
+        assert row["emitted_finding_ids"] == ["f-a", "f-b"]
+
+    @parameterized.expand([("emitted_true", "true"), ("emitted_false", "false")])
+    def test_list_emitted_filter_keeps_only_the_matching_runs(self, _name: str, emitted_param: str) -> None:
+        emitting = _make_run(self.team, emitted_count=1, emitted_finding_ids=["f-x"])
+        quiet = _make_run(self.team)  # emitted_count defaults to 0
+        response = self.client.get(f"{self._list_url()}?emitted={emitted_param}")
+        assert response.status_code == status.HTTP_200_OK
+        ids = [row["run_id"] for row in response.json()]
+        expected = emitting if emitted_param == "true" else quiet
+        assert ids == [str(expected.id)]
+
     def test_retrieve_returns_bridge_projection(self) -> None:
         run = _make_run(self.team, summary="looked at /checkout, nothing actionable")
         response = self.client.get(self._detail_url(str(run.id)))
@@ -138,6 +157,9 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         # Status flows from the linked TaskRun (default fixture sets IN_PROGRESS).
         assert body["status"] == TaskRun.Status.IN_PROGRESS
         assert body["summary"] == "looked at /checkout, nothing actionable"
+        # Emit tally defaults surface even on a run that emitted nothing.
+        assert body["emitted_count"] == 0
+        assert body["emitted_finding_ids"] == []
 
     def test_retrieve_unknown_id_returns_404(self) -> None:
         response = self.client.get(self._detail_url("00000000-0000-0000-0000-000000000000"))
@@ -484,8 +506,8 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         body = response.json()
         assert [c["skill_name"] for c in body] == ["signals-scout-alpha", "signals-scout-beta"]
         assert body[0]["enabled"] is True
-        assert body[0]["emit"] is False
-        assert body[0]["run_interval_minutes"] == 1440
+        assert body[0]["emit"] is True
+        assert body[0]["run_interval_minutes"] == 60
 
     def test_partial_update_changes_schedule_emit_and_records_enabled_by(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)

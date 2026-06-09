@@ -313,12 +313,17 @@ class LazyComputationTable(StrEnum):
     EXPERIMENT_EXPOSURES_PREAGGREGATED = "experiment_exposures_preaggregated"
     EXPERIMENT_METRIC_EVENTS_PREAGGREGATED = "experiment_metric_events_preaggregated"
     CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED = "conversion_goal_attributed_preaggregated"
+    MARKETING_TOUCHPOINTS_PREAGGREGATED = "marketing_touchpoints_preaggregated"
     WEB_OVERVIEW_PREAGGREGATED = "web_overview_preaggregated"
     WEB_STATS_PREAGGREGATED = "web_stats_preaggregated"
     WEB_STATS_PATHS_PREAGGREGATED = "web_stats_paths_preaggregated"
     WEB_VITALS_PATHS_PREAGGREGATED = "web_vitals_paths_preaggregated"
     WEB_STATS_FRUSTRATION_PREAGGREGATED = "web_stats_frustration_preaggregated"
     WEB_GOALS_PREAGGREGATED = "web_goals_preaggregated"
+    # Fixed-dimension tables driven by the scheduled web_dimensional_precompute
+    # Dagster job (the precomputation-framework successor to v2 pre-aggregation).
+    WEB_STATS_DIMENSIONAL_PREAGGREGATED = "web_stats_dimensional_preaggregated"
+    WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED = "web_bounces_dimensional_preaggregated"
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
@@ -328,6 +333,7 @@ _DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
     LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
     LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
     LazyComputationTable.CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED,
+    LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
 }
 
 

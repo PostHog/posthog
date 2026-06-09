@@ -489,6 +489,7 @@ def _build_template_context(
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
         from posthog.models.file_system.user_product_list import UserProductList
+        from posthog.models.user_home_settings import UserHomeSettings
         from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
@@ -592,6 +593,10 @@ def _build_template_context(
                     except Exception:
                         capture_exception()
                         posthog_app_context["promoted_product_intent"] = None
+
+                with tracer.start_as_current_span("template.user_home_settings"):
+                    home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
+                    posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
 
     # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
     if "oauth_application" in context:
@@ -1411,7 +1416,7 @@ class GenericEmails:
     """
 
     def __init__(self):
-        with open(get_absolute_path("helpers/generic_emails.txt")) as f:
+        with open(get_absolute_path("helpers/generic_emails.txt"), encoding="utf-8") as f:
             self.emails = {x.rstrip(): True for x in f}
 
     def is_generic(self, email: str) -> bool:

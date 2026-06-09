@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-05 11:04:37 UTC
+// Generated at: 2026-06-08 20:42:31 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -17,7 +17,6 @@ export type CanonicalProvider =
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-west-2'
     | 'ambient'
-    | 'ambient-fp4'
     | 'ambient-fp8'
     | 'anthropic'
     | 'anthropic-2'
@@ -88,6 +87,7 @@ export type CanonicalProvider =
     | 'nebius-base'
     | 'nebius-fp4'
     | 'nebius-fp8'
+    | 'nex-agi-fp8'
     | 'nextbit-bf16'
     | 'nextbit-fp8'
     | 'nextbit-int4'
@@ -106,7 +106,6 @@ export type CanonicalProvider =
     | 'parasail-fp4'
     | 'parasail-fp8'
     | 'parasail-int4'
-    | 'parasail-int8'
     | 'perceptron'
     | 'perplexity'
     | 'phala'

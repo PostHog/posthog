@@ -1,8 +1,11 @@
 from collections.abc import MutableMapping
+from contextlib import contextmanager
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
+
+from django.test import override_settings
 
 import dagster
 from structlog.testing import capture_logs
@@ -14,24 +17,34 @@ from posthog.models import Organization, Team
 from products.web_analytics.dags.eager_web_analytics_precompute import (
     BASELINE_BREAKDOWNS,
     BASELINE_WINDOW_DAYS,
-    EAGER_BASELINE_TEAM_IDS,
     _resolve_eager_audience,
     _warm_baseline_for_team,
     warm_eager_baseline_op,
     web_analytics_eager_baseline_warming_job,
 )
 
+_EAGER_MODULE = "products.web_analytics.dags.eager_web_analytics_precompute"
+
 # Total queries per team: WebOverview + WebGoals + WebVitalsPathBreakdown + each WebStats breakdown.
 _QUERIES_PER_TEAM = 3 + len(BASELINE_BREAKDOWNS)
 
 
-@patch("products.web_analytics.dags.eager_web_analytics_precompute.is_cloud", return_value=True)
+@contextmanager
+def _eager_audience(team_ids):
+    """Set the warmer audience (and, since the gate reads the same setting, the
+    lazy-eligibility list) to `team_ids`."""
+    with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=list(team_ids)):
+        yield
+
+
+@patch(f"{_EAGER_MODULE}.is_cloud", return_value=True)
 class TestResolveEagerAudience:
-    def test_returns_hardcoded_team_ids_on_cloud(self, _is_cloud):
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[2, 7])
+    def test_returns_team_ids_from_setting_on_cloud(self, _is_cloud):
         team_ids, reason, diag = _resolve_eager_audience()
-        assert team_ids == list(EAGER_BASELINE_TEAM_IDS)
+        assert team_ids == [2, 7]
         assert reason == "ok"
-        assert diag == {"teams_configured": len(EAGER_BASELINE_TEAM_IDS)}
+        assert diag == {"teams_configured": 2}
 
     def test_returns_empty_on_self_hosted(self, _is_cloud):
         _is_cloud.return_value = False
@@ -39,7 +52,7 @@ class TestResolveEagerAudience:
         assert team_ids == []
         assert reason == "not_cloud"
 
-    @patch("products.web_analytics.dags.eager_web_analytics_precompute.EAGER_BASELINE_TEAM_IDS", ())
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
     def test_returns_empty_when_no_teams_configured(self, _is_cloud):
         team_ids, reason, _diag = _resolve_eager_audience()
         assert team_ids == []
@@ -70,10 +83,7 @@ class TestWarmEagerBaselineOp(APIBaseTest):
 
         get_runner.side_effect = runner_factory
 
-        with patch(
-            "products.web_analytics.dags.eager_web_analytics_precompute.EAGER_BASELINE_TEAM_IDS",
-            (t1.pk, t2.pk),
-        ):
+        with _eager_audience([t1.pk, t2.pk]):
             result = warm_eager_baseline_op(dagster.build_op_context())
 
         assert result["teams"] == 2
@@ -92,22 +102,19 @@ class TestWarmEagerBaselineOp(APIBaseTest):
         # Tagging fires for every query so query_log attribution is intact.
         assert tag_queries_mock.call_count == _QUERIES_PER_TEAM * 2
 
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
-    @patch("products.web_analytics.dags.eager_web_analytics_precompute.EAGER_BASELINE_TEAM_IDS", ())
     def test_returns_zeroed_metadata_when_no_teams_configured(self, get_runner, _is_cloud):
         result = warm_eager_baseline_op(dagster.build_op_context())
         assert result == {"teams": 0, "warmed": 0, "failed": 0, "skipped": 0}
         get_runner.assert_not_called()
 
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[99999999])
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
     def test_skips_team_ids_that_do_not_exist_in_db(self, get_runner, _is_cloud):
-        # A team ID in the hardcoded list might be removed from the DB
-        # before the constant is updated; the run should not crash.
-        with patch(
-            "products.web_analytics.dags.eager_web_analytics_precompute.EAGER_BASELINE_TEAM_IDS",
-            (99999999,),
-        ):
-            result = warm_eager_baseline_op(dagster.build_op_context())
+        # A team ID in the setting might be removed from the DB before the
+        # setting is updated; the run should not crash.
+        result = warm_eager_baseline_op(dagster.build_op_context())
         assert result == {"teams": 1, "warmed": 0, "failed": 0, "skipped": 1}
         get_runner.assert_not_called()
 
@@ -202,19 +209,26 @@ class TestEagerBaselineLogging(APIBaseTest):
     def test_emits_structured_lifecycle_events_on_success(self, get_runner, _tag, _is_cloud):
         get_runner.return_value = Mock(run=Mock(return_value=None))
 
-        with (
-            patch(
-                "products.web_analytics.dags.eager_web_analytics_precompute.EAGER_BASELINE_TEAM_IDS",
-                (self.team.pk,),
-            ),
-            capture_logs() as cap_logs,
-        ):
+        with _eager_audience([self.team.pk]), capture_logs() as cap_logs:
             warm_eager_baseline_op(dagster.build_op_context())
 
         start = self._events(cap_logs, "eager_baseline_warming_start")
         assert len(start) == 1
         assert start[0]["teams"] == 1
         assert start[0]["gate_reason"] == "ok"
+
+        # Per-tile lifecycle: one start + one done line per tile, so the full
+        # matrix is followable in the Dagster UI / Loki.
+        tile_start = self._events(cap_logs, "eager_baseline_warming_tile_start")
+        assert len(tile_start) == _QUERIES_PER_TEAM
+        assert {t["tile"] for t in tile_start} == set(range(1, _QUERIES_PER_TEAM + 1))
+
+        tile_done = self._events(cap_logs, "eager_baseline_warming_tile_done")
+        assert len(tile_done) == _QUERIES_PER_TEAM
+        # Verify the tile indices cover the full matrix (symmetric with tile_start)
+        # so a wrong/constant idx in the done line can't slip through.
+        assert {t["tile"] for t in tile_done} == set(range(1, _QUERIES_PER_TEAM + 1))
+        assert all(t["status"] == "warmed" and "duration_ms" in t for t in tile_done)
 
         team_logs = self._events(cap_logs, "eager_baseline_warming_team")
         assert len(team_logs) == 1
@@ -235,19 +249,42 @@ class TestEagerBaselineLogging(APIBaseTest):
     def test_emits_query_failed_event_with_error_type(self, get_runner, _tag, _is_cloud):
         get_runner.return_value = Mock(run=Mock(side_effect=RuntimeError("boom")))
 
-        with (
-            patch(
-                "products.web_analytics.dags.eager_web_analytics_precompute.EAGER_BASELINE_TEAM_IDS",
-                (self.team.pk,),
-            ),
-            capture_logs() as cap_logs,
-        ):
+        with _eager_audience([self.team.pk]), capture_logs() as cap_logs:
             warm_eager_baseline_op(dagster.build_op_context())
 
         failed = self._events(cap_logs, "eager_baseline_warming_query_failed")
         assert len(failed) == _QUERIES_PER_TEAM
         assert all(f["error_type"] == "RuntimeError" for f in failed)
         assert all(f["team_id"] == self.team.pk for f in failed)
+        assert all(f["status"] == "failed" and "duration_ms" in f for f in failed)
+
+        # Every tile still emits a start even when its query fails.
+        assert len(self._events(cap_logs, "eager_baseline_warming_tile_start")) == _QUERIES_PER_TEAM
+        assert self._events(cap_logs, "eager_baseline_warming_tile_done") == []
+
+
+@patch(f"{_EAGER_MODULE}.is_cloud", return_value=True)
+class TestEagerLazyEligibilityGuards(APIBaseTest):
+    """The warmer must never silently warm via the raw path: it skips
+    lazy-ineligible teams and alarms when a warm run inserts no cache keys."""
+
+    @patch(f"{_EAGER_MODULE}.tag_queries")
+    @patch(f"{_EAGER_MODULE}.get_query_runner")
+    def test_skips_team_that_is_not_lazy_eligible(self, get_runner, _tag, _is_cloud):
+        # The team is in the audience but the gate reports it ineligible — a
+        # drift the guard must catch rather than warm raw.
+        with (
+            override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]),
+            patch(f"{_EAGER_MODULE}.is_precompute_enabled_for_team", return_value=False),
+            capture_logs() as cap_logs,
+        ):
+            result = warm_eager_baseline_op(dagster.build_op_context())
+
+        assert result == {"teams": 1, "warmed": 0, "failed": 0, "skipped": 1}
+        get_runner.assert_not_called()  # never warms a team it can't serve lazily
+        events = [log for log in cap_logs if log.get("event") == "eager_baseline_warming_not_lazy_eligible"]
+        assert len(events) == 1
+        assert events[0]["team_id"] == self.team.pk
 
 
 class TestJobConfiguration:
