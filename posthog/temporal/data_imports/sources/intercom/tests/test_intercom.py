@@ -5,6 +5,7 @@ import pytest
 from unittest import mock
 
 from requests import Request, Response
+from requests.adapters import HTTPAdapter
 
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
@@ -308,7 +309,7 @@ class TestSubstreamSessionRetries:
         # the same walk). These POSTs are read-only/idempotent, so the session must
         # retry them on transient read timeouts and 429/5xx.
         session = _make_intercom_session("token")
-        retry = session.get_adapter(INTERCOM_API_BASE).max_retries
+        retry = cast(HTTPAdapter, session.get_adapter(INTERCOM_API_BASE)).max_retries
 
         assert {"GET", "POST"} <= set(retry.allowed_methods)
         assert retry.total == 3
