@@ -211,12 +211,10 @@ class TestAccessControlIntegration(BaseTest):
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
 class TestWarehouseTableAccessControl(BaseTest):
-    """Per-object access control for warehouse tables.
-
-    Each DataWarehouseTable is an object of the warehouse_table resource (with warehouse_objects
-    as the inheritance parent). The HogQL decision reuses UserAccessControl.filter_queryset_by_access_level
-    — the same allow-set primitive as the warehouse_table REST list view — so resource-level "none",
-    per-object allow, and per-object "none" all resolve identically.
+    """
+    Per-object access control for warehouse tables.
+    Each DataWarehouseTable is an object of the "warehouse_table" resource (with "warehouse_objects"
+    as the inheritance parent). Resource-level "none" should resolve identically to per-object "none".
     """
 
     def setUp(self):
@@ -271,7 +269,7 @@ class TestWarehouseTableAccessControl(BaseTest):
     def _membership(self):
         return OrganizationMembership.objects.get(user=self.user, organization=self.organization)
 
-    def test_explicit_object_level_deny_marks_table(self):
+    def test_object_level_deny_filters_schema_and_cache_key(self):
         self._create_ac(
             resource="warehouse_table",
             resource_id=str(self.denied_table.id),
@@ -281,9 +279,11 @@ class TestWarehouseTableAccessControl(BaseTest):
 
         database = Database.create_for(team=self.team, user=self.user)
 
+        # Schema filtering: the denied table is dropped from the schema, the allowed one stays.
         assert "denied_table" in database._denied_tables
         assert "allowed_table" not in database._denied_tables
-        # Object deny flows into the shared fingerprint that the query cache reads
+        # Cache correctness: the same deny lands in blocked_resource_ids_by_scope, which feeds the
+        # query cache key, so a denied user can't be served another user's cached rows.
         assert database.user_access_control is not None
         assert str(self.denied_table.id) in database.user_access_control.blocked_resource_ids_by_scope.get(
             "warehouse_table", set()
@@ -466,6 +466,11 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
             organization_member=self.membership,
         )
 
+        # The other tests only assert the table lands in _denied_tables. This one verifies that
+        # a table in _denied_tables actually makes the real query path error out.
+        database = Database.create_for(team=self.team, user=self.user)
+        assert "denied_warehouse_table" in database._denied_tables
+
         with self.assertRaises(QueryError) as cm:
             execute_hogql_query(
                 query="SELECT id FROM denied_warehouse_table",
@@ -476,9 +481,9 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
         assert "denied_warehouse_table" in str(cm.exception)
 
     def test_execute_hogql_query_bypass_access_control_skips_denial(self):
-        """bypass_access_control opt-in should let the query past the ACL gate
+        """bypass_access_control opt-in should let the query past the access control gate
         (downstream may still fail because there's no real S3 data, but the
-        ACL gate must not block it)."""
+        gate must not block it)."""
         from posthog.hogql.context import HogQLContext
         from posthog.hogql.errors import QueryError
         from posthog.hogql.query import execute_hogql_query
@@ -502,8 +507,7 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
                 context=context,
             )
         except QueryError as e:
-            # ACL deny would say "don't have access". Any other error is fine for this test
-            # — we just want to confirm we didn't trip the ACL gate.
+            # Access control deny would say "don't have access"
             assert "don't have access" not in str(e), f"bypass was not honored: {e}"
         except Exception:
             # Downstream errors (missing S3, etc.) are expected and irrelevant
@@ -513,7 +517,7 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
 class TestWarehouseViewAccessControl(BaseTest):
-    """Per-object access control for warehouse saved queries (DataWarehouseSavedQuery)."""
+    """Per-object access control warehouse views (DataWarehouseSavedQuery)."""
 
     def setUp(self):
         super().setUp()
@@ -559,7 +563,7 @@ class TestWarehouseViewAccessControl(BaseTest):
     def _membership(self):
         return OrganizationMembership.objects.get(user=self.user, organization=self.organization)
 
-    def test_explicit_object_level_deny_marks_saved_query(self):
+    def test_object_level_deny_filters_schema_and_cache_key(self):
         self._create_ac(
             resource="warehouse_view",
             resource_id=str(self.denied_view.id),
@@ -569,8 +573,11 @@ class TestWarehouseViewAccessControl(BaseTest):
 
         database = Database.create_for(team=self.team, user=self.user)
 
+        # Schema filtering: the denied view is dropped from the schema, the allowed one stays.
         assert "denied_view" in database._denied_tables
         assert "allowed_view" not in database._denied_tables
+        # Cache correctness: the same deny lands in blocked_resource_ids_by_scope, which feeds the
+        # query cache key, so a denied user can't be served another user's cached rows.
         assert database.user_access_control is not None
         assert str(self.denied_view.id) in database.user_access_control.blocked_resource_ids_by_scope.get(
             "warehouse_view", set()

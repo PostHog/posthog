@@ -37,11 +37,9 @@ class HogQLContext:
     # User making the queries - used for access control on system tables
     user: Optional["User"] = None
 
-    # SECURITY-SENSITIVE: opt-in bypass for HogQL access control on system and warehouse tables.
-    # Set ONLY when running in a context with no human owner (e.g. data import pipeline internals,
-    # schema introspection, sharing-token-authenticated reads). Every call site that sets this MUST
-    # include an inline comment explaining why. `grep -r "bypass_access_control=True"` returns the
-    # complete audit list in one shot.
+    # SECURITY-SENSITIVE: bypass for HogQL access control on warehouse tables.
+    # Set ONLY when running in a context without a user (e.g., internal data imports, schema introspection).
+    # Every call site that sets this MUST include an inline comment explaining why.
     bypass_access_control: bool = False
 
     # Virtual database we're querying, will be populated from team_id if not present

@@ -261,7 +261,6 @@ class HogQLQueryExecutor:
     connection_id: Optional[str] = None
     send_raw_query: bool = False
     user: Optional[User] = None
-    # SECURITY-SENSITIVE: opt-in bypass for HogQL access control. See HogQLContext.bypass_access_control.
     bypass_access_control: bool = False
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
