@@ -41,10 +41,6 @@ LOGGER = get_logger(__name__)
 WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
 
-def _metadata_str(value: Any) -> str | None:
-    return value if isinstance(value, str) else None
-
-
 @dataclasses.dataclass
 class ImportDataActivityInputs:
     team_id: int
@@ -149,8 +145,6 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             await logger.adebug(f"Incremental earliest value being used is: {processed_incremental_earliest_value}")
 
         if SourceRegistry.is_registered(source_type):
-            # Generic per-schema metadata + storage key; interpreted by `resolve_source_location`.
-            sync_type_config = schema.sync_type_config or {}
             source_inputs = SourceInputs(
                 schema_name=schema.name,
                 schema_id=str(schema.id),
@@ -170,7 +164,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 reset_pipeline=reset_pipeline,
                 enabled_columns=schema.enabled_columns,
                 schema_metadata=schema.schema_metadata,
-                dwh_storage_key=_metadata_str(sync_type_config.get("dwh_storage_key")),
+                dwh_storage_key=schema.dwh_storage_key,
             )
 
             new_source = SourceRegistry.get_source(source_type)
