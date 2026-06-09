@@ -41,13 +41,6 @@ def test_normalize_store_id_rejects_invalid(raw):
         normalize_store_id(raw)
 
 
-def _patched_token_call(response: mock.MagicMock):
-    return mock.patch(
-        "posthog.temporal.data_imports.sources.shopify.shopify.make_tracked_session",
-        return_value=mock.MagicMock(post=mock.MagicMock(return_value=response)),
-    )
-
-
 def test_access_token_url_has_no_doubled_suffix_for_messy_input():
     response = mock.MagicMock()
     response.ok = True
@@ -58,7 +51,9 @@ def test_access_token_url_has_no_doubled_suffix_for_messy_input():
         "posthog.temporal.data_imports.sources.shopify.shopify.make_tracked_session",
         return_value=session,
     ):
-        _get_shopify_access_token("https://my-store.myshopify.com", "client-id", "client-secret")
+        # Callers normalize before threading the store id through, so messy input has
+        # already collapsed to the bare subdomain by the time it reaches this function.
+        _get_shopify_access_token(normalize_store_id("https://my-store.myshopify.com"), "client-id", "client-secret")
 
     called_url = session.post.call_args.args[0]
     assert called_url == "https://my-store.myshopify.com/admin/oauth/access_token"

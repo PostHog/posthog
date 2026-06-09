@@ -192,7 +192,8 @@ def normalize_store_id(raw: str) -> str:
 
 
 def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str) -> str:
-    access_token_url = SHOPIFY_ACCESS_TOKEN_URL.format(normalize_store_id(shopify_store_id))
+    # Callers pass an already-normalized store id (see normalize_store_id).
+    access_token_url = SHOPIFY_ACCESS_TOKEN_URL.format(shopify_store_id)
     access_data = {
         "client_id": shopify_client_id,
         "client_secret": shopify_client_secret,
@@ -220,8 +221,9 @@ def shopify_source(
     resumable_source_manager: ResumableSourceManager[ShopifyResumeConfig],
     should_use_incremental_field: bool = False,
 ):
-    api_url = SHOPIFY_API_URL.format(normalize_store_id(shopify_store_id), SHOPIFY_API_VERSION)
-    shopify_access_token = _get_shopify_access_token(shopify_store_id, shopify_client_id, shopify_client_secret)
+    store_id = normalize_store_id(shopify_store_id)
+    api_url = SHOPIFY_API_URL.format(store_id, SHOPIFY_API_VERSION)
+    shopify_access_token = _get_shopify_access_token(store_id, shopify_client_id, shopify_client_secret)
     schema_name = resolve_schema_name(graphql_object_name)
 
     def get_rows():
@@ -325,8 +327,9 @@ def validate_credentials(shopify_store_id: str, shopify_client_id: str, shopify_
     - Raise ShopifyPermissionError if the access token is valid but lacks permissions for specific resources
     - Raise Exception if the access token is invalid or there's any other error
     """
-    api_url = SHOPIFY_API_URL.format(normalize_store_id(shopify_store_id), SHOPIFY_API_VERSION)
-    shopify_access_token = _get_shopify_access_token(shopify_store_id, shopify_client_id, shopify_client_secret)
+    store_id = normalize_store_id(shopify_store_id)
+    api_url = SHOPIFY_API_URL.format(store_id, SHOPIFY_API_VERSION)
+    shopify_access_token = _get_shopify_access_token(store_id, shopify_client_id, shopify_client_secret)
     sess = make_tracked_session(
         headers={
             "Content-Type": "application/json",
