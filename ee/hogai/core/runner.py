@@ -42,6 +42,7 @@ from posthog.utils import get_instance_region
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
+from ee.hogai.core.ai_event_truncation import ai_event_truncator
 from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
 from ee.hogai.tool import ApprovalRequest
@@ -196,15 +197,19 @@ class BaseAgentRunner(ABC):
                     privacy_mode=is_privacy_mode_enabled(team),
                 )
 
+            # flush_at=1 flushes each event immediately so traces deliver before short runs end;
+            # before_send truncates oversized AI blobs so they clear the SDK's per-event size drop.
+            client_kwargs = {"flush_at": 1, "before_send": ai_event_truncator}
+
             # Local deployment or hobby
             if not is_cloud() and (local_client := posthoganalytics.default_client):
                 self._callback_handlers.append(init_handler(local_client))
             elif region := get_instance_region():
                 # Add regional client first
-                self._callback_handlers.append(init_handler(get_client(region)))
+                self._callback_handlers.append(init_handler(get_client(region, **client_kwargs)))
                 # If we're in EU, add the US client as well, so we can see US and EU traces
                 if region == "EU":
-                    self._callback_handlers.append(init_handler(get_client("US")))
+                    self._callback_handlers.append(init_handler(get_client("US", **client_kwargs)))
 
         self._trace_id = trace_id
         self._parent_span_id = parent_span_id

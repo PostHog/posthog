@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
     WebhookDeletionResult,
+    WebhookSyncResult,
 )
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -545,16 +546,22 @@ def check_endpoint_permissions(
     return results
 
 
-def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:
-    logger = LOGGER.bind()
-
+def _all_known_webhook_events() -> list[str]:
+    """Every Stripe event whose prefix appears in RESOURCE_TO_STRIPE_WEBHOOK_EVENT.
+    Re-deriving on each reconcile is what auto-heals webhooks created before the map grew."""
     hints = get_type_hints(WebhookEndpointService.CreateParams, include_extras=True)
     enabled_events_type = hints["enabled_events"]
     list_inner = get_args(enabled_events_type)[0]
     possible_event_values: tuple[str] = get_args(list_inner)
 
     prefixes_set = set(RESOURCE_TO_STRIPE_WEBHOOK_EVENT.values())
-    filtered_events = [e for e in possible_event_values if any(e.startswith(f"{p}.") for p in prefixes_set)]
+    return [e for e in possible_event_values if any(e.startswith(f"{p}.") for p in prefixes_set)]
+
+
+def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:
+    logger = LOGGER.bind()
+
+    filtered_events = _all_known_webhook_events()
 
     if not filtered_events:
         return WebhookCreationResult(
@@ -636,6 +643,64 @@ def delete_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
             )
 
         return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {error_str}")
+
+
+def update_webhook_events(
+    api_key: str, stripe_account_id: str | None, webhook_url: str, desired_events: list[str]
+) -> WebhookSyncResult:
+    """Add `desired_events` to the matching Stripe endpoint, writing only on drift.
+    A 403 (missing webhook write scope) returns a failure result rather than raising, so
+    callers can enable the table and warn instead of hard-failing."""
+    logger = LOGGER.bind()
+
+    if not desired_events:
+        return WebhookSyncResult(success=True)
+
+    try:
+        client = StripeClient(
+            api_key,
+            stripe_account=stripe_account_id,
+            stripe_version="2024-09-30.acacia",
+            max_network_retries=2,
+            base_addresses=_stripe_base_addresses(),
+            http_client=_tracked_stripe_http_client(),
+        )
+
+        endpoints = client.webhook_endpoints.list(params={"limit": 100})
+
+        for endpoint in endpoints.auto_paging_iter():
+            if endpoint.url != webhook_url:
+                continue
+
+            current = set(endpoint.enabled_events or [])
+            # "*" already covers everything.
+            if "*" in current:
+                return WebhookSyncResult(success=True)
+
+            missing = [e for e in desired_events if e not in current]
+            if not missing:
+                return WebhookSyncResult(success=True)
+
+            # Merge, don't replace — never drop events the user added themselves.
+            merged = sorted(current | set(desired_events))
+            client.webhook_endpoints.update(endpoint.id, params={"enabled_events": merged})  # type: ignore
+            return WebhookSyncResult(success=True)
+
+        # No matching endpoint — nothing to reconcile (creation is handled elsewhere).
+        return WebhookSyncResult(success=True)
+    except stripe_lib.PermissionError as e:
+        logger.warning("No permission to update Stripe webhook events", error=str(e))
+        return WebhookSyncResult(
+            success=False,
+            error=(
+                "Your Stripe API key doesn't have permission to update webhooks. Add the 'Write' permission "
+                f"for 'Webhook endpoints' to your API key, or add these events manually: {', '.join(desired_events)}"
+            ),
+        )
+    except Exception as e:
+        error_str = _clean_stripe_error_message(str(e))
+        logger.warning("Failed to update Stripe webhook events", error=error_str)
+        return WebhookSyncResult(success=False, error=f"Failed to update webhook events automatically: {error_str}")
 
 
 def get_external_webhook_info(api_key: str, stripe_account_id: str | None, webhook_url: str) -> ExternalWebhookInfo:

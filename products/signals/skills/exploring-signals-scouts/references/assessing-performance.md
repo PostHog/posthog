@@ -13,11 +13,12 @@ signals-scout-runs-list
 ```
 
 Filter the result to the scout's `skill_name`, then reason across the dimensions, reading each
-run's `summary`. Learned memory comes from `signals-scout-scratchpad-search`. Note up front: there
-is **no emit flag or finding count on a run**, and `inbox-reports-list { "source_product":
-"signals_scout" }` does not reliably surface scout output (grouping attributes findings to the
-underlying product) — so emit-related dimensions below are read from the run summaries, not a clean
-metric.
+run's `summary`. Learned memory comes from `signals-scout-scratchpad-search`. Note up front: each
+run carries `emitted_count` / `emitted_finding_ids` (and the list endpoint takes an `emitted`
+filter), so emit volume is a clean metric off the runs themselves — and `inbox-reports-list {
+"source_product": "signals_scout" }` lists the reports the fleet surfaced (the tag rides through
+grouping). Read the two together: the runs tell you how often the scout spoke, the inbox filter what
+cleared the bar into an actionable report.
 
 ## The dimensions
 
@@ -53,8 +54,9 @@ so don't infer over-investigation from the ~30-minute duration alone.
 
 ### 3. Emit rate — how often does it speak?
 
-Of completed runs, what fraction emitted a finding vs. closed out empty? You read this from the run
-`summaries` (no emit metric exists). Judge it against the surface, not in the abstract — **most
+Of completed runs, what fraction emitted a finding vs. closed out empty? Read it straight off each
+run's `emitted_count` (`> 0` = emitted), or split the window with `runs-list?emitted=true` /
+`?emitted=false` and compare counts. Judge it against the surface, not in the abstract — **most
 healthy scouts emit rarely**, and on a quiet, mature project nearly every run legitimately closes
 out empty.
 
@@ -68,11 +70,13 @@ out empty.
 
 ### 4. Signal-to-noise — was the output worth it?
 
-Of what the scout emitted, how much was actionable vs. dismissed as noise? You can't filter the
-inbox to `source_product: "signals_scout"` (grouping attributes findings to the underlying product,
-so that filter returns nothing), so judge this from the run summaries plus the scratchpad: a
-healthy scout's summaries describe deliberate, calibrated emits and the scratchpad fills with
-`dedupe:` / `noise:` / `addressed:` entries as it learns what not to re-raise.
+Of what the scout emitted, how much was actionable vs. dismissed as noise? You know _how much_ it
+emitted from `emitted_count`, and `emitted_finding_ids` ties each emitting run to its `Signal` rows.
+For the downstream fate, `inbox-reports-list { "source_product": "signals_scout" }` lists the
+scout-backed reports — cross-check their states against the emit volume, and read the run summaries
+plus the scratchpad for the qualitative picture: a healthy scout's summaries describe deliberate,
+calibrated emits and the scratchpad fills with `dedupe:` / `noise:` / `addressed:` entries as it
+learns what not to re-raise.
 
 - **Diagnosis if it looks noisy:** if summaries show the same thing emitted repeatedly, or the
   scratchpad lacks `dedupe:` entries for things it has flagged, its dedupe memory isn't working —
