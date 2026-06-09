@@ -73,12 +73,16 @@ class TestQueryStatusManager(SimpleTestCase):
         self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(True), self.query_status)
 
-    def test_has_results_returns_true_when_results_stored(self):
-        self.manager.store_query_status(self.query_status)
-        self.assertTrue(self.manager.has_results())
-
-    def test_has_results_returns_false_when_no_results(self):
-        self.assertFalse(self.manager.has_results())
+    @parameterized.expand(
+        [
+            ("results_stored", True, True),
+            ("no_results", False, False),
+        ]
+    )
+    def test_has_results(self, _name, store_results, expected):
+        if store_results:
+            self.manager.store_query_status(self.query_status)
+        self.assertEqual(self.manager.has_results(), expected)
 
     def test_has_results_degrades_to_false_on_redis_failure(self):
         # A transient Redis failure must not propagate out of the enqueue path — treat as a cache miss.
