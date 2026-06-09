@@ -20,6 +20,7 @@ from posthog.models.data_deletion_request import (
     event_match_params,
     event_match_sql_fragment,
     jsonhas_expr,
+    verify_queued_request,
 )
 
 CRITERIA_FIELDS = {
@@ -629,6 +630,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 obj.status == RequestStatus.FAILED and request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
             )
             extra_context["retry_url"] = reverse("admin:posthog_datadeletionrequest_retry", args=[obj.pk])
+            extra_context["can_verify"] = (
+                obj.status == RequestStatus.QUEUED and request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
+            )
+            extra_context["verify_url"] = reverse("admin:posthog_datadeletionrequest_verify", args=[obj.pk])
 
             # ClickHouse stats are calculated from this page (works for any status).
             extra_context["fetch_stats_url"] = reverse("admin:posthog_datadeletionrequest_fetch_stats", args=[obj.pk])
@@ -681,6 +686,11 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 "<path:object_id>/retry/",
                 self.admin_site.admin_view(self.retry_view),
                 name="posthog_datadeletionrequest_retry",
+            ),
+            path(
+                "<path:object_id>/verify/",
+                self.admin_site.admin_view(self.verify_view),
+                name="posthog_datadeletionrequest_verify",
             ),
         ]
         return custom_urls + urls
@@ -966,4 +976,33 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             request,
             "Request requeued. The pickup sensor will launch a new run on its next tick.",
         )
+        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+    def verify_view(self, request, object_id):
+        obj = self.get_object(request, object_id)
+        if not obj:
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_changelist"))
+
+        if request.method != "POST":
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        if not request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists():
+            messages.error(request, "Only ClickHouse Team members can verify deletion requests.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        if obj.status != RequestStatus.QUEUED:
+            messages.error(request, "Only queued requests can be verified.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        outcome = verify_queued_request(obj)
+        if outcome.promoted:
+            obj.refresh_from_db()
+            self.log_change(request, obj, "Verified: 0 matching events remain, status queued → completed.")
+            messages.success(request, "Verified — no matching events remain. Marked completed.")
+        else:
+            messages.warning(
+                request,
+                f"{outcome.remaining} matching event(s) still present in ClickHouse. "
+                "Left queued — re-run after the next scheduled deletion.",
+            )
         return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))

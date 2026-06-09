@@ -2,7 +2,7 @@ import json
 import uuid
 import hashlib
 import calendar
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TypedDict, cast
 from urllib.parse import urlparse
 
@@ -517,7 +517,60 @@ class OAuthValidator(OAuth2Validator):
             "sub": str(request.user.uuid),
         }
 
+    def _sessions_revoked_at(self, application_id: int) -> datetime | None:
+        return OAuthApplication.objects.filter(pk=application_id).values_list("sessions_revoked_at", flat=True).first()
+
+    def _reject_refresh_racing_revoke(self, request, source_refresh_token):
+        """Reject a refresh that races an app-wide session revoke.
+
+        DOT validates the refresh token in autocommit, before `save_bearer_token` opens the
+        transaction that locks the row, so a refresh that already passed validation can reach
+        here after `revoke_application_sessions` committed. This runs inside that transaction,
+        so re-reading `sessions_revoked_at` sees the committed revoke: if the presented refresh
+        token predates it, the bulk revoke missed the tokens we're about to mint, so reject and
+        force re-authorization. The token's own `revoked` flag can't be used here — DOT sets it
+        on every rotation, so it doesn't distinguish an admin revoke from a normal refresh.
+        """
+        revoked_at = self._sessions_revoked_at(source_refresh_token.application_id)
+        if revoked_at is not None and source_refresh_token.created < revoked_at:
+            raise InvalidGrantError(
+                description="Application sessions were revoked; re-authorize.",
+                request=request,
+            )
+
+    def _reject_code_exchange_racing_revoke(self, request):
+        """Reject an authorization-code exchange that races an app-wide session revoke.
+
+        Same race as `_reject_refresh_racing_revoke`, on the code path: oauthlib validates the
+        grant in autocommit before `save_bearer_token` opens its transaction, so the revoke can
+        commit in between and the exchange would mint tokens that postdate `sessions_revoked_at`
+        and survive every later refresh. Unlike the refresh path, where DOT's `select_for_update`
+        on the refresh-token row serializes the mint against the revoke's bulk update, nothing
+        locks the grant — so take the row lock here. If the revoke committed first, the grant is
+        gone (`revoke_application_sessions` deletes grants before sweeping tokens) or predates
+        the stamp; if the mint wins the lock, the revoke blocks on its grant delete and its token
+        sweep re-snapshots after our commit, catching the tokens minted here.
+        """
+        if getattr(request, "grant_type", None) != "authorization_code":
+            return
+        grant_created = (
+            OAuthGrant.objects.select_for_update()
+            .filter(code=request.code, application=request.client)
+            .values_list("created", flat=True)
+            .first()
+        )
+        revoked_at = self._sessions_revoked_at(request.client.pk)
+        if revoked_at is not None and (grant_created is None or grant_created < revoked_at):
+            raise InvalidGrantError(
+                description="Application sessions were revoked; re-authorize.",
+                request=request,
+            )
+
     def _create_access_token(self, expires, request, token, source_refresh_token=None):
+        if source_refresh_token is not None:
+            self._reject_refresh_racing_revoke(request, source_refresh_token)
+        else:
+            self._reject_code_exchange_racing_revoke(request)
         id_token = token.get("id_token", None)
         if id_token:
             id_token = self._load_id_token(id_token)
@@ -1075,6 +1128,19 @@ class OAuthTokenView(TokenView):
                     return JsonResponse(response_data)
             except (json.JSONDecodeError, OAuthAccessToken.DoesNotExist) as e:
                 logger.warning(f"Error adding scoped fields to token response: {e}")
+
+        # An OAuth2Error raised from save_bearer_token (e.g. the mint-time app-revoke check)
+        # escapes oauthlib's validate_token_request try/except and is serialized by DOT's
+        # backend handler instead, which ships oauthlib's empty header dict — so the JSON
+        # error body lands with Django's default text/html. Restore the RFC 6749 §5.2
+        # application/json header so clients (and DRF's test client) can parse the error.
+        if response.status_code != 200 and response.get("Content-Type", "").startswith("text/html"):
+            try:
+                json.loads(response.content)
+            except (json.JSONDecodeError, ValueError):
+                pass
+            else:
+                response["Content-Type"] = "application/json"
 
         return response
 

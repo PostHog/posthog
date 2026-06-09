@@ -47,6 +47,7 @@ defs = dagster.Definitions(
         backups.non_sharded_backup,
         data_deletion_requests.data_deletion_request_event_removal,
         data_deletion_requests.data_deletion_request_property_removal,
+        data_deletion_requests.verify_queued_deletion_requests_job,
         part_breaker.break_oversized_parts,
     ],
     schedules=[

@@ -78,7 +78,15 @@ BASELINE_BREAKDOWNS: tuple[WebStatsBreakdown, ...] = (
     WebStatsBreakdown.SCREEN_NAME,
     WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
     WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
-    WebStatsBreakdown.INITIAL_REFERRING_URL,
+    # INITIAL_REFERRING_URL is deliberately excluded. Unlike its domain
+    # sibling (which reads the aggregated `session.$entry_referring_domain`
+    # column), the full-URL breakdown reads the un-materialized event
+    # property `$session_entry_referrer` — there is no sessions-table column
+    # for the full referrer URL. On high-volume teams that JSONExtract scans
+    # the whole `properties` blob and OOMs the per-day insert, then falls
+    # back to a raw query that times out at 60s. The breakdown sees
+    # negligible real usage, so warming it is pure wasted compute. It stays
+    # available as an on-demand breakdown.
     WebStatsBreakdown.INITIAL_UTM_SOURCE,
     WebStatsBreakdown.INITIAL_UTM_MEDIUM,
     WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,

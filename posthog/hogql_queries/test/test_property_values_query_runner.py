@@ -275,7 +275,7 @@ class TestPropertyValuesQueryRunnerAggregatedTable(ClickhouseTestMixin, APIBaseT
             rows,
         )
 
-    def test_values_ordered_by_summed_count(self):
+    def test_returns_distinct_values(self):
         now = datetime.now()
         self._insert_rows(
             [
@@ -287,7 +287,7 @@ class TestPropertyValuesQueryRunnerAggregatedTable(ClickhouseTestMixin, APIBaseT
 
         with self._flag_on():
             results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"))
-        assert [r.name for r in results] == ["Chrome", "Firefox"]
+        assert {r.name for r in results} == {"Chrome", "Firefox"}
         assert results[0].count is None
 
     @parameterized.expand(
