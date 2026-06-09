@@ -507,6 +507,7 @@ export type AssistantTool =
     | 'archive_llm_skill'
     | 'diagnose_proxy'
     | 'web_analytics_doctor'
+    | 'assess_heatmap'
     | 'marketing_diagnose_setup'
     | 'marketing_explain_conversion_goal'
     | 'marketing_list_conversion_goals'
