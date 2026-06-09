@@ -108,6 +108,11 @@ pub struct Config {
     #[envconfig(default = "500")]
     pub consumer_batch_timeout_ms: u64,
 
+    /// Maximum Kafka batches to process concurrently. Matches the Node.js
+    /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
+    #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
+    pub consumer_max_background_tasks: usize,
+
     // ---- Worker transport ----
     /// Comma-separated list of worker HTTP URLs
     #[envconfig(default = "http://localhost:9001")]
