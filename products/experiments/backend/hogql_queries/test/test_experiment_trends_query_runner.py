@@ -22,6 +22,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
+    EventPropertyFilter,
     EventsNode,
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
@@ -125,11 +126,19 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(query_runner.breakdown_key, f"$feature/{original_key}")
+        assert query_runner.prepared_count_query.breakdownFilter is not None
         self.assertEqual(query_runner.prepared_count_query.breakdownFilter.breakdown, f"$feature/{original_key}")
 
         exposure_properties = query_runner.prepared_exposure_query.properties
         assert exposure_properties is not None
-        feature_flag_filter = next(prop for prop in exposure_properties if prop.key == "$feature_flag")
+        feature_flag_filter = cast(
+            EventPropertyFilter,
+            next(
+                prop
+                for prop in exposure_properties
+                if isinstance(prop, EventPropertyFilter) and prop.key == "$feature_flag"
+            ),
+        )
         self.assertEqual(feature_flag_filter.value, [original_key])
 
     @freeze_time("2020-01-01T12:00:00Z")
