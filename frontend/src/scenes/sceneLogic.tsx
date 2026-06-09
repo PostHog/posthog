@@ -124,6 +124,7 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/instance',
     urls.moveToPostHogCloud(),
     urls.unsubscribe(),
+    urls.invitePostpone(),
     urls.debugHog(),
     urls.debugQuery(),
     urls.activity(),

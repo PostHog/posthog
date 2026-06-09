@@ -18,6 +18,7 @@ from posthog.api import (
     api_not_found,
     authentication,
     github,
+    invite_postpone,
     playwright_setup,
     report,
     router,
@@ -254,6 +255,7 @@ urlpatterns = [
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
+    path("api/invite_postpone", invite_postpone.InvitePostponeView.as_view()),
     path("api/alerts/github", github.SecretAlert.as_view()),
     path(
         "api/legal_documents/pandadoc",

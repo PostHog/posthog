@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from posthog.constants import INVITE_DAYS_VALIDITY
+from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import OrganizationInvite
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -170,6 +172,54 @@ class TestOrganizationInvite(BaseTest):
 
         # Verify the invite has been deleted
         self.assertFalse(OrganizationInvite.objects.filter(target_email="no_access@posthog.com").exists())
+
+    def test_is_expired_uses_created_at_when_no_expires_at(self):
+        invite = OrganizationInvite.objects.create(organization=self.organization)
+        self.assertFalse(invite.is_expired())
+
+        OrganizationInvite.objects.filter(id=invite.id).update(
+            created_at=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY, hours=1)
+        )
+        invite.refresh_from_db()
+        self.assertTrue(invite.is_expired())
+
+    def test_expires_at_overrides_created_at_based_expiry(self):
+        # Old invite (would be expired by created_at) but with a future expires_at is still valid.
+        invite = OrganizationInvite.objects.create(organization=self.organization)
+        OrganizationInvite.objects.filter(id=invite.id).update(
+            created_at=timezone.now() - timedelta(days=30),
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+        invite.refresh_from_db()
+        self.assertFalse(invite.is_expired())
+
+        # A past expires_at expires the invite even when created_at is recent.
+        OrganizationInvite.objects.filter(id=invite.id).update(
+            created_at=timezone.now(),
+            expires_at=timezone.now() - timedelta(minutes=1),
+        )
+        invite.refresh_from_db()
+        self.assertTrue(invite.is_expired())
+
+    def test_effective_expires_at(self):
+        invite = OrganizationInvite.objects.create(organization=self.organization)
+        # Defaults to created_at + INVITE_DAYS_VALIDITY when expires_at is unset.
+        self.assertEqual(
+            invite.effective_expires_at(), invite.created_at + timedelta(days=INVITE_DAYS_VALIDITY)
+        )
+        # Honors expires_at when set.
+        explicit = timezone.now() + timedelta(days=5)
+        invite.expires_at = explicit
+        self.assertEqual(invite.effective_expires_at(), explicit)
+
+    def test_get_postpone_url_round_trips_token(self):
+        invite = OrganizationInvite.objects.create(organization=self.organization)
+        url = invite.get_postpone_url()
+        self.assertIn("/invite-postpone?token=", url)
+
+        token = url.split("token=", 1)[1]
+        payload = decode_jwt(token, PosthogJwtAudience.INVITE_POSTPONE)
+        self.assertEqual(payload["invite_id"], str(invite.id))
 
     def test_invite_use_only_deletes_organization_specific_invites(self):
         """Test that using an invite only deletes invites for the specific organization, not all organizations"""

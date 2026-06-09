@@ -165,6 +165,7 @@ export enum Scene {
     Transformations = 'Transformations',
     EventFiltering = 'EventFiltering',
     Unsubscribe = 'Unsubscribe',
+    PostponeInvite = 'PostponeInvite',
     UserInterview = 'UserInterview',
     UserInterviewResponse = 'UserInterviewResponse',
     UserInterviews = 'UserInterviews',

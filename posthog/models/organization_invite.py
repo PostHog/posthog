@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional, cast
 
 from django.db import models, transaction
@@ -12,6 +12,7 @@ from rest_framework import exceptions
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.helpers.email_utils import EmailNormalizer, EmailValidationHelper
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.user_product_list import backfill_user_product_list_for_new_user
 from posthog.models.onboarding_delegation import mark_delegators_accepted
@@ -93,6 +94,37 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
             "Downstream logic routes the delegate through full onboarding on accept."
         ),
     )
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When set, overrides the default created_at-based expiry. Extended each time the "
+            "invite email is postponed so the rescheduled link stays valid."
+        ),
+    )
+    scheduled_send_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the next, postponed invite email is due. Null when nothing is scheduled. "
+            "Picked up by the send_scheduled_invites periodic task."
+        ),
+    )
+    postpone_count = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="How many times this invite email has been postponed; drives a unique email campaign key per re-send.",
+    )
+
+    class Meta:
+        # Partial index: only invites with a pending postpone carry a non-null scheduled_send_at,
+        # so the periodic sender scans a tiny slice of the table rather than every invite ever made.
+        indexes = [
+            models.Index(
+                fields=["scheduled_send_at"],
+                name="posthog_inv_sched_send_idx",
+                condition=models.Q(scheduled_send_at__isnull=False),
+            ),
+        ]
 
     def validate(
         self,
@@ -243,9 +275,30 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
         for team in accessible_teams:
             backfill_user_product_list_for_new_user(user, team)
 
+    def effective_expires_at(self) -> datetime:
+        """The moment this invite stops being valid.
+
+        Defaults to created_at + INVITE_DAYS_VALIDITY days, but a postpone sets expires_at to
+        extend it so the rescheduled email's link still works.
+        """
+        return self.expires_at or (self.created_at + timedelta(INVITE_DAYS_VALIDITY))
+
     def is_expired(self) -> bool:
-        """Check if invite is older than INVITE_DAYS_VALIDITY days."""
-        return self.created_at < timezone.now() - timedelta(INVITE_DAYS_VALIDITY)
+        """Check if the invite has passed its (possibly postponed) expiry."""
+        return self.effective_expires_at() < timezone.now()
+
+    def get_postpone_url(self) -> str:
+        """Signed link to the public 'postpone this invite email' page.
+
+        The token expires with the invite, and each (re-)send mints a fresh one — so an invite
+        whose expiry was extended by a postpone also gets a longer-lived token on its next send.
+        """
+        token = encode_jwt(
+            {"invite_id": str(self.id)},
+            expiry_delta=self.effective_expires_at() - timezone.now(),
+            audience=PosthogJwtAudience.INVITE_POSTPONE,
+        )
+        return absolute_uri(f"/invite-postpone?token={token}")
 
     def delete(self, *args, **kwargs):
         from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated

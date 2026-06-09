@@ -17,6 +17,11 @@
 <div class="mb mt text-center">
     <a class="button primary" href="{{ invite }}">Join now</a>
 </div>
+{% if postpone_url %}
+<p class="text-center">
+    Not the right time? <a href="{{ postpone_url }}"><b>I'll do this later</b></a>
+</p>
+{% endif %}
 <div class="mt text-center dashed-border">
     <p>Or paste this link into your browser:</p>
     <a href="{{ invite }}" class="invite-link"><b>{{ invite }}</b></a>

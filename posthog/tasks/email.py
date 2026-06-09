@@ -5,7 +5,8 @@ from typing import Any, Literal, Optional, cast
 from urllib.parse import quote
 
 from django.conf import settings
-from django.db.models import OuterRef, Subquery
+from django.db import transaction
+from django.db.models import F, OuterRef, Subquery
 from django.utils import timezone
 
 import structlog
@@ -224,12 +225,16 @@ def should_send_pipeline_error_notification(
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_invite(invite_id: str) -> None:
-    campaign_key: str = f"invite_email_{invite_id}"
     invite = OrganizationInvite.objects.select_related("created_by", "organization").filter(id=invite_id).first()
     if invite is None:
         # Invite can be deleted (cancelled/accepted) before the worker picks up the task.
         # Treat as terminal no-op instead of retrying.
         return
+    # Vary the campaign key per postpone so the MessagingRecord idempotency guard doesn't silently
+    # skip a rescheduled re-send. The first send keeps the original key for backwards compatibility.
+    campaign_key: str = f"invite_email_{invite_id}"
+    if invite.postpone_count:
+        campaign_key = f"{campaign_key}_postpone_{invite.postpone_count}"
     # If a display value fails validation (e.g. a legacy organisation name that
     # happens to look like a URL), substitute a generic fallback rather than
     # dropping the email entirely. The recipient still gets a usable invite.
@@ -280,6 +285,9 @@ def send_invite(invite_id: str) -> None:
             "invitee_first_name": invitee_first_name,
             "invite_message": invite_message,
             "url": f"{settings.SITE_URL}/signup/{invite_id}",
+            # "Do this later" link to the public postpone page; the recipient can reschedule
+            # an identical invite email instead of letting it expire unanswered.
+            "postpone_url": invite.get_postpone_url(),
         },
         reply_to=invite.created_by.email if invite.created_by and invite.created_by.email else "",
     )
@@ -333,6 +341,37 @@ def send_invite(invite_id: str) -> None:
     else:
         message.send()
         OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
+
+
+# How many due invites a single poll dispatches. Postpones are rare, so this is a generous
+# headroom cap; any overflow is picked up by the next run.
+SCHEDULED_INVITE_BATCH_SIZE = 1000
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_scheduled_invites() -> None:
+    """Dispatch invite emails that a recipient postponed to a now-due time.
+
+    Mirrors process_scheduled_changes: a Celery-beat task polls for due rows. Each due invite has
+    its postpone_count bumped and scheduled_send_at cleared atomically, then send_invite is
+    enqueued on commit. The bumped count gives the re-send a fresh campaign key (so the
+    MessagingRecord idempotency guard doesn't skip it), and on_commit dispatch keeps the send
+    from firing if the transaction rolls back.
+    """
+    with transaction.atomic():
+        due_invites = (
+            OrganizationInvite.objects.select_for_update(skip_locked=True)
+            .filter(scheduled_send_at__isnull=False, scheduled_send_at__lte=timezone.now())
+            .order_by("scheduled_send_at")[:SCHEDULED_INVITE_BATCH_SIZE]
+        )
+        for invite in due_invites:
+            OrganizationInvite.objects.filter(pk=invite.pk).update(
+                postpone_count=F("postpone_count") + 1,
+                scheduled_send_at=None,
+            )
+            invite_id = str(invite.pk)
+            transaction.on_commit(lambda iid=invite_id: send_invite.apply_async(kwargs={"invite_id": iid}))
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

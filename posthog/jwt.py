@@ -18,6 +18,7 @@ class PosthogJwtAudience(Enum):
     EXPORT_RENDERER = "posthog:export_renderer"
     LIVESTREAM = "posthog:livestream"
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
+    INVITE_POSTPONE = "posthog:invite_postpone"
 
 
 def signing_key_fingerprint(key: str) -> str:

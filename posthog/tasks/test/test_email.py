@@ -37,6 +37,7 @@ from posthog.tasks.email import (
     send_new_ticket_notification,
     send_password_reset,
     send_provisioning_welcome,
+    send_scheduled_invites,
     should_send_pipeline_error_notification,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
@@ -91,6 +92,41 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    def test_send_invite_includes_postpone_url(self, MockEmailMessage: MagicMock) -> None:
+        mock_email_messages(MockEmailMessage)
+
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin_postpone@posthog.com")
+        invite = OrganizationInvite.objects.create(
+            organization=org, created_by=user, target_email="postpone@posthog.com"
+        )
+
+        send_invite(invite.id)
+
+        template_context = MockEmailMessage.call_args.kwargs["template_context"]
+        assert "/invite-postpone?token=" in template_context["postpone_url"]
+
+    @parameterized.expand(
+        [
+            ("first_send", 0, ""),
+            ("postponed_once", 1, "_postpone_1"),
+            ("postponed_thrice", 3, "_postpone_3"),
+        ]
+    )
+    def test_send_invite_campaign_key_varies_with_postpone_count(
+        self, MockEmailMessage: MagicMock, name: str, postpone_count: int, suffix: str
+    ) -> None:
+        mock_email_messages(MockEmailMessage)
+
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", f"admin_{name}@posthog.com")
+        invite = OrganizationInvite.objects.create(
+            organization=org, created_by=user, target_email=f"{name}@posthog.com"
+        )
+        OrganizationInvite.objects.filter(id=invite.id).update(postpone_count=postpone_count)
+
+        send_invite(invite.id)
+
+        assert MockEmailMessage.call_args.kwargs["campaign_key"] == f"invite_email_{invite.id}{suffix}"
 
     def test_send_invite_delegation_uses_dedicated_template_and_subject(self, MockEmailMessage: MagicMock) -> None:
         """Delegation invites route to the delegation_invite template with a custom subject."""
@@ -1852,3 +1888,46 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         rendered_error = mocked_email_messages[0].properties["views"][0]["error"]
         assert rendered_error == expected_error
         assert len(rendered_error) <= 255
+
+
+class TestSendScheduledInvites(APIBaseTest):
+    @patch("posthog.tasks.email.send_invite")
+    def test_dispatches_due_invites_and_clears_schedule(self, mock_send_invite: MagicMock) -> None:
+        due = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="due@posthog.com",
+            scheduled_send_at=timezone.now() - dt.timedelta(minutes=1),
+        )
+        not_due = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="notdue@posthog.com",
+            scheduled_send_at=timezone.now() + dt.timedelta(hours=2),
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            send_scheduled_invites()
+
+        due.refresh_from_db()
+        not_due.refresh_from_db()
+
+        # Due invite: schedule cleared, postpone_count bumped, send_invite dispatched.
+        self.assertIsNone(due.scheduled_send_at)
+        self.assertEqual(due.postpone_count, 1)
+        mock_send_invite.apply_async.assert_called_once_with(kwargs={"invite_id": str(due.id)})
+
+        # Not-yet-due invite is left untouched.
+        self.assertIsNotNone(not_due.scheduled_send_at)
+        self.assertEqual(not_due.postpone_count, 0)
+
+    @patch("posthog.tasks.email.send_invite")
+    def test_does_nothing_when_no_invites_are_due(self, mock_send_invite: MagicMock) -> None:
+        OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="future@posthog.com",
+            scheduled_send_at=timezone.now() + dt.timedelta(days=1),
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            send_scheduled_invites()
+
+        mock_send_invite.apply_async.assert_not_called()
