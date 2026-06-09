@@ -229,7 +229,7 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
     )
 }
 
-function InvitePreviewModal({
+export function InvitePreviewModal({
     isOpen,
     onClose,
     preview,
