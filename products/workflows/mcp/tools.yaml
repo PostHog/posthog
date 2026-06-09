@@ -264,9 +264,9 @@ tools:
             already-scheduled runs); create a new draft for changes instead. Status changes go through workflows-enable
             / workflows-archive. A batch audience is config.filters.properties — person-property conditions and/or
             cohort references. Prefer person properties or a dynamic (filter-based) cohort, which re-evaluate, over a
-            static frozen-list cohort; behavioral (event-based) cohorts are rejected. An event trigger fires every
-            time the event happens; workflows can't fire only after a person does it multiple times — tell the user
-            rather than approximating.
+            static frozen-list cohort; behavioral (event-based) cohorts are rejected. An event trigger fires every time
+            the event happens; workflows can't fire only after a person does it multiple times — tell the user rather
+            than approximating.
         exclude_params:
             - status
         ui_app: workflow
