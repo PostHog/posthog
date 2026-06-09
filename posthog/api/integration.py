@@ -151,8 +151,6 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
     mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
 
     def validate_email(self, value: str) -> str:
-        # Domains and SES identities are case-insensitive; normalize so the
-        # cross-org guard and stored identity are deterministic.
         return value.lower()
 
 

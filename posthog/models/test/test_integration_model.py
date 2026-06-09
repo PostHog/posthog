@@ -2172,7 +2172,6 @@ class TestEmailIntegrationDomainValidation(BaseTest):
     @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
     @patch("products.workflows.backend.providers.SESProvider.verify_email_domain")
     def test_cross_org_guard_blocks_mixed_case_domain(self, mock_verify_email_domain, mock_create_email_domain):
-        # Org A claims example.com (stored lowercased).
         mock_create_email_domain.return_value = {"status": "success", "domain": "example.com"}
         mock_verify_email_domain.return_value = {"status": "verified", "domain": "example.com"}
         other_org = Organization.objects.create(name="other org")
@@ -2184,10 +2183,6 @@ class TestEmailIntegrationDomainValidation(BaseTest):
             created_by=self.user,
         )
 
-        # Org B tries to claim the same domain with mixed casing. The cross-org
-        # guard must reject this — DNS / SES identities are case-insensitive, so
-        # treating "Example.com" as a distinct domain would let org B bind the
-        # same identity and (once verified) send DKIM-signed mail as org A.
         with pytest.raises(ValidationError) as exc:
             EmailIntegration.create_native_integration(
                 {"email": "attacker@Example.com", "name": "Attacker"},
@@ -2199,8 +2194,6 @@ class TestEmailIntegrationDomainValidation(BaseTest):
 
     @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
     def test_stored_domain_is_lowercased(self, mock_create_email_domain):
-        # Whatever casing the user submits, the persisted domain must be
-        # normalized so later lookups (and the SES identity) are deterministic.
         mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
         integration = EmailIntegration.create_native_integration(
             {"email": "user@SuccessDomain.COM", "name": "Test User", "provider": "ses"},
@@ -2211,10 +2204,6 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         assert integration.config["domain"] == "successdomain.com"
 
     def test_free_email_block_is_case_insensitive(self):
-        # The free-email block uses a set membership test; both `gmail.com`
-        # and `Gmail.com` resolve to the same mailbox provider and must be
-        # rejected. Otherwise an attacker can register `user@Gmail.com` and
-        # bypass the free-domain block entirely.
         config = {"email": "user@Gmail.com", "name": "Test User"}
         with pytest.raises(ValidationError) as exc:
             EmailIntegration.create_native_integration(
