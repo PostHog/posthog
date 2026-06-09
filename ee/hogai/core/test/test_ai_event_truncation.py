@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from unittest import TestCase
 
@@ -119,6 +120,16 @@ class TestTruncateBlob(TestCase):
         self.assertEqual(tier, "hard")
         self.assertLessEqual(byte_size(result), 1_000)
 
+    def test_single_oversized_tail_message_still_bounded(self):
+        # One message whose billing fields alone (thousands of tool_calls) blow the budget.
+        # Strip can't help, front-trim can't drop the only message, so the hard fallback must bound it.
+        huge = [{"type": "ai", "tool_calls": [{"name": "search", "id": str(i)} for i in range(5_000)]}]
+        for value in ({"messages": huge}, list(huge)):
+            result, tier = self.truncator.truncate_blob(value, byte_budget=2_000)
+            self.assertEqual(tier, "trim")
+            self.assertLessEqual(byte_size(result), 2_000)
+            json.dumps(result)  # must not raise
+
     @parameterized.expand(
         [
             ("dict_messages", {"messages": [{"type": "ai", "content": "x" * 80_000}]}),
@@ -171,7 +182,10 @@ class TestTruncateAiEvent(TestCase):
         def blob() -> dict:
             return {"messages": [{"type": "ai", "content": "x" * 500} for _ in range(1_300)]}
 
-        msg = {"event": "$ai_trace", "properties": {"$ai_input_state": blob(), "$ai_output_state": blob()}}
+        msg: dict[str, Any] = {
+            "event": "$ai_trace",
+            "properties": {"$ai_input_state": blob(), "$ai_output_state": blob()},
+        }
         self.assertGreater(
             byte_size(msg["properties"]["$ai_input_state"]) + byte_size(msg["properties"]["$ai_output_state"]),
             COMBINED_EVENT_CEILING,

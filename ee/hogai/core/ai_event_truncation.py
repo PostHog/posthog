@@ -79,10 +79,10 @@ class AIEventTruncator:
         self.per_string_cap = per_string_cap
         self.min_tail_messages = min_tail_messages
 
-    def __call__(self, msg: dict[str, Any]) -> dict[str, Any]:
+    def __call__(self, msg: Any) -> dict[str, Any]:
         return self.truncate_event(msg)
 
-    def truncate_event(self, msg: dict[str, Any]) -> dict[str, Any]:
+    def truncate_event(self, msg: Any) -> dict[str, Any]:
         """``before_send`` hook: truncate oversized blobs on AI events so they clear the SDK's
         per-event size drop. No-op for non-AI events and under-budget blobs. Never raises."""
         try:
@@ -194,6 +194,10 @@ class AIEventTruncator:
         trimmed = messages
         while len(trimmed) > self.min_tail_messages and byte_size(trimmed) > byte_budget:
             trimmed = trimmed[1:]
+        # Even the minimum tail can blow the budget (e.g. one giant message). Guarantee the bound
+        # with a hard fallback rather than letting an oversized blob through to the SDK drop.
+        if byte_size(trimmed) > byte_budget:
+            return [self._hard_truncate(trimmed, byte_budget)]
         return trimmed
 
     @staticmethod
