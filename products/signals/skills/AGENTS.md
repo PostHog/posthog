@@ -50,6 +50,15 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   flags). Its discriminator is the flag's configured state against the
   `$feature_flag_called` stream; experiment-linked flags are the experiments
   scout's territory.
+- `signals-scout-data-pipelines/` — delivery watcher for data pipelines: CDP
+  destinations and transformations (hog functions), batch exports, and hog flows.
+  Watches for platform interventions (the hog watcher degrading or auto-disabling
+  an enabled function), delivery failure shares stepping above a pipeline's own
+  baseline, batch export runs failing or stalling (a growing data gap), filter
+  starvation, and active flows failing for the people they trigger on. Its
+  discriminator is configured-to-deliver vs actually-delivering — drafts, paused
+  exports, and deliberately disabled functions are operator choices, not signal;
+  data warehouse / external-data syncs are the health-checks scout's territory.
 - `signals-scout-revenue-analytics/` — anomaly watcher for revenue
   (MRR / churn / segment shifts).
 - `signals-scout-session-replay/` — capture-integrity + friction watcher for session
