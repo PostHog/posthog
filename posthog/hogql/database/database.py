@@ -969,7 +969,7 @@ class Database(BaseModel):
                 try:
                     team = Team.objects.get(pk=team_id)
                 except Team.DoesNotExist:
-                    raise QueryError(f"Team with id {team_id} does not exist")
+                    raise QueryError(f"Team with id {team_id} does not exist") from None
 
             # Team is definitely not None at this point, make mypy believe that
             team = cast("Team", team)
