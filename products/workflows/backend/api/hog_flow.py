@@ -296,6 +296,12 @@ class HogFlowActionSerializer(serializers.Serializer):
 
         if data.get("type") == "wait_until_condition":
             wait_events = data.get("config", {}).get("events") or []
+            # Drop "events to wait for" entries that reference no events. An empty event filter
+            # compiles to always-true bytecode, which would wake the job on every incoming event
+            # and bypass the property condition. The UI can leave such an entry behind when the
+            # last event is removed; "no events" must mean "no event wakes this", not "all events".
+            wait_events = [ec for ec in wait_events if (ec.get("filters") or {}).get("events")]
+            data["config"]["events"] = wait_events
             for event_config in wait_events:
                 filters = event_config.get("filters")
                 if filters is not None:

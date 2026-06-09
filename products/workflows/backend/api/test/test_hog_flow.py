@@ -596,6 +596,64 @@ class TestHogFlowAPI(APIBaseTest):
         assert "plan" in bytecode, bytecode
         assert "growth" in bytecode, bytecode
 
+    def test_hog_flow_wait_until_drops_empty_events_entry(self):
+        # An "events to wait for" entry that references no events compiles to always-true bytecode,
+        # which would wake the job on every incoming event. It must be dropped on save; a real entry
+        # alongside it is kept.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        wait_action = {
+            "id": "wait_1",
+            "name": "wait_1",
+            "type": "wait_until_condition",
+            "config": {
+                "condition": {
+                    "filters": {
+                        "properties": [{"key": "plan", "type": "person", "value": ["growth"], "operator": "exact"}],
+                    },
+                },
+                "max_wait_duration": "5m",
+                "events": [
+                    {"filters": {"events": []}},
+                    {
+                        "filters": {
+                            "events": [
+                                {
+                                    "id": "subscription created",
+                                    "name": "subscription created",
+                                    "type": "events",
+                                    "order": 0,
+                                }
+                            ],
+                        },
+                    },
+                ],
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Flow Drop Empty Wait Events",
+            "status": "active",
+            "actions": [trigger_action, wait_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        events = response.json()["actions"][1]["config"]["events"]
+        assert len(events) == 1, events
+        assert "subscription created" in events[0]["filters"]["bytecode"], events[0]["filters"]
+
     def test_hog_flow_conversion_events_filters_bytecode(self):
         trigger_action = {
             "id": "trigger_node",
