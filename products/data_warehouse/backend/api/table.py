@@ -87,7 +87,10 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         database = self.context.get("database", None)
         if not database:
-            database = Database.create_for(team_id=self.context["team_id"])
+            database = Database.create_for(
+                team_id=self.context["team_id"],
+                user=cast(User, self.context["request"].user),
+            )
 
         if database.has_table(table.name):
             fields = database.get_table(table.name).fields
@@ -202,7 +205,11 @@ class SimpleTableSerializer(UserAccessControlSerializerMixin, serializers.ModelS
         team_id = self.context.get("team_id", None)
 
         if not database:
-            database = Database.create_for(team_id=self.context["team_id"])
+            request = self.context.get("request")
+            database = Database.create_for(
+                team_id=self.context["team_id"],
+                user=cast(User, request.user) if request else None,
+            )
 
         fields = serialize_fields(
             table.hogql_definition().fields,
@@ -238,7 +245,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id)
+        context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         context["team_id"] = self.team_id
         return context
 
