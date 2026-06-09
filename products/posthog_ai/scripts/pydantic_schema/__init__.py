@@ -75,8 +75,8 @@ def pydantic_schema(dotted_path: str, indent: int = 2, inline_defs: bool = True)
     shared building blocks (e.g. ``EventsNode``) once and reference them by name.
     """
     model_cls = _import_model(dotted_path)
-    schema = model_cls.model_json_schema()
+    raw = model_cls.model_json_schema()
+    schema: object = raw
     if not inline_defs:
-        schema = {k: v for k, v in schema.items() if k != "$defs"}
-        schema = _shorten_refs(schema)  # type: ignore[assignment]
+        schema = _shorten_refs({k: v for k, v in raw.items() if k != "$defs"})
     return json.dumps(schema, indent=indent)
