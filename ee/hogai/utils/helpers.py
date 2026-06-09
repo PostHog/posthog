@@ -1,3 +1,4 @@
+import re
 import json
 
 # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
@@ -5,7 +6,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
 from typing import Any, Optional, TypeVar, Union, cast
 from urllib.parse import urlparse
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from jsonref import replace_refs
 from langchain_core.messages import (
@@ -49,6 +50,49 @@ from ee.hogai.utils.types.base import (
     AssistantMessageUnion,
     ConversationTitleAction,
 )
+
+# Business-knowledge drill-down handle: a model-facing reference the agent needs
+# to call `read_business_knowledge`, but that must never reach the end user.
+# The `bk-doc=` prefix scopes the token to this feature so the strip regex can't
+# clobber an unrelated `[doc=...]` a user typed or a future tool emits.
+# `format_*` is the single source of truth for the shape; `BK_DRILLDOWN_HANDLE_RE`
+# is its exact inverse (full UUID shape, not loose hex), used to strip it at the
+# final-answer boundary.
+_UUID_RE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+BK_DRILLDOWN_HANDLE_RE = re.compile(rf"`?\[bk-doc={_UUID_RE}\s+#-?\d+\]`?")
+# Whitespace/punctuation artifacts left behind once a handle is removed. Only
+# applied when a handle was actually stripped, so handle-free text is untouched.
+_BK_DANGLING_SPACE_BEFORE_PUNCT_RE = re.compile(r"[ \t]+([.,;:!?])")
+_BK_DOUBLE_HORIZONTAL_SPACE_RE = re.compile(r"[ \t]{2,}")
+_BK_TRAILING_SPACE_RE = re.compile(r"[ \t]+\n")
+
+
+def format_bk_drilldown_handle(document_id: UUID, ordinal: int) -> str:
+    """Build the model-facing drill-down handle for a knowledge chunk."""
+    return f"[bk-doc={document_id} #{ordinal}]"
+
+
+def strip_bk_drilldown_handles(text: str) -> str:
+    """Remove any business-knowledge drill-down handles from user-facing text.
+
+    Belt-and-suspenders on top of the prompt instruction not to echo the handle:
+    the handle lives in tool *content* (the only model-visible channel), so the
+    sole structural guarantee it never leaks is to strip it where the root node
+    turns the LLM output into the message shown to the user.
+
+    Returns the input unchanged when no handle is present, so the common case
+    (the overwhelming majority of assistant messages) is byte-identical and this
+    never silently touches whitespace in normal answers.
+    """
+    cleaned = BK_DRILLDOWN_HANDLE_RE.sub("", text)
+    if cleaned == text:
+        return text
+    # Tidy the gaps the removal left behind (double spaces, " ." -> ".", trailing
+    # spaces) without collapsing newlines or intentional blank lines.
+    cleaned = _BK_DANGLING_SPACE_BEFORE_PUNCT_RE.sub(r"\1", cleaned)
+    cleaned = _BK_DOUBLE_HORIZONTAL_SPACE_RE.sub(" ", cleaned)
+    cleaned = _BK_TRAILING_SPACE_RE.sub("\n", cleaned)
+    return cleaned
 
 
 def remove_line_breaks(line: str) -> str:

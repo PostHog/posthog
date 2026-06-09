@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from uuid import UUID
 
 import unittest
 from posthog.test.base import BaseTest
@@ -25,8 +26,10 @@ from ee.hogai.utils.helpers import (
     convert_tool_messages_to_dict,
     find_start_message,
     find_start_message_idx,
+    format_bk_drilldown_handle,
     normalize_ai_message,
     should_output_assistant_message,
+    strip_bk_drilldown_handles,
 )
 from ee.hogai.utils.types.base import AssistantMessageUnion
 
@@ -700,3 +703,59 @@ class TestCastAssistantQuery(unittest.TestCase):
         self.assertFalse(bool(getattr(result.series[0], "optionalInFunnel", False)))
         self.assertTrue(bool(getattr(result.series[1], "optionalInFunnel", False)))
         self.assertFalse(bool(getattr(result.series[2], "optionalInFunnel", False)))
+
+
+class TestStripBKDrilldownHandles(unittest.TestCase):
+    def test_format_and_strip_roundtrip(self):
+        handle = format_bk_drilldown_handle(UUID("12345678-1234-5678-1234-567812345678"), 7)
+        self.assertEqual(handle, "[bk-doc=12345678-1234-5678-1234-567812345678 #7]")
+        # No leftover double space — the cleanup collapses the gap.
+        self.assertEqual(strip_bk_drilldown_handles(f"see {handle} now"), "see now")
+
+    @parameterized.expand(
+        [
+            # (input, expected) — assert the cleaned output verbatim so whitespace
+            # artifacts can't hide behind a normalizing .strip().
+            (
+                "bare",
+                "Refund within [bk-doc=12345678-1234-5678-1234-567812345678 #2] 30 days.",
+                "Refund within 30 days.",
+            ),
+            (
+                "backticked",
+                "Refund within `[bk-doc=12345678-1234-5678-1234-567812345678 #2]` 30 days.",
+                "Refund within 30 days.",
+            ),
+            ("negative_ordinal", "x [bk-doc=12345678-1234-5678-1234-567812345678 #-1] y", "x y"),
+            (
+                "before_punctuation",
+                "See the policy [bk-doc=12345678-1234-5678-1234-567812345678 #2].",
+                "See the policy.",
+            ),
+        ]
+    )
+    def test_handle_is_stripped_cleanly(self, _name, text, expected):
+        out = strip_bk_drilldown_handles(text)
+        self.assertEqual(out, expected)
+        self.assertNotIn("[bk-doc=", out)
+
+    def test_unrelated_doc_pattern_is_preserved(self):
+        # A non-BK `[doc=...]` (different product / user text) must NOT be touched.
+        text = "Compare [doc=12345678-1234-5678-1234-567812345678 #2] with the spec."
+        self.assertEqual(strip_bk_drilldown_handles(text), text)
+
+    @parameterized.expand(
+        [
+            ("not_a_uuid", "x [bk-doc=deadbeef #2] y"),
+            ("too_short", "x [bk-doc=1234 #2] y"),
+            ("no_ordinal", "x [bk-doc=12345678-1234-5678-1234-567812345678] y"),
+        ]
+    )
+    def test_malformed_handle_is_preserved(self, _name, text):
+        # The strip regex is the exact inverse of the formatter (full UUID +
+        # ordinal); anything that isn't a real handle is left untouched.
+        self.assertEqual(strip_bk_drilldown_handles(text), text)
+
+    def test_no_handle_is_noop(self):
+        text = "A normal answer with `code`,  double  spaces, and [a link](http://x) but no handles."
+        self.assertEqual(strip_bk_drilldown_handles(text), text)

@@ -49,7 +49,7 @@ from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.conversation_summarizer import AnthropicConversationSummarizer
 from ee.hogai.utils.feature_flags import get_llm_gateway_variant
-from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
+from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message, strip_bk_drilldown_handles
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
     AssistantNodeName,
@@ -382,7 +382,15 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
 
     def _process_output_message(self, message: LangchainAIMessage) -> list[AssistantMessage]:
         """Process the output message."""
-        return normalize_ai_message(message)
+        messages = normalize_ai_message(message)
+        # Strip business-knowledge drill-down handles before they reach the user.
+        # The handle has to sit in tool content (the only model-visible channel),
+        # so this final-answer boundary is the one place we can structurally
+        # guarantee it never leaks into the rendered reply.
+        for assistant_message in messages:
+            if assistant_message.content:
+                assistant_message.content = strip_bk_drilldown_handles(assistant_message.content)
+        return messages
 
     @staticmethod
     def _has_legacy_summarize_sessions_messages(messages: Sequence[AssistantMessageUnion]) -> bool:

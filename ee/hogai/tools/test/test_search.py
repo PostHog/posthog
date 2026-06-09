@@ -158,7 +158,7 @@ class TestReadBusinessKnowledgeTool(ClickhouseTestMixin, NonAtomicBaseTest):
     def test_build_bk_blocks_surfaces_drilldown_handle(self):
         doc_id = uuid4()
         blocks = _build_bk_blocks([_bk_result(doc_id, 3, "Some content")])
-        self.assertIn(f"[doc={doc_id} #3]", blocks)
+        self.assertIn(f"[bk-doc={doc_id} #3]", blocks)
         self.assertIn("Some content", blocks)
 
 
