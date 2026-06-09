@@ -1,4 +1,3 @@
-import re
 import uuid
 import asyncio
 from datetime import UTC, datetime
@@ -23,6 +22,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     HOGQL_FIX_PROMPT,
     HOGQL_FIX_PROMPT_NAME,
     SYNTHESIS_PROMPT_NAME,
+    render_prompt,
     resolve_prompt,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
@@ -312,18 +312,12 @@ async def _arequest_hogql_fix(
         posthog_properties=posthog_properties,
     ).with_structured_output(HogQLFix, method="json_schema", include_raw=False)
 
-    substitutions = {
-        "description": step_description,
-        "error": error_message,
-        "original_hogql": original_hogql,
-    }
     fix_prompt = await database_sync_to_async(resolve_prompt, thread_sensitive=False)(
         team, HOGQL_FIX_PROMPT_NAME, HOGQL_FIX_PROMPT
     )
-    rendered = re.sub(
-        r"\{\{\{(\w+)\}\}\}",
-        lambda m: substitutions.get(m.group(1), m.group(0)),
+    rendered = render_prompt(
         fix_prompt,
+        {"description": step_description, "error": error_message, "original_hogql": original_hogql},
     )
 
     try:
