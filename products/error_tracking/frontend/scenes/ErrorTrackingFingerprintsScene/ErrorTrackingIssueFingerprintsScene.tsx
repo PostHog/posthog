@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { IconGitBranch } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
@@ -203,15 +203,7 @@ function FingerprintStackTrace({ fingerprint, createdAt }: { fingerprint: string
 }
 
 function StackTraceDisplay(): JSX.Element {
-    const [showAllFrames, setShowAllFrames] = useState(false)
     const [expandedFrameRawIds, setExpandedFrameRawIds] = useState<Set<string>>(new Set())
-    const { hasInAppFrames } = useValues(errorPropertiesLogic)
-
-    useEffect(() => {
-        if (!hasInAppFrames) {
-            setShowAllFrames(true)
-        }
-    }, [hasInAppFrames])
 
     const handleFrameExpandedChange = useCallback((rawId: string, expanded: boolean) => {
         setExpandedFrameRawIds((prev) => {
@@ -227,8 +219,6 @@ function StackTraceDisplay(): JSX.Element {
 
     return (
         <CollapsibleExceptionList
-            showAllFrames={showAllFrames}
-            setShowAllFrames={setShowAllFrames}
             expandedFrameRawIds={expandedFrameRawIds}
             onFrameExpandedChange={handleFrameExpandedChange}
             className="p-2"

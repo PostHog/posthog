@@ -87,3 +87,18 @@ export const SizeVariants: Story = {
         </div>
     ),
 }
+
+export const IntentVariants: Story = {
+    render: (): JSX.Element => (
+        <div className="flex flex-col items-start gap-2">
+            {(['default', 'primary', 'outline', 'destructive', 'link-muted'] as const).map((variant) => (
+                <AgentPromptButton
+                    key={variant}
+                    actions={ERROR_ACTIONS}
+                    storageKey={`story-agent-variant-${variant}`}
+                    variant={variant}
+                />
+            ))}
+        </div>
+    ),
+}

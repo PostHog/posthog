@@ -26,7 +26,7 @@ export function StackTraceActions({ issue }: StackTraceActionsProps): JSX.Elemen
             {showFixButton && (
                 <AgentPromptButton
                     storageKey="error-tracking-issue"
-                    size="xs"
+                    size="sm"
                     data-attr="error-tracking-fix-with-ai"
                     actions={[
                         {

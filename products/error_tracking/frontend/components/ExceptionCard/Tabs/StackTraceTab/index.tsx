@@ -60,9 +60,9 @@ export function StackTraceTab({ className, renderActions, ...props }: StackTrace
 }
 
 function StacktraceIssueDisplay({ className }: { className?: string }): JSX.Element | null {
-    const { showAsText, loading, showAllFrames, expandedFrameRawIds } = useValues(exceptionCardLogic)
-    const { setShowAllFrames, setFrameExpanded } = useActions(exceptionCardLogic)
-    const commonProps = { showAllFrames, setShowAllFrames, className }
+    const { showAsText, loading, expandedFrameRawIds } = useValues(exceptionCardLogic)
+    const { setFrameExpanded } = useActions(exceptionCardLogic)
+    const commonProps = { className }
 
     return match([loading, showAsText])
         .with([true, P.any], () => <LoadingExceptionList {...commonProps} />)
