@@ -1,8 +1,11 @@
 # Signals System Architecture
 
+> Demo branch: exists only to exercise the `pushed_branch` artefact diff renderer
+> (branch-vs-base, fetched without opening a PR). Not for merge.
+
 ## Overview
 
-The **Signals** product is a signal grouping and report-generation pipeline. Signals from multiple products and integrations — including session replay, AI observability, error tracking, GitHub, Linear, Zendesk, and the headless **Signals agent** itself (a scheduled scout that emits cross-source findings into the same pipeline) — are emitted into a shared ClickHouse embeddings table, grouped into **SignalReports** via embedding similarity + LLM matching, and then optionally promoted into an agentic report-research flow.
+The **Signals** product is a signal grouping and report-generation pipeline — the system of record for cross-source findings. Signals from multiple products and integrations — including session replay, AI observability, error tracking, GitHub, Linear, Zendesk, and the headless **Signals agent** itself (a scheduled scout that emits cross-source findings into the same pipeline) — are emitted into a shared ClickHouse embeddings table, grouped into **SignalReports** via embedding similarity + LLM matching, and then optionally promoted into an agentic report-research flow.
 
 Today the active ingestion path is **emitter → buffer → grouping v2**. The summary path is no longer a simple "summarize signals" LLM step: it runs a report-level safety judge, selects a repository, then performs sandbox-backed multi-turn research that produces findings, actionability, priority, title, summary, and suggested reviewers. Reports that are immediately actionable can automatically start a Tasks coding run via the **autonomy** system.
 
