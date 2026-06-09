@@ -94,7 +94,9 @@ class ThreadedWorker(Worker):
                 loop.run_until_complete(loop.shutdown_asyncgens())
                 # Join the loop's default executor (asyncio.to_thread file/network work),
                 # bounded: a thread wedged on an uncancellable call must not hang shutdown.
-                loop.run_until_complete(loop.shutdown_default_executor(timeout=10))
+                # type-ignore: typeshed's AbstractEventLoop lacks the timeout param that
+                # the concrete BaseEventLoop has since Python 3.12.
+                loop.run_until_complete(loop.shutdown_default_executor(timeout=10))  # type: ignore[call-arg]
                 # Activity ORM code runs via thread-sensitive sync_to_async on asgiref's
                 # long-lived global executor thread; hop onto that same thread to close its
                 # Django connections — a session leaked idle-in-transaction there blocks
