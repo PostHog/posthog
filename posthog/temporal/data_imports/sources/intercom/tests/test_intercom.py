@@ -310,10 +310,11 @@ class TestSubstreamSessionRetries:
         # retry them on transient read timeouts and 429/5xx.
         session = _make_intercom_session("token")
         retry = cast(HTTPAdapter, session.get_adapter(INTERCOM_API_BASE)).max_retries
+        allowed_methods = cast("frozenset[str]", retry.allowed_methods)
 
-        assert {"GET", "POST"} <= set(retry.allowed_methods)
+        assert {"GET", "POST"} <= set(allowed_methods)
         assert retry.total == 3
-        assert 429 in retry.status_forcelist
+        assert 429 in (retry.status_forcelist or ())
 
 
 class TestIntercomSource:

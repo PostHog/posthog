@@ -44,7 +44,7 @@ _INTERCOM_RETRY = Retry(
     total=DEFAULT_RETRY.total,
     backoff_factor=DEFAULT_RETRY.backoff_factor,
     status_forcelist=DEFAULT_RETRY.status_forcelist,
-    allowed_methods=DEFAULT_RETRY.allowed_methods | frozenset(["POST"]),
+    allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"},
     raise_on_status=DEFAULT_RETRY.raise_on_status,
 )
 
