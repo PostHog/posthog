@@ -7,6 +7,7 @@ import type { YFormatterFields } from '../shared/trendsChartDisplayOptions'
 import {
     buildTrendsLifecycleConfig,
     buildTrendsLifecycleSeries,
+    filterToggledLifecycleResults,
     shortenLifecycleLabel,
     type TrendsLifecycleResultLike,
 } from './trendsLifecycleChartTransforms'
@@ -95,12 +96,10 @@ describe('buildTrendsLifecycleSeries', () => {
             },
         })
         // dormant was at original index 0, new at original index 1 — order is preserved in the callback.
-        expect(calls).toEqual(
-            expect.arrayContaining([
-                { status: 'dormant', index: 0 },
-                { status: 'new', index: 1 },
-            ])
-        )
+        expect(calls).toEqual([
+            { status: 'dormant', index: 0 },
+            { status: 'new', index: 1 },
+        ])
     })
 
     it('marks excluded series with visibility.excluded so the chart skips them', () => {
@@ -121,6 +120,30 @@ describe('buildTrendsLifecycleSeries', () => {
     it('falls back to "None" label when the result label is null', () => {
         const series = buildTrendsLifecycleSeries([{ id: 'new', status: 'new', label: null, data: [1] }], { getColor })
         expect(series[0].label).toBe('None')
+    })
+})
+
+describe('filterToggledLifecycleResults', () => {
+    const rows = [
+        { status: 'new', data: [1] },
+        { status: 'returning', data: [2] },
+        { status: 'dormant', data: [-3] },
+    ]
+
+    it('returns every row unchanged when no toggle is set', () => {
+        expect(filterToggledLifecycleResults(rows, undefined)).toBe(rows)
+    })
+
+    it('keeps only rows whose status is toggled on', () => {
+        expect(filterToggledLifecycleResults(rows, ['new', 'dormant'])).toEqual([
+            { status: 'new', data: [1] },
+            { status: 'dormant', data: [-3] },
+        ])
+    })
+
+    it('drops rows without a status once a toggle is active', () => {
+        const withUnstatused = [...rows, { status: undefined, data: [9] }]
+        expect(filterToggledLifecycleResults(withUnstatused, ['new'])).toEqual([{ status: 'new', data: [1] }])
     })
 })
 

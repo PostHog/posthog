@@ -1,9 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import type { ReactElement } from 'react'
 
+import { CHART_COLORS, CHART_THEME } from '@posthog/mcp-ui'
+import { ChartDemoFrame } from '@posthog/mcp-ui/storybook/ChartDemoFrame'
 import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
 import { TimeSeriesBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
-import type { ChartTheme } from '@posthog/quill-charts'
 
 import {
     buildRetentionBarChartConfig,
@@ -11,19 +12,6 @@ import {
     buildRetentionSeries,
     type RetentionTrendSeriesEntry,
 } from '../../frontend/insights/retention/shared/retentionChartTransforms'
-
-// PostHog brand palette — mirrors services/mcp/src/ui-apps/components/charts/theme.ts
-const CHART_COLORS = ['#1d4aff', '#621da6', '#00d683', '#f54e00', '#f7a501', '#dc2626']
-
-const CHART_THEME: ChartTheme = {
-    colors: CHART_COLORS,
-    backgroundColor: '#ffffff',
-    axisColor: '#9ca3af',
-    gridColor: 'rgba(128,128,128,0.2)',
-    crosshairColor: 'rgba(128,128,128,0.5)',
-    tooltipBackground: '#ffffff',
-    tooltipColor: '#111827',
-}
 
 // Three cohorts measured over five intervals — each `data` value is a retention percentage (0..100).
 const COHORTS: RetentionTrendSeriesEntry[] = [
@@ -65,9 +53,6 @@ export default meta
 
 type Story = StoryObj<{}>
 
-// Renders the chart the same way the MCP app does: assemble series + config from cohort entries, then
-// hand them to quill. Fixed pixel size, not width:100% — the chart sizes its canvas off a
-// ResizeObserver, which measures 0 for a percentage width at mount in the headless snapshot runner.
 function RetentionChartDemo({
     entries,
     mode,
@@ -80,8 +65,7 @@ function RetentionChartDemo({
         color: CHART_COLORS[i % CHART_COLORS.length]!,
     }))
     return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ display: 'flex', flexDirection: 'column', width: 640, height: 320 }}>
+        <ChartDemoFrame>
             {mode === 'bar' ? (
                 <TimeSeriesBarChart
                     series={series}
@@ -97,7 +81,7 @@ function RetentionChartDemo({
                     config={buildRetentionLineChartConfig({ isPercentage: true, series })}
                 />
             )}
-        </div>
+        </ChartDemoFrame>
     )
 }
 

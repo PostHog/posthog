@@ -1,4 +1,4 @@
-import { type ReactElement, useState } from 'react'
+import { type ReactElement, useMemo, useState } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
@@ -70,7 +70,31 @@ function calculateTotal(results: TrendsResultItem[]): number {
 export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): ReactElement {
     const displayType = getDisplayType(query)
     const [chartMode, setChartMode] = useState<ChartMode>(isBarChart(displayType) ? 'bar' : 'line')
-    const { series, labels, maxValue } = prepareChartData(results)
+
+    const { series, labels, maxValue } = useMemo(() => prepareChartData(results), [results])
+
+    const { lineSeries, lineConfig } = useMemo(() => {
+        const lineResults = results.map((item, i) => ({
+            id: i,
+            label: getSeriesLabel(item, i),
+            data: item.data ?? [],
+            days: item.days,
+        }))
+        return {
+            lineSeries: buildTrendsSeries(lineResults, {
+                isArea: displayType === 'ActionsAreaGraph',
+                getColor: (_, index) => CHART_COLORS[index % CHART_COLORS.length]!,
+            }),
+            lineConfig: buildTrendsLineTimeSeriesConfig({
+                results: lineResults,
+                trendsFilter: query?.trendsFilter,
+                yAxisLabel: results.length === 1 && results[0] ? getSeriesLabel(results[0], 0) : undefined,
+                isPercentStackView: false,
+                showCrosshair: true,
+                xAxisTickFormatter: (value) => formatDate(value),
+            }),
+        }
+    }, [results, displayType, query?.trendsFilter])
 
     if (!results || results.length === 0 || series.length === 0) {
         return (
@@ -88,27 +112,6 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         const label = results[0] ? getSeriesLabel(results[0], 0) : 'Total'
         return <BigNumber value={total} label={label} />
     }
-
-    const lineResults = results.map((item, i) => ({
-        id: i,
-        label: getSeriesLabel(item, i),
-        data: item.data ?? [],
-        days: item.days,
-    }))
-
-    const lineSeries = buildTrendsSeries(lineResults, {
-        isArea: displayType === 'ActionsAreaGraph',
-        getColor: (_, index) => CHART_COLORS[index % CHART_COLORS.length]!,
-    })
-
-    const lineConfig = buildTrendsLineTimeSeriesConfig({
-        results: lineResults,
-        trendsFilter: query?.trendsFilter,
-        yAxisLabel: results.length === 1 && results[0] ? getSeriesLabel(results[0], 0) : undefined,
-        isPercentStackView: false,
-        showCrosshair: true,
-        xAxisTickFormatter: (value) => formatDate(value),
-    })
 
     return (
         <div>

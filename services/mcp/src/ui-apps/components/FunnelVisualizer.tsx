@@ -4,17 +4,17 @@ import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
 import { SingleStepBar } from 'products/product_analytics/frontend/insights/funnels/FunnelBarHorizontalChart/SingleStepBar'
-import { buildFunnelConversionStep } from 'products/product_analytics/frontend/insights/funnels/shared/funnelBarHorizontalShared'
+import {
+    buildFunnelConversionStep,
+    funnelConversionRate,
+} from 'products/product_analytics/frontend/insights/funnels/shared/funnelBarHorizontalShared'
 
-import { CHART_THEME } from './charts/theme'
+import { CHART_THEME, FILLER_COLOR, FUNNEL_COLOR } from './charts/theme'
 import type { FunnelVisualizerProps } from './types'
 import { formatNumber, formatPercent, normalizeFunnelSteps } from './utils'
 
-// Single brand blue for every step's converted band — the bar length already encodes conversion, so
-// distinct per-step colors would only add noise. Canvas can't read CSS variables, so use a hex.
-const FUNNEL_COLOR = '#1d4aff'
-// Light grey drop-off filler — matches the web chart's `--color-border-primary` fallback.
-const FILLER_COLOR = 'rgba(0, 0, 0, 0.08)'
+const NOOP = (): void => {}
+const NO_TOOLTIP = (): null => null
 
 export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactElement {
     const steps = normalizeFunnelSteps(results)
@@ -30,16 +30,15 @@ export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactEleme
         )
     }
 
-    const firstCount = steps[0]?.count || 1
+    const firstCount = steps[0]?.count ?? 0
     const lastCount = steps[steps.length - 1]?.count ?? 0
 
     return (
         <div data-attr="funnel-bar-horizontal" className="w-full">
             <div className="flex flex-col">
                 {steps.map((step, stepIndex) => {
-                    const fractionOfBasis = step.count / firstCount
-                    const prevCount = stepIndex > 0 ? (steps[stepIndex - 1]?.count ?? 0) : step.count
-                    const fromPrevious = prevCount > 0 ? step.count / prevCount : 0
+                    const fractionOfBasis = funnelConversionRate(step.count, firstCount)
+                    const fromPrevious = funnelConversionRate(step.count, steps[stepIndex - 1]?.count ?? 0)
                     const stepData = buildFunnelConversionStep({
                         stepIndex,
                         label: step.name,
@@ -62,9 +61,9 @@ export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactEleme
                                 stepData={stepData}
                                 theme={CHART_THEME}
                                 interactive={false}
-                                onSegmentClick={() => {}}
-                                renderTooltip={() => null}
-                                onError={() => {}}
+                                onSegmentClick={NOOP}
+                                renderTooltip={NO_TOOLTIP}
+                                onError={NOOP}
                             />
                             {stepIndex > 0 && (
                                 <div className="text-xs text-muted-foreground">

@@ -25,6 +25,19 @@ function lifecycleStatusOrder(status: string | undefined): number {
     return i === -1 ? LIFECYCLE_STATUS_ORDER.length : i
 }
 
+/** Drops rows whose lifecycle status is toggled off — mirrors the main app's legend toggles, which
+ *  the MCP host honors from the query (the web chart toggles interactively instead). With no toggle
+ *  set every row passes; once a toggle is active, a row without a status is dropped. */
+export function filterToggledLifecycleResults<R extends { status?: string }>(
+    results: R[],
+    toggledLifecycles: readonly string[] | undefined
+): R[] {
+    if (!toggledLifecycles) {
+        return results
+    }
+    return results.filter((r) => !!r.status && toggledLifecycles.includes(r.status))
+}
+
 export interface BuildTrendsLifecycleSeriesOpts<R extends TrendsLifecycleResultLike, M = unknown> {
     // Injected so the transform stays free of `lib/colors` (the MCP bundle can't resolve it). Web
     // passes `getBarColorFromStatus`, which throws on unknown statuses — surfacing bad data rather

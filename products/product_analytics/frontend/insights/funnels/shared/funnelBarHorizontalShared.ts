@@ -15,6 +15,12 @@ export const FUNNEL_BAR_HORIZONTAL_VALUE_DOMAIN: [number, number] = [0, 100]
 
 export const RATE_TO_PERCENT = 100
 
+/** Conversion of a step's count against a basis count, as a 0..1 rate. A zero or absent basis
+ *  yields 0 (rather than dividing by zero) so the bar collapses instead of rendering NaN. */
+export function funnelConversionRate(count: number, basisCount: number): number {
+    return basisCount > 0 ? count / basisCount : 0
+}
+
 export interface FunnelBarHorizontalSegmentMeta {
     isDropOff: boolean
     breakdownIndex: number | null

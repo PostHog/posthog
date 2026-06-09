@@ -34,8 +34,6 @@ const makeResult = (overrides: Partial<TrendsResultLike> = {}): TrendsResultLike
 describe('trendsChartTransforms', () => {
     describe('schema type firewall', () => {
         it('keeps the schema GoalLine / TrendsFilter assignable to the neutral structural types', () => {
-            // Assignment is checked at compile time by the return types above; the runtime assertions
-            // just keep the helpers referenced so they participate in the typecheck.
             expect(asNeutralGoalLine({ label: 'goal', value: 10 })).toMatchObject({ label: 'goal', value: 10 })
             expect(asNeutralYFormatterFields({ decimalPlaces: 2 })).toMatchObject({ decimalPlaces: 2 })
         })

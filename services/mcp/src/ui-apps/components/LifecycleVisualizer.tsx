@@ -7,25 +7,14 @@ import { ChartLegend, TimeSeriesBarChart, legendItemsFromSeries } from '@posthog
 import {
     buildTrendsLifecycleConfig,
     buildTrendsLifecycleSeries,
+    filterToggledLifecycleResults,
 } from 'products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/trendsLifecycleChartTransforms'
 
-import { CHART_THEME } from './charts/theme'
-import type { LifecycleResultItem, LifecycleStatus, LifecycleVisualizerProps } from './types'
+import { CHART_THEME, lifecycleColor } from './charts/theme'
+import type { LifecycleVisualizerProps } from './types'
 import { formatDate } from './utils'
 
-// Conventional lifecycle bucket colors — mirrors --color-lifecycle-* in frontend/src/styles/base.scss.
-// Canvas can't read CSS variables, so we hand the chart concrete hexes via the injected `getColor`.
-const LIFECYCLE_COLORS: Record<LifecycleStatus, string> = {
-    new: '#1d4aff',
-    returning: '#388600',
-    resurrecting: '#a56eff',
-    dormant: '#db3707',
-}
-
 const LIFECYCLE_TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
-
-const lifecycleColor = (status: string | undefined): string =>
-    LIFECYCLE_COLORS[(status ?? 'new') as LifecycleStatus] ?? LIFECYCLE_COLORS.new
 
 export function LifecycleVisualizer({ query, results }: LifecycleVisualizerProps): ReactElement {
     const isStacked = query?.lifecycleFilter?.stacked ?? true
@@ -34,12 +23,7 @@ export function LifecycleVisualizer({ query, results }: LifecycleVisualizerProps
 
     const { series, labels } = useMemo(() => {
         const items = results ?? []
-        // The backend always returns all four buckets; `toggledLifecycles` is a client-side filter in
-        // the main app that hides the toggled-off ones. Mirror that by dropping them before building.
-        const visible = items.filter(
-            (item: LifecycleResultItem) =>
-                !toggledLifecycles || (item.status && toggledLifecycles.includes(item.status))
-        )
+        const visible = filterToggledLifecycleResults(items, toggledLifecycles)
         const lifecycleSeries = buildTrendsLifecycleSeries(
             visible.map((item, i) => ({
                 id: i,

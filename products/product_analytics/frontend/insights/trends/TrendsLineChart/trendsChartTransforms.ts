@@ -85,7 +85,7 @@ export function buildTrendsSeries<R extends TrendsResultLike, M = unknown>(
 export interface BuildDerivedConfigsOpts<R extends TrendsResultLike> {
     showConfidenceIntervals?: boolean
     confidenceLevel?: number
-    // Injected so the transforms stay free of `lib/statistics`. CI is skipped when omitted.
+    // Injected so the transforms stay free of `lib/statistics`.
     ciRanges?: CiRangesFn
     showMovingAverage?: boolean
     movingAverageIntervals?: number

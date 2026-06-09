@@ -126,10 +126,21 @@ function sortCohorts(results: RetentionResult): RetentionResult {
 // than cycling — beyond this the lines blur into noise anyway.
 const MAX_COHORTS = CHART_COLORS.length
 
+function retentionYAxisLabel(aggregationType: RetentionAggregationType): string {
+    if (aggregationType === 'count') {
+        return 'Retention %'
+    }
+    if (aggregationType === 'sum') {
+        return 'Sum'
+    }
+    return 'Avg'
+}
+
 export function RetentionVisualizer({ query, results }: RetentionVisualizerProps): ReactElement {
     const aggregationType: RetentionAggregationType = query?.retentionFilter?.aggregationType ?? 'count'
     const reference: RetentionReference = query?.retentionFilter?.retentionReference ?? 'total'
     const period: RetentionPeriod = query?.retentionFilter?.period ?? 'Day'
+    // `count` aggregation renders retention as a percentage of the cohort; sum/avg show absolute values.
     const isPercentage = aggregationType === 'count'
     const showTrendLines = query?.retentionFilter?.showTrendLines ?? false
 
@@ -170,7 +181,7 @@ export function RetentionVisualizer({ query, results }: RetentionVisualizerProps
         [entries]
     )
 
-    const yAxisLabel = isPercentage ? 'Retention %' : aggregationType === 'sum' ? 'Sum' : 'Avg'
+    const yAxisLabel = retentionYAxisLabel(aggregationType)
 
     const lineConfig = useMemo(() => {
         const config = buildRetentionLineChartConfig({

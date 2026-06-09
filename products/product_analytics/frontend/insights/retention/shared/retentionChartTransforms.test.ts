@@ -37,8 +37,6 @@ const TOOLTIP: TooltipConfig = { pinnable: true, placement: 'top' }
 describe('retentionChartTransforms', () => {
     describe('schema type firewall', () => {
         it('keeps the schema RetentionTrendPayload / GoalLine assignable to the neutral structural types', () => {
-            // Assignment is checked at compile time by the return types above; the runtime assertions
-            // just keep the helpers referenced so they participate in the typecheck.
             expect(
                 asNeutralRetentionResult({
                     count: 100,
