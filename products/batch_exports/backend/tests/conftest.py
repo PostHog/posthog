@@ -4,7 +4,6 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team
-from posthog.models.team.util import delete_batch_exports
 
 
 @pytest_asyncio.fixture
@@ -24,5 +23,8 @@ async def ateam(aorganization):
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
 
     yield team
-    await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
+    # Skip Temporal schedule cleanup — team.delete() CASCADE-deletes BatchExport
+    # rows from the DB, and Temporal schedules in CI don't need explicit removal.
+    # Calling delete_batch_exports() here can hang indefinitely because
+    # sync_to_async threads blocked on gRPC cannot be cancelled by asyncio.
     await sync_to_async(team.delete)()

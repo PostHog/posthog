@@ -1,7 +1,6 @@
 import { BuiltLogic, actions, kea, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -21,14 +20,11 @@ import type { experimentLogicType } from './experimentLogicType'
 import type { experimentSceneLogicType } from './experimentSceneLogicType'
 import { stepStorageKey } from './ExperimentWizard/experimentWizardLogic'
 
-export interface ExperimentSceneLogicProps extends ExperimentLogicProps {
-    tabId?: string
-}
+export interface ExperimentSceneLogicProps extends ExperimentLogicProps {}
 
 export const experimentSceneLogic = kea<experimentSceneLogicType>([
     props({} as ExperimentSceneLogicProps),
     path(['scenes', 'experiments', 'experimentSceneLogic']),
-    tabAwareScene(),
     actions({
         setActiveTabKey: (activeTabKey: string) => ({ activeTabKey }),
         setSceneState: (experimentId: Experiment['id'], formMode: FormModes) => ({ experimentId, formMode }),
@@ -77,7 +73,6 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
         ],
     }),
     selectors({
-        tabId: [() => [(_, props) => props.tabId], (tabId: string | undefined): string | undefined => tabId],
         experimentSelector: [
             (s) => [s.experimentLogicRef],
             (experimentLogicRef) => experimentLogicRef?.logic.selectors.experiment,
@@ -164,10 +159,6 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
     }),
     sharedListeners(({ actions, values }) => ({
         ensureExperimentLogicMounted: () => {
-            if (!values.tabId) {
-                throw new Error('Tab-aware scene logic must have a tabId prop')
-            }
-
             const currentProps = values.experimentLogicRef?.props
             const desiredExperimentId = values.experimentId ?? 'new'
             const desiredFormMode = values.formMode ?? FORM_MODES.update
@@ -175,15 +166,13 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             if (
                 !values.experimentLogicRef ||
                 currentProps?.experimentId !== desiredExperimentId ||
-                currentProps?.formMode !== desiredFormMode ||
-                currentProps?.tabId !== values.tabId
+                currentProps?.formMode !== desiredFormMode
             ) {
                 const oldRef = values.experimentLogicRef
 
                 const logicProps: ExperimentLogicProps = {
                     experimentId: desiredExperimentId,
                     formMode: desiredFormMode,
-                    tabId: values.tabId,
                 }
 
                 const logic = experimentLogic.build(logicProps)
@@ -273,7 +262,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                     if (shouldReset) {
                         // Clear wizard step before the wizard mounts so it starts on 'about'
                         try {
-                            sessionStorage.removeItem(stepStorageKey(values.tabId!))
+                            sessionStorage.removeItem(stepStorageKey())
                         } catch {
                             // ignore
                         }

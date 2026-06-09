@@ -10,12 +10,11 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from django.conf import settings
-from django.http import HttpResponse, StreamingHttpResponse
+from django.http import HttpResponse
 from django.http.response import HttpResponseBase
 
 import structlog
 import posthoganalytics
-from asgiref.sync import sync_to_async
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -25,7 +24,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import sse_streaming_response
 from posthog.models.scoping import team_scope
+from posthog.sync import database_sync_to_async
 
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import (
@@ -281,15 +282,9 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             skill_id=skill_id,
             request=request,
         )
-        return StreamingHttpResponse(
-            generator,
-            status=status.HTTP_200_OK,
-            content_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache, no-transform",
-                "X-Accel-Buffering": "no",
-            },
-        )
+        # Releases the request-thread DB connection (auth, team resolution) before
+        # the long-lived stream begins — see sse_streaming_response.
+        return sse_streaming_response(generator)
 
 
 async def _wizard_session_event_stream(
@@ -311,7 +306,9 @@ async def _wizard_session_event_stream(
             with team_scope(team_id):
                 return wizard_facade.get_latest(team_id, workflow_id, skill_id)
 
-        latest = await sync_to_async(_get_initial, thread_sensitive=False)()
+        # database_sync_to_async releases the DB connection after the read so it
+        # isn't pinned for the whole SSE stream (CONN_MAX_AGE=0; loop is Redis-only).
+        latest = await database_sync_to_async(_get_initial, thread_sensitive=False)()
         if latest is not None:
             yield b"data: " + wizard_facade.serialize_dto(latest) + b"\n\n"
 

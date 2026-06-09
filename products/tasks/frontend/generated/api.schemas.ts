@@ -12,6 +12,17 @@ export interface CodeInviteRedeemRequestApi {
     code: string
 }
 
+/**
+ * * `burst` - burst
+ * `sustained` - sustained
+ */
+export type LimitTypeEnumApi = (typeof LimitTypeEnumApi)[keyof typeof LimitTypeEnumApi]
+
+export const LimitTypeEnumApi = {
+    Burst: 'burst',
+    Sustained: 'sustained',
+} as const
+
 export interface TaskRunErrorResponseApi {
     /** Human-readable validation error */
     detail?: string
@@ -25,6 +36,15 @@ export interface TaskRunErrorResponseApi {
     attr?: string
     /** Artifact ids that could not be resolved for the run */
     missing_artifact_ids?: string[]
+    /** Which usage limit was hit on a rate_limited error: 'burst' (daily) or 'sustained' (monthly)
+
+  * `burst` - burst
+  * `sustained` - sustained */
+    limit_type?: LimitTypeEnumApi
+    /** ISO 8601 timestamp when the hit usage limit resets, when known */
+    reset_at?: string
+    /** Whether the team is on a Pro plan (drives the upgrade-prompt copy) */
+    is_pro?: boolean
 }
 
 /**
