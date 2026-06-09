@@ -233,6 +233,11 @@ class PostHogCallback(InstrumentedCallback):
             for key, value in posthog_properties.items():
                 properties[key] = value
 
+        if isinstance(metadata, dict):
+            for key, value in metadata.items():
+                if key not in properties and key != "user_id":
+                    properties[key] = value
+
         posthog_flags = get_posthog_flags() or {}
         if isinstance(posthog_flags, dict):
             for flag_key, variant in posthog_flags.items():
