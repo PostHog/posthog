@@ -8,6 +8,7 @@ from django.db import transaction
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.task_run_artefacts import append_task_run_artefact
 
 
 @dataclass(frozen=True)
@@ -22,8 +23,13 @@ def create_custom_agent_ready_report(
     final_report: CustomAgentFinalReport,
     repo_selection: RepoSelectionResult,
     task_id: str | None = None,
+    agent_identifier: tuple[str, str],
 ) -> PersistedCustomAgentReport:
-    """Create a final READY report plus compatible artefacts in one transaction."""
+    """Create a final READY report plus compatible artefacts in one transaction.
+
+    `agent_identifier` is the agent's `(product, type)` pair; it labels the `task_run` artefact
+    when this run produced a task.
+    """
     with transaction.atomic():
         report = SignalReport.objects.create(
             team_id=team_id,
@@ -74,6 +80,14 @@ def create_custom_agent_ready_report(
                 report=report,
                 task_id=task_id,
                 relationship=SignalReportTask.Relationship.RESEARCH,
+            )
+            product, type = agent_identifier
+            append_task_run_artefact(
+                team_id=team_id,
+                report_id=str(report.id),
+                product=product,
+                type=type,
+                task_id=task_id,
             )
 
     return PersistedCustomAgentReport(report_id=str(report.id), task_id=task_id)

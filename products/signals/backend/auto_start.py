@@ -16,6 +16,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.signals.backend.slack_inbox_notifications import POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME
+from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, aappend_task_run_artefact
 from products.tasks.backend.models import Task
 
 logger = structlog.get_logger(__name__)
@@ -202,4 +203,12 @@ async def maybe_autostart_implementation_task(
         report_id=report_id,
         task=task,
         relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+    )
+    await aappend_task_run_artefact(
+        team_id=team_id,
+        report_id=report_id,
+        product=SIGNALS_PRODUCT,
+        type=SignalReportTask.Relationship.IMPLEMENTATION,
+        task_id=str(task.id),
+        run_id=str(task_run.id),
     )

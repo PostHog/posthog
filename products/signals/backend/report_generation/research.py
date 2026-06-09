@@ -581,12 +581,20 @@ async def run_multi_turn_research(
         # Record the research task relationship immediately after task creation
         if signal_report_id:
             from products.signals.backend.models import SignalReportTask
+            from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, aappend_task_run_artefact
 
             await SignalReportTask.objects.acreate(
                 team_id=context.team_id,
                 report_id=signal_report_id,
                 task_id=str(session.task.id),
                 relationship=SignalReportTask.Relationship.RESEARCH,
+            )
+            await aappend_task_run_artefact(
+                team_id=context.team_id,
+                report_id=signal_report_id,
+                product=SIGNALS_PRODUCT,
+                type=SignalReportTask.Relationship.RESEARCH,
+                task_id=str(session.task.id),
             )
 
         first_finding = _enforce_signal_id(first_finding, signals[0].signal_id)

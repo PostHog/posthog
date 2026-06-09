@@ -169,8 +169,12 @@ python manage.py backfill_task_run_artefacts
 ```
 
 Idempotent — skips any report that already has a `task_run` artefact referencing the same task, so it
-is safe to re-run. Maps `research → signals_research`, `implementation → auto_implementation`,
-`repo_selection → repo_selection`.
+is safe to re-run. Each artefact carries a `(product, type)` pair: these are signals-pipeline runs, so
+`product` is `signals` and `type` is the relationship (`research` / `implementation` / `repo_selection`).
+Backfilled artefacts are backdated to their `SignalReportTask.created_at` so the log stays
+chronologically correct (the artefact row is created now, but the run happened earlier). Live creation
+paths append the same artefacts at run time going forward — custom agents instead use their own
+`identifier()` `(product, type)` pair.
 
 ## Tips
 

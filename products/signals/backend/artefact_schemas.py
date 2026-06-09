@@ -12,9 +12,14 @@ entries that accumulate on a report — plus the two code artefacts introduced a
 
 from __future__ import annotations
 
-from enum import Enum
+import re
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+# Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
+# contract (see custom_agent.schemas.validate_identifier_part), kept inline so this module stays
+# dependency-light (pydantic only).
+_IDENTIFIER_PART_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
 class CodeReference(BaseModel):
@@ -104,29 +109,26 @@ class PushedBranch(BaseModel):
         return v
 
 
-class TaskRunRelationship(str, Enum):
-    """How a referenced task run relates to its report. Distinct from
-    `SignalReportTask.Relationship` — these label the run as it appears in the report work log.
-    """
-
-    SIGNALS_RESEARCH = "signals_research"
-    AUTO_IMPLEMENTATION = "auto_implementation"
-    REPO_SELECTION = "repo_selection"
-    CUSTOM_AGENT = "custom_agent"
-    MANUAL = "manual"
-
-
 class TaskRunArtefact(BaseModel):
     """Content schema for a `task_run` artefact: a reference to a `tasks.Task` run executed for
     the report (research, implementation, …), surfaced as an entry in the report work log.
 
-    The artefact is only a pointer — the run's logs, status and output are read live from the
-    tasks API by `task_id` / `run_id`.
+    `product` / `type` follow the custom-agent identifier shape: the built-in signals pipeline
+    uses `product="signals"` with `type` in `{research, implementation, repo_selection}`, while a
+    custom agent supplies its own `identifier()` pair. The artefact is only a pointer — the run's
+    logs, status and output are read live from the tasks API by `task_id` / `run_id`.
     """
 
     task_id: str = Field(description="UUID of the `tasks.Task` this run belongs to.")
     run_id: str | None = Field(default=None, description="UUID of the specific `TaskRun`, if known.")
-    relationship: TaskRunRelationship = Field(description="How this run relates to the report.")
+    product: str = Field(
+        description="Product that ran the task — `signals` for the built-in pipeline, or a custom agent's "
+        "product identifier."
+    )
+    type: str = Field(
+        description="Task type within the product — e.g. `research` / `implementation` / `repo_selection` "
+        "for the signals pipeline, or a custom agent's type identifier."
+    )
 
     @field_validator("task_id")
     @classmethod
@@ -134,6 +136,17 @@ class TaskRunArtefact(BaseModel):
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         return v
+
+    @field_validator("product", "type")
+    @classmethod
+    def identifier_part_must_be_routing_safe(cls, v: str) -> str:
+        normalized = v.strip()
+        if not _IDENTIFIER_PART_RE.fullmatch(normalized):
+            raise ValueError(
+                "must contain only lowercase letters, numbers, underscores, or hyphens, "
+                "and must start with a lowercase letter or number"
+            )
+        return normalized
 
 
 class NoteArtefact(BaseModel):

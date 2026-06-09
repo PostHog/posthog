@@ -461,6 +461,7 @@ Rules:
             final_report=final,
             repo_selection=self._resolved_repository,
             task_id=task_id,
+            agent_identifier=type(self).identifier(),
         )
         self._persisted_reports.append(persisted)
         await self._maybe_autostart(persisted, final)

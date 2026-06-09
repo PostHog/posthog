@@ -2,16 +2,8 @@ import json
 
 from django.core.management.base import BaseCommand
 
-from products.signals.backend.artefact_schemas import TaskRunArtefact, TaskRunRelationship
 from products.signals.backend.models import SignalReportArtefact, SignalReportTask
-
-# SignalReportTask.Relationship -> the task_run artefact's own relationship enum. The artefact
-# enum is intentionally richer/distinct (see artefact_schemas.TaskRunRelationship).
-_RELATIONSHIP_MAP: dict[str, TaskRunRelationship] = {
-    SignalReportTask.Relationship.RESEARCH: TaskRunRelationship.SIGNALS_RESEARCH,
-    SignalReportTask.Relationship.IMPLEMENTATION: TaskRunRelationship.AUTO_IMPLEMENTATION,
-    SignalReportTask.Relationship.REPO_SELECTION: TaskRunRelationship.REPO_SELECTION,
-}
+from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, append_task_run_artefact
 
 
 class Command(BaseCommand):
@@ -53,15 +45,18 @@ class Command(BaseCommand):
         if team_id is not None:
             report_tasks = report_tasks.filter(team_id=team_id)
 
+        valid_types = set(SignalReportTask.Relationship.values)
+
         created = 0
         skipped = 0
         for report_task in report_tasks.iterator():
-            relationship = _RELATIONSHIP_MAP.get(report_task.relationship)
-            if relationship is None:
+            # SignalReportTask rows are all signals-pipeline runs: product is `signals`, type is
+            # the relationship (research / implementation / repo_selection).
+            task_type = report_task.relationship
+            if task_type not in valid_types:
                 self.stdout.write(
                     self.style.WARNING(
-                        f"Skipping SignalReportTask {report_task.id}: unmapped relationship "
-                        f"'{report_task.relationship}'."
+                        f"Skipping SignalReportTask {report_task.id}: unknown relationship '{task_type}'."
                     )
                 )
                 skipped += 1
@@ -73,21 +68,25 @@ class Command(BaseCommand):
                 skipped += 1
                 continue
 
-            content = TaskRunArtefact(task_id=task_id, run_id=None, relationship=relationship).model_dump_json()
             if dry_run:
                 self.stdout.write(
                     f"[dry-run] would create task_run artefact for report {report_id} "
-                    f"(task {task_id}, {relationship.value})"
+                    f"(task {task_id}, {SIGNALS_PRODUCT}/{task_type})"
                 )
                 created += 1
                 continue
 
-            SignalReportArtefact.add_log(
+            artefact = append_task_run_artefact(
                 team_id=report_task.team_id,
                 report_id=report_id,
-                type=SignalReportArtefact.ArtefactType.TASK_RUN,
-                content=content,
+                product=SIGNALS_PRODUCT,
+                type=task_type,
+                task_id=task_id,
             )
+            # Backdate to when the task actually ran (the artefact is created now, but the run
+            # happened when its SignalReportTask was recorded). `.update()` bypasses auto_now(_add)
+            # so the log stays chronologically correct.
+            SignalReportArtefact.objects.filter(pk=artefact.pk).update(created_at=report_task.created_at)
             created += 1
 
         verb = "would create" if dry_run else "created"

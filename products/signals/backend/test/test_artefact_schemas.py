@@ -10,7 +10,6 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     PushedBranch,
     TaskRunArtefact,
-    TaskRunRelationship,
 )
 
 
@@ -48,11 +47,17 @@ class TestArtefactSchemas(SimpleTestCase):
         with self.assertRaises(ValidationError):
             PushedBranch(repository="", branch="fix/foo")
 
-    def test_task_run_relationship_enum(self):
-        artefact = TaskRunArtefact(task_id="abc", relationship="signals_research")
-        assert artefact.relationship is TaskRunRelationship.SIGNALS_RESEARCH
+    def test_task_run_carries_product_and_type(self):
+        artefact = TaskRunArtefact(task_id="abc", product="signals", type="research")
+        assert artefact.product == "signals"
+        assert artefact.type == "research"
+
+    @parameterized.expand([("product",), ("type",)])
+    def test_task_run_rejects_non_routing_safe_identifier(self, field):
+        kwargs = {"task_id": "abc", "product": "signals", "type": "research"}
+        kwargs[field] = "Not Safe!"
         with self.assertRaises(ValidationError):
-            TaskRunArtefact(task_id="abc", relationship="not_a_relationship")
+            TaskRunArtefact(**kwargs)
 
     def test_note_rejects_blank(self):
         assert NoteArtefact(note="hello").note == "hello"

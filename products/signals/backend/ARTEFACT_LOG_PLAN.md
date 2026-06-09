@@ -77,9 +77,9 @@ producers stay thin and call into it:
 
 Helpers take already-serialized `content` (JSON text); the caller that holds the typed object
 serializes it. **No type→schema registry and no per-type validation dispatch.** The generic
-write endpoint validates only (a) the artefact type is an allowed *log* type and (b) `content`
+write endpoint validates only (a) the artefact type is an allowed _log_ type and (b) `content`
 is a JSON object/array, then stores it. The per-type Pydantic schemas in `artefact_schemas.py`
-are the source of truth for *producers* (deterministic code, the backfill command, and the
+are the source of truth for _producers_ (deterministic code, the backfill command, and the
 shapes the MCP tool documents) — they are not wired into a server-side dispatch.
 
 ### Write surface
@@ -98,22 +98,23 @@ shapes the MCP tool documents) — they are not wired into a server-side dispatc
 
 - For now, `task_run` artefacts **coexist** with `SignalReportTask`. A management
   command backfills a `task_run` artefact from each existing `SignalReportTask` row.
-- The `task_run` content carries its **own** `relationship` enum
-  (`signals_research`, `auto_implementation`, `repo_selection`, `custom_agent`, …) —
-  intentionally distinct from `SignalReportTask.Relationship`.
-- Removing `SignalReportTask` *creation* is deferred to a later PR (we keep reading it
+- The `task_run` content carries a `(product, type)` pair following the custom-agent
+  identifier shape: the built-in signals pipeline uses `product="signals"` with `type`
+  in `{research, implementation, repo_selection}`; custom agents supply their own
+  `identifier()` pair (e.g. `("billing", "anomaly_scan")`).
+- Removing `SignalReportTask` _creation_ is deferred to a later PR (we keep reading it
   until the backfill has run everywhere).
 
 ## Artefact content shapes (new types)
 
-| Type            | Content                                                                                          |
-| --------------- | ------------------------------------------------------------------------------------------------ |
-| `code_reference`| `{file_path, start_line, end_line, contents, relevance_note}` — a contiguous span (exists)        |
-| `code_diff`     | `{file_path, diff, relevance_note}` — a unified diff for one file (exists)                         |
-| `line_reference`| a single line of code (a point) for tour-style callouts — `{file_path, line, note}`               |
-| `pushed_branch` | a pushed remote branch (no PR opened) used to render a full would-be PR diff in the UI            |
-| `task_run`      | reference to a `tasks.Task` run with a `relationship` enum (`signals_research`, `auto_implementation`, …) |
-| `note`          | free-form note authored by an agent or by code                                                    |
+| Type             | Content                                                                                             |
+| ---------------- | --------------------------------------------------------------------------------------------------- |
+| `code_reference` | `{file_path, start_line, end_line, contents, relevance_note}` — a contiguous span (exists)          |
+| `code_diff`      | `{file_path, diff, relevance_note}` — a unified diff for one file (exists)                          |
+| `line_reference` | a single line of code (a point) for tour-style callouts — `{file_path, line, note}`                 |
+| `pushed_branch`  | a pushed remote branch (no PR opened) used to render a full would-be PR diff in the UI              |
+| `task_run`       | reference to a `tasks.Task` run as `{task_id, run_id, product, type}` (e.g. `signals` / `research`) |
+| `note`           | free-form note authored by an agent or by code                                                      |
 
 Schemas are simple Pydantic models in `products/signals/backend/artefact_schemas.py`, a
 dependency-light module (pydantic only) so the API layer can import it without pulling in the
@@ -128,7 +129,7 @@ report-research / sandbox machinery. `CodeReference` / `CodeDiff` were moved her
    additive migration: `AddField(updated_at, null=True)` + a state-only
    `AlterField(type, choices=…)`.
 2. **Content schemas.** Pydantic models for `LineReference`, `PushedBranch`,
-   `TaskRunArtefact` (with the `relationship` enum), `NoteArtefact`.
+   `TaskRunArtefact` (with `product` / `type` identifier parts), `NoteArtefact`.
 3. **Viewset actions.** `create` (POST, returns UUID), `update` (PATCH by UUID),
    `delete` (DELETE by UUID) on `SignalReportArtefactViewSet`, reusing
    `scope_object = "task"`, delegating to the model helpers, with a log-type allow-list
@@ -150,7 +151,7 @@ and the MCP server strips every `readOnly:false` tool — even though their toke
 do **not** yet surface to those agents.
 
 Surfacing them to the agents needs `has_write_scopes` to be true for their preset — the same
-mechanism the scout uses. The intended follow-up (no new *scope* — reuses `task:write`) is a
+mechanism the scout uses. The intended follow-up (no new _scope_ — reuses `task:write`) is a
 dedicated `signals_report` MCP preset mirroring `signals_scout` in `posthog/temporal/oauth.py`
 (`McpScopePreset`, `MCP_SCOPE_PRESETS`, `resolve_scopes`, `has_write_scopes`), with the three agent
 call sites flipped from `"read_only"` to it. Deferred so this PR stays a focused data-model +

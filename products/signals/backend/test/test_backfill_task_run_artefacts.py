@@ -46,13 +46,20 @@ class TestBackfillTaskRunArtefacts(BaseTest):
 
         call_command("backfill_task_run_artefacts")
 
-        artefacts = {
-            json.loads(a.content)["task_id"]: json.loads(a.content)["relationship"]
-            for a in self._task_run_artefacts(report)
-        }
-        assert artefacts[str(research.task_id)] == "signals_research"
-        assert artefacts[str(implementation.task_id)] == "auto_implementation"
-        assert artefacts[str(repo_selection.task_id)] == "repo_selection"
+        artefacts = {json.loads(a.content)["task_id"]: json.loads(a.content) for a in self._task_run_artefacts(report)}
+        assert all(c["product"] == "signals" for c in artefacts.values())
+        assert artefacts[str(research.task_id)]["type"] == "research"
+        assert artefacts[str(implementation.task_id)]["type"] == "implementation"
+        assert artefacts[str(repo_selection.task_id)]["type"] == "repo_selection"
+
+    def test_backdates_created_at_to_task_run(self):
+        report = self._report()
+        link = self._link(report, SignalReportTask.Relationship.RESEARCH)
+
+        call_command("backfill_task_run_artefacts")
+
+        artefact = self._task_run_artefacts(report)[0]
+        assert artefact.created_at == link.created_at
 
     def test_is_idempotent(self):
         report = self._report()
