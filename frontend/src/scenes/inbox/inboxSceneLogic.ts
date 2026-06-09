@@ -1,10 +1,12 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -215,7 +217,29 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         setStatusFilters: () => {
             actions.loadReports()
         },
+        loadReportsSuccess: () => {
+            // Fire `Inbox viewed` once per visit, after reports settle — mirrors the PostHog Code
+            // clients so the web surface isn't a blind spot for sales/CS interest alerts.
+            if (cache.inboxViewedTracked) {
+                return
+            }
+            cache.inboxViewedTracked = true
+            const reports = values.filteredReports
+            const isDefaultStatusFilter =
+                values.statusFilters.length === 1 && values.statusFilters[0] === SignalReportStatus.READY
+            posthog.capture('Inbox viewed', {
+                report_count: reports.length,
+                total_count: values.reportsTotal,
+                ready_count: reports.filter((r) => r.status === SignalReportStatus.READY).length,
+                has_active_filters: values.searchQuery.trim().length > 0 || !isDefaultStatusFilter,
+                status_filter_count: values.statusFilters.length,
+                is_empty: reports.length === 0,
+                surface: 'web',
+            })
+        },
         setSelectedReportId: ({ id }) => {
+            const previousReportId = (cache.previousReportId as string | null) ?? null
+            cache.previousReportId = id
             if (id) {
                 if (!values.artefacts[id]) {
                     actions.loadArtefacts({ reportId: id })
@@ -223,6 +247,23 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 if (!values.reportSignals[id]) {
                     actions.loadReportSignals({ reportId: id })
                 }
+                // Mirror the PostHog Code clients' `Inbox report opened` so sales/CS can alert on
+                // report-level interest regardless of surface. Properties are limited to what the web
+                // SignalReport exposes (no priority/actionability/source_products — those are Code-only).
+                const reports = values.filteredReports
+                const rank = reports.findIndex((r) => r.id === id)
+                const report = reports[rank] ?? null
+                posthog.capture('Inbox report opened', {
+                    report_id: id,
+                    report_title: report?.title ?? null,
+                    report_age_hours: report ? dayjs().diff(dayjs(report.created_at), 'hour', true) : null,
+                    status: report?.status ?? null,
+                    signal_count: report?.signal_count ?? null,
+                    rank: rank >= 0 ? rank : null,
+                    list_size: reports.length,
+                    previous_report_id: previousReportId,
+                    surface: 'web',
+                })
             }
         },
         setActiveDetailTab: ({ tab }) => {
@@ -288,6 +329,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         },
         beforeUnmount: () => {
             clearInterval(cache.sessionAnalysisPollInterval)
+            cache.inboxViewedTracked = false
+            cache.previousReportId = null
         },
     })),
 
