@@ -290,9 +290,11 @@ function HeadersSection({
     )
 }
 
+type ParentOption = { value: string; label: string }
+
 // Only top-level streams are offered as parents — nesting is capped at one
 // level (backend-enforced), which also makes cycles unbuildable in the UI.
-function parentOptionsFor(streams: StreamForm[], index: number): { value: string; label: string }[] {
+function parentOptionsFor(streams: StreamForm[], index: number): ParentOption[] {
     return eligibleParentStreams(streams, index).map((name) => ({ value: name, label: name }))
 }
 
@@ -308,7 +310,7 @@ function StreamCard({
     index: number
     stream: StreamForm
     canRemove: boolean
-    parentOptions: { value: string; label: string }[]
+    parentOptions: ParentOption[]
     onUpdate: (patch: Partial<StreamForm>) => void
     onUpdatePaginator: (paginator: Paginator) => void
     onRemove: () => void
@@ -382,7 +384,7 @@ function ParentSection({
     onUpdate,
 }: {
     stream: StreamForm
-    parentOptions: { value: string; label: string }[]
+    parentOptions: ParentOption[]
     onUpdate: (patch: Partial<StreamForm>) => void
 }): JSX.Element {
     const hasParent = stream.parent_stream.trim().length > 0
@@ -420,12 +422,17 @@ function ParentSection({
                         the chosen parent field into the path placeholder (e.g.{' '}
                         <code>/forms/{'{form_id}'}/responses</code>).
                     </p>
-                    {parentMissing && (
-                        <p className="m-0 text-xs text-danger">
-                            Stream <code>{stream.parent_stream}</code> doesn't exist or can't be this stream's parent —
-                            pick another parent or set to none.
-                        </p>
-                    )}
+                    {/* aria-live so screen readers announce validation messages as they
+                        appear; empty:hidden keeps the always-mounted region from adding
+                        spacing when there's nothing to say. */}
+                    <div aria-live="polite" className="empty:hidden">
+                        {parentMissing && (
+                            <p className="m-0 text-xs text-danger">
+                                Stream <code>{stream.parent_stream}</code> doesn't exist or can't be this stream's
+                                parent — pick another parent or set to none.
+                            </p>
+                        )}
+                    </div>
                     <div className="grid grid-cols-2 gap-2">
                         <LemonField.Pure label="Parent field">
                             <LemonInput
@@ -442,22 +449,24 @@ function ParentSection({
                             />
                         </LemonField.Pure>
                     </div>
-                    {!parentField && (
-                        <p className="m-0 text-xs text-danger">
-                            Set the parent field — the dependency is incomplete without it and saving fails.
-                        </p>
-                    )}
-                    {!pathParam && (
-                        <p className="m-0 text-xs text-danger">
-                            Set the path placeholder — the dependency is incomplete without it and saving fails.
-                        </p>
-                    )}
-                    {pathMissingPlaceholder && (
-                        <p className="m-0 text-xs text-danger">
-                            Add <code>{`{${pathParam}}`}</code> to the path above — the parent field is injected there,
-                            and the sync fails without it.
-                        </p>
-                    )}
+                    <div aria-live="polite" className="empty:hidden space-y-2">
+                        {!parentField && (
+                            <p className="m-0 text-xs text-danger">
+                                Set the parent field — the dependency is incomplete without it and saving fails.
+                            </p>
+                        )}
+                        {!pathParam && (
+                            <p className="m-0 text-xs text-danger">
+                                Set the path placeholder — the dependency is incomplete without it and saving fails.
+                            </p>
+                        )}
+                        {pathMissingPlaceholder && (
+                            <p className="m-0 text-xs text-danger">
+                                Add <code>{`{${pathParam}}`}</code> to the path above — the parent field is injected
+                                there, and the sync fails without it.
+                            </p>
+                        )}
+                    </div>
                     <LemonField.Pure label="Include parent fields">
                         <LemonInput
                             placeholder="id, name"

@@ -1,7 +1,7 @@
 import copy
 import json
 import graphlib
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, NamedTuple, Optional, cast
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -150,8 +150,14 @@ class _Manifest(BaseModel):
 
 
 def validate_manifest(manifest: Any) -> None:
-    """Full create/update-time validation of a user-provided REST API manifest:
-    the structural shape plus the fan-out resource graph.
+    """Full validation of a user-provided REST API manifest: the structural
+    shape plus the fan-out resource graph.
+
+    NOTE: production runs the two levels separately — `validate_manifest_structure`
+    on every stored-manifest read (sync, schema listing, via `_assemble_manifest`)
+    and `_validate_resource_graph` only for new/changed manifests (in
+    `validate_credentials`). This composite exists for callers that want both at
+    once (currently only tests); don't wire new production validation in here.
 
     The safety of any URLs in the manifest is checked separately by
     :func:`validate_manifest_urls`, which needs the team_id for
@@ -218,6 +224,11 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
     except (ValueError, NotImplementedError) as exc:
         raise ManifestValidationError(str(exc)) from exc
 
+    paths: dict[str, Any] = {
+        r["name"]: (r.get("endpoint") or {}).get("path", "")
+        for r in manifest["resources"]
+        if isinstance(r, dict) and isinstance(r.get("name"), str)
+    }
     for name, resolved_param in resolved.items():
         if resolved_param is None:
             continue
@@ -226,6 +237,19 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
             raise ManifestValidationError(
                 f"Resource {name!r} depends on {parent!r}, which itself depends on another resource — "
                 "a resource can only depend on a top-level resource (one level of nesting)"
+            )
+        # The parent placeholder is filled with uncontrolled upstream data at
+        # sync time. A path that BEGINS with it lets an absolute URL in the
+        # parent's field move the authenticated request off base_url, and
+        # neither the create-time host validator nor the update retarget guard
+        # can see it (they only ever see the literal placeholder). Scalar
+        # placeholders are bound at create-time URL validation, so only the
+        # resolve placeholder needs this guard.
+        path = paths.get(name, "")
+        if isinstance(path, str) and path.lstrip().startswith("{" + resolved_param.param_name + "}"):
+            raise ManifestValidationError(
+                f"Resource {name!r}: the path must not begin with the parent placeholder "
+                f"{{{resolved_param.param_name}}} — start it with '/' so requests stay on the manifest's base URL"
             )
     return resolved
 
@@ -477,17 +501,33 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         return manifest
 
     def validate_credentials(
-        self, config: CustomSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CustomSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        *,
+        validate_graph: bool = True,
     ) -> tuple[bool, str | None]:
         try:
             manifest = self._assemble_manifest(config)
-            # Graph-level fan-out validation runs here — the create/update
-            # path — rather than in `_assemble_manifest`, so tightening these
-            # rules can never break syncs of already-stored manifests. The
-            # returned map also feeds the probe's child filter below.
-            resolved = _validate_resource_graph(manifest)
         except ManifestValidationError as exc:
             return False, str(exc)
+
+        # Graph-level fan-out rules gate NEW or CHANGED manifests — source
+        # creation and manifest edits. They must never lock an existing source
+        # out of unrelated operations on a stored manifest that predates a
+        # rule: the update serializer passes ``validate_graph=False`` when the
+        # manifest itself wasn't touched (e.g. rotating the auth token), and
+        # schema-scoped read checks (the schema API's ``incremental_fields``
+        # action passes ``schema_name``) only ever run against stored config.
+        # On those paths a graph error falls back to probing every resource —
+        # exactly the behavior before the graph rules existed.
+        try:
+            resolved = _validate_resource_graph(manifest)
+        except ManifestValidationError as exc:
+            if validate_graph and schema_name is None:
+                return False, str(exc)
+            resolved = {}
 
         ok, err = validate_manifest_urls(manifest, team_id)
         if not ok:
@@ -628,7 +668,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # which would silently drop parent rows and, with them, their children.
             # Ancestors therefore full-scan every run, matching the built-in fan-out
             # sources (Typeform/Sentry).
-            engine_resources = [_prepare_fanout_resource(r, is_child=r["name"] == chosen_name) for r in chain]
+            engine_resources = [
+                *(_prepare_fanout_resource(r, is_child=False) for r in chain.ancestors),
+                _prepare_fanout_resource(chain.child, is_child=True),
+            ]
             engine_manifest = cast(RESTAPIConfig, {**manifest, "resources": engine_resources})
 
             # Inside the try block: the engine raises deterministic ValueErrors at
@@ -683,8 +726,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # rows arrive grouped per parent, never globally cursor-ascending, so an
         # "asc" per-batch commit after an interruption would set the watermark past
         # later parents' older rows and permanently skip them.
-        is_fanout_child = len(chain) > 1
-        sort_mode: SortMode = "desc" if (is_fanout_child or chosen.get("sort_mode") == "desc") else "asc"
+        sort_mode: SortMode = "desc" if (chain.is_fanout_child or chosen.get("sort_mode") == "desc") else "asc"
 
         return SourceResponse(
             name=inputs.schema_name,
@@ -804,10 +846,23 @@ def _build_resource_graph(
     )
 
 
-def _fanout_chain(manifest: dict[str, Any], chosen_name: str) -> list[dict[str, Any]]:
-    """Resources to hand the engine for ``chosen_name``: its fan-out ancestors
-    (root first) then ``chosen`` itself, or just ``[chosen]`` for a top-level
-    resource.
+class FanoutChain(NamedTuple):
+    """The resources a schema's sync hands the engine: the chosen resource plus
+    its fan-out ancestors (root first). The single source of truth for whether
+    the chosen resource is a fan-out child — callers must not re-derive that
+    from names or chain length."""
+
+    ancestors: list[dict[str, Any]]
+    child: dict[str, Any]
+
+    @property
+    def is_fanout_child(self) -> bool:
+        return bool(self.ancestors)
+
+
+def _fanout_chain(manifest: dict[str, Any], chosen_name: str) -> FanoutChain:
+    """The :class:`FanoutChain` for ``chosen_name``: its fan-out ancestors
+    (root first) plus ``chosen`` itself; a top-level resource has no ancestors.
 
     We pass this subset, not the whole manifest, on purpose. The engine is lazy —
     resources it builds but we never iterate issue no requests — but it still
@@ -831,8 +886,8 @@ def _fanout_chain(manifest: dict[str, Any], chosen_name: str) -> list[dict[str, 
         # resource (the pre-fan-out behavior). If the chosen resource itself is
         # the broken one, the engine rejects it at build time with the
         # underlying error, which the caller converts to a non-retryable failure.
-        return [by_name[chosen_name]]
-    names: list[str] = [chosen_name]
+        return FanoutChain(ancestors=[], child=by_name[chosen_name])
+    ancestor_names: list[str] = []
     seen: set[str] = {chosen_name}
     current = chosen_name
     while (resolved_param := resolved.get(current)) is not None:
@@ -842,10 +897,10 @@ def _fanout_chain(manifest: dict[str, Any], chosen_name: str) -> list[dict[str, 
             # create-time `static_order` check does), so a stored manifest can
             # still carry one — fail loudly rather than loop or truncate.
             raise ValueError(f"Resource {chosen_name!r} is part of a dependency cycle")
-        names.append(parent_name)
+        ancestor_names.append(parent_name)
         seen.add(parent_name)
         current = parent_name
-    return [by_name[name] for name in reversed(names)]
+    return FanoutChain(ancestors=[by_name[name] for name in reversed(ancestor_names)], child=by_name[chosen_name])
 
 
 def _prepare_fanout_resource(resource: dict[str, Any], *, is_child: bool) -> dict[str, Any]:

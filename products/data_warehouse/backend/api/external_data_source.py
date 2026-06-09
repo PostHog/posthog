@@ -49,7 +49,11 @@ from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.sql import filter_dwh_columns_by_enabled_columns, sql_schema_metadata
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
-from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM, manifest_request_hosts
+from posthog.temporal.data_imports.sources.custom.source import (
+    MAX_CUSTOM_SOURCES_PER_TEAM,
+    CustomSource,
+    manifest_request_hosts,
+)
 from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
 from posthog.temporal.data_imports.sources.postgres.postgres import get_primary_key_columns, source_requires_ssl
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
@@ -796,10 +800,18 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # A manifest edit that introduces a new request host would send the preserved credential
         # somewhere it wasn't going before — the same exfiltration risk, so require re-entry too.
         manifest_host_added = False
+        # Whether this update actually edits the manifest. Manifest-level
+        # validation (the fan-out graph rules) only gates changed manifests —
+        # a stored manifest that predates a rule must not block unrelated
+        # edits like rotating the auth token.
+        custom_manifest_changed = False
         if source_type_model == ExternalDataSourceType.CUSTOM and "manifest_json" in incoming_job_inputs:
             new_hosts = manifest_request_hosts(incoming_job_inputs.get("manifest_json"))
             existing_hosts = manifest_request_hosts(existing_job_inputs.get("manifest_json"))
             manifest_host_added = bool(new_hosts - existing_hosts)
+            custom_manifest_changed = incoming_job_inputs.get("manifest_json") != existing_job_inputs.get(
+                "manifest_json"
+            )
 
         if connection_host_changed or ssh_tunnel_changed or manifest_host_added:
             gate_sensitive_fields = sensitive_fields - _CREATION_ONLY_SECRET_FIELDS
@@ -893,6 +905,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if instance.source_type == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                     cast(Any, source_config), instance.team_id, instance.access_method
+                )
+            elif isinstance(source, CustomSource):
+                # Graph-level manifest validation only gates a changed manifest:
+                # an auth-only edit re-validates the merged config, and a stored
+                # manifest predating a graph rule must not block it.
+                credentials_valid, credentials_error = source.validate_credentials(
+                    cast(Any, source_config), instance.team_id, validate_graph=custom_manifest_changed
                 )
             else:
                 credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)

@@ -5,6 +5,7 @@ import {
     ManifestState,
     parseManifestIntoState,
     removeStreamFromList,
+    StreamForm,
     updateStreamInList,
 } from '../customSourceManifest'
 
@@ -428,46 +429,34 @@ describe('parseManifestIntoState', () => {
     })
 })
 
+// Spreads the base stream so new StreamForm fields only need a default in
+// baseState(), not in every fixture.
+const makeStream = (overrides: Partial<StreamForm>): StreamForm => ({
+    ...baseState().streams[0],
+    ...overrides,
+})
+
 describe('fan-out (parent/child)', () => {
     const childState = (): ManifestState => {
         const state = baseState()
         state.streams = [
-            {
+            makeStream({
                 id: 'stream-forms',
                 name: 'forms',
                 path: '/forms',
-                method: 'GET',
                 data_selector: 'items',
-                primary_key: 'id',
-                paginator: { type: 'single_page' },
-                sort_mode: 'asc',
-                incremental_enabled: false,
-                cursor_path: '',
-                cursor_type: 'datetime',
-                start_param: '',
-                parent_stream: '',
-                parent_resolve_field: '',
-                parent_path_param: '',
-                include_from_parent: '',
-            },
-            {
+            }),
+            makeStream({
                 id: 'stream-responses',
                 name: 'responses',
                 path: '/forms/{form_id}/responses',
-                method: 'GET',
                 data_selector: 'items',
                 primary_key: 'token',
-                paginator: { type: 'single_page' },
-                sort_mode: 'asc',
-                incremental_enabled: false,
-                cursor_path: '',
-                cursor_type: 'datetime',
-                start_param: '',
                 parent_stream: 'forms',
                 parent_resolve_field: 'id',
                 parent_path_param: 'form_id',
                 include_from_parent: 'id, title',
-            },
+            }),
         ]
         return state
     }
@@ -537,6 +526,32 @@ describe('fan-out (parent/child)', () => {
         expect(streams[0].parent_resolve_field).toBe('')
         expect(streams[0].parent_path_param).toBe('')
         expect(streams[0].include_from_parent).toBe('')
+    })
+
+    it('keeps children attached when a duplicate-named stream is removed', () => {
+        // A sibling still carries the removed name, so the child's parent
+        // reference remains satisfiable and must not be cleared.
+        const state = childState()
+        state.streams.push(makeStream({ id: 'stream-forms-2', name: 'forms', path: '/forms-v2' }))
+        const streams = removeStreamFromList(state.streams, 0)
+        expect(streams.find((s) => s.name === 'responses')?.parent_stream).toBe('forms')
+    })
+
+    it('rename to a colliding name still cascades — the backend rejects the duplicate at save', () => {
+        const state = childState()
+        state.streams.push(makeStream({ id: 'stream-surveys', name: 'surveys', path: '/surveys' }))
+        const streams = updateStreamInList(state.streams, 0, { name: 'surveys' })
+        expect(streams[1].parent_stream).toBe('surveys')
+    })
+
+    it('keeps the first resolve param when a manifest carries two', () => {
+        // The backend rejects multi-resolve manifests, but the parse path can
+        // still be handed one (raw JSON authoring) — the lossy pick-first
+        // behavior is intentional, pinned here.
+        const manifest = buildManifest(childState()) as any
+        manifest.resources[1].endpoint.params.other_id = { type: 'resolve', resource: 'forms', field: 'id' }
+        const child = parseManifestIntoState(JSON.stringify(manifest)).streams[1]
+        expect(child.parent_path_param).toBe('form_id')
     })
 
     it('hydrates the parent dependency back out on parse', () => {

@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.sources.custom.source import (
     PROBE_ERROR_SNIPPET_BYTES,
     PROBE_MAX_RESOURCES,
     CustomSource,
+    FanoutChain,
     ManifestValidationError,
     _fanout_chain,
     _read_capped_text,
@@ -880,6 +881,12 @@ def _break_missing_resolve_resource(m: dict) -> None:
     del m["resources"][1]["endpoint"]["params"]["form_id"]["resource"]
 
 
+def _break_path_starting_with_placeholder(m: dict) -> None:
+    # A child path that BEGINS with the parent placeholder lets an absolute URL
+    # in the parent's field move the authenticated request off base_url.
+    m["resources"][1]["endpoint"]["path"] = "{form_id}/responses"
+
+
 def _break_nested_child(m: dict) -> None:
     # Grandchild: nesting is capped at one level — a parent must be top-level.
     m["resources"].append(
@@ -907,6 +914,7 @@ class TestCustomSourceFanoutValidation(SimpleTestCase):
             ("missing_resolve_field", _break_missing_resolve_field),
             ("missing_resolve_resource", _break_missing_resolve_resource),
             ("nested_child", _break_nested_child),
+            ("path_starting_with_placeholder", _break_path_starting_with_placeholder),
         ]
     )
     def test_rejects_invalid_fanout(self, _name, break_manifest):
@@ -948,16 +956,43 @@ class TestCustomSourceFanoutValidation(SimpleTestCase):
         assert ok is False
         assert err is not None and "nonexistent" in err
 
+    @parameterized.expand(
+        [
+            # The update serializer disables the graph check when the manifest
+            # itself wasn't edited (e.g. rotating the auth token) ...
+            ("manifest_unchanged_on_update", {"validate_graph": False}),
+            # ... and schema-scoped read checks (the schema API's
+            # incremental_fields action) only ever run against stored config.
+            ("schema_scoped_read_check", {"schema_name": "forms"}),
+        ]
+    )
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_validate_credentials_tolerates_stored_broken_graph(self, _name, kwargs, mock_session):
+        # A stored manifest that predates a graph rule must not lock its source
+        # out of unrelated operations; these paths degrade to probing every
+        # resource, the pre-fan-out behavior.
+        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+        manifest = _fanout_manifest()
+        _break_unknown_parent(manifest)
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999, **kwargs)
+        assert ok, err
+
 
 class TestFanoutChain(SimpleTestCase):
-    def test_top_level_resource_is_single_element_chain(self):
+    def test_top_level_resource_has_no_ancestors(self):
         manifest = _fanout_manifest()
-        assert _fanout_chain(manifest, "forms") == [manifest["resources"][0]]
+        chain = _fanout_chain(manifest, "forms")
+        assert chain == FanoutChain(ancestors=[], child=manifest["resources"][0])
+        assert chain.is_fanout_child is False
 
     def test_child_chain_is_parent_first(self):
         manifest = _fanout_manifest()
         parent, child = manifest["resources"]
-        assert _fanout_chain(manifest, "responses") == [parent, child]
+        chain = _fanout_chain(manifest, "responses")
+        assert chain == FanoutChain(ancestors=[parent], child=child)
+        assert chain.is_fanout_child is True
 
     def test_multi_level_chain(self):
         # Create-time validation rejects nesting beyond one level, but the sync
@@ -976,7 +1011,7 @@ class TestFanoutChain(SimpleTestCase):
             }
         )
         forms, responses, answers = manifest["resources"]
-        assert _fanout_chain(manifest, "answers") == [forms, responses, answers]
+        assert _fanout_chain(manifest, "answers") == FanoutChain(ancestors=[forms, responses], child=answers)
 
     def test_falls_back_to_chosen_when_unrelated_resource_breaks_the_graph(self):
         # A stored manifest can predate the create-time graph rules. A graph
@@ -987,7 +1022,7 @@ class TestFanoutChain(SimpleTestCase):
         manifest["resources"].append(
             {"name": "users", "primary_key": "id", "endpoint": {"path": "/users", "data_selector": "items"}}
         )
-        assert _fanout_chain(manifest, "users") == [manifest["resources"][2]]
+        assert _fanout_chain(manifest, "users") == FanoutChain(ancestors=[], child=manifest["resources"][2])
 
     def test_raises_for_chosen_resource_in_a_cycle(self):
         # The graph builder itself doesn't reject cycles (only create-time
@@ -1042,10 +1077,10 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
         assert cast(Any, response.items()).name == "forms"
 
     @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
-    def test_fanout_strips_incremental_from_parent_but_keeps_child(self, mock_plural):
+    def test_fanout_strips_incremental_from_parent_but_keeps_child(self, mock_resources):
         # The run's high-watermark belongs to the child; applying it to the parent
         # would silently drop parents (and their children). Parent must full-scan.
-        mock_plural.return_value = [_fake_resource("forms"), _fake_resource("responses")]
+        mock_resources.return_value = [_fake_resource("forms"), _fake_resource("responses")]
         manifest = _fanout_manifest()
         manifest["resources"][0]["endpoint"]["incremental"] = {"cursor_path": "updated_at", "start_param": "since"}
         manifest["resources"][1]["endpoint"]["incremental"] = {"cursor_path": "submitted_at", "start_param": "since"}
@@ -1061,16 +1096,16 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
         )
         source.source_for_pipeline(config, inputs)
 
-        parent_cfg, child_cfg = mock_plural.call_args.args[0]["resources"]
+        parent_cfg, child_cfg = mock_resources.call_args.args[0]["resources"]
         assert "incremental" not in parent_cfg["endpoint"]
         assert child_cfg["endpoint"]["incremental"] == {"cursor_path": "submitted_at", "start_param": "since"}
-        assert mock_plural.call_args.kwargs["db_incremental_field_last_value"] == "2024-01-01T00:00:00Z"
+        assert mock_resources.call_args.kwargs["db_incremental_field_last_value"] == "2024-01-01T00:00:00Z"
 
     @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
-    def test_fanout_strips_cursor_type_from_child(self, mock_plural):
+    def test_fanout_strips_cursor_type_from_child(self, mock_resources):
         # cursor_type is a schema-typing hint the engine's Incremental(**config)
         # rejects — it must be removed before the child reaches the engine.
-        mock_plural.return_value = [_fake_resource("forms"), _fake_resource("responses")]
+        mock_resources.return_value = [_fake_resource("forms"), _fake_resource("responses")]
         manifest = _fanout_manifest()
         manifest["resources"][1]["endpoint"]["incremental"] = {
             "cursor_path": "submitted_at",
@@ -1089,15 +1124,15 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
         )
         source.source_for_pipeline(config, inputs)
 
-        _parent_cfg, child_cfg = mock_plural.call_args.args[0]["resources"]
+        _parent_cfg, child_cfg = mock_resources.call_args.args[0]["resources"]
         assert child_cfg["endpoint"]["incremental"] == {"cursor_path": "submitted_at", "start_param": "since"}
 
     @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
-    def test_fanout_strips_params_style_incremental_from_parent(self, mock_plural):
+    def test_fanout_strips_params_style_incremental_from_parent(self, mock_resources):
         # The engine also builds an incremental tracker from a params-style
         # {"type": "incremental"} spec — it must be stripped from ancestors too,
         # or the child's watermark would be injected as the parent's start param.
-        mock_plural.return_value = [_fake_resource("forms"), _fake_resource("responses")]
+        mock_resources.return_value = [_fake_resource("forms"), _fake_resource("responses")]
         manifest = _fanout_manifest()
         manifest["resources"][0]["endpoint"]["params"] = {
             "since": {"type": "incremental", "cursor_path": "updated_at"},
@@ -1116,18 +1151,18 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
         )
         source.source_for_pipeline(config, inputs)
 
-        parent_cfg, _child_cfg = mock_plural.call_args.args[0]["resources"]
+        parent_cfg, _child_cfg = mock_resources.call_args.args[0]["resources"]
         # Static params survive; only the incremental spec is removed.
         assert parent_cfg["endpoint"]["params"] == {"status": "active"}
 
     @parameterized.expand([("child_forces_desc", "responses", "desc"), ("parent_keeps_declared", "forms", "asc")])
     @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
-    def test_fanout_child_forces_deferred_watermark_sort_mode(self, _name, schema_name, expected, mock_plural):
+    def test_fanout_child_forces_deferred_watermark_sort_mode(self, _name, schema_name, expected, mock_resources):
         # Fan-out child rows arrive grouped per parent, never globally
         # cursor-ascending, so the "asc" per-batch watermark commit would skip
         # later parents' older rows after an interruption — children must always
         # use the deferred-commit ("desc") behavior.
-        mock_plural.return_value = [_fake_resource("forms"), _fake_resource("responses")]
+        mock_resources.return_value = [_fake_resource("forms"), _fake_resource("responses")]
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_fanout_manifest()))
         inputs = MagicMock(
@@ -1180,6 +1215,37 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
 
         assert [r["name"] for r in mock_resources.call_args.args[0]["resources"]] == ["forms"]
         assert cast(Any, response.items()).name == "forms"
+
+    def test_broken_sibling_fails_child_schema_fast(self):
+        # Accepted trade-off: a child schema can't be built without the graph,
+        # so when an UNRELATED resource breaks the graph, the fallback hands the
+        # engine just the child, whose orphaned resolve param the engine rejects
+        # at build time — a loud, non-retryable failure rather than wrong data.
+        # (Top-level siblings keep syncing; see
+        # test_broken_sibling_does_not_sink_healthy_schema_sync.)
+        manifest = _fanout_manifest()
+        manifest["resources"].append(
+            {
+                "name": "broken",
+                "primary_key": "id",
+                "endpoint": {
+                    "path": "/broken/{x}",
+                    "params": {"x": {"type": "resolve", "resource": "nonexistent", "field": "id"}},
+                },
+            }
+        )
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="responses",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        with self.assertRaises(NonRetryableException):
+            source.source_for_pipeline(config, inputs)
 
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
     def test_fanout_runs_through_real_engine(self, mock_make_session):
