@@ -4,6 +4,8 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
@@ -100,15 +102,26 @@ class TestGroupTypeLabels(APIBaseTest):
 
 
 class TestSelectRelevantEvents(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("single_real_event", ["export created"], ["export created"]),
+            ("drops_hallucinated_name", ["export created", "totally made up event"], ["export created"]),
+            ("dedupes_repeats", ["export created", "export created"], ["export created"]),
+            ("preserves_model_order", ["alert created", "export created"], ["alert created", "export created"]),
+        ]
+    )
     @patch(f"{_SG}.MaxChatOpenAI")
-    def test_keeps_real_events_and_drops_hallucinations(self, mock_chat: MagicMock) -> None:
+    def test_maps_model_picks_to_real_events(
+        self, _name: str, model_events: list[str], expected: list[str], mock_chat: MagicMock
+    ) -> None:
+        # the model's picks map to real events: hallucinated names dropped, repeats deduped, order preserved
         EventDefinition.objects.create(team=self.team, name="export created")
         EventDefinition.objects.create(team=self.team, name="alert created")
-        structured = mock_chat.return_value.with_structured_output.return_value
-        # the model returns one real event plus one it invented; the invented name must be dropped
-        structured.invoke.return_value = RelevantEvents(events=["export created", "totally made up event"])
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = RelevantEvents(
+            events=model_events
+        )
 
-        assert _select_relevant_events(self.team, self.user, "how are exports doing?") == ["export created"]
+        assert _select_relevant_events(self.team, self.user, "how are exports doing?") == expected
 
     @patch(f"{_SG}.MaxChatOpenAI")
     def test_substitutes_prompt_and_event_names_into_system_message(self, mock_chat: MagicMock) -> None:
@@ -126,20 +139,20 @@ class TestSelectRelevantEvents(APIBaseTest):
         assert "export created" in system_content
         assert "{{{" not in system_content
 
+    @parameterized.expand(
+        [
+            ("llm_error", {"side_effect": RuntimeError("boom")}),
+            ("malformed_output", {"return_value": "not a RelevantEvents"}),
+        ]
+    )
     @patch(f"{_SG}.MaxChatOpenAI")
-    def test_falls_back_to_empty_on_llm_error(self, mock_chat: MagicMock) -> None:
+    def test_falls_back_to_empty_when_selection_unusable(
+        self, _name: str, invoke_config: dict, mock_chat: MagicMock
+    ) -> None:
+        # an LLM error or a non-RelevantEvents result degrades to no relevant events rather than raising
         EventDefinition.objects.create(team=self.team, name="export created")
-        mock_chat.return_value.with_structured_output.return_value.invoke.side_effect = RuntimeError("boom")
+        mock_chat.return_value.with_structured_output.return_value.invoke.configure_mock(**invoke_config)
 
-        # a selection failure degrades to no relevant events rather than raising
-        assert _select_relevant_events(self.team, self.user, "exports") == []
-
-    @patch(f"{_SG}.MaxChatOpenAI")
-    def test_falls_back_to_empty_on_malformed_output(self, mock_chat: MagicMock) -> None:
-        EventDefinition.objects.create(team=self.team, name="export created")
-        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = "not a RelevantEvents"
-
-        # structured output that isn't a RelevantEvents degrades to empty, not a crash
         assert _select_relevant_events(self.team, self.user, "exports") == []
 
     @patch(f"{_SG}.MaxChatOpenAI")
@@ -193,15 +206,25 @@ class TestContextBlob(APIBaseTest):
         assert "Group/account types (reference as group_<index>.properties.<name>" in blob
         assert "group_0 = organization" in blob
 
+    @parameterized.expand(
+        [
+            ("single_property", ["format"], "format"),
+            ("multiple_properties_sorted", ["status", "format", "duration"], "duration, format, status"),
+        ]
+    )
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
     @patch(f"{_SG}._top_event_names", return_value=[])
-    def test_surfaces_selected_events_and_their_property_schema(self, _mock_top: object, _mock_groups: object) -> None:
-        EventProperty.objects.create(team=self.team, event="export created", property="format")
+    def test_surfaces_selected_events_and_their_property_schema(
+        self, _name: str, props: list[str], expected_list: str, _mock_top: object, _mock_groups: object
+    ) -> None:
+        for prop in props:
+            EventProperty.objects.create(team=self.team, event="export created", property=prop)
 
         blob = build_context_blob(self.team, window_days=7, relevant_events=["export created"])
 
         assert "Events matching your request: export created" in blob
-        assert "`export created` properties (use properties.<name>): format" in blob
+        # properties are listed alphabetically (the _event_property_names ordering)
+        assert f"`export created` properties (use properties.<name>): {expected_list}" in blob
 
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
     @patch(f"{_SG}._top_event_names", return_value=["$pageview"])
