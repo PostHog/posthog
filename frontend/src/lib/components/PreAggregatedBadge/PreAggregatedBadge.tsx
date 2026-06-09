@@ -10,9 +10,8 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 export type PreAggregatedBadgeVariant = 'preagg' | 'precomputed'
 
-// FAQ answer explaining the new query engine and pre-computed roll-ups.
-const QUERY_ENGINE_DOCS_URL =
-    'https://posthog.com/docs/web-analytics/faq#what-does-the-new-query-engine-or-pre-computed-badge-mean'
+// FAQ answer explaining what the pre-computed badge means.
+const QUERY_ENGINE_DOCS_URL = 'https://posthog.com/docs/web-analytics/faq#what-does-the-pre-computed-badge-mean'
 
 interface PreAggregatedBadgeProps {
     variant?: PreAggregatedBadgeVariant
