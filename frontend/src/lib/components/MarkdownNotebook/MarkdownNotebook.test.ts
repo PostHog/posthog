@@ -2510,6 +2510,43 @@ Second mixed row`)
         expect(container.querySelector('.MarkdownNotebook__format-toolbar')).toBeInstanceOf(HTMLElement)
     })
 
+    it('copies selected markdown from the formatting toolbar', () => {
+        expect.hasAssertions()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`First paragraph
+
+Second paragraph`),
+            })
+        )
+        const textBlocks = getEditableTextBlocks(container)
+        const originalClipboard = navigator.clipboard
+        const clipboard = {
+            writeText: jest.fn(() => Promise.resolve()),
+            readText: jest.fn(() => Promise.resolve('')),
+        }
+
+        Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: clipboard,
+        })
+
+        try {
+            selectTextAcrossNodes(getFirstTextNode(textBlocks[1]), 0, getFirstTextNode(textBlocks[2]), 6, true)
+
+            fireEvent.click(container.querySelector('button[aria-label="Copy"]') as HTMLButtonElement)
+
+            expect(clipboard.writeText).toHaveBeenCalledWith(`First paragraph
+
+Second`)
+        } finally {
+            Object.defineProperty(navigator, 'clipboard', {
+                configurable: true,
+                value: originalClipboard,
+            })
+        }
+    })
+
     it('deletes selected text when pressing Enter and splits at the selection', () => {
         const onChange = jest.fn()
         const { container } = render(

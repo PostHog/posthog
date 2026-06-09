@@ -26,6 +26,7 @@ import {
 
 import {
     IconCode,
+    IconCopy,
     IconDatabase,
     IconEye,
     IconGraph,
@@ -1759,6 +1760,14 @@ export function MarkdownNotebook({
         })
     }
 
+    const copyFloatingToolbarSelection = (): void => {
+        if (!floatingToolbar?.selectedMarkdown) {
+            return
+        }
+
+        copyMarkdownToNotebookClipboard(floatingToolbar.selectedMarkdown)
+    }
+
     const openInsertMenu = (nodeId: string, query: string = ''): void => {
         onInteractionStateChange?.(true)
         setInsertMenu({ nodeId, query, selectedIndex: 0, mode: 'tools' })
@@ -2863,6 +2872,7 @@ export function MarkdownNotebook({
                             }
                             initialLinkEditorOpen={floatingToolbar.isLinkEditorOpen ?? false}
                             setBlockStyle={setSelectedBlockStyle}
+                            copySelection={copyFloatingToolbarSelection}
                             askAIAboutSelection={onAskAI ? askAIAboutSelection : undefined}
                             lockPosition={lockFloatingToolbarPosition}
                         />
@@ -4941,6 +4951,7 @@ function FormattingToolbar({
     currentLinkHref,
     initialLinkEditorOpen,
     setBlockStyle,
+    copySelection,
     askAIAboutSelection,
     lockPosition,
 }: {
@@ -4953,6 +4964,7 @@ function FormattingToolbar({
     currentLinkHref: string | null
     initialLinkEditorOpen: boolean
     setBlockStyle: (style: 'paragraph' | 'blockquote' | 1 | 2 | 3) => void
+    copySelection: () => void
     askAIAboutSelection?: () => void
     lockPosition: () => void
 }): JSX.Element {
@@ -5064,6 +5076,7 @@ function FormattingToolbar({
                 active={hasExistingLink || isLinkEditorOpen}
                 onClick={openLinkEditor}
             />
+            <LemonButton size="xsmall" icon={<IconCopy />} tooltip="Copy" aria-label="Copy" onClick={copySelection} />
             {askAIAboutSelection ? (
                 <LemonButton
                     size="xsmall"
