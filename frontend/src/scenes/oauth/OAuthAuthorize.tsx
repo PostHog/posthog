@@ -7,8 +7,10 @@ import { IconCheck, IconCheckCircle, IconPlus, IconWarning } from '@posthog/icon
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -123,7 +125,10 @@ const InlineCreateForm = ({
 
 export const OAuthAuthorize = (): JSX.Element => {
     const {
-        scopeDescriptions,
+        scopeRows,
+        identityScopeDescriptions,
+        hasWriteScopes,
+        readOnlyMode,
         oauthApplication,
         oauthApplicationLoading,
         allOrganizations,
@@ -151,6 +156,8 @@ export const OAuthAuthorize = (): JSX.Element => {
         setShowCreateProject,
         setSelectedOrganization,
         setOauthAuthorizationValue,
+        setReadOnlyMode,
+        toggleDeniedScope,
     } = useActions(oauthAuthorizeLogic)
 
     const { isReadOnly: isImpersonationReadOnly, isImpersonated } = useValues(impersonationNoticeLogic)
@@ -363,22 +370,51 @@ export const OAuthAuthorize = (): JSX.Element => {
                             />
                         )}
 
-                        <div>
-                            <div className="text-sm font-semibold uppercase text-muted mb-2">Requested permissions</div>
+                        <div className="flex flex-col gap-3">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <div className="text-sm font-semibold uppercase text-muted">Permissions</div>
+                                {hasWriteScopes && (
+                                    <LemonSegmentedButton
+                                        size="small"
+                                        value={readOnlyMode ? 'read' : 'full'}
+                                        onChange={(value) => setReadOnlyMode(value === 'read')}
+                                        options={[
+                                            { value: 'full', label: 'All requested' },
+                                            { value: 'read', label: 'Read-only' },
+                                        ]}
+                                    />
+                                )}
+                            </div>
                             {resourceScopesLoading ? (
                                 <div className="flex items-center gap-2 py-2">
                                     <Spinner className="text-muted" />
                                     <span className="text-muted">Loading permissions...</span>
                                 </div>
                             ) : (
-                                <ul className="space-y-2">
-                                    {scopeDescriptions.map((scopeDescription, idx) => (
-                                        <li key={idx} className="flex items-center space-x-2 text-large">
-                                            <IconCheck color="var(--success)" />
-                                            <span className="font-medium">{scopeDescription}</span>
-                                        </li>
-                                    ))}
-                                </ul>
+                                <>
+                                    {identityScopeDescriptions.length > 0 && (
+                                        <ul className="space-y-2">
+                                            {identityScopeDescriptions.map((description, idx) => (
+                                                <li key={idx} className="flex items-center space-x-2">
+                                                    <IconCheck color="var(--success)" />
+                                                    <span className="font-medium">{description}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                    {scopeRows.length > 0 && (
+                                        <div className="flex flex-col gap-2">
+                                            {scopeRows.map((row) => (
+                                                <LemonCheckbox
+                                                    key={row.key}
+                                                    checked={row.granted}
+                                                    onChange={() => toggleDeniedScope(row.key)}
+                                                    label={row.description}
+                                                />
+                                            ))}
+                                        </div>
+                                    )}
+                                </>
                             )}
                         </div>
 

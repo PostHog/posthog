@@ -24,6 +24,12 @@ export type OAuthAuthorizationFormValues = {
     access_type: 'all' | 'organizations' | 'teams'
 }
 
+const IDENTITY_SCOPES = ['openid', 'profile', 'email', 'introspection']
+
+const scopeObjectKey = (scope: string): string => (scope === '*' ? '*' : scope.split(':')[0])
+
+const toReadOnlyScope = (scope: string): string => (scope.endsWith(':write') ? `${scope.split(':')[0]}:read` : scope)
+
 const isNativeProtocol = (url: string): boolean => {
     try {
         const parsed = new URL(url)
@@ -77,6 +83,8 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     })),
     actions({
         setScopes: (scopes: string[]) => ({ scopes }),
+        setReadOnlyMode: (readOnly: boolean) => ({ readOnly }),
+        toggleDeniedScope: (scopeObject: string) => ({ scopeObject }),
         setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => ({ requiredAccessLevel }),
         setScopesWereDefaulted: (scopesWereDefaulted: boolean) => ({ scopesWereDefaulted }),
         setIsMcpResource: (isMcpResource: boolean) => ({ isMcpResource }),
@@ -198,6 +206,21 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             [] as string[],
             {
                 setScopes: (_, { scopes }) => scopes,
+            },
+        ],
+        readOnlyMode: [
+            false,
+            {
+                setReadOnlyMode: (_, { readOnly }) => readOnly,
+                setScopes: () => false,
+            },
+        ],
+        deniedScopeObjects: [
+            [] as string[],
+            {
+                toggleDeniedScope: (state, { scopeObject }) =>
+                    state.includes(scopeObject) ? state.filter((s) => s !== scopeObject) : [...state, scopeObject],
+                setScopes: () => [],
             },
         ],
         requiredAccessLevel: [
@@ -326,7 +349,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                         : undefined,
             }),
             submit: async (values: OAuthAuthorizationFormValues) => {
-                const scopes = oauthAuthorizeLogic.values.scopes
+                const scopes = oauthAuthorizeLogic.values.effectiveScopes
                 const result = await oauthAuthorize({
                     ...values,
                     allow: true,
@@ -394,12 +417,48 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 return teams.filter((t) => t.organization === selectedOrg)
             },
         ],
-        scopeDescriptions: [
+        identityScopeDescriptions: [
             (s) => [s.scopes],
-            (scopes: string[]): string[] => {
-                const minimumEquivalentScopes = getMinimumEquivalentScopes(scopes)
-
-                return minimumEquivalentScopes.map(getScopeDescription).filter(Boolean) as string[]
+            (scopes: string[]): string[] =>
+                scopes
+                    .filter((scope) => IDENTITY_SCOPES.includes(scope))
+                    .map(getScopeDescription)
+                    .filter(Boolean) as string[],
+        ],
+        hasWriteScopes: [
+            (s) => [s.scopes],
+            (scopes: string[]): boolean => getMinimumEquivalentScopes(scopes).some((scope) => scope.endsWith(':write')),
+        ],
+        scopeRows: [
+            (s) => [s.scopes, s.deniedScopeObjects, s.readOnlyMode],
+            (
+                scopes: string[],
+                deniedScopeObjects: string[],
+                readOnlyMode: boolean
+            ): { key: string; description: string; granted: boolean }[] => {
+                const denied = new Set(deniedScopeObjects)
+                return getMinimumEquivalentScopes(scopes)
+                    .filter((scope) => scope.includes(':') || scope === '*')
+                    .map((scope) => {
+                        const effective = readOnlyMode ? toReadOnlyScope(scope) : scope
+                        return {
+                            key: scopeObjectKey(scope),
+                            description: getScopeDescription(effective) ?? effective,
+                            granted: !denied.has(scopeObjectKey(scope)),
+                        }
+                    })
+            },
+        ],
+        effectiveScopes: [
+            (s) => [s.scopes, s.deniedScopeObjects, s.readOnlyMode],
+            (scopes: string[], deniedScopeObjects: string[], readOnlyMode: boolean): string[] => {
+                const denied = new Set(deniedScopeObjects)
+                const identity = scopes.filter((scope) => IDENTITY_SCOPES.includes(scope))
+                const resources = getMinimumEquivalentScopes(scopes)
+                    .filter((scope) => scope.includes(':') || scope === '*')
+                    .filter((scope) => !denied.has(scopeObjectKey(scope)))
+                    .map((scope) => (readOnlyMode ? toReadOnlyScope(scope) : scope))
+                return Array.from(new Set([...identity, ...resources]))
             },
         ],
         redirectDomain: [
