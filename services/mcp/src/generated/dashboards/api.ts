@@ -183,9 +183,9 @@ export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Add a markdown text tile to a dashboard.
-
-Text tiles render as markdown blocks on the dashboard — useful as section headings, dividers,
-or annotations between insight tiles to give the dashboard structure.
+ *
+ * Text tiles render as markdown blocks on the dashboard — useful as section headings, dividers,
+ * or annotations between insight tiles to give the dashboard structure.
  */
 export const DashboardsCreateTextTileCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
@@ -246,10 +246,10 @@ export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Soft-delete a single tile from a dashboard.
-
-Works for text, insight, and button tiles. The underlying Insight, Text, or ButtonTile
-object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
-use the dashboard delete endpoint instead.
+ *
+ * Works for text, insight, and button tiles. The underlying Insight, Text, or ButtonTile
+ * object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
+ * use the dashboard delete endpoint instead.
  */
 export const DashboardsDeleteTileParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),

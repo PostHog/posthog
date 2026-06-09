@@ -11,13 +11,13 @@ import * as zod from 'zod'
 
 /**
  * ViewSet for organization-level integrations.
-
-Provides access to integrations that are scoped to the entire organization
-(vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
-
-Creation is handled by the integration installation flows
-(e.g., Vercel marketplace installation). Users can disconnect integrations
-via the DELETE endpoint.
+ *
+ * Provides access to integrations that are scoped to the entire organization
+ * (vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
+ *
+ * Creation is handled by the integration installation flows
+ * (e.g., Vercel marketplace installation). Users can disconnect integrations
+ * via the DELETE endpoint.
  */
 export const IntegrationsEnvironmentMappingPartialUpdateBody = /* @__PURE__ */ zod
     .looseObject({})
@@ -205,10 +205,10 @@ export const IntegrationsEmailVerifyCreateBody = /* @__PURE__ */ zod
 
 /**
  * Unified endpoint for generating Domain Connect apply URLs.
-
-Accepts a context ("email" or "proxy") and the relevant resource ID.
-The backend resolves the domain, template variables, and service ID
-based on context, then builds the signed apply URL.
+ *
+ * Accepts a context ("email" or "proxy") and the relevant resource ID.
+ * The backend resolves the domain, template variables, and service ID
+ * based on context, then builds the signed apply URL.
  */
 export const IntegrationsDomainConnectApplyUrlCreateBody = /* @__PURE__ */ zod
     .object({

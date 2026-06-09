@@ -51,6 +51,8 @@ services:
                         path /e
                         path /e/*
                         path /i/v0/*
+                        path /i/v1/analytics/events
+                        path /i/v1/analytics/events/
                         path /batch
                         path /batch*
                         path /capture
@@ -495,6 +497,7 @@ services:
                     clickhouse_person_distinct_id \
                     clickhouse_app_metrics2 \
                     log_entries \
+                    clickhouse_property_values \
                     clickhouse_tophog"
                 for topic in $$TOPICS; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
