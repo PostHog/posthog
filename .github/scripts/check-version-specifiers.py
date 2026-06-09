@@ -11,7 +11,7 @@ Exemptions:
   - >= paired with an upper bound (< or <=) on the same requirement, e.g.
     "pkg>=1.0,<2.0" — that is an explicit bounded range, not a floor.
   - Environment markers are ignored when checking for upper bounds, so
-    "pkg>=1.0; python_version<'3.12'" is correctly flagged as unbounded.
+    "pkg>=1.0; python_version<'3.13'" is correctly flagged as unbounded.
   - Comment lines and non-dependency fields (requires-python, etc.) are skipped.
 
 Usage:
@@ -45,7 +45,7 @@ def _is_unbounded_gte(spec: str) -> bool:
     """Return True if spec contains >= with no accompanying upper-bound operator.
 
     Strips the environment marker (everything after the first ';') before
-    checking for upper bounds, so 'pkg>=1.0; python_version<"3.12"' is
+    checking for upper bounds, so 'pkg>=1.0; python_version<"3.13"' is
     correctly identified as unbounded.
     """
     version_part = spec.split(";", 1)[0]

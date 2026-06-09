@@ -10,7 +10,6 @@ import {
     AlertWizardLogicProps,
     alertWizardLogic,
 } from 'scenes/hog-functions/AlertWizard/alertWizardLogic'
-import { urls } from 'scenes/urls'
 
 import { HogFunctionSubTemplateIdType } from '~/types'
 
@@ -19,6 +18,7 @@ import {
     ERROR_TRACKING_SUB_TEMPLATE_IDS,
     ERROR_TRACKING_TRIGGERS,
 } from '../../../ErrorTrackingConfigurationScene/alerting/alertWizardConfig'
+import { errorTrackingConfigurationSettingUrl } from './configurationSettingUrl'
 import { ListRecommendationCard } from './ListRecommendationCard'
 import { recommendationsTabLogic } from './recommendationsTabLogic'
 import { ALERT_RECOMMENDATION_INFO, AlertsRecommendation } from './types'
@@ -148,7 +148,7 @@ function AlertsRecommendationWizardContent({ onClose }: { onClose: () => void })
                     })
                     resetWizard()
                     onClose()
-                    router.actions.push(urls.settings('environment-error-tracking', 'error-tracking-alerting'))
+                    router.actions.push(errorTrackingConfigurationSettingUrl('error-tracking-alerting'))
                 }}
             />
         </div>

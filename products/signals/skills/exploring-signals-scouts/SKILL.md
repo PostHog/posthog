@@ -32,16 +32,17 @@ performing** — entirely through read-only MCP tools. It is the observability c
 tuning) and to [`inbox-exploration`](../inbox-exploration/SKILL.md) (which covers the inbox
 reports scouts feed into).
 
-There are four things you can observe about the fleet, each with its own tool:
+There are five things you can observe about the fleet, each with its own tool:
 
-| What you want to know                        | Tool                                    | What it tells you                                             |
-| -------------------------------------------- | --------------------------------------- | ------------------------------------------------------------- |
-| Which scouts run, how often, in what posture | `signals-scout-config-list`             | One row per scout: schedule, `enabled`, `emit`, `last_run_at` |
-| What the scouts actually did, run by run     | `signals-scout-runs-list` / `-retrieve` | Per-run status, timing, end-of-run summary, deep-link         |
-| What the fleet has learned across runs       | `signals-scout-scratchpad-search`       | Durable per-team memory (baselines, noise, allowlists)        |
-| What the scouts surfaced to the user         | `inbox-reports-list`                    | Findings that cleared the bar and became inbox reports        |
+| What you want to know                        | Tool                                     | What it tells you                                                               |
+| -------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------- |
+| Which scouts run, how often, in what posture | `signals-scout-config-list`              | One row per scout: schedule, `enabled`, `emit`, `last_run_at`                   |
+| What the scouts actually did, run by run     | `signals-scout-runs-list` / `-retrieve`  | Per-run status, timing, end-of-run summary, `emitted_count`, deep-link          |
+| What the fleet has learned across runs       | `signals-scout-scratchpad-search`        | Durable per-team memory (baselines, noise, allowlists)                          |
+| What the scouts actually **emitted**         | `execute-sql` over `document_embeddings` | The authoritative per-finding record (weight, severity, confidence) — see below |
+| What the scouts surfaced to the user         | `inbox-reports-list`                     | Findings that cleared the bar and became inbox reports                          |
 
-The orienting fifth is `signals-scout-project-profile-get` — the deterministic snapshot of "what's
+The orienting sixth is `signals-scout-project-profile-get` — the deterministic snapshot of "what's
 true about this project" that every scout cold-starts from. When a scout found nothing, this is
 usually why.
 
@@ -147,11 +148,15 @@ call out anything anomalous (never run, last run errored, stuck in dry-run for a
 - **Search summaries** with `text` — a case-insensitive substring match on each run's end-of-run
   `summary`. This is how the headless scout dedupes, and it's how you find "did any run already
   look at the checkout error spike?"
+- **Filter by emit outcome** with `emitted` — `emitted=true` returns only runs that surfaced at
+  least one finding, `emitted=false` only the quiet runs. This is the direct way to answer "which
+  runs actually emitted something?" without parsing prose.
 
 Each summary row carries `run_id`, `skill_name`, `skill_version`, `status`, `started_at`,
-`completed_at`, `task_url` (a deep-link into the Tasks UI for the full transcript), and the
-`summary` prose. Lead with the `summary` when narrating to the user — it's the scout's own
-plain-language close-out — and always offer the `task_url` for the full reasoning.
+`completed_at`, `emitted_count` (how many findings the run emitted), `emitted_finding_ids` (their
+ids), `task_url` (a deep-link into the Tasks UI for the full transcript), and the `summary` prose.
+Lead with the `summary` when narrating to the user — it's the scout's own plain-language close-out —
+and always offer the `task_url` for the full reasoning.
 
 ## Workflow: drill into a single run
 
@@ -166,11 +171,12 @@ Note the field name flip: `runs-list` returns each run's id as `run_id`, but `ru
 takes it as `id`. Pass the `run_id` value through as `id`.
 
 Returns the full run: `status`, `started_at` / `completed_at` (compute duration from these),
-`skill_name` / `skill_version` (what ran, at what body version), the end-of-run `summary`, and
-`task_url`. The transcript — the actual tool calls and reasoning — lives in the Tasks UI behind
-`task_url`, not in this payload; hand the user that link when they want to see every step. A
-**failed** run returns an empty `summary` and **no error field** — the payload looks the same as
-the list row, so to learn _why_ it failed you need the transcript.
+`skill_name` / `skill_version` (what ran, at what body version), the end-of-run `summary`,
+`emitted_count` / `emitted_finding_ids`, and `task_url`. The transcript — the actual tool calls and
+reasoning — lives in the Tasks UI behind `task_url`, not in this payload; hand the user that link
+when they want to see every step. A **failed** run returns an empty `summary` and **no error
+field** — the payload looks the same as the list row, so to learn _why_ it failed you need the
+transcript.
 
 You don't have to open the UI for that: **`tasks-runs-session-logs-retrieve` returns the run's
 session log (every tool call, message, and reasoning step) as data** — handy when you're
@@ -189,16 +195,15 @@ you with tool _names_ but no idea what the scout actually queried. Fetch the **f
 the script reassemble each call (it groups by `toolCallId`, keeps the richest `rawInput`, and
 attaches the completion's `rawOutput`/`status`).
 
-**Telling whether a run emitted is not as direct as you'd hope.** The run row carries no emit
-flag and no finding count — the only readily-available signal is the prose `summary`, which says
-"EMITTED nothing" on a quiet run and names what it emitted otherwise. Read it carefully: a phrase
-like "already emitted P1 … did not re-emit" describes a _prior_ run and means this run emitted
-nothing, so substring-matching the summary for "emitted" is unreliable. Findings do carry a
-deterministic `source_id = run:<run_id>:finding:<finding_id>`, but it's stored in the signal's
-`metadata.extra` (not a top-level field) and grouping merges scout findings into the same
-clusters as other sources, so the `source_product: "signals_scout"` inbox filter does **not**
-reliably surface them. See [`references/scout-data-model.md`](references/scout-data-model.md) for
-the run-to-finding link and its limits.
+**Whether a run emitted is a first-class field: `emitted_count`.** `emitted_count > 0` means the
+run surfaced that many findings; `emitted_count: 0` means it closed out empty. Don't parse the prose
+`summary` for this any more — a phrase like "already emitted P1 … did not re-emit" describes a
+_prior_ run, so substring-matching the summary for "emitted" is unreliable, whereas `emitted_count`
+is the authoritative tally. `emitted_finding_ids` lists the `finding_id`s behind that count, in emit
+order; each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`, giving a
+reliable run → finding link. See [`references/scout-data-model.md`](references/scout-data-model.md)
+for the run-to-finding link and how an emitted finding rides through grouping into the
+`source_product: "signals_scout"` inbox filter.
 
 A run with `status` complete and an empty-handed summary ("surface at baseline, nothing to
 emit") is a **healthy** outcome, not a failure — most runs should close out empty. Treat a stream
@@ -240,6 +245,35 @@ suppress it. The canonical prefix vocabulary and the four-state dedupe classifie
 in terms of are documented in
 [`../authoring-signals-scouts/references/dedupe-and-memory.md`](../authoring-signals-scouts/references/dedupe-and-memory.md).
 
+## Workflow: list what scouts have actually emitted
+
+"What has the fleet emitted lately / show me every finding my scouts produced." The run row
+carries no emit flag and no finding count, the prose `summary` is heuristic, and the inbox
+filter (below) is lossy because grouping merges scout findings into mixed-source clusters. The
+**authoritative** per-finding record is the emitted signal itself, in the `document_embeddings`
+table — queryable for any team via `execute-sql` (the general path). When a scout emits,
+`emit_signal` writes a signal with `source_product="signals_scout"`; the scout's attribution
+(`skill_name`, `finding_id`, `severity`, `confidence`) lands in `metadata.extra`, with `weight`
+and `source_id` at the top level.
+
+Fetch with `execute-sql` and format with [`scripts/emitted_signals.py`](#helper-scripts) — the
+exact query lives in the script's header. One row per finding, filterable by any set of scouts:
+
+```bash
+#   call --json execute-sql { "truncate": false, "query": "<the emitted-signals query>" }  -> emitted.txt
+python scripts/emitted_signals.py --signals emitted.txt --now <ISO> [--skill mcp-feedback,general]
+```
+
+A row here is **ground truth that a finding persisted** — it cleared every emit gate. The flip
+side matters when explaining a gap: a scout can narrate "EMITTED ..." in its `summary` yet have
+the emit **silently dropped** by a preflight gate (dry-run at the time, the org hasn't approved
+AI processing, or the `signals_scout` source is disabled), or the emit failed. Those never reach
+this table, so a claimed-but-absent finding is itself a diagnostic, not a script bug. The emit
+contract behind each row (weight vs. confidence rubrics, severity, dedupe) is documented in
+[`../authoring-signals-scouts/references/emit-contract.md`](../authoring-signals-scouts/references/emit-contract.md);
+the run → finding link and its limits are in
+[`references/scout-data-model.md`](references/scout-data-model.md).
+
 ## Workflow: see what scouts have surfaced
 
 Scout findings reach the user as inbox reports. Filter the inbox to the scout source:
@@ -256,11 +290,13 @@ result is the set of reports the fleet has surfaced.
 
 An empty result means the fleet hasn't emitted (yet), **not** that the filter is broken. Scouts hold
 a high bar — most runs close out without emitting — so on a quiet or newly enrolled project zero
-scout-backed reports is the normal, expected state. Read it as "nothing surfaced," and fall back to
-each run's `summary` for the per-run record of what was (or wasn't) emitted. To browse the inbox more
-broadly, use the [`inbox-exploration`](../inbox-exploration/SKILL.md) skill (statuses, suggested
-reviewers, drilling into a report's underlying signals). The emit contract behind each finding —
-weight, confidence, severity, the description prose — is documented in
+scout-backed reports is the normal, expected state. For the per-run view of what emitted, work from
+the runs instead: `signals-scout-runs-list?emitted=true` lists every emitting run, and each run's
+`emitted_count` / `emitted_finding_ids` tell you how many and which findings it produced (each
+`finding_id` maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`). To browse the
+inbox more broadly, use the [`inbox-exploration`](../inbox-exploration/SKILL.md) skill (statuses,
+suggested reviewers, drilling into a report's underlying signals). The emit contract behind each
+finding — weight, confidence, severity, the description prose — is documented in
 [`../authoring-signals-scouts/references/emit-contract.md`](../authoring-signals-scouts/references/emit-contract.md).
 
 ## Workflow: assess health and performance
@@ -278,17 +314,19 @@ below. The full playbook, including how to read each signal and the common failu
   backed up / down, or runs stranded), which `runs-list` alone hides.
 - **Success rate** — how many runs reach a clean `status` vs. error out? A run of errors is a
   broken scout, not a quiet one.
-- **Emit rate** — what fraction of runs emitted vs. closed out empty. Near-zero over a long window
-  on a live surface can mean the discriminator is too strict (or the surface really is quiet);
-  near-100% usually means it's too noisy. Most healthy scouts emit rarely.
+- **Emit rate** — what fraction of runs emitted vs. closed out empty. Read it straight off
+  `emitted_count` per run (or split the window with `runs-list?emitted=true` / `?emitted=false`).
+  Near-zero over a long window on a live surface can mean the discriminator is too strict (or the
+  surface really is quiet); near-100% usually means it's too noisy. Most healthy scouts emit rarely.
 - **Signal-to-noise** — of what it emitted, how much became actionable inbox reports vs. got
-  suppressed? Cross-check emitted findings against `inbox-reports-list` report states.
+  suppressed? Use each emitting run's `emitted_finding_ids` to tie runs to their `Signal` rows, and
+  cross-check against `inbox-reports-list` report states.
 - **Memory growth** — a healthy scout accumulates `pattern:` / `noise:` / `dedupe:` entries over
   time. A scout with an empty scratchpad after many runs isn't learning.
 
 ## Helper scripts
 
-The skill bundles three **pure formatters** under [`scripts/`](scripts/) for the most common asks.
+The skill bundles four **pure formatters** under [`scripts/`](scripts/) for the most common asks.
 They do **no network I/O** — they are the back half of an "agent fetches, script formats" split.
 The pattern is always the same:
 
@@ -297,7 +335,7 @@ The pattern is always the same:
    is mandatory anyway — they overflow inline and spill to a file you can point the script at.
 2. Run the script over those files.
 
-All three are stdlib-only Python 3.11+ and print **plain text** to stdout (or `--out`) — designed
+All four are stdlib-only Python 3.11+ and print **plain text** to stdout (or `--out`) — designed
 to read well in a terminal, so save them as `.txt`.
 
 ### `scripts/render_run_report.py` — drill into one run
@@ -362,15 +400,41 @@ newest runs). Without `--scratchpad` the memory column shows `n/a` and no memory
 emit % is the same summary-prose heuristic — cross-check signal-to-noise against
 `inbox-reports-list`.
 
+### `scripts/emitted_signals.py` — every finding the fleet actually emitted
+
+Implements the "list what scouts have actually emitted" workflow: the authoritative per-finding
+table (when, scout, severity, weight, confidence, `finding_id`, one-line hypothesis) plus a
+per-scout rollup (emit count, severity mix, weight range, latest emit). Unlike `assess_health`'s
+emit **%** — a prose heuristic — this reads the emitted signals directly, so it's exact.
+
+Its input is **not** a `signals-scout-*` tool; it's an `execute-sql` result over
+`document_embeddings` (the general, any-team path). The full query lives in the script's header —
+copy it verbatim. `execute-sql` returns a pipe-delimited text table (even under `call --json` it's
+that text wrapped in a JSON string), so the script parses that text; the query deliberately selects
+only pipe-safe scalar columns (the multi-line `description` is excluded, `hypothesis` is sanitized).
+
+```bash
+#   call --json execute-sql { "truncate": false, "query": "<emitted-signals query from the header>" }  -> emitted.txt
+python scripts/emitted_signals.py --signals emitted.txt --now <current-ISO-time> \
+    [--skill mcp-feedback,general] [--severity P0,P1,P2] [--since <ISO>] [--sort weight] [--wide]
+```
+
+`--skill` takes a comma-separated set (the `signals-scout-` prefix is optional). `--wide` adds the
+`scout_run_id` so you can chain straight into `render_run_report.py` for the run that emitted a
+finding. Remember the coverage caveat: this lists signals that **persisted** — a finding a run
+summary claims but that's absent here was gated (dry-run / AI processing not approved / source
+disabled) or failed.
+
 ## Tips
 
 - **Always surface the `emit` posture.** "Running but in dry-run" is the single most common reason
   a user thinks a scout is broken when it isn't.
 - **An empty close-out is success.** Most runs should find nothing. Don't report a wall of clean,
   empty runs as a problem.
-- **There's no emit flag to filter on.** Neither the run row nor the inbox exposes a clean
-  "scout-emitted" filter — judge emit-vs-quiet from each run's `summary`, and don't read an empty
-  `source_product: "signals_scout"` inbox result as "the fleet emitted nothing."
+- **Emit-vs-quiet is a first-class run field.** Filter runs directly with `runs-list?emitted=true`
+  (or read `emitted_count` per run) to find what emitted, without parsing the prose `summary`. The
+  `source_product: "signals_scout"` inbox filter lists the _reports_ the fleet surfaced; an empty
+  result there means it hasn't emitted yet (scouts hold a high bar), not that the filter is broken.
 - **A ~30-min run that `failed` is usually a timeout, not a broken scout.** Completed runs finish
   in a couple of minutes. Most often the scout over-investigated and ran the full budget (the fleet
   self-corrects by writing "tight-run recipe" scratchpad entries) — but some are false timeouts
