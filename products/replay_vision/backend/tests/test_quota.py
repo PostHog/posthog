@@ -224,6 +224,27 @@ class TestQuotaGrants(_VisionQuotaTestCase):
             assert snapshot.remaining == 1
 
 
+class TestReplayQuotaGrantAdmin(_VisionQuotaTestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        # SimpleAdminConfig defers `autodiscover_modules("admin")` to
+        # `register_all_admin()` (see `posthog.apps`), and that lazy hook is
+        # disabled in tests — so the model admin isn't registered by default.
+        # Trigger it explicitly so the URL resolves.
+        from posthog.admin import register_all_admin
+
+        register_all_admin()
+
+    def test_add_page_renders(self) -> None:
+        # Regression: AdminSplitDateTime.decompress calls value.astimezone(...) on the initial
+        # `expires_at`, so a str (from .isoformat()) AttributeErrors and 500s the add page.
+        self.user.is_staff = True
+        self.user.save()
+        response = self.client.get("/admin/replay_vision/replayquotagrant/add/")
+        assert response.status_code == 200, response.content[:500]
+
+
 class TestVisionQuotaEndpoint(_VisionQuotaTestCase):
     @property
     def quota_url(self) -> str:
