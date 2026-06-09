@@ -1,16 +1,15 @@
 """Compose the `systemPrompt` for a PostHog AI sandbox Run.
 
 The prompt is assembled from the migrated `ee/hogai/chat_agent/prompts/` content.
-Per the migration plan, groups, billing, and core-memory blocks are NOT injected
-here — those are reachable via MCP tools, so duplicating them in the system prompt
-is unnecessary. Plan-mode prose is also dropped (Claude Code exposes EnterPlanMode
-as an ordinary tool).
+Per the migration plan, groups, billing, core-memory, and project-context blocks are
+NOT injected here — those are reachable via MCP tools (the MCP server injects project
+context), so duplicating them in the system prompt is unnecessary. Plan-mode prose is
+also dropped (Claude Code exposes EnterPlanMode as an ordinary tool).
 
-Pure function over its inputs — no side effects.
+The service is pure over its inputs — no side effects.
 """
 
 from posthog.models import Team, User
-from posthog.utils import get_instance_region
 
 from ee.hogai.chat_agent.prompts.base import (
     BASIC_FUNCTIONALITY_PROMPT,
@@ -40,50 +39,43 @@ CAPABILITIES_BY_DOMAIN_PROMPT = """
 """.strip()
 
 
-def build_posthog_ai_system_prompt(
-    team: Team,
-    user: User,
-    *,
-    context_summary: dict | None = None,
-) -> str:
-    """Compose the systemPrompt for a PostHog AI sandbox Run.
+class BaseSandboxService:
+    """Shared base for the sandbox-runtime services that act on behalf of a user.
 
-    Called once at Run creation. The returned string goes into
-    `clientConnection.newSession({ _meta: { systemPrompt } })`.
-
-    `context_summary` is an optional small static slice of per-Run-immutable context
-    (e.g. project name, timezone). Per-turn context is delivered separately via the
-    `<posthog_context>` wrapper, not here.
+    Holds the team/user the services operate against; extension point for any future
+    shared behavior.
     """
-    # Groups are not injected — reachable via MCP — so the placeholder resolves to empty.
-    basic_functionality = format_prompt_string(BASIC_FUNCTIONALITY_PROMPT, groups_prompt="")
 
-    parts: list[str] = [
-        f"<identity>\n{ROLE_PROMPT}\n</identity>",
-        TONE_AND_STYLE_PROMPT,
-        WRITING_STYLE_PROMPT,
-        PROACTIVENESS_PROMPT,
-        f"<capabilities>\n{basic_functionality}\n</capabilities>",
-        CAPABILITIES_BY_DOMAIN_PROMPT,
-        SLASH_COMMANDS_PROMPT,
-        DOING_TASKS_PROMPT,
-        PRODUCT_ADVOCACY_PROMPT,
-        TOOL_USAGE_POLICY_PROMPT,
-        _build_project_context_block(team, context_summary),
-    ]
-
-    return "\n\n".join(p.strip() for p in parts if p.strip())
+    def __init__(self, team: Team, user: User) -> None:
+        self.team = team
+        self.user = user
 
 
-def _build_project_context_block(team: Team, context_summary: dict | None) -> str:
-    summary = context_summary or {}
-    project_name = summary.get("project_name", team.name)
-    project_timezone = summary.get("project_timezone", team.timezone)
-    region = summary.get("region") or get_instance_region() or "unknown"
-    return (
-        "<project_context>\n"
-        f"Project name: {project_name}.\n"
-        f"Default timezone: {project_timezone}.\n"
-        f"Region: {region}.\n"
-        "</project_context>"
-    )
+class PromptService(BaseSandboxService):
+    """Compose the systemPrompt for a PostHog AI sandbox Run. Stateless over its inputs."""
+
+    def build(self) -> str:
+        """Compose the systemPrompt for a PostHog AI sandbox Run.
+
+        Called once at Run creation. The returned string goes into
+        `clientConnection.newSession({ _meta: { systemPrompt } })`. Per-turn context is
+        delivered separately via the `<posthog_context>` wrapper, and project context is
+        injected by the MCP server — neither is built here.
+        """
+        # Groups are not injected — reachable via MCP — so the placeholder resolves to empty.
+        basic_functionality = format_prompt_string(BASIC_FUNCTIONALITY_PROMPT, groups_prompt="")
+
+        parts: list[str] = [
+            f"<identity>\n{ROLE_PROMPT}\n</identity>",
+            TONE_AND_STYLE_PROMPT,
+            WRITING_STYLE_PROMPT,
+            PROACTIVENESS_PROMPT,
+            f"<capabilities>\n{basic_functionality}\n</capabilities>",
+            CAPABILITIES_BY_DOMAIN_PROMPT,
+            SLASH_COMMANDS_PROMPT,
+            DOING_TASKS_PROMPT,
+            PRODUCT_ADVOCACY_PROMPT,
+            TOOL_USAGE_POLICY_PROMPT,
+        ]
+
+        return "\n\n".join(p.strip() for p in parts if p.strip())

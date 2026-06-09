@@ -9,8 +9,9 @@ from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
 from products.posthog_ai.backend.context_wrapper import MAX_ATTACHED_ITEMS, MAX_TEXT_LENGTH
-from products.posthog_ai.backend.message_routing import handle_sandbox_message
+from products.posthog_ai.backend.message_routing import MessageRoutingService
 from products.posthog_ai.backend.models.assistant import Conversation
+from products.posthog_ai.backend.system_prompt import PromptService
 from products.tasks.backend.models import Task, TaskRun
 
 ROUTING = "products.posthog_ai.backend.message_routing"
@@ -47,7 +48,7 @@ class TestHandleSandboxMessage(APIBaseTest):
         return (
             patch.object(Task, "create_and_run", return_value=task),
             patch(f"{ROUTING}.execute_task_processing_workflow"),
-            patch(f"{ROUTING}.build_posthog_ai_system_prompt", return_value="SYS"),
+            patch.object(PromptService, "build", return_value="SYS"),
             patch(f"{ROUTING}.report_user_action"),
         )
 
@@ -62,7 +63,7 @@ class TestHandleSandboxMessage(APIBaseTest):
                     "attached_context": [{"type": "dashboard", "id": 123, "name": "Funnel"}],
                 }
             )
-            response = handle_sandbox_message(request, self.conversation)
+            response = MessageRoutingService(request, self.conversation).handle()
 
         assert response.status_code == 200
         assert response.data["task_id"] == str(task.id)
@@ -97,7 +98,7 @@ class TestHandleSandboxMessage(APIBaseTest):
         car, workflow, sysprompt, telemetry = self._patches(task)
         with car, workflow, sysprompt, telemetry:
             request = self._request({"content": "Hello", "trace_id": "t"})
-            handle_sandbox_message(request, self.conversation)
+            MessageRoutingService(request, self.conversation).handle()
 
         run.refresh_from_db()
         assert run.state["pending_user_message"] == "Hello"
@@ -106,30 +107,30 @@ class TestHandleSandboxMessage(APIBaseTest):
     def test_missing_content_raises(self):
         request = self._request({"trace_id": "t"})
         with self.assertRaises(exceptions.ValidationError):
-            handle_sandbox_message(request, self.conversation)
+            MessageRoutingService(request, self.conversation).handle()
 
     def test_unknown_attached_context_type_raises(self):
         request = self._request({"content": "x", "attached_context": [{"type": "bogus", "id": 1}]})
         with self.assertRaises(exceptions.ValidationError):
-            handle_sandbox_message(request, self.conversation)
+            MessageRoutingService(request, self.conversation).handle()
 
     def test_dashboard_id_must_be_integer(self):
         request = self._request({"content": "x", "attached_context": [{"type": "dashboard", "id": "abc"}]})
         with self.assertRaises(exceptions.ValidationError):
-            handle_sandbox_message(request, self.conversation)
+            MessageRoutingService(request, self.conversation).handle()
 
     def test_attached_context_item_cap(self):
         items = [{"type": "insight", "id": str(i)} for i in range(MAX_ATTACHED_ITEMS + 1)]
         request = self._request({"content": "x", "attached_context": items})
         with self.assertRaises(exceptions.ValidationError):
-            handle_sandbox_message(request, self.conversation)
+            MessageRoutingService(request, self.conversation).handle()
 
     def test_text_length_cap(self):
         request = self._request(
             {"content": "x", "attached_context": [{"type": "text", "value": "a" * (MAX_TEXT_LENGTH + 1)}]}
         )
         with self.assertRaises(exceptions.ValidationError):
-            handle_sandbox_message(request, self.conversation)
+            MessageRoutingService(request, self.conversation).handle()
 
     def test_followup_not_yet_supported(self):
         task, _ = self._stub_task()
@@ -137,4 +138,4 @@ class TestHandleSandboxMessage(APIBaseTest):
         self.conversation.save(update_fields=["task"])
         request = self._request({"content": "follow up", "trace_id": "t"})
         with self.assertRaises(exceptions.ValidationError):
-            handle_sandbox_message(request, self.conversation)
+            MessageRoutingService(request, self.conversation).handle()

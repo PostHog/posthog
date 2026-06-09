@@ -50,7 +50,7 @@ from posthog.temporal.ai.research_agent import (
     ResearchAgentWorkflowInputs,
 )
 
-from products.posthog_ai.backend.message_routing import handle_sandbox_message
+from products.posthog_ai.backend.message_routing import MessageRoutingService
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
@@ -411,7 +411,7 @@ class ConversationViewSet(
             if is_new_conversation:
                 conversation.title = serializer.validated_data["content"][:80]
                 conversation.save(update_fields=["title"])
-            return handle_sandbox_message(request, conversation)
+            return MessageRoutingService(request, conversation).handle()
 
         workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs
         workflow_class: type[ChatAgentWorkflow] | type[ResearchAgentWorkflow]

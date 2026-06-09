@@ -1,8 +1,8 @@
-from products.posthog_ai.backend.context_wrapper import AttachedContext, prune_repeated_entity_refs, wrap_user_message
+from products.posthog_ai.backend.context_wrapper import AttachedContext, ContextService
 
 
 def test_wrap_empty_returns_content_verbatim():
-    assert wrap_user_message("hello", []) == "hello"
+    assert ContextService().wrap_user_message("hello", []) == "hello"
 
 
 def test_wrap_one_of_each_entity_type():
@@ -15,7 +15,7 @@ def test_wrap_one_of_each_entity_type():
         {"type": "evaluation", "id": "eval-1", "name": "Tone eval"},
         {"type": "notebook", "id": "nb-9", "name": "Launch notes"},
     ]
-    wrapped = wrap_user_message("Why did checkout drop?", attached)
+    wrapped = ContextService().wrap_user_message("Why did checkout drop?", attached)
     assert wrapped == (
         "<posthog_context>\n"
         "The user attached the following PostHog entities. "
@@ -38,7 +38,7 @@ def test_wrap_mixed_with_free_text():
         {"type": "dashboard", "id": 1, "name": "Funnel"},
         {"type": "text", "value": "I think this regressed in last Thursday's deploy"},
     ]
-    wrapped = wrap_user_message("Investigate", attached)
+    wrapped = ContextService().wrap_user_message("Investigate", attached)
     assert wrapped == (
         "<posthog_context>\n"
         "The user attached the following PostHog entities. "
@@ -56,7 +56,7 @@ def test_wrap_missing_name_falls_back_to_id_only():
         {"type": "dashboard", "id": 42},
         {"type": "insight", "id": "xyz"},
     ]
-    wrapped = wrap_user_message("Look", attached)
+    wrapped = ContextService().wrap_user_message("Look", attached)
     assert wrapped == (
         "<posthog_context>\n"
         "The user attached the following PostHog entities. "
@@ -76,7 +76,7 @@ def test_prune_dedupes_repeated_entity_refs():
         {"type": "insight", "id": "abc", "name": "Signups"},
         {"type": "action", "id": 9, "name": "New action"},
     ]
-    deduped = prune_repeated_entity_refs(attached, prior=prior)
+    deduped = ContextService().prune_repeated_entity_refs(attached, prior=prior)
     assert deduped == [{"type": "action", "id": 9, "name": "New action"}]
 
 
@@ -85,7 +85,7 @@ def test_prune_dedupes_within_same_batch():
         {"type": "dashboard", "id": 1},
         {"type": "dashboard", "id": 1, "name": "Same dashboard"},
     ]
-    deduped = prune_repeated_entity_refs(attached, prior=[])
+    deduped = ContextService().prune_repeated_entity_refs(attached, prior=[])
     assert deduped == [{"type": "dashboard", "id": 1}]
 
 
@@ -94,7 +94,7 @@ def test_prune_never_dedupes_repeated_text():
         {"type": "text", "value": "Error A"},
         {"type": "text", "value": "Error A"},
     ]
-    deduped = prune_repeated_entity_refs(attached, prior=[("text", "Error A")])
+    deduped = ContextService().prune_repeated_entity_refs(attached, prior=[("text", "Error A")])
     assert deduped == attached
 
 
@@ -102,5 +102,5 @@ def test_prune_then_wrap_empties_to_bare_content():
     # When dedupe removes everything, wrap forwards the message without any block.
     prior = [("dashboard", 1)]
     attached: list[AttachedContext] = [{"type": "dashboard", "id": 1, "name": "Funnel"}]
-    deduped = prune_repeated_entity_refs(attached, prior=prior)
-    assert wrap_user_message("just text", deduped) == "just text"
+    deduped = ContextService().prune_repeated_entity_refs(attached, prior=prior)
+    assert ContextService().wrap_user_message("just text", deduped) == "just text"
