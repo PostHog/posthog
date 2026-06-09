@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 import structlog
@@ -108,11 +108,14 @@ class SafetyFilterInput:
     # Optional with a default for deploy-time backward compatibility: a batch scheduled before this
     # field existed must still deserialize on a new worker; missing => gateway key owner's team.
     team_id: int | None = None
-    # Source identity, carried through purely so the blocked-signal lifecycle event can attribute
-    # which signal was dropped. Optional for the same backward-compatibility reason as team_id.
+    # Source identity and metadata, carried through purely so the blocked-signal lifecycle event
+    # can attribute which signal was dropped (for scout signals `extra` holds run_id, task_run_id,
+    # finding_id, skill_name, etc.). Optional for the same backward-compatibility reason as team_id.
     source_product: str | None = None
     source_type: str | None = None
     source_id: str | None = None
+    weight: float | None = None
+    extra: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -158,6 +161,8 @@ async def _capture_signal_blocked_event(input: SafetyFilterInput, result: Safety
                 "source_product": input.source_product,
                 "source_type": input.source_type,
                 "source_id": input.source_id,
+                "weight": input.weight,
+                "extra": input.extra,
             },
             groups=groups(team.organization, team),
         )
