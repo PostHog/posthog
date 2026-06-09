@@ -156,7 +156,7 @@ export function TasksList(): JSX.Element {
                     onClick={openCreateModal}
                     sideIcon={
                         hasDraftTask ? (
-                            <LemonTag type="completion" size="small">
+                            <LemonTag type="highlight" size="small">
                                 Draft
                             </LemonTag>
                         ) : undefined
