@@ -853,6 +853,7 @@ class TestEventsSubexprHoister(BaseTest):
         # The projected poe field keeps its VirtualTableType (the physical pass peels it to person_properties).
         hoister, _, _ = self._run("SELECT poe.properties FROM events")
         field_type = hoister.column_types["person_properties"]
+        assert isinstance(field_type, ast.FieldType)
         assert isinstance(field_type.table_type, ast.VirtualTableType)
 
     def test_poe_mixed_with_direct_columns(self):
