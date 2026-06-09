@@ -12,6 +12,8 @@
 // Products under SMALL_THRESHOLD duration get grouped into one matrix entry
 // to avoid spinning up a full Docker stack for a handful of tests.
 // Durations come from .test_durations (maintained by pytest-split).
+// Products listed in DEDICATED_BUCKET_PRODUCTS opt out of this grouping and
+// always run alone, isolating flaky/hang-prone products from the rest.
 //
 // Input:  LEGACY_CHANGED env var ("true"/"false")
 //         SCHEMA_CHANGED env var ("true"/"false") — when set and LEGACY_CHANGED
@@ -40,6 +42,17 @@ const PRODUCT_SAFETY_FACTOR = 1.3
 // Tests under these paths need special infrastructure (Temporal server, etc.)
 // and are handled by Django CI's dedicated segments — exclude from duration estimates
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
+// Products that must never share a bucket — each always gets its own matrix
+// entry (its own runner) instead of being packed with others.
+//
+// Add a product's name (the @posthog/products-<name> suffix, e.g. 'batch-exports')
+// here when it is flaky, slow, or hang-prone enough that sharing a runner risks
+// cancelling unrelated products at the job timeout. batch-exports is isolated
+// because its intermittent async-fixture teardown hang would otherwise take
+// down whatever products were packed alongside it, and isolation lets the shard
+// be tuned independently. The trade-off is a dedicated runner (more CI minutes),
+// so reserve this for products that genuinely need it rather than as a default.
+const DEDICATED_BUCKET_PRODUCTS = new Set(['batch-exports'])
 
 // --- Django shard auto-sizing (Amdahl's law) ---
 // wall_clock = overhead + (total_from_durations_file / shards)
@@ -296,6 +309,13 @@ function buildMatrix(products, durations) {
                     pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm duration_based_chunks`,
                 })
             }
+        } else if (DEDICATED_BUCKET_PRODUCTS.has(product)) {
+            console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → dedicated bucket (never packed)`)
+            matrix.push({
+                group: product,
+                filters: `--filter=@posthog/products-${product}`,
+                pytest_args: '',
+            })
         } else {
             packable.push(product)
         }
