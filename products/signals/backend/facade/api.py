@@ -22,6 +22,11 @@ from products.signals.backend.models import SignalSourceConfig
 logger = structlog.get_logger(__name__)
 
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
+MAX_SIGNAL_REMEDIATION_TOKENS = 16000
+
+
+def _token_count(text: str) -> int:
+    return len(get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL).encode(text))
 
 
 def dismiss_report_from_slack(team_id: int, report_id: str, *, slack_user_id: str | None = None) -> bool:
@@ -109,7 +114,8 @@ async def emit_signal(
             `scout_run_id` / `skill_name`) is queryable downstream without a schema change.
             Nested lists/dicts are never forwarded.
         remediation: Optional fix guidance (separate from extra), validated against the
-            `SignalRemediation` schema. When set, the signal is treated as actionable: the guidance
+            `SignalRemediation` schema and capped at MAX_SIGNAL_REMEDIATION_TOKENS tokens
+            (`human` + `agent` combined). When set, the signal is treated as actionable: the guidance
             is surfaced to the research agent as authoritative direction, which it follows instead of
             investigating from scratch. Not required by any existing source.
 
@@ -141,12 +147,20 @@ async def emit_signal(
     if not is_enabled:
         return
 
-    token_count = len(get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL).encode(description))
-    if token_count > MAX_SIGNAL_DESCRIPTION_TOKENS:
+    description_tokens = _token_count(description)
+    if description_tokens > MAX_SIGNAL_DESCRIPTION_TOKENS:
         raise ValueError(
-            f"Signal description exceeds {MAX_SIGNAL_DESCRIPTION_TOKENS} tokens ({token_count} tokens). "
+            f"Signal description exceeds {MAX_SIGNAL_DESCRIPTION_TOKENS} tokens ({description_tokens} tokens). "
             f"Truncate the description before calling emit_signal."
         )
+
+    if remediation is not None:
+        remediation_tokens = _token_count(f"{remediation.human}\n{remediation.agent}")
+        if remediation_tokens > MAX_SIGNAL_REMEDIATION_TOKENS:
+            raise ValueError(
+                f"Signal remediation exceeds {MAX_SIGNAL_REMEDIATION_TOKENS} tokens ({remediation_tokens} tokens). "
+                f"Trim the remediation guidance before calling emit_signal."
+            )
 
     # Validate the signal against the matching schema variant
     variant_model = _SIGNAL_VARIANT_LOOKUP.get((source_product, source_type))
