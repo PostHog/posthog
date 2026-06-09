@@ -372,6 +372,50 @@ class TestQueryRunner(BaseTest):
         assert restricted_payload["restricted_objects"] == {"dashboard": ["42"]}
         assert restricted_runner.get_cache_key() != baseline_key
 
+    def test_object_access_control_flag_not_evaluated_for_non_system_queries(self):
+        """
+        Desired behavior — this FAILS on the current branch, which is the point.
+
+        The ``hogql-object-access-control`` flag should only be evaluated when a query can actually
+        touch a ``system.*`` table. Today it is evaluated on the cache-key hot path of EVERY HogQL
+        query: ``get_cache_payload`` -> ``_get_object_access_restrictions`` accesses
+        ``UserAccessControl.blocked_resource_ids_by_scope``, which calls
+        ``posthoganalytics.feature_enabled`` as its very first step (before even the admin
+        short-circuit). ``TheTestQuery`` has nothing to do with system tables, yet the flag is
+        still evaluated. The author should gate the fingerprint so unrelated queries don't pay
+        for a flag check on every cache-key computation.
+        """
+        from posthog.constants import AvailableFeature
+        from posthog.models import OrganizationMembership
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        TestHogQLRunner = self.setup_test_query_runner_class(base=QueryRunnerWithHogQLContext)  # type: ignore[type-abstract]
+
+        # feature_enabled(True) during construction wires up Database.user_access_control (gated on
+        # the resource-level `hogql-access-control` flag) so the object-AC check is actually reachable.
+        with mock.patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled:
+            runner = TestHogQLRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
+            feature_enabled.reset_mock()  # only count flag checks triggered by cache-key computation
+            runner.get_cache_payload()
+
+        object_ac_flag_calls = [
+            call
+            for call in feature_enabled.call_args_list
+            if call.args and call.args[0] == "hogql-object-access-control"
+        ]
+        assert not object_ac_flag_calls, (
+            "hogql-object-access-control was evaluated on the cache-key path of a non-system query; "
+            "it should only be checked when the query can touch a system.* table"
+        )
+
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
         TestQueryRunner = self.setup_test_query_runner_class()

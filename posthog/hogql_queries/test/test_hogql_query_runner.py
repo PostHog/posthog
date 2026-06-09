@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import cast
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
@@ -349,3 +349,56 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = runner.calculate()
         self.assertEqual(len(response.results), 5)
+
+    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+    def test_hogql_runner_cache_key_does_not_isolate_object_restricted_users(self):
+        """
+        Cache-poisoning fail-open. The SQL editor runs HogQL through ``HogQLQueryRunner``, which
+        extends ``AnalyticsQueryRunner`` — NOT ``QueryRunnerWithHogQLContext`` — and never assigns
+        ``self.database``. ``QueryRunner._get_object_access_restrictions`` short-circuits on
+        ``self.database is None``, so the ``restricted_objects`` cache-key fingerprint is never
+        emitted for the exact runner that can query ``system.dashboards``.
+
+        Effect: an unrestricted user populates the cache, then a user denied a specific dashboard
+        runs the same query, collides on the cache key, and is served the unrestricted rows.
+
+        This asserts the SECURE expectation, so it FAILS on the current branch — the failure is the
+        proof of the gap. The control assertion shows the deny set itself is computed correctly, so
+        the gap is in the runner wiring, not in the data.
+        """
+        from posthog.constants import AvailableFeature
+        from posthog.models import OrganizationMembership
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        from ee.models import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        query = HogQLQuery(query="SELECT id FROM system.dashboards")
+
+        # Unrestricted user populates the cache under this key.
+        unrestricted_key = HogQLQueryRunner(team=self.team, query=query, user=self.user).get_cache_key()
+
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="42", access_level="none")
+
+        # Control: the deny set IS computed correctly and is available to the runner's user.
+        blocked = UserAccessControl(self.user, self.team).blocked_resource_ids_by_scope.get("dashboard", set())
+        assert "42" in blocked, "precondition: the user should be denied dashboard 42"
+
+        restricted_runner = HogQLQueryRunner(team=self.team, query=query, user=self.user)
+
+        # SECURE expectations (both FAIL on the current branch, proving the cache-poisoning gap):
+        assert "restricted_objects" in restricted_runner.get_cache_payload(), (
+            "HogQLQueryRunner omits the object-restriction fingerprint, so restricted users "
+            "share a cache key with unrestricted users"
+        )
+        assert restricted_runner.get_cache_key() != unrestricted_key, (
+            "restricted user's cache key collides with the unrestricted cache entry — cache poisoning"
+        )
