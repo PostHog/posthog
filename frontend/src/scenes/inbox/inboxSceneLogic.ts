@@ -30,6 +30,25 @@ export type DetailTab = 'overview' | 'signals'
 
 const SESSION_ANALYSIS_POLL_INTERVAL_MS = 5000
 
+// Shared so the deep-link path (deferred until reports settle) and the normal click path emit
+// identical `Inbox report opened` properties. Property parity with the PostHog Code clients is
+// partial — priority/actionability/source_products are Code-only and absent from the web SignalReport.
+function captureReportOpened(reports: SignalReport[], id: string, previousReportId: string | null): void {
+    const rank = reports.findIndex((r) => r.id === id)
+    const report = reports[rank] ?? null
+    posthog.capture('Inbox report opened', {
+        report_id: id,
+        report_title: report?.title ?? null,
+        report_age_hours: report ? dayjs().diff(dayjs(report.created_at), 'hour', true) : null,
+        status: report?.status ?? null,
+        signal_count: report?.signal_count ?? null,
+        rank: rank >= 0 ? rank : null,
+        list_size: reports.length,
+        previous_report_id: previousReportId,
+        surface: 'web',
+    })
+}
+
 export const inboxSceneLogic = kea<inboxSceneLogicType>([
     path(['scenes', 'inbox', 'inboxSceneLogic']),
 
@@ -218,24 +237,34 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             actions.loadReports()
         },
         loadReportsSuccess: () => {
+            const reports = values.filteredReports
             // Fire `Inbox viewed` once per visit, after reports settle — mirrors the PostHog Code
             // clients so the web surface isn't a blind spot for sales/CS interest alerts.
-            if (cache.inboxViewedTracked) {
-                return
+            if (!cache.inboxViewedTracked) {
+                cache.inboxViewedTracked = true
+                const isDefaultStatusFilter =
+                    values.statusFilters.length === 1 && values.statusFilters[0] === SignalReportStatus.READY
+                posthog.capture('Inbox viewed', {
+                    report_count: reports.length,
+                    total_count: values.reportsTotal,
+                    ready_count: reports.filter((r) => r.status === SignalReportStatus.READY).length,
+                    has_active_filters: values.searchQuery.trim().length > 0 || !isDefaultStatusFilter,
+                    status_filter_count: values.statusFilters.length,
+                    is_empty: reports.length === 0,
+                    surface: 'web',
+                })
             }
-            cache.inboxViewedTracked = true
-            const reports = values.filteredReports
-            const isDefaultStatusFilter =
-                values.statusFilters.length === 1 && values.statusFilters[0] === SignalReportStatus.READY
-            posthog.capture('Inbox viewed', {
-                report_count: reports.length,
-                total_count: values.reportsTotal,
-                ready_count: reports.filter((r) => r.status === SignalReportStatus.READY).length,
-                has_active_filters: values.searchQuery.trim().length > 0 || !isDefaultStatusFilter,
-                status_filter_count: values.statusFilters.length,
-                is_empty: reports.length === 0,
-                surface: 'web',
-            })
+            // Flush a deep-link `Inbox report opened` that arrived before reports had loaded, so the
+            // event carries real report properties instead of nulls.
+            if (cache.pendingReportOpenId) {
+                const pendingId = cache.pendingReportOpenId as string
+                const pendingPreviousId = (cache.pendingReportOpenPreviousId as string | null) ?? null
+                cache.pendingReportOpenId = null
+                cache.pendingReportOpenPreviousId = null
+                if (values.selectedReportId === pendingId) {
+                    captureReportOpened(reports, pendingId, pendingPreviousId)
+                }
+            }
         },
         setSelectedReportId: ({ id }) => {
             const previousReportId = (cache.previousReportId as string | null) ?? null
@@ -248,22 +277,14 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     actions.loadReportSignals({ reportId: id })
                 }
                 // Mirror the PostHog Code clients' `Inbox report opened` so sales/CS can alert on
-                // report-level interest regardless of surface. Properties are limited to what the web
-                // SignalReport exposes (no priority/actionability/source_products — those are Code-only).
-                const reports = values.filteredReports
-                const rank = reports.findIndex((r) => r.id === id)
-                const report = reports[rank] ?? null
-                posthog.capture('Inbox report opened', {
-                    report_id: id,
-                    report_title: report?.title ?? null,
-                    report_age_hours: report ? dayjs().diff(dayjs(report.created_at), 'hour', true) : null,
-                    status: report?.status ?? null,
-                    signal_count: report?.signal_count ?? null,
-                    rank: rank >= 0 ? rank : null,
-                    list_size: reports.length,
-                    previous_report_id: previousReportId,
-                    surface: 'web',
-                })
+                // report-level interest regardless of surface. On deep-link mount, urlToAction fires
+                // this before loadReports resolves; defer the capture so properties aren't all null.
+                if (values.reportsResponse === null) {
+                    cache.pendingReportOpenId = id
+                    cache.pendingReportOpenPreviousId = previousReportId
+                } else {
+                    captureReportOpened(values.filteredReports, id, previousReportId)
+                }
             }
         },
         setActiveDetailTab: ({ tab }) => {
@@ -331,6 +352,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             clearInterval(cache.sessionAnalysisPollInterval)
             cache.inboxViewedTracked = false
             cache.previousReportId = null
+            cache.pendingReportOpenId = null
+            cache.pendingReportOpenPreviousId = null
         },
     })),
 
