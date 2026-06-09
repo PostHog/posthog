@@ -25,8 +25,8 @@
 
             <compatibility>26.3</compatibility>
             <!-- Keep inserts synchronous. Production configures async inserts explicitly
-                 (currently off), and tests rely on per-row inserts being visible as soon
-                 as the insert returns; the 26.3 compatibility default would turn them on. -->
+                 (currently off); the 26.3 compatibility default turns them on, which makes
+                 every single-row test insert wait for the async flush and slows the suite. -->
             <async_insert>0</async_insert>
             <!-- 26.3 enables rewriting `col = ''` / `col != ''` into emptiness checks that
                  skip DEFAULT-expression evaluation on parts written before the column was
