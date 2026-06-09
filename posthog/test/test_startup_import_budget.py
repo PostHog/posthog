@@ -226,3 +226,41 @@ def test_relocated_receivers_present_at_setup() -> None:
         "# noqa: F401 side-effect import), so they wire in no process and their audit/cache writes silently "
         "stop. Restore the ready() import in the owning app, or update _RELOCATED_RECEIVERS if intentional."
     )
+
+
+# Cold-start trap the lazy router introduced and the whole pytest suite is blind to. With the AI agent
+# core off the startup path, a fresh process no longer pre-imports it — so the FIRST reader of the MCP
+# tool registry (the first MCP-tools API request in a new worker) becomes the first importer of the
+# ee.hogai.tools -> chat_agent chain. A latent cycle in that chain (.task -> core.executor ->
+# posthog.temporal.ai -> chat_agent.toolkit -> back into ee.hogai.tools) used to resolve only by
+# import-order luck: the eager router imported the chain at setup, so by the time anything read the
+# registry the modules were already complete. Remove that luck and the first request 500s on a
+# half-initialized import. Every in-process test misses it because hundreds of test modules import the
+# agent core long before the registry is read, so the cycle is always pre-resolved. A clean interpreter
+# is the only place this reproduces — same reason the snapshot guards above run in a subprocess.
+_MCP_REGISTRY_COLD_LOAD = """
+import os
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+import django
+django.setup()
+from ee.hogai.mcp_tool import mcp_tool_registry
+names = mcp_tool_registry.get_names()
+assert names, "registry returned no tools"
+print(len(names))
+"""
+
+
+def test_mcp_tool_registry_loads_cold_without_import_cycle() -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", _MCP_REGISTRY_COLD_LOAD],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        "Reading the MCP tool registry in a cold process (mirrors the first MCP-tools request in a fresh "
+        "worker) crashed. A module-level import in a tool submodule reaches back into ee.hogai.tools through "
+        "the chat_agent chain, forming a cycle that only resolves when something imported the agent core "
+        f"first — which no longer happens at django.setup(). Defer the offending import. Subprocess stderr:\n"
+        f"{result.stderr[-2000:]}"
+    )
