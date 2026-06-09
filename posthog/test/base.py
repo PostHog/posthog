@@ -71,8 +71,8 @@ from posthog.clickhouse.query_log_archive import (
     QUERY_LOG_ARCHIVE_OPS_MV,
     QUERY_LOG_ARCHIVE_OPS_MV_SQL,
     SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
-    SHARDED_QUERY_LOG_ARCHIVE_TABLE,
     WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
@@ -1757,9 +1757,6 @@ def reset_clickhouse_database() -> None:
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
-            QUERY_LOG_ARCHIVE_OPS_MV_SQL(
-                view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=SHARDED_QUERY_LOG_ARCHIVE_TABLE
-            ),
             COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
             KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
@@ -1782,6 +1779,9 @@ def reset_clickhouse_database() -> None:
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
             COHORT_MEMBERSHIP_MV_SQL(),
             PRECALCULATED_EVENTS_MV_SQL(),
+            QUERY_LOG_ARCHIVE_OPS_MV_SQL(
+                view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=WRITABLE_QUERY_LOG_ARCHIVE_TABLE
+            ),
         ]
     )
 

@@ -3111,6 +3111,54 @@
   
   '''
 # ---
+# name: test_create_table_query[ops_query_log_archive_mv]
+  '''
+  CREATE MATERIALIZED VIEW IF NOT EXISTS ops_query_log_archive_mv
+  TO writable_query_log_archive
+  AS 
+  SELECT
+      hostname,
+      user,
+      query_id,
+      initial_query_id,
+      is_initial_query,
+      type,
+  
+      event_date,
+      event_time,
+      event_time_microseconds,
+      query_start_time,
+      query_start_time_microseconds,
+      query_duration_ms,
+  
+      read_rows,
+      read_bytes,
+      written_rows,
+      written_bytes,
+      result_rows,
+      result_bytes,
+      memory_usage,
+      peak_threads_usage,
+  
+      current_database,
+      query,
+      formatted_query,
+      normalized_query_hash,
+      query_kind,
+  
+      exception_code,
+      exception,
+      stack_trace,
+  
+      JSONExtractInt(log_comment, 'team_id') as team_id,
+      log_comment,
+      ProfileEvents
+  FROM system.query_log
+  WHERE
+      type != 'QueryStart'
+  
+  '''
+# ---
 # name: test_create_table_query[partitioned_sharded_posthog_document_embeddings]
   '''
   
@@ -3947,54 +3995,6 @@
   
       lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
   ) ENGINE = Distributed('ops', 'posthog_test', 'sharded_query_log_archive')
-  '''
-# ---
-# name: test_create_table_query[query_log_archive_ops_mv]
-  '''
-  CREATE MATERIALIZED VIEW IF NOT EXISTS query_log_archive_ops_mv
-  TO sharded_query_log_archive
-  AS 
-  SELECT
-      hostname,
-      user,
-      query_id,
-      initial_query_id,
-      is_initial_query,
-      type,
-  
-      event_date,
-      event_time,
-      event_time_microseconds,
-      query_start_time,
-      query_start_time_microseconds,
-      query_duration_ms,
-  
-      read_rows,
-      read_bytes,
-      written_rows,
-      written_bytes,
-      result_rows,
-      result_bytes,
-      memory_usage,
-      peak_threads_usage,
-  
-      current_database,
-      query,
-      formatted_query,
-      normalized_query_hash,
-      query_kind,
-  
-      exception_code,
-      exception,
-      stack_trace,
-  
-      JSONExtractInt(log_comment, 'team_id') as team_id,
-      log_comment,
-      ProfileEvents
-  FROM system.query_log
-  WHERE
-      type != 'QueryStart'
-  
   '''
 # ---
 # name: test_create_table_query[raw_error_tracking_fingerprint_issue_state]

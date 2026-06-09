@@ -505,8 +505,7 @@ def QUERY_LOG_ARCHIVE_UPDATE_MV_SQL(mv_name=QUERY_LOG_ARCHIVE_MV):
 # ============================================================================
 
 WRITABLE_QUERY_LOG_ARCHIVE_TABLE = "writable_query_log_archive"
-QUERY_LOG_ARCHIVE_OPS_MV = "query_log_archive_ops_mv"  # OPS-local MV -> sharded data table
-QUERY_LOG_ARCHIVE_WRITABLE_MV = "query_log_archive_writable_mv"  # other clusters' MV -> writable distributed
+QUERY_LOG_ARCHIVE_OPS_MV = "ops_query_log_archive_mv"  # slim MV -> writable_query_log_archive, on every cluster
 
 # Curated JSON subset of log_comment. Keys not hinted here are still kept as
 # dynamic paths (bounded by max_dynamic_paths) UNLESS listed in SKIP. The SKIP
