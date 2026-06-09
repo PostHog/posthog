@@ -9,7 +9,6 @@
     'posthog.caching.warming.warm_insight_cache_task',
     'posthog.email._send_email',
     'posthog.models.product_intent.product_intent.calculate_product_activation',
-    'posthog.models.team.production_event_activation.sweep_teams_ingested_production_event',
     'posthog.tasks.activity_log.broadcast_activity_log_to_organization',
     'posthog.tasks.async_migrations.run_async_migration',
     'posthog.tasks.auth_token_cache_verification.verify_and_fix_auth_token_cache_task',
