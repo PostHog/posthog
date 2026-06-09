@@ -140,7 +140,7 @@ const RecommendationsTabLabel = (): JSX.Element => {
             {recommendationsLoading ? (
                 <LemonBadge size="small" content={<Spinner textColored />} />
             ) : (
-                <LemonBadge.Number count={activeRecommendations.length} size="small" />
+                <LemonBadge.Number count={activeRecommendations.length} size="small" showZero />
             )}
         </span>
     )
