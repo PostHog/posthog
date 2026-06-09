@@ -4,6 +4,8 @@ from typing import Any
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import (
     AssistantDateRange,
     AssistantFunnelsEventsNode,
@@ -110,27 +112,15 @@ class TestFunnelResultsFormatter(BaseTest):
             ).format(),
         )
 
-    def test_funnels_steps_none_results(self):
-        self.assertEqual(
-            FunnelResultsFormatter(AssistantFunnelsQuery(series=[]), None, self.team, datetime.now()).format(),
-            "No data recorded for this time period.",
-        )
-
-    def test_funnels_time_to_convert_none_results(self):
-        query = AssistantFunnelsQuery(
-            series=[],
-            funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TIME_TO_CONVERT),
-        )
-        self.assertEqual(
-            FunnelResultsFormatter(query, None, self.team, datetime.now()).format(),
-            "No data recorded for this time period.",
-        )
-
-    def test_funnels_trends_none_results(self):
-        query = AssistantFunnelsQuery(
-            series=[],
-            funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TRENDS),
-        )
+    @parameterized.expand(
+        [
+            (FunnelVizType.STEPS,),
+            (FunnelVizType.TIME_TO_CONVERT,),
+            (FunnelVizType.TRENDS,),
+        ]
+    )
+    def test_funnels_none_results(self, viz_type: FunnelVizType):
+        query = AssistantFunnelsQuery(series=[], funnelsFilter=AssistantFunnelsFilter(funnelVizType=viz_type))
         self.assertEqual(
             FunnelResultsFormatter(query, None, self.team, datetime.now()).format(),
             "No data recorded for this time period.",
