@@ -48,6 +48,22 @@ impl Context {
             .signed_duration_since(self.server_received_at)
     }
 
+    /// Parse the `PostHog-Sdk-Info` header (`<canonical-$lib-name>/<semver>`)
+    /// into `($lib, $lib_version)` for property materialization. The name
+    /// segment is the value the SDK would send as `$lib` on the v0 pipeline
+    /// (e.g. "posthog-rs"), so we split at the LAST '/' to tolerate names
+    /// containing slashes. Returns `None` when either segment is empty —
+    /// callers must skip injection rather than substitute placeholders, which
+    /// would pollute SDK Health and trigger false outdated-SDK alerts.
+    pub fn sdk_lib_and_version(&self) -> Option<(&str, &str)> {
+        let (lib, version) = self.sdk_info.rsplit_once('/')?;
+        let (lib, version) = (lib.trim(), version.trim());
+        if lib.is_empty() || version.is_empty() {
+            return None;
+        }
+        Some((lib, version))
+    }
+
     pub fn new(
         headers: &HeaderMap,
         ip: &InsecureClientIp,
@@ -199,7 +215,7 @@ mod tests {
         );
         h.insert(
             POSTHOG_SDK_INFO,
-            HeaderValue::from_static("posthog-rust/1.0.0"),
+            HeaderValue::from_static("posthog-rs/1.0.0"),
         );
         h.insert(POSTHOG_ATTEMPT, HeaderValue::from_static("1"));
         h.insert(
@@ -379,6 +395,52 @@ mod tests {
         headers.insert(POSTHOG_ATTEMPT, HeaderValue::from_static("0"));
         let err = test_context(&headers).unwrap_err();
         assert!(matches!(err, Error::InvalidHeaderValue(_)));
+    }
+
+    #[test]
+    fn sdk_lib_and_version_parses_canonical_format() {
+        let headers = valid_headers();
+        let ctx = test_context(&headers).unwrap();
+        assert_eq!(ctx.sdk_lib_and_version(), Some(("posthog-rs", "1.0.0")));
+    }
+
+    #[test]
+    fn sdk_lib_and_version_splits_at_last_slash() {
+        let mut headers = valid_headers();
+        headers.insert(
+            POSTHOG_SDK_INFO,
+            HeaderValue::from_static("posthog/sub-sdk/2.3.4"),
+        );
+        let ctx = test_context(&headers).unwrap();
+        assert_eq!(
+            ctx.sdk_lib_and_version(),
+            Some(("posthog/sub-sdk", "2.3.4"))
+        );
+    }
+
+    #[test]
+    fn sdk_lib_and_version_trims_whitespace() {
+        let mut headers = valid_headers();
+        headers.insert(
+            POSTHOG_SDK_INFO,
+            HeaderValue::from_static("  posthog-rs / 1.2.3  "),
+        );
+        let ctx = test_context(&headers).unwrap();
+        assert_eq!(ctx.sdk_lib_and_version(), Some(("posthog-rs", "1.2.3")));
+    }
+
+    #[test]
+    fn sdk_lib_and_version_rejects_malformed_values() {
+        for bad in &["no-slash", "/1.0.0", "posthog-rs/", "/", "", "   /   "] {
+            let mut headers = valid_headers();
+            headers.insert(POSTHOG_SDK_INFO, HeaderValue::from_str(bad).unwrap());
+            let ctx = test_context(&headers).unwrap();
+            assert_eq!(
+                ctx.sdk_lib_and_version(),
+                None,
+                "expected None for sdk_info: {bad:?}"
+            );
+        }
     }
 
     #[test]

@@ -40,6 +40,11 @@ pub(super) const REQUIRED_HEADERS: &[&str] = &[
 /// Counter name for v1 analytics errors (labels: error, level, path, status_code).
 pub(super) const CAPTURE_V1_ERROR_METRIC: &str = "capture_v1_analytics_error";
 
+/// Counter name for non-fatal, purely informational conditions observed while
+/// handling otherwise-successful v1 analytics requests (labels: reason, path).
+/// Shared across warning reasons so Grafana doesn't accumulate single-use keys.
+pub(super) const CAPTURE_V1_WARNING_METRIC: &str = "capture_v1_analytics_warning";
+
 /// Counter name for body-read timeouts during payload extraction.
 pub(super) const CAPTURE_V1_BODY_READ_TIMEOUT: &str = "capture_v1_body_read_timeout_total";
 

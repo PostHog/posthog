@@ -203,7 +203,7 @@ impl SinkEvent for WrappedEvent {
     }
 
     fn serialize_into(&self, ctx: &Context, buf: &mut String) -> anyhow::Result<()> {
-        let spliced = self.build_spliced_properties()?;
+        let spliced = self.build_spliced_properties(ctx)?;
         let properties: &RawValue = spliced.as_deref().unwrap_or(&self.event.properties);
         let ingestion_data = IngestionData {
             event: &self.event.event,
@@ -250,7 +250,7 @@ impl SinkEvent for WrappedEvent {
 
 impl WrappedEvent {
     #[allow(unused_assignments)]
-    fn build_property_injections(&self) -> anyhow::Result<String> {
+    fn build_property_injections(&self, ctx: &Context) -> anyhow::Result<String> {
         let mut buf = String::with_capacity(256);
         let mut first = true;
 
@@ -287,13 +287,32 @@ impl WrappedEvent {
             inject!(buf, first, "$process_person_profile", &ppp);
         }
 
+        // Materialize $lib/$lib_version from the PostHog-Sdk-Info header so
+        // downstream surfaces (SDK Health, usage reports, Library columns)
+        // attribute v1 traffic — v1 SDKs carry identity in headers, not
+        // properties, and the header otherwise dies here in capture.
+        // Client-wins: a key already present in the raw properties is left
+        // alone (injections are appended after client keys, so last-key-wins
+        // parsers would otherwise let the header override the client value).
+        // Malformed headers inject nothing — no "unknown"/"0.0.0" placeholders
+        // — and are counted per-request in the handler instead.
+        if let Some((lib, lib_version)) = ctx.sdk_lib_and_version() {
+            let raw = self.event.properties.get();
+            if !raw.contains("\"$lib\"") {
+                inject!(buf, first, "$lib", lib);
+            }
+            if !raw.contains("\"$lib_version\"") {
+                inject!(buf, first, "$lib_version", lib_version);
+            }
+        }
+
         Ok(buf)
     }
 
     /// Build spliced properties if injection is needed, or return None
     /// to signal the caller should borrow `self.event.properties` directly.
-    fn build_spliced_properties(&self) -> anyhow::Result<Option<Box<RawValue>>> {
-        let injection = self.build_property_injections()?;
+    fn build_spliced_properties(&self, ctx: &Context) -> anyhow::Result<Option<Box<RawValue>>> {
+        let injection = self.build_property_injections(ctx)?;
         if injection.is_empty() {
             return Ok(None);
         }
@@ -1080,6 +1099,61 @@ mod tests {
     }
 
     #[test]
+    fn serialize_injects_lib_from_sdk_info_header() {
+        let wrapped = pageview_event();
+        let ctx = serialize_ctx(); // sdk_info: "posthog-rs/1.0.0"
+        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+
+        assert_eq!(data.properties["$lib"], "posthog-rs");
+        assert_eq!(data.properties["$lib_version"], "1.0.0");
+    }
+
+    #[test]
+    fn serialize_lib_injection_client_properties_win() {
+        let mut wrapped = pageview_event();
+        wrapped.event.properties =
+            raw_obj(r#"{"$lib":"client-lib","$lib_version":"9.9.9","custom_prop":42}"#);
+        let ctx = serialize_ctx();
+        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+
+        assert_eq!(data.properties["$lib"], "client-lib");
+        assert_eq!(data.properties["$lib_version"], "9.9.9");
+        assert_eq!(data.properties["custom_prop"], 42);
+    }
+
+    #[test]
+    fn serialize_lib_injection_partial_client_override() {
+        let mut wrapped = pageview_event();
+        wrapped.event.properties = raw_obj(r#"{"$lib":"client-lib"}"#);
+        let ctx = serialize_ctx();
+        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+
+        // Client-sent $lib wins; missing $lib_version still injected from header.
+        assert_eq!(data.properties["$lib"], "client-lib");
+        assert_eq!(data.properties["$lib_version"], "1.0.0");
+    }
+
+    #[test]
+    fn serialize_malformed_sdk_info_skips_lib_injection() {
+        for bad in &["garbage-no-slash", "/1.0.0", "posthog-rs/", ""] {
+            let wrapped = pageview_event();
+            let mut ctx = serialize_ctx();
+            ctx.sdk_info = bad.to_string();
+            let (_, data) = serialize_and_parse(&wrapped, &ctx);
+
+            // No placeholders: absent rather than "unknown"/"0.0.0".
+            assert!(
+                !data.properties.contains_key("$lib"),
+                "expected no $lib for sdk_info {bad:?}"
+            );
+            assert!(
+                !data.properties.contains_key("$lib_version"),
+                "expected no $lib_version for sdk_info {bad:?}"
+            );
+        }
+    }
+
+    #[test]
     fn serialize_padded_distinct_id_trimmed_everywhere() {
         let mut wrapped = pageview_event();
         wrapped.event.distinct_id = "  user-42  ".to_string();
@@ -1222,7 +1296,12 @@ mod tests {
 
         let ctx = serialize_ctx();
         let (_, data) = serialize_and_parse(&wrapped, &ctx);
-        assert!(data.properties.is_empty());
+        // No session/window/options to inject, but $lib/$lib_version are
+        // always materialized from the (valid) PostHog-Sdk-Info header.
+        let props = &data.properties;
+        assert_eq!(props["$lib"], "posthog-rs");
+        assert_eq!(props["$lib_version"], "1.0.0");
+        assert_eq!(props.len(), 2);
     }
 
     #[test]
@@ -1257,7 +1336,9 @@ mod tests {
         let props = &data.properties;
         assert_eq!(props["$session_id"], "sess-abc");
         assert_eq!(props["$cookieless_mode"], true);
-        assert_eq!(props.len(), 2);
+        assert_eq!(props["$lib"], "posthog-rs");
+        assert_eq!(props["$lib_version"], "1.0.0");
+        assert_eq!(props.len(), 4);
     }
 
     #[test]
@@ -1525,7 +1606,9 @@ mod tests {
         let ctx = serialize_ctx();
         let (_, data) = serialize_and_parse(&wrapped, &ctx);
         assert_eq!(data.properties["$session_id"], "sess-abc");
-        assert_eq!(data.properties.len(), 1);
+        assert_eq!(data.properties["$lib"], "posthog-rs");
+        assert_eq!(data.properties["$lib_version"], "1.0.0");
+        assert_eq!(data.properties.len(), 3);
     }
 
     // --- CapturedEvent round-trip parity using realistic fixtures ---

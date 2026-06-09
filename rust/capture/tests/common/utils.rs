@@ -292,7 +292,7 @@ impl ServerHandle {
         self.client
             .post(format!("http://{:?}/i/v1/analytics/events", self.addr))
             .header("authorization", format!("Bearer {token}"))
-            .header("PostHog-Sdk-Info", "posthog-rust/1.0.0")
+            .header("PostHog-Sdk-Info", "posthog-rs/1.0.0")
             .header("PostHog-Attempt", "1")
             .header("PostHog-Request-Id", uuid::Uuid::new_v4().to_string())
             .header("PostHog-Request-Timestamp", "2026-03-19T14:30:00.000Z")
