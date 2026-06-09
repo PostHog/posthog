@@ -174,7 +174,12 @@ export function ResultDetails({
     result: CachedNewExperimentQueryResponse
     metric: ExperimentMetric
 }): JSX.Element {
-    const { featureFlags } = useValues(experimentLogic)
+    const { featureFlags, statsMethod } = useValues(experimentLogic)
+
+    const confidenceLevel =
+        statsMethod === 'bayesian'
+            ? Math.round((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100)
+            : Math.round((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100)
 
     const baselineKey = result.baseline?.key
 
@@ -234,8 +239,8 @@ export function ResultDetails({
         {
             key: 'interval',
             title: result.variant_results?.[0]
-                ? `${getIntervalLabel(result.variant_results[0])} (95%)`
-                : 'Confidence interval (95%)',
+                ? `${getIntervalLabel(result.variant_results[0])} (${confidenceLevel}%)`
+                : `Confidence interval (${confidenceLevel}%)`,
             render: (_, item: ExperimentVariantResult & { key: string }) => {
                 if (item.key === baselineKey) {
                     return '—'

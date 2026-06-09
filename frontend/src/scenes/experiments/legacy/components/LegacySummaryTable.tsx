@@ -40,6 +40,7 @@ export function LegacySummaryTable({
     isSecondary?: boolean
 }): JSX.Element {
     const { experiment, legacyPrimaryMetricsResults, legacySecondaryMetricsResults } = useValues(legacyExperimentLogic)
+    const ciLevel = Math.round((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100)
 
     const insightType = getInsightType(metric as ExperimentTrendsQuery | ExperimentFunnelsQuery)
     const result = isSecondary
@@ -171,8 +172,10 @@ export function LegacySummaryTable({
             key: 'credibleInterval',
             title: (
                 <div className="inline-flex items-center deprecated-space-x-1">
-                    <div className="">Credible interval (95%)</div>
-                    <Tooltip title="A credible interval estimates the percentage change in the mean, indicating with 95% probability how much higher or lower the test variant's mean is compared to the control.">
+                    <div className="">{`Credible interval (${ciLevel}%)`}</div>
+                    <Tooltip
+                        title={`A credible interval estimates the percentage change in the mean, indicating with ${ciLevel}% probability how much higher or lower the test variant's mean is compared to the control.`}
+                    >
                         <IconInfo className="text-secondary text-base" />
                     </Tooltip>
                 </div>
@@ -248,8 +251,10 @@ export function LegacySummaryTable({
             key: 'credibleInterval',
             title: (
                 <div className="inline-flex items-center deprecated-space-x-1">
-                    <div className="">Credible interval (95%)</div>
-                    <Tooltip title="A credible interval estimates the percentage change in the conversion rate, indicating with 95% probability how much higher or lower the test variant's conversion rate is compared to the control.">
+                    <div className="">{`Credible interval (${ciLevel}%)`}</div>
+                    <Tooltip
+                        title={`A credible interval estimates the percentage change in the conversion rate, indicating with ${ciLevel}% probability how much higher or lower the test variant's conversion rate is compared to the control.`}
+                    >
                         <IconInfo className="text-secondary text-base" />
                     </Tooltip>
                 </div>

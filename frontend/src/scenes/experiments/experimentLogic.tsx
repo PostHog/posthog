@@ -3000,6 +3000,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 return experiment.stats_config?.method || ExperimentStatsMethod.Bayesian
             },
         ],
+        /** The configured confidence level as a percentage integer (e.g. 95 for 95%). */
+        confidenceLevel: [
+            (s) => [s.experiment, s.statsMethod],
+            (experiment: Experiment, statsMethod: ExperimentStatsMethod): number => {
+                if (statsMethod === ExperimentStatsMethod.Bayesian) {
+                    return Math.round((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100)
+                }
+                return Math.round((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100)
+            },
+        ],
     }),
     forms(({ actions, values }) => ({
         experiment: {

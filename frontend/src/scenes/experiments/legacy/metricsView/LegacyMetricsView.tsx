@@ -27,6 +27,7 @@ export function LegacyMetricsView({ isSecondary }: { isSecondary?: boolean }): J
         primaryMetricsResultsErrors,
         secondaryMetricsResultsErrors,
     } = useValues(legacyExperimentLogic)
+    const ciLevel = Math.round((experiment?.stats_config?.bayesian?.ci_level ?? 0.95) * 100)
 
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants
     if (!variants) {
@@ -100,9 +101,9 @@ export function LegacyMetricsView({ isSecondary }: { isSecondary?: boolean }): J
                                             <p className="mb-4">
                                                 Each bar shows how a variant is performing compared to the control (the
                                                 gray bar) for this metric, using a{' '}
-                                                <strong>95% credible interval.</strong> That means there's a 95% chance
-                                                the true difference for that variant falls within this range. The
-                                                vertical "0%" line is your baseline:
+                                                <strong>{ciLevel}% credible interval.</strong> That means there's a{' '}
+                                                {ciLevel}% chance the true difference for that variant falls within this
+                                                range. The vertical "0%" line is your baseline:
                                             </p>
                                             <ul className="mb-4 list-disc pl-4">
                                                 <li>
