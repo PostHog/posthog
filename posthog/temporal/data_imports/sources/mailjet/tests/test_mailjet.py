@@ -153,8 +153,7 @@ class TestOffsetPagination:
         assert params["Sort"] == MAILJET_ENDPOINTS[endpoint].sort
 
     def test_campaigndraft_does_not_sort_on_created_at(self) -> None:
-        # Mailjet rejects Sort=CreatedAt on campaigndraft with a 400 "Cannot sort on field
-        # createdat", so it must fall back to the monotonic ID for offset pagination.
+        # Regression guard for the Sort fallback documented in settings.py.
         assert MAILJET_ENDPOINTS["campaigndraft"].sort == "ID"
 
 
