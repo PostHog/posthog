@@ -8,6 +8,10 @@
     --markdown-notebook-code-border: color-mix(in sRGB, var(--color-border-primary) 82%, var(--color-text-primary));
     --markdown-notebook-code-gutter: var(--data-color-10);
     --markdown-notebook-code-shadow: inset 0 1px 0 rgb(255 255 255 / 75%), 0 0.125rem 0.375rem rgb(0 0 0 / 4%);
+    --markdown-notebook-quote-background: color-mix(in sRGB, var(--color-bg-surface-primary) 92%, white);
+    --markdown-notebook-quote-border: color-mix(in sRGB, var(--color-border-primary) 82%, var(--warning));
+    --markdown-notebook-quote-gutter: var(--warning);
+    --markdown-notebook-quote-shadow: inset 0 1px 0 rgb(255 255 255 / 75%), 0 0.125rem 0.375rem rgb(0 0 0 / 4%);
     --markdown-notebook-inline-control-gap: 0.125rem;
     --markdown-notebook-inline-control-width: 1.5rem;
     --markdown-notebook-content-offset: calc(
@@ -28,6 +32,10 @@
     --markdown-notebook-code-border: var(--color-border-primary);
     --markdown-notebook-code-gutter: var(--data-color-10);
     --markdown-notebook-code-shadow: inset 0 1px 0 rgb(255 255 255 / 6%);
+    --markdown-notebook-quote-background: var(--markdown-notebook-component-background);
+    --markdown-notebook-quote-border: var(--color-border-primary);
+    --markdown-notebook-quote-gutter: var(--warning);
+    --markdown-notebook-quote-shadow: inset 0 1px 0 rgb(255 255 255 / 6%);
 }
 
 .MarkdownNotebook__debug-layout {
@@ -130,7 +138,7 @@
 }
 
 .MarkdownNotebook__text-row--ai-prompt {
-    grid-template-columns: var(--markdown-notebook-inline-control-width) auto minmax(0, 1fr);
+    grid-template-columns: var(--markdown-notebook-inline-control-width) minmax(0, 1fr);
 }
 
 .MarkdownNotebook__line-insert-menu-button {
@@ -161,6 +169,11 @@
     line-height: 1;
 }
 
+.MarkdownNotebook__line-insert-menu-icon svg {
+    width: 1em;
+    height: 1em;
+}
+
 .MarkdownNotebook__text-row--inline-menu-visible .MarkdownNotebook__line-insert-menu-button {
     pointer-events: auto;
     opacity: 0.35;
@@ -180,13 +193,18 @@
     height: 0.25rem;
 }
 
+.MarkdownNotebook__insert-boundary--gap-clickable {
+    cursor: pointer;
+}
+
+.MarkdownNotebook__insert-boundary--focuses-previous {
+    cursor: text;
+}
+
 .MarkdownNotebook__insert-boundary-hover-zone {
     position: absolute;
-    top: -0.5rem;
-    bottom: -0.5rem;
-    left: 0;
+    inset: -0.5rem 0;
     z-index: 1;
-    width: var(--markdown-notebook-content-offset);
 }
 
 .MarkdownNotebook__insert-boundary-button {
@@ -236,8 +254,8 @@
 
 .MarkdownNotebook__text-group .MarkdownNotebook__line-insert-menu-hit-area {
     position: absolute;
-    left: calc(-1 * var(--markdown-notebook-content-offset));
-    width: var(--markdown-notebook-content-offset);
+    left: calc(var(--markdown-notebook-content-offset) * -1 - 1rem);
+    width: calc(var(--markdown-notebook-content-offset) + 1rem);
 }
 
 .MarkdownNotebook__text-group .MarkdownNotebook__text-block {
@@ -256,9 +274,14 @@
     margin: 0.125rem 0;
 }
 
-.MarkdownNotebook__text-group .MarkdownNotebook__insert-boundary-hover-zone,
+.MarkdownNotebook__text-group .MarkdownNotebook__insert-boundary-hover-zone {
+    right: auto;
+    left: calc(var(--markdown-notebook-content-offset) * -1 - 1rem);
+    width: calc(var(--markdown-notebook-content-offset) + 1rem);
+}
+
 .MarkdownNotebook__text-group .MarkdownNotebook__insert-boundary-button {
-    left: calc(-1 * var(--markdown-notebook-content-offset));
+    left: calc(var(--markdown-notebook-content-offset) * -1 - 1rem);
 }
 
 .MarkdownNotebook__text-block {
@@ -275,8 +298,44 @@
     outline: none;
 }
 
-.MarkdownNotebook__text-row--ai-prompt .MarkdownNotebook__text-block {
-    grid-column: 3;
+.MarkdownNotebook__ai-prompt-card {
+    display: flex;
+    flex-direction: column;
+    grid-column: 2;
+    gap: 0.75rem;
+    min-width: 0;
+    padding: 0.75rem;
+    background: var(--markdown-notebook-component-background);
+    border: 1px solid var(--markdown-notebook-component-border);
+    border-left: 3px solid color-mix(in oklab, var(--color-accent) 50%, var(--markdown-notebook-component-background));
+    border-radius: 0.25rem;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}
+
+.MarkdownNotebook__ai-prompt-header {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: space-between;
+    min-width: 0;
+}
+
+.MarkdownNotebook__ai-prompt-heading {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    min-width: 0;
+}
+
+.MarkdownNotebook__ai-prompt-title {
+    overflow: hidden;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--color-text-primary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .MarkdownNotebook__ai-prompt-tag {
@@ -298,14 +357,17 @@
     box-shadow: 0 0 0 2px color-mix(in sRGB, var(--color-accent) 12%, transparent);
 }
 
-.MarkdownNotebook__ai-prompt-tag:focus-visible {
-    outline: 2px solid var(--color-accent);
-    outline-offset: 2px;
-}
-
 .MarkdownNotebook__ai-prompt-tag svg {
     width: 0.875rem;
     height: 0.875rem;
+}
+
+.MarkdownNotebook__ai-prompt-form {
+    align-items: stretch;
+}
+
+.MarkdownNotebook__ai-prompt-input {
+    min-width: 0;
 }
 
 .MarkdownNotebook__text-block:focus {
@@ -360,11 +422,26 @@ h3.MarkdownNotebook__text-block--heading {
 }
 
 .MarkdownNotebook__text-block--blockquote {
-    padding-left: 0.75rem;
-    color: var(--secondary);
-    border-left: 3px solid var(--border-bold);
+    box-sizing: border-box;
+    min-height: 3rem;
+    padding: 0.875rem 1rem;
+    margin: 0.5rem 0;
+    font-style: italic;
+    color: var(--color-text-primary);
+    background: var(--markdown-notebook-quote-background);
+    border: 1px solid var(--markdown-notebook-quote-border);
+    border-left: 3px solid var(--markdown-notebook-quote-gutter);
+    border-radius: 0.25rem;
     border-top-left-radius: 0;
     border-bottom-left-radius: 0;
+    box-shadow: var(--markdown-notebook-quote-shadow);
+}
+
+.MarkdownNotebook__text-block--blockquote:focus {
+    background: var(--markdown-notebook-quote-background);
+    border-color: var(--primary);
+    border-left-color: var(--markdown-notebook-quote-gutter);
+    box-shadow: 0 0 0 1px var(--primary);
 }
 
 .MarkdownNotebook__text-block code {
@@ -957,14 +1034,34 @@ h3.MarkdownNotebook__text-block--heading {
     max-width: 100%;
     padding: 0.125rem 0.5rem;
     overflow: hidden;
+    font-family: inherit;
     font-size: 0.75rem;
     font-weight: 600;
     line-height: 1.4;
     color: var(--color-text-secondary);
     text-overflow: ellipsis;
     white-space: nowrap;
+    appearance: none;
     background: var(--color-bg-fill-tertiary);
+    border: 0;
     border-radius: 0.25rem;
+}
+
+button.MarkdownNotebook__component-title {
+    cursor: pointer;
+    transition:
+        box-shadow 120ms ease,
+        filter 120ms ease;
+}
+
+button.MarkdownNotebook__component-title:hover {
+    filter: brightness(0.98);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, currentColor 28%, transparent);
+}
+
+button.MarkdownNotebook__component-title:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
 }
 
 .MarkdownNotebook__component-title-icon {

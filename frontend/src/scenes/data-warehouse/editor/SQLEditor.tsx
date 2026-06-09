@@ -63,6 +63,7 @@ interface SQLEditorProps {
     runQueryDisabledReason?: string
     runQueryTooltip?: string
     onShareTab?: () => void
+    queryPaneDefaultHeight?: number
 }
 
 export function SQLEditor({
@@ -77,6 +78,7 @@ export function SQLEditor({
     runQueryDisabledReason,
     runQueryTooltip,
     onShareTab,
+    queryPaneDefaultHeight,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
@@ -97,6 +99,7 @@ export function SQLEditor({
             navigatorRef,
             sidebarRef,
             databaseTreeRef,
+            queryPaneDefaultHeight,
             sourceNavigatorResizerProps: {
                 containerRef: navigatorRef,
                 logicKey: 'source-navigator',
@@ -120,7 +123,7 @@ export function SQLEditor({
                 marginTop: mode === SQLEditorMode.FullScene ? 8 : 0,
             },
         }),
-        [mode]
+        [mode, queryPaneDefaultHeight]
     )
 
     const [monacoAndEditor, setMonacoAndEditor] = useState(

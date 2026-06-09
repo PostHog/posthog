@@ -12,8 +12,10 @@ import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeAttributes, NotebookNodeProps } from '../../types'
 
-export const EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT = 500
+export const EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT = 333
+export const EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT = 150
 export const EMBEDDED_SQL_EDITOR_MIN_HEIGHT = 200
+export const EMBEDDED_SQL_EDITOR_EDIT_MIN_HEIGHT = 150
 
 export const getNotebookSqlEditorTabId = (nodeId: string | null | undefined, suffix: string | null = null): string =>
     `notebook-sql-${suffix ? `${suffix}-` : ''}${nodeId ?? 'new'}`
@@ -61,10 +63,14 @@ const buildSourceQuery = (query: string): DataVisualizationNode => ({
     display: ChartDisplayType.ActionsTable,
 })
 
-export function getEmbeddedSqlEditorStyle(height: string | number | undefined): CSSProperties {
+export function getEmbeddedSqlEditorStyle(
+    height: string | number | undefined,
+    defaultHeight: string | number = EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT,
+    minHeight: string | number = EMBEDDED_SQL_EDITOR_MIN_HEIGHT
+): CSSProperties {
     return {
-        height: height ?? EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT,
-        minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
+        height: height ?? defaultHeight,
+        minHeight,
     }
 }
 
@@ -266,7 +272,11 @@ export function NotebookSQLEditorSettings<T extends { query: QuerySchema }>({
         <div
             className="h-full min-h-0 overflow-hidden"
             // eslint-disable-next-line react/forbid-dom-props
-            style={getEmbeddedSqlEditorStyle(attributes.height)}
+            style={getEmbeddedSqlEditorStyle(
+                attributes.height,
+                EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT,
+                EMBEDDED_SQL_EDITOR_EDIT_MIN_HEIGHT
+            )}
             onMouseDown={(event) => event.stopPropagation()}
             onDragStart={(event) => event.stopPropagation()}
         >
@@ -275,6 +285,7 @@ export function NotebookSQLEditorSettings<T extends { query: QuerySchema }>({
                 mode={SQLEditorMode.Embedded}
                 panel={SQLEditorPanel.Query}
                 defaultShowDatabaseTree={false}
+                queryPaneDefaultHeight={EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT}
             />
         </div>
     )
@@ -305,7 +316,11 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
         <div
             className="h-full min-h-0 overflow-hidden"
             // eslint-disable-next-line react/forbid-dom-props
-            style={getEmbeddedSqlEditorStyle(attributes.height)}
+            style={getEmbeddedSqlEditorStyle(
+                attributes.height,
+                EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT,
+                EMBEDDED_SQL_EDITOR_EDIT_MIN_HEIGHT
+            )}
             onMouseDown={(event) => event.stopPropagation()}
             onDragStart={(event) => event.stopPropagation()}
         >
@@ -318,6 +333,7 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
                 runQueryLoading={runQueryLoading}
                 runQueryDisabledReason={runQueryDisabledReason}
                 runQueryTooltip={runQueryTooltip}
+                queryPaneDefaultHeight={EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT}
             />
         </div>
     )
