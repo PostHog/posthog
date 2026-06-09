@@ -916,6 +916,11 @@ class ExperimentService:
         if "control" not in [variant["key"] for variant in variants]:
             raise ValidationError("Feature flag must have a variant with key 'control'")
 
+    def _assert_flag_not_deleted_for_launch(self, feature_flag: FeatureFlag) -> None:
+        """A deleted flag distributes no traffic, so an experiment can never go live on it."""
+        if feature_flag.deleted:
+            raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
+
     @staticmethod
     def _assign_uuids_to_metrics(
         metrics: list[dict] | None,
@@ -1182,8 +1187,7 @@ class ExperimentService:
 
         # Validate feature flag configuration
         feature_flag = experiment.feature_flag
-        if feature_flag.deleted:
-            raise ValidationError("Experiment cannot be launched because its feature flag has been deleted.")
+        self._assert_flag_not_deleted_for_launch(feature_flag)
         self._validate_existing_flag(feature_flag)
 
         # Set start_date
@@ -1953,6 +1957,11 @@ class ExperimentService:
                 "Cannot restore experiment: the linked feature flag has been deleted. "
                 "Restore the feature flag first, then restore the experiment."
             )
+
+        # Prevent launching a draft via PATCH (start_date) onto a deleted flag — mirrors
+        # the guard in launch_experiment, which the dedicated launch action goes through.
+        if experiment.is_draft and update_data.get("start_date") is not None:
+            self._assert_flag_not_deleted_for_launch(feature_flag)
 
         # Check for legacy metrics first
         if experiment_has_legacy_metrics(experiment):

@@ -4263,6 +4263,26 @@ class TestExperimentService(APIBaseTest):
             service.launch_experiment(experiment)
         assert "deleted" in str(ctx.exception.detail).lower()
 
+    def test_update_experiment_launch_via_start_date_with_deleted_flag_raises(self):
+        """Launching a draft by PATCHing start_date must reject a deleted flag, like the launch action."""
+        experiment = self._create_launchable_experiment(
+            name="PATCH Launch Deleted Flag",
+            feature_flag_key="patch-launch-deleted-flag",
+        )
+        experiment.feature_flag.deleted = True
+        experiment.feature_flag.save()
+
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"start_date": timezone.now()})
+        assert "deleted" in str(ctx.exception.detail).lower()
+
+        # The flag must not have been activated, and the experiment must stay a draft
+        experiment.refresh_from_db()
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.start_date is None
+        assert experiment.feature_flag.active is False
+
     @parameterized.expand(
         [
             ("empty_string", {"method": ""}),
