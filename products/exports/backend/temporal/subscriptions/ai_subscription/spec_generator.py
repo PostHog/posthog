@@ -1,4 +1,3 @@
-import re
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Optional, Union
@@ -20,6 +19,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     EVENT_SELECTION_PROMPT_NAME,
     PLAN_GENERATION_PROMPT,
     PLANNER_PROMPT_NAME,
+    render_prompt,
     resolve_prompt,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
@@ -148,10 +148,9 @@ def _candidate_event_names(team: Team, limit: int) -> dict[str, str]:
 def _select_relevant_events(
     team: Team, user: User, prompt: str, trace_correlation_id: Optional[Union[int, str]] = None
 ) -> list[str]:
-    # Pass 1: let the model pick the events relevant to the prompt from the project's vocabulary, rather
-    # than lexical token matching. Returns RAW event names (for the EventProperty lookup), intersected with
-    # the real candidate set so a hallucinated name never reaches a query. Best-effort: any failure degrades
-    # to no relevant-events section rather than breaking report generation.
+    # Pass 1: the model picks relevant events from the project's vocabulary (vs lexical matching). Returns
+    # RAW event names (the EventProperty lookup is keyed on them); any failure degrades to no relevant-events
+    # section rather than breaking generation.
     candidates = _candidate_event_names(team, CANDIDATE_EVENTS_LIMIT)
     if not candidates:
         return []
@@ -168,11 +167,9 @@ def _select_relevant_events(
         posthog_properties=posthog_properties,
     ).with_structured_output(RelevantEvents, method="json_schema", include_raw=False)
 
-    substitutions = {"event_names": "\n".join(candidates), "cleaned_prompt": prompt}
-    rendered_prompt = re.sub(
-        r"\{\{\{(\w+)\}\}\}",
-        lambda m: substitutions.get(m.group(1), m.group(0)),
+    rendered_prompt = render_prompt(
         resolve_prompt(team, EVENT_SELECTION_PROMPT_NAME, EVENT_SELECTION_PROMPT),
+        {"event_names": "\n".join(candidates), "cleaned_prompt": prompt},
     )
 
     try:
@@ -181,10 +178,10 @@ def _select_relevant_events(
         logger.warning("ai_subscription.event_selection_failed", team_id=team.id, exc_info=True)
         return []
     if not isinstance(result, RelevantEvents):
+        logger.warning("ai_subscription.event_selection_malformed", team_id=team.id)
         return []
 
-    # Map the model's (sanitized) picks back to raw names, intersecting with real candidates to drop any
-    # hallucinated name; deduped and capped.
+    # candidates.get maps the model's sanitized picks back to raw names and drops hallucinations in one step.
     selected: list[str] = []
     seen: set[str] = set()
     for name in result.events:
@@ -192,14 +189,14 @@ def _select_relevant_events(
         if raw is not None and raw not in seen:
             seen.add(raw)
             selected.append(raw)
-        if len(selected) >= RELEVANT_EVENTS_LIMIT:
-            break
+            if len(selected) >= RELEVANT_EVENTS_LIMIT:
+                break
     return selected
 
 
 def _event_property_names(team: Team, events: list[str], per_event_limit: int) -> dict[str, list[str]]:
-    # Per-event property names in one indexed (team, event) query. Without this the planner gets no
-    # event-property schema and guesses property names — the top cause of InternalHogQLError.
+    # One indexed (team, event) query. Without it the planner gets no event-property schema and guesses
+    # property names — the top cause of InternalHogQLError.
     if not events:
         return {}
     by_event: dict[str, list[str]] = {}
@@ -207,8 +204,8 @@ def _event_property_names(team: Team, events: list[str], per_event_limit: int) -
         EventProperty.objects.filter(team_id=team.pk, event__in=events)
         .order_by("event", "property")
         # DB-tier backstop: a property-heavy event can otherwise pull its entire row set into Python
-        # before the per-event cap below applies. Caps total rows read; fairness across events is
-        # best-effort (rows are ordered by event, so the budget favours the earlier ones).
+        # before the per-event cap below applies. Caps total rows read; rows are ordered by event name,
+        # so when the budget is hit it favours alphabetically-earlier events (not relevance order).
         .values_list("event", "property")[: len(events) * per_event_limit]
     )
     for event, prop in rows:
@@ -307,12 +304,9 @@ def generate_query_plan(
         posthog_properties=posthog_properties,
     ).with_structured_output(QueryPlan, method="json_schema", include_raw=False)
 
-    # single-pass substitution so a value containing {{{...}}} can't be re-expanded
-    substitutions = {"context_blob": context_blob, "cleaned_prompt": cleaned_prompt}
-    rendered_prompt = re.sub(
-        r"\{\{\{(\w+)\}\}\}",
-        lambda m: substitutions.get(m.group(1), m.group(0)),
+    rendered_prompt = render_prompt(
         resolve_prompt(team, PLANNER_PROMPT_NAME, PLAN_GENERATION_PROMPT),
+        {"context_blob": context_blob, "cleaned_prompt": cleaned_prompt},
     )
 
     result = llm.invoke([("system", rendered_prompt)])

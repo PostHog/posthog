@@ -4,7 +4,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.models import EventDefinition, EventProperty, PropertyDefinition
+from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     QueryPlan,
@@ -111,11 +111,35 @@ class TestSelectRelevantEvents(APIBaseTest):
         assert _select_relevant_events(self.team, self.user, "how are exports doing?") == ["export created"]
 
     @patch(f"{_SG}.MaxChatOpenAI")
+    def test_substitutes_prompt_and_event_names_into_system_message(self, mock_chat: MagicMock) -> None:
+        # Guards the {{{...}}} render — a dropped/typo'd substitution key would send literal placeholders
+        # to the model and the other tests (which only check the return value) would still pass.
+        EventDefinition.objects.create(team=self.team, name="export created")
+        structured = mock_chat.return_value.with_structured_output.return_value
+        structured.invoke.return_value = RelevantEvents(events=[])
+
+        _select_relevant_events(self.team, self.user, "SELECTION_PROMPT_MARKER")
+
+        (messages,) = structured.invoke.call_args[0]
+        (_role, system_content) = messages[0]
+        assert "SELECTION_PROMPT_MARKER" in system_content
+        assert "export created" in system_content
+        assert "{{{" not in system_content
+
+    @patch(f"{_SG}.MaxChatOpenAI")
     def test_falls_back_to_empty_on_llm_error(self, mock_chat: MagicMock) -> None:
         EventDefinition.objects.create(team=self.team, name="export created")
         mock_chat.return_value.with_structured_output.return_value.invoke.side_effect = RuntimeError("boom")
 
         # a selection failure degrades to no relevant events rather than raising
+        assert _select_relevant_events(self.team, self.user, "exports") == []
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_falls_back_to_empty_on_malformed_output(self, mock_chat: MagicMock) -> None:
+        EventDefinition.objects.create(team=self.team, name="export created")
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = "not a RelevantEvents"
+
+        # structured output that isn't a RelevantEvents degrades to empty, not a crash
         assert _select_relevant_events(self.team, self.user, "exports") == []
 
     @patch(f"{_SG}.MaxChatOpenAI")
@@ -143,6 +167,13 @@ class TestEventPropertyNames(APIBaseTest):
 
     def test_empty_for_no_events(self) -> None:
         assert _event_property_names(self.team, [], per_event_limit=15) == {}
+
+    def test_excludes_other_teams_properties(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        EventProperty.objects.create(team=other_team, event="export created", property="leaked")
+        EventProperty.objects.create(team=self.team, event="export created", property="mine")
+
+        assert _event_property_names(self.team, ["export created"], per_event_limit=15) == {"export created": ["mine"]}
 
 
 class TestContextBlob(APIBaseTest):

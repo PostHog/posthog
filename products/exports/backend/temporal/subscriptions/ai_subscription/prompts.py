@@ -1,3 +1,4 @@
+import re
 from typing import Literal
 
 import structlog
@@ -51,6 +52,12 @@ def resolve_prompt(team: Team, name: str, default: str) -> str:
             return stored
     _capture_prompt_source(team, name, "fallback")
     return default
+
+
+def render_prompt(template: str, substitutions: dict[str, str]) -> str:
+    # Single-pass {{{key}}} substitution: a value that itself contains {{{...}}} is not re-expanded into
+    # another key, so user-controlled values (prompt text, event names) can't smuggle in a placeholder.
+    return re.sub(r"\{\{\{(\w+)\}\}\}", lambda m: substitutions.get(m.group(1), m.group(0)), template)
 
 
 EVENT_SELECTION_PROMPT = """
