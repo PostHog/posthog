@@ -105,6 +105,23 @@ tools:
             event X', use an 'event' trigger instead. A batch workflow fires only once enabled and a recurring schedule
             is attached (workflows-schedule-create).
         ui_app: workflow
+    workflows-generate-email-template:
+        operation: max_tools_create_message_template_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        url_prefix: /workflows/library/templates
+        enrich_url: '{id}'
+        title: Generate email template
+        description: >
+            Generate a branded email template from a prompt and save it to the workflows library, returning a link to
+            edit it in the visual editor. 'instructions' may include one URL to pull branding and copy from. Output is
+            AI-generated (Liquid personalization + an Unlayer design); review before sending. Use the returned template
+            in a workflow's function_email action.
     workflows-get:
         operation: hog_flows_retrieve
         enabled: true

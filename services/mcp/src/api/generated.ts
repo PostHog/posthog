@@ -12024,6 +12024,24 @@ export namespace Schemas {
       representative_email: string;
     }
 
+    export interface CreateMessageTemplateTool {
+      /**
+         * What email template to generate. May include a single URL to draw branding and copy from.
+         * @maxLength 4000
+         */
+      instructions: string;
+      /**
+         * Optional template name. Falls back to a name generated from the instructions.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * Optional message category ID to file the template under.
+         * @nullable
+         */
+      message_category?: string | null;
+    }
+
     /**
      * Typed output for view set `create`.
      */

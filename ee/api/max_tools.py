@@ -1,3 +1,4 @@
+import json
 from typing import Any, cast
 from uuid import uuid4
 
@@ -17,9 +18,29 @@ from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
 
+from products.messaging.backend.api.message_templates import MessageTemplateSerializer
 from products.posthog_ai.backend.models.assistant import Conversation
 
+from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.utils.types import AssistantState
+
+
+class CreateMessageTemplateToolSerializer(serializers.Serializer):
+    instructions = serializers.CharField(
+        required=True,
+        max_length=4000,
+        help_text="What email template to generate. May include a single URL to draw branding and copy from.",
+    )
+    name = serializers.CharField(
+        required=False,
+        max_length=400,
+        help_text="Optional template name. Falls back to a name generated from the instructions.",
+    )
+    message_category = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Optional message category ID to file the template under.",
+    )
 
 
 class InsightsToolCallSerializer(serializers.Serializer):
@@ -77,3 +98,45 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 for event_type, data in assistant.invoke()
             ]
         )
+
+    @extend_schema(request=CreateMessageTemplateToolSerializer, responses={200: MessageTemplateSerializer})
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="create_message_template",
+        required_scopes=["hog_flow:write"],
+    )
+    def create_message_template(self, request: Request, *args, **kwargs):
+        # Inline to keep the heavy ee.hogai import chain off this module's import path.
+        from products.workflows.backend.max_tools import CreateMessageTemplateTool
+
+        serializer = CreateMessageTemplateToolSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        tool = CreateMessageTemplateTool(team=self.team, user=cast(User, request.user))
+        try:
+            _content, template_json = tool._run_impl(instructions=serializer.validated_data["instructions"])
+            generated = json.loads(template_json)
+        except (PydanticOutputParserException, json.JSONDecodeError):
+            raise serializers.ValidationError(
+                {
+                    "instructions": "Could not generate a valid email template. Add detail about the email's purpose, "
+                    "audience, and branding, then try again."
+                }
+            )
+
+        template_data: dict[str, Any] = {
+            "name": serializer.validated_data.get("name") or generated.get("name") or "Untitled template",
+            "description": generated.get("description") or "",
+            "content": generated["content"],
+            "type": "email",
+        }
+        if serializer.validated_data.get("message_category"):
+            template_data["message_category"] = serializer.validated_data["message_category"]
+
+        context = {"request": request, "team_id": self.team_id}
+        template_serializer = MessageTemplateSerializer(data=template_data, context=context)
+        template_serializer.is_valid(raise_exception=True)
+        instance = template_serializer.save()
+
+        return Response(MessageTemplateSerializer(instance, context=context).data)

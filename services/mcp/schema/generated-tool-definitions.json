@@ -6442,6 +6442,20 @@
             "readOnlyHint": false
         }
     },
+    "workflows-generate-email-template": {
+        "description": "Generate a branded email template from a prompt and save it to the workflows library, returning a link to edit it in the visual editor. 'instructions' may include one URL to pull branding and copy from. Output is AI-generated (Liquid personalization + an Unlayer design); review before sending. Use the returned template in a workflow's function_email action.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Generate email template",
+        "title": "Generate email template",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-get": {
         "description": "Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in 'schedules' to confirm it will actually fire.",
         "category": "Workflows",

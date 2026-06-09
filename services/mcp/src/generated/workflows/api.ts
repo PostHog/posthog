@@ -3,10 +3,35 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 12 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const MaxToolsCreateMessageTemplateCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const maxToolsCreateMessageTemplateCreateBodyInstructionsMax = 4000
+
+export const maxToolsCreateMessageTemplateCreateBodyNameMax = 400
+
+export const MaxToolsCreateMessageTemplateCreateBody = /* @__PURE__ */ zod.object({
+    instructions: zod
+        .string()
+        .max(maxToolsCreateMessageTemplateCreateBodyInstructionsMax)
+        .describe('What email template to generate. May include a single URL to draw branding and copy from.'),
+    name: zod
+        .string()
+        .max(maxToolsCreateMessageTemplateCreateBodyNameMax)
+        .optional()
+        .describe('Optional template name. Falls back to a name generated from the instructions.'),
+    message_category: zod.uuid().nullish().describe('Optional message category ID to file the template under.'),
+})
 
 export const HogFlowsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
