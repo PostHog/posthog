@@ -30,6 +30,11 @@ from posthog.temporal.data_imports.sources.common.rest_source.config_setup impor
     build_resource_dependency_graph,
     create_auth,
 )
+from posthog.temporal.data_imports.sources.common.rest_source.typing import (
+    EndpointResource,
+    EndpointResourceBase,
+    ResolvedParam,
+)
 from posthog.temporal.data_imports.sources.common.rest_source.utils import resolve_request_url
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import CustomSourceConfig
@@ -182,10 +187,7 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> None:
     never touches the stored manifest.
     """
     try:
-        graph, _, _ = build_resource_dependency_graph(
-            copy.deepcopy(manifest.get("resource_defaults") or {}),
-            copy.deepcopy(manifest["resources"]),
-        )
+        graph, _, _ = _build_resource_graph(manifest)
         list(graph.static_order())
     except (ValueError, NotImplementedError, graphlib.CycleError) as exc:
         raise ManifestValidationError(str(exc)) from exc
@@ -745,11 +747,21 @@ def _resolved_param_map(manifest: dict[str, Any]) -> dict[str, Any]:
     so it runs on a deep copy. Callers reach this only after ``validate_manifest``
     has already built the graph once, so it won't raise here.
     """
-    _, _, resolved = build_resource_dependency_graph(
-        copy.deepcopy(manifest.get("resource_defaults") or {}),
-        copy.deepcopy(manifest["resources"]),
-    )
+    _, _, resolved = _build_resource_graph(manifest)
     return resolved
+
+
+def _build_resource_graph(
+    manifest: dict[str, Any],
+) -> tuple[Any, dict[str, EndpointResource], dict[str, Optional[ResolvedParam]]]:
+    """Run the REST engine's dependency-graph builder on a deep copy of the
+    manifest. The builder binds path params in place, so it must never see the
+    stored manifest's resources — hence the copy.
+    """
+    return build_resource_dependency_graph(
+        cast(EndpointResourceBase, copy.deepcopy(manifest.get("resource_defaults") or {})),
+        cast("list[str | EndpointResource]", copy.deepcopy(manifest["resources"])),
+    )
 
 
 def _fanout_chain(manifest: dict[str, Any], chosen_name: str) -> list[dict[str, Any]]:

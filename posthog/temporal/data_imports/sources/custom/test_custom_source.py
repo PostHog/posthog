@@ -1,6 +1,7 @@
 import io
 import gzip
 import json
+from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
 
@@ -954,7 +955,7 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
 
         threaded_resources = mock_resources.call_args.args[0]["resources"]
         assert [r["name"] for r in threaded_resources] == ["forms", "responses"]
-        assert response.items().name == "responses"
+        assert cast(Any, response.items()).name == "responses"
         assert response.primary_keys == ["token"]
 
     @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
@@ -975,7 +976,7 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
         response = source.source_for_pipeline(config, inputs)
 
         assert [r["name"] for r in mock_resources.call_args.args[0]["resources"]] == ["forms"]
-        assert response.items().name == "forms"
+        assert cast(Any, response.items()).name == "forms"
 
     @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
     def test_fanout_strips_incremental_from_parent_but_keeps_child(self, mock_plural):
@@ -1065,7 +1066,7 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
         )
         response = source.source_for_pipeline(config, inputs)
 
-        rows = [row for page in response.items() for row in page]
+        rows = [row for page in cast(Any, response.items()) for row in page]
         assert [row["token"] for row in rows] == ["r1", "r2", "r3"]
         # include_from_parent injects the parent id as `_<parent>_<field>`.
         assert [row["_forms_id"] for row in rows] == ["f1", "f1", "f2"]
