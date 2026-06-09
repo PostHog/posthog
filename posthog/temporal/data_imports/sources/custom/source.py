@@ -149,24 +149,6 @@ class _Manifest(BaseModel):
         return self
 
 
-def validate_manifest(manifest: Any) -> None:
-    """Full validation of a user-provided REST API manifest: the structural
-    shape plus the fan-out resource graph.
-
-    NOTE: production runs the two levels separately — `validate_manifest_structure`
-    on every stored-manifest read (sync, schema listing, via `_assemble_manifest`)
-    and `_validate_resource_graph` only for new/changed manifests (in
-    `validate_credentials`). This composite exists for callers that want both at
-    once (currently only tests); don't wire new production validation in here.
-
-    The safety of any URLs in the manifest is checked separately by
-    :func:`validate_manifest_urls`, which needs the team_id for
-    cloud-vs-self-hosted handling.
-    """
-    validate_manifest_structure(manifest)
-    _validate_resource_graph(manifest)
-
-
 def validate_manifest_structure(manifest: Any) -> None:
     """Validate only the structural shape of a manifest, via the
     :class:`_Manifest` schema.
@@ -210,7 +192,7 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
     child filter — don't rebuild the graph.
     """
     try:
-        graph, _, resolved = _build_resource_graph(manifest)
+        graph, resource_map, resolved = _build_resource_graph(manifest)
         list(graph.static_order())
     except KeyError as exc:
         # A resolve param missing "resource"/"field" raises KeyError from deep
@@ -224,11 +206,6 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
     except (ValueError, NotImplementedError) as exc:
         raise ManifestValidationError(str(exc)) from exc
 
-    paths: dict[str, Any] = {
-        r["name"]: (r.get("endpoint") or {}).get("path", "")
-        for r in manifest["resources"]
-        if isinstance(r, dict) and isinstance(r.get("name"), str)
-    }
     for name, resolved_param in resolved.items():
         if resolved_param is None:
             continue
@@ -242,10 +219,13 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
         # sync time. A path that BEGINS with it lets an absolute URL in the
         # parent's field move the authenticated request off base_url, and
         # neither the create-time host validator nor the update retarget guard
-        # can see it (they only ever see the literal placeholder). Scalar
-        # placeholders are bound at create-time URL validation, so only the
-        # resolve placeholder needs this guard.
-        path = paths.get(name, "")
+        # can see it (they only ever see the literal placeholder). The check
+        # reads the engine-normalized path from `resource_map` — defaults
+        # merged, scalar params already bound — so it inspects the same string
+        # the request will be built from; only the resolve placeholder survives
+        # binding and needs this guard.
+        endpoint = resource_map[name].get("endpoint")
+        path = endpoint.get("path", "") if isinstance(endpoint, dict) else ""
         if isinstance(path, str) and path.lstrip().startswith("{" + resolved_param.param_name + "}"):
             raise ManifestValidationError(
                 f"Resource {name!r}: the path must not begin with the parent placeholder "
@@ -513,19 +493,20 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         except ManifestValidationError as exc:
             return False, str(exc)
 
-        # Graph-level fan-out rules gate NEW or CHANGED manifests — source
+        # Graph-level fan-out rules gate candidate manifests only — source
         # creation and manifest edits. They must never lock an existing source
         # out of unrelated operations on a stored manifest that predates a
-        # rule: the update serializer passes ``validate_graph=False`` when the
-        # manifest itself wasn't touched (e.g. rotating the auth token), and
-        # schema-scoped read checks (the schema API's ``incremental_fields``
-        # action passes ``schema_name``) only ever run against stored config.
-        # On those paths a graph error falls back to probing every resource —
-        # exactly the behavior before the graph rules existed.
+        # rule, so strictness is off when the update serializer says the
+        # manifest wasn't touched (``validate_graph=False``, e.g. rotating the
+        # auth token) or when the check is schema-scoped (``schema_name``, the
+        # schema API's ``incremental_fields`` action) — those only ever run
+        # against stored config. A tolerated graph error falls back to probing
+        # every resource, exactly the behavior before the rules existed.
+        validate_graph = validate_graph and schema_name is None
         try:
             resolved = _validate_resource_graph(manifest)
         except ManifestValidationError as exc:
-            if validate_graph and schema_name is None:
+            if validate_graph:
                 return False, str(exc)
             resolved = {}
 
@@ -645,32 +626,18 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             if not ok:
                 raise ManifestValidationError(err or "Manifest URL validation failed")
 
-            chosen = next(
-                (r for r in manifest["resources"] if isinstance(r, dict) and r.get("name") == inputs.schema_name),
-                None,
-            )
-            if chosen is None:
-                raise ValueError(f"Resource {inputs.schema_name!r} not found in config")
-
-            # The resources to run for this schema: `chosen` plus, when it's a
-            # fan-out child, its ancestor chain (root first). The engine then
-            # fetches each parent and issues one child request per parent row; the
-            # ancestors drive the child transiently and aren't persisted — only
-            # `chosen` is returned as its own table. A top-level resource is just
-            # `[chosen]`, so a single code path handles both. See `_fanout_chain`
-            # for why we pass this subset rather than the whole manifest.
+            # The resources to run for this schema: the chosen resource plus,
+            # when it's a fan-out child, its ancestor chain (root first) — see
+            # `_fanout_chain` for the full rationale. Ancestors are stripped of
+            # incremental config so the run's high-watermark — which belongs to
+            # the chosen resource — can't be misapplied to a parent and silently
+            # drop parent rows (and with them their children); they full-scan
+            # every run, matching the built-in fan-out sources (Typeform/Sentry).
             chain = _fanout_chain(manifest, inputs.schema_name)
-
-            chosen_name = chosen["name"]
-
-            # Incremental is stripped from the ancestors (not `chosen`) so the run's
-            # high-watermark — which belongs to `chosen` — isn't applied to a parent,
-            # which would silently drop parent rows and, with them, their children.
-            # Ancestors therefore full-scan every run, matching the built-in fan-out
-            # sources (Typeform/Sentry).
+            chosen = chain.child
             engine_resources = [
-                *(_prepare_fanout_resource(r, is_child=False) for r in chain.ancestors),
-                _prepare_fanout_resource(chain.child, is_child=True),
+                *(_without_incremental_config(r) for r in chain.ancestors),
+                _strip_engine_unsupported_incremental_keys(chain.child),
             ]
             engine_manifest = cast(RESTAPIConfig, {**manifest, "resources": engine_resources})
 
@@ -694,9 +661,9 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # always recur.
             raise NonRetryableException(str(exc)) from exc
 
-        resource = next((r for r in resources if getattr(r, "name", None) == chosen_name), None)
+        resource = next((r for r in resources if getattr(r, "name", None) == inputs.schema_name), None)
         if resource is None:
-            raise NonRetryableException(f"Resource {chosen_name!r} was not produced by the REST engine")
+            raise NonRetryableException(f"Resource {inputs.schema_name!r} was not produced by the REST engine")
 
         primary_key = chosen.get("primary_key")
         primary_keys: list[str] | None
@@ -868,25 +835,30 @@ def _fanout_chain(manifest: dict[str, Any], chosen_name: str) -> FanoutChain:
     resources it builds but we never iterate issue no requests — but it still
     runs ``setup_incremental_object`` for every resource it's given at build time,
     so an unrelated resource's config error would otherwise sink this schema's
-    sync. Subsetting also lets ``_prepare_fanout_resource`` full-scan the
-    ancestors (incremental stripped) so the child's high-watermark isn't
+    sync. Subsetting also lets the caller full-scan the ancestors (via
+    ``_without_incremental_config``) so the child's high-watermark isn't
     misapplied to a parent. The parent graph comes from the engine's own
     ``build_resource_dependency_graph``, so resolve-param detection isn't
     re-implemented here.
+
+    Raises ``ValueError`` when ``chosen_name`` isn't in the manifest.
     """
     by_name: dict[str, dict[str, Any]] = {
         r["name"]: r for r in manifest["resources"] if isinstance(r, dict) and isinstance(r.get("name"), str)
     }
+    chosen = by_name.get(chosen_name)
+    if chosen is None:
+        raise ValueError(f"Resource {chosen_name!r} not found in config")
     try:
         _, _, resolved = _build_resource_graph(manifest)
-    except (ValueError, NotImplementedError, KeyError, graphlib.CycleError):
+    except (ValueError, NotImplementedError, KeyError):
         # Graph rules are enforced at create/update time, but a stored manifest
         # can predate them. A graph error on an UNRELATED resource must not sink
         # this schema's sync — fall back to handing the engine just the chosen
         # resource (the pre-fan-out behavior). If the chosen resource itself is
         # the broken one, the engine rejects it at build time with the
         # underlying error, which the caller converts to a non-retryable failure.
-        return FanoutChain(ancestors=[], child=by_name[chosen_name])
+        return FanoutChain(ancestors=[], child=chosen)
     ancestor_names: list[str] = []
     seen: set[str] = {chosen_name}
     current = chosen_name
@@ -900,23 +872,7 @@ def _fanout_chain(manifest: dict[str, Any], chosen_name: str) -> FanoutChain:
         ancestor_names.append(parent_name)
         seen.add(parent_name)
         current = parent_name
-    return FanoutChain(ancestors=[by_name[name] for name in reversed(ancestor_names)], child=by_name[chosen_name])
-
-
-def _prepare_fanout_resource(resource: dict[str, Any], *, is_child: bool) -> dict[str, Any]:
-    """Ready a resource in a fan-out chain for the REST engine.
-
-    The chosen child keeps its incremental config (the run's high-watermark is
-    its cursor). Ancestors are stripped of incremental config so the single
-    ``db_incremental_field_last_value`` — which belongs to the child — can't be
-    misapplied to a parent and silently drop parent rows (and with them their
-    children). Both still have engine-incompatible keys (``cursor_type``)
-    stripped.
-    """
-    prepared = _strip_engine_unsupported_incremental_keys(resource)
-    if is_child:
-        return prepared
-    return _without_incremental_config(prepared)
+    return FanoutChain(ancestors=[by_name[name] for name in reversed(ancestor_names)], child=chosen)
 
 
 def _without_incremental_config(resource: dict[str, Any]) -> dict[str, Any]:
@@ -938,8 +894,6 @@ def _without_incremental_config(resource: dict[str, Any]) -> dict[str, Any]:
             for key, value in params.items()
             if not (isinstance(value, dict) and value.get("type") == "incremental")
         }
-    if cleaned == endpoint:
-        return resource
     return {**resource, "endpoint": cleaned}
 
 

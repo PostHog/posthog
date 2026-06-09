@@ -120,6 +120,17 @@ export function emptyHeader(): HeaderEntry {
     return { id: nextHeaderId(), key: '', value: '' }
 }
 
+// The cleared (top-level) state of every parent-dependency field. Single
+// source for the three places that reset a dependency — emptyStream, removing
+// a parent stream, and the builder's "None" selection — so a new parent field
+// only needs a default here.
+export const EMPTY_PARENT_FIELDS = {
+    parent_stream: '',
+    parent_resolve_field: '',
+    parent_path_param: '',
+    include_from_parent: '',
+} satisfies Partial<StreamForm>
+
 export function emptyStream(): StreamForm {
     return {
         id: nextStreamId(),
@@ -134,10 +145,7 @@ export function emptyStream(): StreamForm {
         cursor_path: '',
         cursor_type: 'datetime',
         start_param: '',
-        parent_stream: '',
-        parent_resolve_field: '',
-        parent_path_param: '',
-        include_from_parent: '',
+        ...EMPTY_PARENT_FIELDS,
     }
 }
 
@@ -192,15 +200,7 @@ export function removeStreamFromList(streams: StreamForm[], index: number): Stre
         return remaining
     }
     return remaining.map((stream) =>
-        stream.parent_stream === removedName
-            ? {
-                  ...stream,
-                  parent_stream: '',
-                  parent_resolve_field: '',
-                  parent_path_param: '',
-                  include_from_parent: '',
-              }
-            : stream
+        stream.parent_stream === removedName ? { ...stream, ...EMPTY_PARENT_FIELDS } : stream
     )
 }
 

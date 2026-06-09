@@ -14,6 +14,7 @@ import {
     CURSOR_TYPES,
     type CursorType,
     eligibleParentStreams,
+    EMPTY_PARENT_FIELDS,
     type HeaderEntry,
     type ManifestState,
     type Paginator,
@@ -134,7 +135,7 @@ export function CustomSourceManifestBuilder({
                         index={index}
                         stream={stream}
                         canRemove={manifestState.streams.length > 1}
-                        parentOptions={parentOptionsFor(manifestState.streams, index)}
+                        parentOptions={eligibleParentStreams(manifestState.streams, index)}
                         onUpdate={(patch) => updateStream(index, patch)}
                         onUpdatePaginator={(paginator) => updatePaginator(index, paginator)}
                         onRemove={() => removeStream(index)}
@@ -290,14 +291,6 @@ function HeadersSection({
     )
 }
 
-type ParentOption = { value: string; label: string }
-
-// Only top-level streams are offered as parents — nesting is capped at one
-// level (backend-enforced), which also makes cycles unbuildable in the UI.
-function parentOptionsFor(streams: StreamForm[], index: number): ParentOption[] {
-    return eligibleParentStreams(streams, index).map((name) => ({ value: name, label: name }))
-}
-
 function StreamCard({
     index,
     stream,
@@ -310,7 +303,7 @@ function StreamCard({
     index: number
     stream: StreamForm
     canRemove: boolean
-    parentOptions: ParentOption[]
+    parentOptions: string[]
     onUpdate: (patch: Partial<StreamForm>) => void
     onUpdatePaginator: (paginator: Paginator) => void
     onRemove: () => void
@@ -384,7 +377,7 @@ function ParentSection({
     onUpdate,
 }: {
     stream: StreamForm
-    parentOptions: ParentOption[]
+    parentOptions: string[]
     onUpdate: (patch: Partial<StreamForm>) => void
 }): JSX.Element {
     const hasParent = stream.parent_stream.trim().length > 0
@@ -393,7 +386,7 @@ function ParentSection({
     // A parent name can go stale when the manifest was authored elsewhere (raw
     // JSON) — the select would render the raw value with no visible error, and
     // saving fails with an engine message that doesn't point here.
-    const parentMissing = hasParent && !parentOptions.some((option) => option.value === stream.parent_stream)
+    const parentMissing = hasParent && !parentOptions.includes(stream.parent_stream)
     // The REST engine can only inject a resolved value into the URL path, so the
     // path must contain the placeholder — warn early instead of failing at sync.
     const pathMissingPlaceholder = hasParent && pathParam.length > 0 && !stream.path.includes(`{${pathParam}}`)
@@ -403,16 +396,12 @@ function ParentSection({
                 <LemonSelect
                     value={hasParent ? stream.parent_stream : ''}
                     onChange={(value) =>
-                        value
-                            ? onUpdate({ parent_stream: value })
-                            : onUpdate({
-                                  parent_stream: '',
-                                  parent_resolve_field: '',
-                                  parent_path_param: '',
-                                  include_from_parent: '',
-                              })
+                        value ? onUpdate({ parent_stream: value }) : onUpdate({ ...EMPTY_PARENT_FIELDS })
                     }
-                    options={[{ value: '', label: 'None (top-level stream)' }, ...parentOptions]}
+                    options={[
+                        { value: '', label: 'None (top-level stream)' },
+                        ...parentOptions.map((name) => ({ value: name, label: name })),
+                    ]}
                 />
             </LemonField.Pure>
             {hasParent && (

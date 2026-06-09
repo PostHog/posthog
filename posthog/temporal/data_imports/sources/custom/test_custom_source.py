@@ -21,14 +21,23 @@ from posthog.temporal.data_imports.sources.custom.source import (
     ManifestValidationError,
     _fanout_chain,
     _read_capped_text,
+    _validate_resource_graph,
     manifest_request_hosts,
-    validate_manifest,
+    validate_manifest_structure,
     validate_manifest_urls,
 )
 from posthog.temporal.data_imports.sources.generated_configs import CustomSourceConfig
 from posthog.temporal.data_imports.util import NonRetryableException
 
 from products.data_warehouse.backend.types import IncrementalFieldType
+
+
+def validate_manifest(manifest: Any) -> None:
+    # Create-time composite (structure + graph). Production runs the two levels
+    # separately — permissive structural checks on stored-manifest reads, graph
+    # rules only for new/changed manifests — so the composite lives here.
+    validate_manifest_structure(manifest)
+    _validate_resource_graph(manifest)
 
 
 def _minimal_manifest(base_url: str = "https://api.example.com") -> dict:
@@ -887,7 +896,7 @@ def _break_path_starting_with_placeholder(m: dict) -> None:
     m["resources"][1]["endpoint"]["path"] = "{form_id}/responses"
 
 
-def _break_nested_child(m: dict) -> None:
+def _add_nested_child(m: dict) -> None:
     # Grandchild: nesting is capped at one level — a parent must be top-level.
     m["resources"].append(
         {
@@ -913,7 +922,7 @@ class TestCustomSourceFanoutValidation(SimpleTestCase):
             ("multiple_resolve_params", _break_multiple_resolve_params),
             ("missing_resolve_field", _break_missing_resolve_field),
             ("missing_resolve_resource", _break_missing_resolve_resource),
-            ("nested_child", _break_nested_child),
+            ("nested_child", _add_nested_child),
             ("path_starting_with_placeholder", _break_path_starting_with_placeholder),
         ]
     )
@@ -938,7 +947,7 @@ class TestCustomSourceFanoutValidation(SimpleTestCase):
 
     def test_nested_child_error_message_names_the_resources(self):
         manifest = _fanout_manifest()
-        _break_nested_child(manifest)
+        _add_nested_child(manifest)
         with self.assertRaises(ManifestValidationError) as ctx:
             validate_manifest(manifest)
         message = str(ctx.exception)
@@ -999,17 +1008,7 @@ class TestFanoutChain(SimpleTestCase):
         # path must still walk a deeper chain correctly if a stored manifest
         # carries one (e.g. written before the cap existed).
         manifest = _fanout_manifest()
-        # grandchild: /forms/{form_id}/responses/{response_token}/answers, resolving `responses`.
-        manifest["resources"].append(
-            {
-                "name": "answers",
-                "primary_key": "id",
-                "endpoint": {
-                    "path": "/responses/{response_token}/answers",
-                    "params": {"response_token": {"type": "resolve", "resource": "responses", "field": "token"}},
-                },
-            }
-        )
+        _add_nested_child(manifest)
         forms, responses, answers = manifest["resources"]
         assert _fanout_chain(manifest, "answers") == FanoutChain(ancestors=[forms, responses], child=answers)
 
