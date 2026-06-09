@@ -1076,7 +1076,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 },
             )
 
-            with self.assertNumQueries(FuzzyInt(5, 8)):
+            # +1 vs the pre-bulk-credential baseline: one bulk credential fetch replaces the per-row
+            # credential joins (decrypt once per credential, not per table/view).
+            with self.assertNumQueries(FuzzyInt(6, 9)):
                 Database.create_for(team=self.team)
 
     # We keep adding sources, credentials and tables, number of queries should be stable

@@ -1095,7 +1095,9 @@ class Database(BaseModel):
                     )
 
                 warehouse_tables: list[DataWarehouseTable] = list(tables_query)
-                _attach_external_data_sources(warehouse_tables, team_id=team.pk)
+                # Direct-query mode builds the direct-postgres tables, which read source.job_inputs, so
+                # keep it hydrated there instead of lazily reloading it per table.
+                _attach_external_data_sources(warehouse_tables, team_id=team.pk, defer_job_inputs=not is_direct_query)
                 _preload_active_external_data_schemas(warehouse_tables)
                 if is_direct_query:
                     warehouse_tables = [
@@ -1874,27 +1876,31 @@ HOGQL_CHARACTERS_TO_BE_WRAPPED = ["@", "-", "!", "$", "+"]
 NOT_DELETED_Q = Q(deleted=False) | Q(deleted__isnull=True)
 
 
-def _attach_external_data_sources(warehouse_tables: Sequence[DataWarehouseTable], *, team_id: int) -> None:
+def _attach_external_data_sources(
+    warehouse_tables: Sequence[DataWarehouseTable], *, team_id: int, defer_job_inputs: bool = True
+) -> None:
     """Prime each table's `external_data_source` FK from one bulk fetch of the distinct sources.
 
     Tables outnumber their sources by ~100x, and `job_inputs` is an `EncryptedJSONField` whose every
     leaf is Fernet-decrypted on hydration — so joining the source per row would decrypt the same few
-    sources thousands of times, for data only the rare direct-postgres branch reads. `job_inputs` is
-    deferred here; that branch reloads it lazily.
+    sources thousands of times, for data only the direct-postgres branch reads. `job_inputs` is
+    deferred by default; callers that build that branch (direct-query mode) pass defer_job_inputs=False
+    so the few sources they hydrate keep it loaded rather than lazily reloading it per table.
     """
     source_ids = {
         table.external_data_source_id for table in warehouse_tables if table.external_data_source_id is not None
     }
     sources_by_id: dict[Any, ExternalDataSource] = {}
     if source_ids:
-        sources_by_id = {
-            source.pk: source
-            for source in ExternalDataSource.objects.filter(team_id=team_id, id__in=source_ids).defer("job_inputs")
-        }
+        query = ExternalDataSource.objects.filter(team_id=team_id, id__in=source_ids)
+        if defer_job_inputs:
+            query = query.defer("job_inputs")
+        sources_by_id = {source.pk: source for source in query}
     for table in warehouse_tables:
-        # A null FK returns None without a query, so only prime when a source exists.
         if table.external_data_source_id is None:
             continue
+        # queryable() guarantees a live source row for any set source_id, so the lookup hits; we still
+        # guard so a hard-delete race leaves the FK to lazy-load rather than caching a wrong object.
         source = sources_by_id.get(table.external_data_source_id)
         if source is not None:
             table.external_data_source = source
