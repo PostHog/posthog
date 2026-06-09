@@ -798,6 +798,8 @@ def test_dispatch_sends_once_per_channel_when_reviewers_share_channel(org_and_te
     [
         ("error_tracking", "issue_created", "Error tracking · New issue"),
         ("error_tracking", "weird_type", "Error tracking · weird type"),
+        # No source type → no trailing separator.
+        ("error_tracking", "", "Error tracking"),
         ("session_replay", "session_problem", "Session replay · session problem"),
         ("llm_analytics", "evaluation", "LLM analytics · evaluation"),
         ("github", "issue", "GitHub · issue"),
@@ -840,11 +842,15 @@ def test_build_signal_thread_blocks_escapes_content_to_block_mention_injection()
         "content": "<!here> ping & <@U999>",
         "extra": {},
     }
-    blocks, _ = _build_signal_thread_blocks(signal)
+    blocks, fallback = _build_signal_thread_blocks(signal)
     content_text = blocks[1]["text"]["text"]
     assert "<!here>" not in content_text
     assert "<@U999>" not in content_text
     assert "&lt;!here&gt;" in content_text
+    # The fallback `text` also reaches Slack mention parsing, so it must be escaped too.
+    assert "<!here>" not in fallback
+    assert "<@U999>" not in fallback
+    assert "&lt;!here&gt;" in fallback
 
 
 def test_build_signal_thread_blocks_rejects_unsafe_detail_url() -> None:

@@ -397,7 +397,7 @@ def _signal_source_line(source_product: str, source_type: str) -> str:
     """Human-readable "Product · Signal type" line, mirroring `signalCardSourceLine` in the inbox UI."""
     if source_product == "error_tracking":
         type_label = _ERROR_TRACKING_TYPE_LABELS.get(source_type, source_type.replace("_", " "))
-        return f"Error tracking · {type_label}"
+        return f"Error tracking · {type_label}" if type_label else "Error tracking"
     product_label = _SOURCE_PRODUCT_LABELS.get(source_product, source_product.replace("_", " "))
     type_label = source_type.replace("_", " ")
     return f"{product_label} · {type_label}" if type_label else product_label
@@ -475,7 +475,8 @@ def _build_signal_thread_blocks(signal: dict) -> tuple[list[dict], str]:
     if detail_parts:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "  ·  ".join(detail_parts)}]})
 
-    fallback = source_line if not content else f"{source_line}: {content[:120]}"
+    # Slack parses mrkdwn mentions in `text` (push notifications, search) even with blocks present — escape it too.
+    fallback = source_line if not content else f"{source_line}: {_escape_mrkdwn(content[:120])}"
     return blocks, fallback
 
 
@@ -486,22 +487,21 @@ def _post_signal_evidence_thread(
     signals: list[dict],
 ) -> None:
     """Post each evidence signal as a reply in the notification's Slack thread. Best-effort."""
-    posted = 0
     for signal in signals[:_MAX_THREAD_SIGNALS]:
         blocks, text = _build_signal_thread_blocks(signal)
         try:
             slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, blocks=blocks, text=text)
-            posted += 1
         except Exception:
             logger.exception("Failed to post signal evidence to inbox notification thread")
 
-    remaining = len(signals) - posted
-    if remaining > 0:
+    # The overflow note reflects signals intentionally withheld by the cap — not transient post failures.
+    overflow = max(0, len(signals) - _MAX_THREAD_SIGNALS)
+    if overflow > 0:
         try:
             slack.client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=thread_ts,
-                text=f"+{remaining} more {'signal' if remaining == 1 else 'signals'} in PostHog",
+                text=f"+{overflow} more {'signal' if overflow == 1 else 'signals'} in PostHog",
             )
         except Exception:
             logger.exception("Failed to post signal evidence overflow note to inbox notification thread")
