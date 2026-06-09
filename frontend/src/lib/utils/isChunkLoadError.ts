@@ -23,3 +23,26 @@ export function isChunkLoadError(error: unknown): boolean {
         (isTypeError && message.includes('error loading dynamically imported module'))
     )
 }
+
+/**
+ * `before_send` filter that drops `$exception` events whose error is a recognized chunk-load
+ * failure. These happen when a user on a stale browser tab requests a hashed chunk that a fresh
+ * deploy already deleted — the app already recovers by reloading (`sceneLogic`,
+ * `ChunkLoadErrorBoundary`), so capturing them as errors is benign stale-deploy noise. The walk
+ * over `$exception_list` catches wrapped errors where the chunk-load error is in the cause chain.
+ *
+ * Exported for unit testing.
+ */
+export function dropChunkLoadExceptions<T extends { event?: string; properties?: Record<string, any> } | null>(
+    event: T
+): T | null {
+    if (!event || event.event !== '$exception') {
+        return event
+    }
+    // posthog-js exception autocapture maps the error name to `type` and message to `value`.
+    const list = (event.properties?.$exception_list ?? []) as Array<{ type?: string; value?: string }>
+    if (list.some((ex) => isChunkLoadError({ name: ex?.type, message: ex?.value }))) {
+        return null
+    }
+    return event
+}

@@ -3,6 +3,8 @@ import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { dropChunkLoadExceptions } from 'lib/utils/isChunkLoadError'
+import { registerBeforeSendFilter } from 'lib/utils/posthogBeforeSend'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
 import { startFramerateTracking } from './framerateTracker'
@@ -55,7 +57,8 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: options.beforeSend,
+            // `before_send` is owned by the registry below — see the `registerBeforeSendFilter`
+            // calls after init. Setting it here would be clobbered by those `set_config` calls.
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
@@ -170,6 +173,16 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             identity_distinct_id: window.JS_POSTHOG_IDENTITY_DISTINCT_ID,
             identity_hash: window.JS_POSTHOG_IDENTITY_HASH,
         })
+
+        // Always drop benign chunk-load errors at the source — the app already recovers from
+        // them by reloading, so they are stale-deploy noise rather than real failures.
+        registerBeforeSendFilter(dropChunkLoadExceptions)
+
+        // Preserve any caller-supplied filter (e.g. the exporter's interview-token redaction).
+        if (options.beforeSend) {
+            const callerFilters = Array.isArray(options.beforeSend) ? options.beforeSend : [options.beforeSend]
+            callerFilters.forEach(registerBeforeSendFilter)
+        }
 
         posthog.onFeatureFlags((_flags, _variants, context) => {
             if (inStorybook() || inStorybookTestRunner() || !context?.errorsLoading) {

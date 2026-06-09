@@ -149,6 +149,7 @@ jest.mock('posthog-js', () => {
         capture: jest.fn(),
         captureException: jest.fn(),
         captureRaw: jest.fn(),
+        set_config: jest.fn(),
         opt_in_capturing: jest.fn(),
         identify: jest.fn(),
         getFeatureFlag: jest.fn(),

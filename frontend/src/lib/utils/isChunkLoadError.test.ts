@@ -1,4 +1,4 @@
-import { isChunkLoadError } from './isChunkLoadError'
+import { dropChunkLoadExceptions, isChunkLoadError } from './isChunkLoadError'
 
 describe('isChunkLoadError', () => {
     it.each([
@@ -43,5 +43,68 @@ describe('isChunkLoadError', () => {
         ['number', 42],
     ])('returns false for non-object %s', (_label, value) => {
         expect(isChunkLoadError(value)).toBe(false)
+    })
+})
+
+describe('dropChunkLoadExceptions', () => {
+    it('passes non-exception events through unchanged', () => {
+        const event = { event: '$pageview', properties: { $current_url: '/foo' } }
+        expect(dropChunkLoadExceptions(event)).toBe(event)
+    })
+
+    it('passes $exception events without a chunk-load error through', () => {
+        const event = {
+            event: '$exception',
+            properties: { $exception_list: [{ type: 'TypeError', value: 'x is not a function' }] },
+        }
+        expect(dropChunkLoadExceptions(event)).toBe(event)
+    })
+
+    it('drops the Firefox stale-deploy chunk-load error reported by the signal', () => {
+        const event = {
+            event: '$exception',
+            properties: {
+                $exception_list: [
+                    {
+                        type: 'TypeError',
+                        value: 'error loading dynamically imported module: https://example.com/static/chunk-DWBKWL7J.js',
+                    },
+                ],
+            },
+        }
+        expect(dropChunkLoadExceptions(event)).toBeNull()
+    })
+
+    it('drops webpack ChunkLoadError', () => {
+        const event = {
+            event: '$exception',
+            properties: { $exception_list: [{ type: 'ChunkLoadError', value: 'Loading chunk 0 failed.' }] },
+        }
+        expect(dropChunkLoadExceptions(event)).toBeNull()
+    })
+
+    it('drops wrapped errors where the chunk-load error lives in the cause chain', () => {
+        const event = {
+            event: '$exception',
+            properties: {
+                $exception_list: [
+                    { type: 'Error', value: 'failed to render scene' },
+                    { type: 'TypeError', value: 'Failed to fetch dynamically imported module: /static/chunk.js' },
+                ],
+            },
+        }
+        expect(dropChunkLoadExceptions(event)).toBeNull()
+    })
+
+    it('tolerates missing properties and missing exception list', () => {
+        expect(dropChunkLoadExceptions({ event: '$exception' })).toEqual({ event: '$exception' })
+        expect(dropChunkLoadExceptions({ event: '$exception', properties: {} })).toEqual({
+            event: '$exception',
+            properties: {},
+        })
+    })
+
+    it('returns null when handed null (matching posthog-js before_send contract)', () => {
+        expect(dropChunkLoadExceptions(null)).toBeNull()
     })
 })
