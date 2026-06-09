@@ -2,9 +2,21 @@ import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 
 import { RedisPool } from '../../types'
-import { EventIngestionRestrictionManager } from './manager'
+import {
+    EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerComponent,
+    EventIngestionRestrictionManagerOptions,
+} from './manager'
 import { REDIS_KEY_PREFIX, RedisRestrictionType } from './redis-schema'
 import { RestrictionType } from './rules'
+
+async function buildManager(
+    redisPool: RedisPool,
+    options?: EventIngestionRestrictionManagerOptions
+): Promise<EventIngestionRestrictionManager> {
+    const lifecycle = new EventIngestionRestrictionManagerComponent(redisPool, options)
+    return (await lifecycle.start()).value
+}
 
 const createMockRedisPool = (): RedisPool => {
     const redisClient = {
@@ -99,7 +111,7 @@ describe('EventIngestionRestrictionManager', () => {
 
         hub = { redisPool }
 
-        manager = new EventIngestionRestrictionManager(hub.redisPool, {
+        manager = await buildManager(hub.redisPool, {
             staticDropEventTokens: [],
             staticSkipPersonTokens: [],
             staticForceOverflowTokens: [],
@@ -112,13 +124,13 @@ describe('EventIngestionRestrictionManager', () => {
     })
 
     describe('constructor', () => {
-        it('initializes with default values if no options provided', () => {
-            const mgr = new EventIngestionRestrictionManager(hub.redisPool)
+        it('initializes with default values if no options provided', async () => {
+            const mgr = await buildManager(hub.redisPool)
             expect(mgr).toBeDefined()
         })
 
-        it('initializes with provided static config', () => {
-            const mgr = new EventIngestionRestrictionManager(hub.redisPool, {
+        it('initializes with provided static config', async () => {
+            const mgr = await buildManager(hub.redisPool, {
                 staticDropEventTokens: ['token1'],
                 staticSkipPersonTokens: ['token2'],
                 staticForceOverflowTokens: ['token3'],
@@ -300,7 +312,7 @@ describe('EventIngestionRestrictionManager', () => {
         })
 
         it('filters by session_recordings pipeline', async () => {
-            const sessionManager = new EventIngestionRestrictionManager(hub.redisPool, {
+            const sessionManager = await buildManager(hub.redisPool, {
                 pipeline: 'session_recordings',
             })
 
@@ -342,7 +354,7 @@ describe('EventIngestionRestrictionManager', () => {
 
     describe('static config', () => {
         it('applies token-level static restriction', async () => {
-            const mgr = new EventIngestionRestrictionManager(hub.redisPool, {
+            const mgr = await buildManager(hub.redisPool, {
                 staticDropEventTokens: ['static-token'],
             })
             await mgr.forceRefresh()
@@ -352,7 +364,7 @@ describe('EventIngestionRestrictionManager', () => {
         })
 
         it('applies distinct_id static restriction (legacy format)', async () => {
-            const mgr = new EventIngestionRestrictionManager(hub.redisPool, {
+            const mgr = await buildManager(hub.redisPool, {
                 staticDropEventTokens: ['static-token:user1'],
             })
             await mgr.forceRefresh()
@@ -364,7 +376,7 @@ describe('EventIngestionRestrictionManager', () => {
         })
 
         it('applies distinct_id static restriction (explicit format)', async () => {
-            const mgr = new EventIngestionRestrictionManager(hub.redisPool, {
+            const mgr = await buildManager(hub.redisPool, {
                 staticDropEventTokens: ['static-token:distinct_id:user1'],
             })
             await mgr.forceRefresh()
@@ -375,7 +387,7 @@ describe('EventIngestionRestrictionManager', () => {
         })
 
         it('combines static and dynamic restrictions', async () => {
-            const mgr = new EventIngestionRestrictionManager(hub.redisPool, {
+            const mgr = await buildManager(hub.redisPool, {
                 staticDropEventTokens: ['combo-token'],
             })
 

@@ -8,6 +8,7 @@ import { WidgetCardBody } from '../../components/WidgetCard/WidgetCardBody'
 import { WidgetCardHeader, widgetCardShouldHideMoreButton } from '../../components/WidgetCard/WidgetCardHeader'
 import {
     mockMoreOverlay,
+    widgetStorybookParameters,
     widgetTileFrameDecorator,
     withSessionReplayProjectState,
 } from '../../components/WidgetCard/widgetCardStoryFixtures'
@@ -63,6 +64,7 @@ const meta: Meta<typeof SessionReplayWidgetTileStory> = {
     component: SessionReplayWidgetTileStory,
     parameters: {
         layout: 'padded',
+        ...widgetStorybookParameters,
     },
     decorators: [...widgetTileFrameDecorator],
     args: {

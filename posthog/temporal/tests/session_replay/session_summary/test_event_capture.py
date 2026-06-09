@@ -17,7 +17,11 @@ from posthog.temporal.session_replay.session_summary.types.video import (
     VideoSummarySingleSessionInputs,
 )
 
-from ee.models.session_summaries import ExtraSummaryContext, SessionSummaryRunMeta, SingleSessionSummary
+from products.replay.backend.models.session_summaries import (
+    ExtraSummaryContext,
+    SessionSummaryRunMeta,
+    SingleSessionSummary,
+)
 
 pytestmark = pytest.mark.django_db
 

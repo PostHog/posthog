@@ -1,4 +1,4 @@
-import { defaults, kea, key, path, props } from 'kea'
+import { actions, defaults, isBreakpoint, kea, key, path, props, reducers } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -16,10 +16,21 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
     path(['scenes', 'session-recordings', 'components', 'replayActiveUsersTableLogic']),
     props({} as ReplayActiveUsersTableLogicProps),
     key((props) => props.scene || 'default'),
+    actions({
+        setCountedUsersError: (hasError: boolean) => ({ hasError }),
+    }),
     defaults({
         countedUsers: [] as { person: PersonType; count: number }[],
     }),
-    lazyLoaders(() => ({
+    reducers({
+        countedUsersError: [
+            false,
+            {
+                setCountedUsersError: (_, { hasError }) => hasError,
+            },
+        ],
+    }),
+    lazyLoaders(({ actions }) => ({
         countedUsers: {
             loadCountedUsers: async (_, breakpoint): Promise<{ person: PersonType; count: number }[]> => {
                 const q = hogql`
@@ -67,16 +78,29 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
             LIMIT 10
                 `
 
-                const qResponse = await api.queryHogQL(q, { scene: 'Replay', productKey: 'session_replay' })
+                try {
+                    const qResponse = await api.queryHogQL(q, { scene: 'Replay', productKey: 'session_replay' })
 
-                breakpoint()
+                    breakpoint()
 
-                return (qResponse.results || []).map((row) => {
-                    return {
-                        person: { id: row[0] as string, properties: JSON.parse(row[1]) as Record<string, any> },
-                        count: row[2] as number,
+                    actions.setCountedUsersError(false)
+                    return (qResponse.results || []).map((row) => {
+                        return {
+                            person: { id: row[0] as string, properties: JSON.parse(row[1]) as Record<string, any> },
+                            count: row[2] as number,
+                        }
+                    }) as { person: PersonType; count: number }[]
+                } catch (e: any) {
+                    // a breakpoint cancellation means a newer load superseded this one, let it propagate
+                    if (isBreakpoint(e)) {
+                        throw e
                     }
-                }) as { person: PersonType; count: number }[]
+                    // this is the heaviest of the "what to watch" count queries and the most likely to
+                    // time out or be rejected under load, degrade to an empty/error state rather than
+                    // an uncaught exception
+                    actions.setCountedUsersError(true)
+                    return []
+                }
             },
         },
     })),
