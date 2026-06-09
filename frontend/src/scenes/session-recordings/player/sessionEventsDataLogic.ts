@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 
 import { ViewportResolution } from '@posthog/replay-shared'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { getEventsWithPrimaryProperty } from 'lib/utils/primaryEventProperty'
@@ -23,12 +23,18 @@ const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start
 const FIVE_MINUTES_IN_MS = 5 * 60 * 1000 // +- before and after start and end of a recording to query for events related by person.
 
 // Statuses that indicate a transient backend hiccup (overload, gateway timeout) rather than a
-// real client problem. A network failure surfaces with no status at all.
-const TRANSIENT_QUERY_STATUSES = new Set([0, 502, 503, 504])
+// real client problem.
+const TRANSIENT_QUERY_STATUSES = new Set([502, 503, 504])
 
 function isTransientQueryError(error: unknown): boolean {
-    const status = (error as { status?: number } | null | undefined)?.status
-    return status === undefined || TRANSIENT_QUERY_STATUSES.has(status)
+    // Only backend query failures are transient. They always surface as ApiError: either a
+    // 5xx/gateway status, or no status at all when the request fails at the network level
+    // (handleFetch wraps fetch rejections in an ApiError with an undefined status). Anything
+    // else (e.g. a TypeError from a real programming bug) must surface rather than be swallowed.
+    if (!(error instanceof ApiError)) {
+        return false
+    }
+    return error.status === undefined || TRANSIENT_QUERY_STATUSES.has(error.status)
 }
 
 export const sessionEventsDataLogic = kea<sessionEventsDataLogicType>([

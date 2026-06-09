@@ -6,7 +6,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { MockSignature } from '~/mocks/utils'
 
 import recordingEventsJson from '../__mocks__/recording_events_query'
-import { createDifferentiatedQueryHandler, setupSessionRecordingTest } from './__mocks__/test-setup'
+import { setupSessionRecordingTest } from './__mocks__/test-setup'
 import { sessionEventsDataLogic } from './sessionEventsDataLogic'
 import { sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
 
@@ -14,16 +14,25 @@ describe('sessionEventsDataLogic', () => {
     let logic: ReturnType<typeof sessionEventsDataLogic.build>
     let metaLogic: ReturnType<typeof sessionRecordingMetaLogic.build>
 
+    const emptyRelatedEventsResponse = {
+        columns: recordingEventsJson.columns,
+        hasMore: false,
+        results: [],
+        types: recordingEventsJson.types,
+    }
+
     // Fails the first `failCount` query requests with `status`, then serves real event data.
     const failFirstQueries = (failCount: number, status: number): MockSignature => {
         let calls = 0
-        const succeed = createDifferentiatedQueryHandler()
-        return async (req, res, ctx) => {
+        return async (req): Promise<[number, any]> => {
             calls += 1
             if (calls <= failCount) {
                 return [status, {}]
             }
-            return succeed(req, res, ctx)
+            const body = await req.json()
+            const query = body.query?.query || ''
+            // The session query is keyed off `$session_id =`; everything else is the related-events query.
+            return query.includes('$session_id =') ? [200, recordingEventsJson] : [200, emptyRelatedEventsResponse]
         }
     }
 
@@ -38,7 +47,8 @@ describe('sessionEventsDataLogic', () => {
     }
 
     it('retries once and recovers when the query endpoint returns a transient 503', async () => {
-        mountWith(failFirstQueries(1, 503))
+        // Fail both concurrent requests in the initial Promise.all so the retry path is exercised.
+        mountWith(failFirstQueries(2, 503))
 
         await expectLogic(logic, () => {
             metaLogic.actions.loadRecordingMeta()
