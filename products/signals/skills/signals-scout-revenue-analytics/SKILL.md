@@ -220,7 +220,7 @@ regresses, the finding lands with the right context already attached.
 For each candidate finding:
 
 - **Emit** via `signals-scout-emit-signal` if it clears the confidence bar.
-  Strong scout findings: weight ≥ 0.7, confidence ≥ 0.85, with concrete dashboard ids,
+  Strong scout findings: confidence ≥ 0.85, with concrete dashboard ids,
   source labels, view names, and quantified impact in the evidence.
 - **Remember** if below the bar but worth carrying forward.
 - **Skip** with a one-line note if a scratchpad entry with a `noise:` or `addressed:`

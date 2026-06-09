@@ -561,12 +561,10 @@ def team_api_test_factory():
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
-
-            from posthog.models.cohort import Cohort, CohortPeople
-
             # from posthog.models.insight_caching_state import InsightCachingState
             from posthog.models.person import Person
 
+            from products.cohorts.backend.models.cohort import Cohort, CohortPeople
             from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
 
             cohort = Cohort.objects.create(team=team, created_by=self.user, name="test")
