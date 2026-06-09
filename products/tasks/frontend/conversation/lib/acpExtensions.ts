@@ -26,6 +26,10 @@ export const POSTHOG_NOTIFICATIONS = {
     USAGE_UPDATE: '_posthog/usage_update',
     /** PostHog products used during a turn (derived from MCP exec calls) */
     RESOURCES_USED: '_posthog/resources_used',
+    /** Agent is requesting permission to run a tool / approve a plan */
+    PERMISSION_REQUEST: '_posthog/permission_request',
+    /** A previously requested permission has been resolved */
+    PERMISSION_RESOLVED: '_posthog/permission_resolved',
 } as const
 
 type PosthogNotification = (typeof POSTHOG_NOTIFICATIONS)[keyof typeof POSTHOG_NOTIFICATIONS]

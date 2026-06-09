@@ -1,0 +1,14 @@
+[
+  {
+    "id": "9900000002",
+    "title": "App Router example does not capture $pageview on client-side navigation",
+    "body": "## Bug\n\nThe **posthog-nextjs** example app (Next.js App Router) only captures a `$pageview` on the initial full page load. When the user navigates client-side via `<Link>` / `router.push`, no `$pageview` is emitted, so analytics severely undercounts pageviews for any SPA navigation.\n\n### Root cause\nThe App Router does not fire a full navigation event, so a single `posthog.init` at mount only records the first view. There is no `PostHogPageView` component wiring `usePathname()` + `useSearchParams()` to `posthog.capture('$pageview')`, which is the documented PostHog + App Router pattern.\n\n### Steps to reproduce\n1. Run the example app\n2. Navigate between two routes using `next/link`\n3. Observe in PostHog that only the first pageview is captured; subsequent route changes emit nothing\n\n### Expected\nEach client-side route change should emit a `$pageview` with the new URL.\n\n### Fix\nAdd a `PostHogPageView` client component that reads `usePathname()` and `useSearchParams()` and calls `posthog.capture('$pageview', { '$current_url': url })` in a `useEffect` keyed on path/search changes, then render it inside `PostHogProvider` (wrapped in `<Suspense>` because `useSearchParams` requires it). Files to change: `app/providers.tsx` and `app/layout.tsx`.\n\nThis is a small, well-scoped fix in the canonical example, so it's worth correcting directly.",
+    "html_url": "https://github.com/joshsny/posthog-nextjs/issues/2",
+    "number": 2,
+    "labels": "[{\"name\":\"bug\",\"color\":\"d73a4a\",\"description\":\"Something isn't working\"}]",
+    "created_at": "2026-06-03T09:00:00Z",
+    "updated_at": "2026-06-04T09:00:00Z",
+    "locked": false,
+    "state": "open"
+  }
+]

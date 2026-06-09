@@ -235,8 +235,56 @@ export interface Plan {
     _meta?: { [key: string]: unknown } | null
 }
 
+// ---------------------------------------------------------------------------
+// Session configuration options (model / mode / reasoning selectors)
+//
+// Vendored from `@agentclientprotocol/sdk` (schema/types.gen.d.ts). The agent
+// streams the available options and their current values via the
+// `config_option_update` session update; the composer renders them as selects.
+// ---------------------------------------------------------------------------
+
+export type SessionConfigOptionCategory = 'mode' | 'model' | 'thought_level' | (string & {})
+
+export interface SessionConfigSelectOption {
+    value: string
+    name: string
+    description?: string | null
+    _meta?: { [key: string]: unknown } | null
+}
+
+export interface SessionConfigSelectGroup {
+    group: string
+    name: string
+    options: SessionConfigSelectOption[]
+    _meta?: { [key: string]: unknown } | null
+}
+
+export type SessionConfigSelectOptions = SessionConfigSelectOption[] | SessionConfigSelectGroup[]
+
+interface SessionConfigBase {
+    id: string
+    name: string
+    category?: SessionConfigOptionCategory | null
+    description?: string | null
+    _meta?: { [key: string]: unknown } | null
+}
+
+export interface SessionConfigSelect extends SessionConfigBase {
+    type: 'select'
+    currentValue: string
+    options: SessionConfigSelectOptions
+}
+
+export interface SessionConfigBoolean extends SessionConfigBase {
+    type: 'boolean'
+    currentValue: boolean
+}
+
+export type SessionConfigOption = SessionConfigSelect | SessionConfigBoolean
+
 export interface ConfigOptionUpdate {
     _meta?: { [key: string]: unknown } | null
+    configOptions?: SessionConfigOption[]
     [key: string]: unknown
 }
 
@@ -313,4 +361,43 @@ export interface QueuedMessage {
     content: string
     rawPrompt?: string | ContentBlock[]
     queuedAt: number
+}
+
+// ---------------------------------------------------------------------------
+// Permission requests (cloud `_posthog/permission_request` extension)
+//
+// Cloud runs surface tool-permission and plan-approval prompts as PostHog ACP
+// notifications carrying a `requestId`. The composer answers them with the
+// `permission_response` command. Mirrors `CloudTaskPermissionRequestUpdate`
+// from the reference app's shared types.
+// ---------------------------------------------------------------------------
+
+export type PermissionOptionKind = 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always' | (string & {})
+
+export interface PermissionOption {
+    optionId: string
+    name: string
+    kind: PermissionOptionKind
+    _meta?: { [key: string]: unknown } | null
+}
+
+export interface PermissionToolCall {
+    toolCallId: string
+    title: string
+    kind?: string
+    content?: ToolCallContent[]
+    rawInput?: unknown
+    _meta?: { [key: string]: unknown } | null
+}
+
+/** Params carried by the `_posthog/permission_request` notification. */
+export interface PermissionRequestParams {
+    requestId: string
+    toolCall: PermissionToolCall
+    options: PermissionOption[]
+}
+
+/** A permission request that is still awaiting a user response. */
+export interface PendingPermission extends PermissionRequestParams {
+    receivedAt: number
 }

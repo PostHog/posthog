@@ -21,6 +21,8 @@ interface ConversationViewProps {
     isPromptPending?: boolean | null
     promptStartedAt?: number | null
     queuedMessages?: QueuedMessage[]
+    /** Optimistically-rendered user messages awaiting their streamed echo. */
+    optimisticItems?: ConversationItem[]
     showDebugLogs?: boolean
     isCloud?: boolean
     className?: string
@@ -37,6 +39,7 @@ export const ConversationView = memo(function ConversationView({
     isPromptPending = null,
     promptStartedAt,
     queuedMessages,
+    optimisticItems,
     showDebugLogs,
     isCloud = false,
     className,
@@ -59,15 +62,15 @@ export const ConversationView = memo(function ConversationView({
 
     const items = useMemo<ConversationItem[]>(
         () =>
-            queuedItems.length > 0
+            queuedItems.length > 0 || (optimisticItems?.length ?? 0) > 0
                 ? mergeConversationItems({
                       conversationItems,
-                      optimisticItems: [],
+                      optimisticItems: optimisticItems ?? [],
                       queuedItems,
                       isCloud,
                   })
                 : conversationItems,
-        [conversationItems, queuedItems, isCloud]
+        [conversationItems, queuedItems, optimisticItems, isCloud]
     )
 
     const scrollContainerRef = useRef<HTMLDivElement>(null)

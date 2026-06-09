@@ -1,3 +1,4 @@
+import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
@@ -6,8 +7,11 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+import { PermissionRequestView } from '../composer/PermissionRequestView'
+import { TaskComposer } from '../composer/TaskComposer'
+import { taskComposerLogic } from '../composer/taskComposerLogic'
 import type { AcpMessage } from '../conversation/acp-types'
-import { buildConversationItems } from '../conversation/buildConversationItems'
+import { type ConversationItem } from '../conversation/buildConversationItems'
 import { ConversationView } from '../conversation/ConversationView'
 import { TaskRun } from '../types'
 import { TaskRunStatusBadge } from './TaskRunStatusBadge'
@@ -51,6 +55,7 @@ function HedgehogStatus(): JSX.Element {
 }
 
 interface TaskSessionViewProps {
+    taskId: string
     /** Raw S3 log text, kept for the "Copy" affordance. */
     logs: string
     logsLoading: boolean
@@ -62,6 +67,7 @@ interface TaskSessionViewProps {
 }
 
 export function TaskSessionView({
+    taskId,
     logs,
     logsLoading,
     events,
@@ -69,10 +75,24 @@ export function TaskSessionView({
     isStreaming,
     run,
 }: TaskSessionViewProps): JSX.Element {
-    // Count rendered conversation items, not raw events: a single turn produces
-    // many JSON-RPC messages (a chunk per streamed token, tool_call + tool_call_update
-    // per tool), so events.length would wildly overstate what the user actually sees.
-    const itemCount = useMemo(() => buildConversationItems(events, null).items.length, [events])
+    const composer = taskComposerLogic({ taskId })
+    // `itemCount` counts rendered conversation items, not raw events (a turn emits
+    // many JSON-RPC messages); the composer logic builds the conversation once and
+    // shares the count so this view doesn't rebuild it.
+    const { firstPendingPermission, queuedMessages, visibleOptimisticItems, agentBusy, itemCount } = useValues(composer)
+    const { respondToPermission } = useActions(composer)
+
+    const optimisticItems = useMemo<ConversationItem[]>(
+        () =>
+            visibleOptimisticItems.map((item) => ({
+                type: 'user_message' as const,
+                id: item.id,
+                content: item.content,
+                timestamp: item.timestamp,
+                pinToTop: false,
+            })),
+        [visibleOptimisticItems]
+    )
 
     const handleCopyLogs = (): void => {
         navigator.clipboard.writeText(logs).then(
@@ -81,20 +101,22 @@ export function TaskSessionView({
         )
     }
 
-    if (events.length === 0) {
-        if (logsLoading) {
-            return (
-                <div className="flex items-center justify-center h-32">
-                    <Spinner />
-                </div>
-            )
-        }
-        return (
-            <div className="p-4 text-center text-muted">
-                <p>No logs available yet</p>
-            </div>
-        )
-    }
+    const footer = firstPendingPermission ? (
+        <div className="border-t px-4 py-3">
+            <PermissionRequestView
+                permission={firstPendingPermission}
+                onRespond={(optionId, customInput) =>
+                    respondToPermission(firstPendingPermission.requestId, optionId, customInput)
+                }
+            />
+        </div>
+    ) : (
+        <div className="border-t px-4 py-3">
+            <TaskComposer taskId={taskId} />
+        </div>
+    )
+
+    const hasContent = events.length > 0 || optimisticItems.length > 0 || queuedMessages.length > 0
 
     return (
         <div className="flex flex-col h-full">
@@ -108,16 +130,33 @@ export function TaskSessionView({
                 </LemonButton>
             </div>
             <div className="flex-1 overflow-hidden">
-                {/* Cloud/replay semantics: the live polling/streaming state is surfaced by
-                    HedgehogStatus below, so the conversation footer stays in its
-                    completed-turn summary mode rather than double-rendering a spinner. */}
-                <ConversationView events={events} isPromptPending={null} />
+                {hasContent ? (
+                    /* Cloud/replay semantics: the live polling/streaming state is surfaced by
+                       HedgehogStatus below, so the conversation footer stays in its
+                       completed-turn summary mode rather than double-rendering a spinner. */
+                    <ConversationView
+                        events={events}
+                        isPromptPending={agentBusy}
+                        queuedMessages={queuedMessages}
+                        optimisticItems={optimisticItems}
+                        isCloud
+                    />
+                ) : logsLoading ? (
+                    <div className="flex items-center justify-center h-32">
+                        <Spinner />
+                    </div>
+                ) : (
+                    <div className="p-4 text-center text-muted">
+                        <p>No logs available yet</p>
+                    </div>
+                )}
             </div>
-            {(isPolling || isStreaming) && (
+            {(isPolling || isStreaming) && !agentBusy && (
                 <div className="px-4">
                     <HedgehogStatus />
                 </div>
             )}
+            {footer}
         </div>
     )
 }

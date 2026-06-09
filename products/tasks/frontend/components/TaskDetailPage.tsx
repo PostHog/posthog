@@ -226,6 +226,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
             ) : selectedRun ? (
                 <div className="flex-1 overflow-hidden">
                     <TaskSessionView
+                        taskId={taskId}
                         logs={logs}
                         logsLoading={logsLoading}
                         events={events}

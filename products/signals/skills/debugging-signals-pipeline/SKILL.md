@@ -31,6 +31,10 @@ emit_signals_from_fixture
             → fetch_signals_for_report_activity
             → report_safety_judge_activity
             → select_repository_activity (spawns Docker sandbox)
+            → (on READY) signal-report-inbox-notification
+              → waits for the auto-started implementation PR (bounded by
+                SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS), then posts the Slack inbox notification.
+                Reports with no auto-start task notify immediately.
 ```
 
 ## Emitting test signals
