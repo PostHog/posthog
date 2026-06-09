@@ -1,7 +1,5 @@
 """Compose the `systemPrompt` for a PostHog AI sandbox Run.
 
-See `docs/internal/posthog-ai-migration/04_PROMPTS.md` § 6.
-
 The prompt is assembled from the migrated `ee/hogai/chat_agent/prompts/` content.
 Per the migration plan, groups, billing, and core-memory blocks are NOT injected
 here — those are reachable via MCP tools, so duplicating them in the system prompt
@@ -55,7 +53,7 @@ def build_posthog_ai_system_prompt(
 
     `context_summary` is an optional small static slice of per-Run-immutable context
     (e.g. project name, timezone). Per-turn context is delivered separately via the
-    `<posthog_context>` wrapper (see `01_CONTEXT.md`), not here.
+    `<posthog_context>` wrapper, not here.
     """
     # Groups are not injected — reachable via MCP — so the placeholder resolves to empty.
     basic_functionality = format_prompt_string(BASIC_FUNCTIONALITY_PROMPT, groups_prompt="")

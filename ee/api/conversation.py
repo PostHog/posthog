@@ -407,7 +407,7 @@ class ConversationViewSet(
         if is_sandbox and has_message:
             # Sandbox runtime delegates in-process to the posthog_ai product. The handler
             # is non-streaming and returns the IDs the frontend needs to open SSE directly
-            # against the products/tasks stream endpoint (02_CORE.md §§ 3, 4).
+            # against the products/tasks stream endpoint.
             if is_new_conversation:
                 conversation.title = serializer.validated_data["content"][:80]
                 conversation.save(update_fields=["title"])

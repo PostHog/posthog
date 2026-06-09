@@ -1,14 +1,13 @@
 """Pure, side-effect-free helpers for wrapping a user message with a
 `<posthog_context>` block built from per-message attached context.
 
-See `docs/internal/posthog-ai-migration/01_CONTEXT.md` § 4.3. The template lives
-only here, in Python — the frontend never builds it.
+The template lives only here, in Python — the frontend never builds it.
 """
 
 from collections.abc import Iterable
 from typing import Literal, TypedDict, get_args
 
-# Allowed attachment types — 01_CONTEXT § 1.
+# Allowed attachment types.
 AttachedContextType = Literal[
     "dashboard",
     "insight",
@@ -22,7 +21,7 @@ AttachedContextType = Literal[
 
 ALLOWED_TYPES: frozenset[str] = frozenset(get_args(AttachedContextType))
 
-# Caps — 01_CONTEXT § 4.4.
+# Caps on attached-context size.
 MAX_ATTACHED_ITEMS = 32
 MAX_TEXT_LENGTH = 4096
 

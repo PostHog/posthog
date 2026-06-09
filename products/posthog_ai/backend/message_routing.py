@@ -4,9 +4,6 @@ Entry point for the non-streaming `POST /conversations/{id}/sandbox/` endpoint.
 Wraps + dedupes the user message, then starts a `products/tasks` Run (first
 message) via direct Python calls — never HTTP-to-self, never a Django SSE relay.
 
-See `docs/internal/posthog-ai-migration/02_CORE.md` §§ 3, 4, 5.1 and
-`01_CONTEXT.md` § 4.
-
 Follow-up and terminal-resume branches are out of scope for this pass (I2.5).
 """
 
@@ -107,7 +104,7 @@ def _handle_first_message(
         raise exceptions.ValidationError("Failed to create sandbox task run.")
 
     # Enrich the initial run state with the PostHog AI per-Run keys, then start the
-    # workflow. `attached_context` stores the full, undeduped list (01_CONTEXT § 4.1).
+    # workflow. `attached_context` stores the full, undeduped list.
     run_state: dict[str, Any] = dict(task_run.state or {})
     run_state.update(
         {
@@ -161,7 +158,7 @@ def _handle_first_message(
 
 
 def _validate_attached_context(raw: Any) -> list[AttachedContext]:
-    """Validate user-supplied attached context at the boundary (01_CONTEXT § 4.4).
+    """Validate user-supplied attached context at the boundary.
 
     Existence is intentionally NOT validated — the agent's read tool surfaces a
     missing-row error naturally, which is cheaper than a sync DB lookup per submit.
