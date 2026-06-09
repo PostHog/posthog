@@ -208,7 +208,14 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
                     if (!res.ok) {
                         const errorData = await res.json().catch(() => ({}))
-                        throw new Error(errorData.detail || `Request failed: ${res.status}`)
+                        const message = errorData.detail || `Request failed: ${res.status}`
+                        // 4xx responses are expected validation failures (e.g. a transform missing its
+                        // selector), not faults. Surface them inline without reporting to error tracking.
+                        if (res.status >= 400 && res.status < 500) {
+                            lemonToast.error(`Experiment save failed: ${message}`)
+                            return
+                        }
+                        throw new Error(message)
                     }
 
                     response = await res.json()

@@ -7,6 +7,11 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn() },
 }))
 
+jest.mock('~/toolbar/toolbarPosthogJS', () => ({
+    ...jest.requireActual('~/toolbar/toolbarPosthogJS'),
+    captureToolbarException: jest.fn(),
+}))
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
@@ -66,8 +71,10 @@ describe('experimentsTabLogic', () => {
 
     beforeEach(() => {
         const { lemonToast } = jest.requireMock('lib/lemon-ui/LemonToast/LemonToast')
+        const { captureToolbarException } = jest.requireMock('~/toolbar/toolbarPosthogJS')
         ;(lemonToast.success as jest.Mock).mockClear()
         ;(lemonToast.error as jest.Mock).mockClear()
+        ;(captureToolbarException as jest.Mock).mockClear()
         useMocks({
             get: {
                 '/api/projects/:team/web_experiments/': () => web_experiments,
@@ -279,14 +286,18 @@ describe('experimentsTabLogic', () => {
             global.fetch = savedFetch
         })
 
-        it('shows error toast when API returns error with detail', async () => {
+        it('shows error toast without capturing exception when API returns a 4xx validation error', async () => {
             const { lemonToast } = jest.requireMock('lib/lemon-ui/LemonToast/LemonToast')
+            const { captureToolbarException } = jest.requireMock('~/toolbar/toolbarPosthogJS')
 
             global.fetch = jest.fn(() =>
                 Promise.resolve({
                     ok: false,
                     status: 400,
-                    json: () => Promise.resolve({ detail: 'Invalid experiment config' }),
+                    json: () =>
+                        Promise.resolve({
+                            detail: "Experiment transform [$0] variant 'test' does not have a valid selector",
+                        }),
                 } as any as Response)
             )
 
@@ -297,11 +308,16 @@ describe('experimentsTabLogic', () => {
                 theExperimentsTabLogic.actions.submitExperimentForm()
             }).delay(0)
 
-            expect(lemonToast.error).toHaveBeenCalledWith('Experiment save failed: Invalid experiment config')
+            expect(lemonToast.error).toHaveBeenCalledWith(
+                "Experiment save failed: Experiment transform [$0] variant 'test' does not have a valid selector"
+            )
+            // Expected validation failures must not be reported to error tracking
+            expect(captureToolbarException).not.toHaveBeenCalled()
         })
 
-        it('shows generic error when API returns error and json parsing fails', async () => {
+        it('captures exception and shows generic error when API returns a 5xx error', async () => {
             const { lemonToast } = jest.requireMock('lib/lemon-ui/LemonToast/LemonToast')
+            const { captureToolbarException } = jest.requireMock('~/toolbar/toolbarPosthogJS')
 
             global.fetch = jest.fn(() =>
                 Promise.resolve({
@@ -319,10 +335,13 @@ describe('experimentsTabLogic', () => {
             }).delay(0)
 
             expect(lemonToast.error).toHaveBeenCalledWith('Experiment save failed: Request failed: 500')
+            // Genuine server faults should still be reported to error tracking
+            expect(captureToolbarException).toHaveBeenCalledWith(expect.any(Error), 'experiment_save')
         })
 
-        it('handles network error gracefully', async () => {
+        it('captures exception and handles network error gracefully', async () => {
             const { lemonToast } = jest.requireMock('lib/lemon-ui/LemonToast/LemonToast')
+            const { captureToolbarException } = jest.requireMock('~/toolbar/toolbarPosthogJS')
 
             global.fetch = jest.fn(() => Promise.reject(new Error('Network error')))
 
@@ -334,6 +353,7 @@ describe('experimentsTabLogic', () => {
             }).delay(0)
 
             expect(lemonToast.error).toHaveBeenCalledWith('Experiment save failed: Network error')
+            expect(captureToolbarException).toHaveBeenCalledWith(expect.any(Error), 'experiment_save')
         })
     })
 
