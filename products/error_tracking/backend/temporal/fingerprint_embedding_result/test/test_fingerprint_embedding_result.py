@@ -12,6 +12,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.activities import (
     TargetFingerprintEmbeddingNotFoundError,
     _query_closest_fingerprints,
+    _report_closest_fingerprint_metrics,
     _select_model_name,
     _target_embedding_query,
     merge_similar_fingerprints_activity,
@@ -133,6 +134,43 @@ class TestFingerprintEmbeddingResultActivity:
         ):
             with pytest.raises(TargetFingerprintEmbeddingNotFoundError, match="Target embedding is invalid"):
                 _query_closest_fingerprints(team, _inputs(), "text-embedding-3-large-3072")
+
+    def test_report_closest_fingerprint_metrics_includes_fingerprints(self) -> None:
+        team = MagicMock(uuid=uuid.uuid4())
+        closest_fingerprints = [
+            SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.01),
+            SimilarFingerprintDistance(fingerprint="fingerprint-2", distance=0.02),
+            SimilarFingerprintDistance(fingerprint="fingerprint-3", distance=0.03),
+        ]
+        capture = MagicMock()
+        capture_context = MagicMock()
+        capture_context.__enter__.return_value = capture
+
+        with (
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_scoped_capture",
+                return_value=capture_context,
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.groups",
+                return_value={"team": "test"},
+            ),
+        ):
+            _report_closest_fingerprint_metrics(
+                team=team,
+                inputs=_inputs(),
+                closest_fingerprints=closest_fingerprints,
+                model_name="text-embedding-3-large-3072",
+                query_duration_ms=12.3,
+            )
+
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["fingerprint"] == "test-fingerprint"
+        assert "closest_fingerprints" not in properties
+        assert properties["rank_1_fingerprint"] == "fingerprint-1"
+        assert properties["rank_1_distance"] == 0.01
+        assert properties["rank_2_fingerprint"] == "fingerprint-2"
+        assert properties["rank_3_fingerprint"] == "fingerprint-3"
 
     @pytest.mark.asyncio
     async def test_merge_activity_reports_distances(self) -> None:

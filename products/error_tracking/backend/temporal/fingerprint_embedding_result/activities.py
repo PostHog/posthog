@@ -186,10 +186,12 @@ def _report_closest_fingerprint_metrics(
     properties: dict[str, object] = {
         "model_name": model_name,
         "rendering": inputs.rendering,
+        "fingerprint": inputs.fingerprint,
         "query_duration_ms": query_duration_ms,
         "closest_fingerprint_count": len(closest_fingerprints),
     }
     for index, closest_fingerprint in enumerate(closest_fingerprints[:3], start=1):
+        properties[f"rank_{index}_fingerprint"] = closest_fingerprint.fingerprint
         properties[f"rank_{index}_distance"] = closest_fingerprint.distance
 
     with ph_scoped_capture() as capture:
