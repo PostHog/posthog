@@ -53,9 +53,9 @@ _HOGQL_STEP_TIMEOUT_SECONDS = 60.0
 # The executor already truncates; this is defense-in-depth against a giant value.
 _QUERY_RESULT_MAX_CHARS = 50_000
 
-# The marker a failed step renders, and the exact phrase the synthesis prompt keys off to report
-# "could not be computed" instead of "no data". Shared so the two can't drift apart silently — a test
-# asserts the synthesis prompt contains this string.
+# The marker a failed step renders. The synthesis prompt keys off it to report "could not be computed"
+# instead of "no data"; it's injected into that prompt (the {{{failure_marker}}} placeholder) from this
+# same constant in `_synthesize`, so the rendered marker and the prompt instruction can't drift apart.
 QUERY_FAILED_PREFIX = "Query failed to run"
 
 # Per-step query-fix budget: the planner occasionally emits HogQL that fails to parse, so we feed the
@@ -213,6 +213,9 @@ async def _synthesize(
     synthesis_prompt = await database_sync_to_async(resolve_prompt, thread_sensitive=False)(
         team, SYNTHESIS_PROMPT_NAME, AI_SUBSCRIPTION_SYNTHESIS_PROMPT
     )
+    # Inject the failure marker from the same constant the placeholder renders, so the prompt's
+    # "treat this as an error, not 'no data'" instruction can't drift from what _run_steps emits.
+    synthesis_prompt = render_prompt(synthesis_prompt, {"failure_marker": QUERY_FAILED_PREFIX})
 
     try:
         # database_sync_to_async (not to_thread): MaxChatOpenAI reads billing/quota from the ORM

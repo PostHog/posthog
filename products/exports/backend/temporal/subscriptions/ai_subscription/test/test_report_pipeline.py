@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
-from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import AI_SUBSCRIPTION_SYNTHESIS_PROMPT
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     QUERY_FAILED_PREFIX,
     AiReportStageError,
@@ -211,10 +210,29 @@ async def test_run_steps_forwards_resolution_error_message_to_fix(
     assert mock_fix.await_args.kwargs["error_message"] == "Unable to resolve field 'operaton'"
 
 
-def test_failure_marker_phrase_is_referenced_by_synthesis_prompt() -> None:
-    # The failure placeholder and the synthesis prompt must agree on this phrase, or synthesis silently
-    # regresses to calling a failed query "no data". Guards the QUERY_FAILED_PREFIX coupling across files.
-    assert QUERY_FAILED_PREFIX in AI_SUBSCRIPTION_SYNTHESIS_PROMPT
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_synthesis_prompt_carries_the_failure_marker(
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock
+) -> None:
+    # The marker is injected into the synthesis prompt from the same constant the placeholder renders, so
+    # the prompt's "this is an error, not 'no data'" instruction can't drift from what _run_steps emits.
+    mock_bep.return_value = _spec(steps=1)
+    mock_run.return_value = (
+        ["### s0\n\nfailed"],
+        1,
+        [QueryStepDiagnostic(description="s0", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError")],
+    )
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window_days=7)
+
+    (messages,) = mock_chat.return_value.invoke.call_args[0]
+    system_message = messages[0][1]
+    assert QUERY_FAILED_PREFIX in system_message  # {{{failure_marker}}} substituted from the constant
+    assert "{{{" not in system_message  # no placeholder left unrendered
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)

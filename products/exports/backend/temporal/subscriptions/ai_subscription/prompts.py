@@ -240,7 +240,7 @@ Format guidelines:
   table only contains events that fired), say plainly that it can't be determined from the available
   data rather than guessing. Do NOT fabricate a list of inactive events.
 - Distinguish query *errors* from *empty* data. A result whose body contains the marker
-  "Query failed to run" means that query errored — report the metric as "could not be computed", and do
+  "{{{failure_marker}}}" means that query errored — report the metric as "could not be computed", and do
   NOT call it zero, empty, or "no data". Only say a metric has "no data" when a query actually ran and
   returned no rows. Either way, keep it to one line and move on.
 - Keep it under ~400 words. Clarity over comprehensiveness.
