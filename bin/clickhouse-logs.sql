@@ -126,7 +126,8 @@ CREATE OR REPLACE TABLE kafka_logs_avro
     `resource_attributes` Map(LowCardinality(String), String),
     `instrumentation_scope` String,
     `event_name` String,
-    `attributes` Map(LowCardinality(String), String)
+    `attributes` Map(LowCardinality(String), String),
+    `bytes_uncompressed` Nullable(Int64)
 )
 ENGINE = Kafka('kafka:9092', 'clickhouse_logs', 'clickhouse-logs-avro', 'Avro')
 SETTINGS
@@ -155,15 +156,21 @@ CREATE MATERIALIZED VIEW kafka_logs_avro_mv TO logs32
     `resource_attributes` Map(LowCardinality(String), String),
     `instrumentation_scope` String,
     `event_name` String,
-    `attributes` Map(LowCardinality(String), String)
+    `attributes` Map(LowCardinality(String), String),
+    `_bytes_uncompressed` UInt64
 )
 AS SELECT
-* except (attributes, resource_attributes),
+* except (attributes, resource_attributes, bytes_uncompressed),
 mapSort(mapApply((k,v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) as attributes_map_str,
 -- mapSort(mapFilter((k, v) -> isNotNull(v), mapApply((k,v) -> (concat(k, '__float'), toFloat64OrNull(JSONExtract(v, 'String'))), attributes))) as attributes_map_float,
 -- mapSort(mapFilter((k, v) -> isNotNull(v), mapApply((k,v) -> (concat(k, '__datetime'), parseDateTimeBestEffortOrNull(JSONExtract(v, 'String'), 6)), attributes))) as attributes_map_datetime,
 mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
-toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) as team_id
+toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) as team_id,
+-- per-row content size from the Avro payload. Must NOT come from the per-batch
+-- `bytes_uncompressed` Kafka header, which is the whole HTTP body size and would be
+-- replicated onto every row in the batch (inflating sum(_bytes_uncompressed) by the
+-- batch row count in the volume preview).
+toUInt64(ifNull(bytes_uncompressed, 0)) as _bytes_uncompressed
 FROM kafka_logs_avro settings min_insert_block_size_rows=0, min_insert_block_size_bytes=0;
 
 create or replace table logs_kafka_metrics
