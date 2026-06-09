@@ -4,7 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
 
-import { wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
+import { isSessionActive, wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
 import type { wizardProgressTrackerLogicType } from './wizardProgressTrackerLogicType'
 
 export type DisplayState =
@@ -208,18 +208,19 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
                 actions.markSessionCurrent()
             }
             // Keep the global detector in sync so the FAB survives a navigation
-            // away from the install step. Active = fresh + non-terminal; on the
-            // *transition* into a terminal phase, schedule a grace-period
-            // teardown so the FAB can show the completion / error UI before
-            // the stream tears down. Only fire on the transition — repeated
-            // terminal heartbeats / re-polls don't reset the clock (the
-            // detector's `scheduleMarkInactive` is also idempotent as a
-            // belt-and-braces guard).
-            const isTerminal = session.run_phase === 'completed' || session.run_phase === 'error'
-            const wasTerminal = prev?.run_phase === 'completed' || prev?.run_phase === 'error'
-            if (isFresh && !isTerminal) {
+            // away from the install step. Gate on the detector's shared
+            // eligibility predicate (server staleness + lifetime cap + terminal
+            // phase) so the SSE and REST paths agree on when streaming may
+            // continue — a wedged CLI heartbeating `updated_at` past the lifetime
+            // cap stops re-arming markActive, letting teardown actually run. Only
+            // schedule teardown on the eligible → ineligible *transition* so
+            // repeated re-polls don't reset the clock (the detector's
+            // `scheduleMarkInactive` is also idempotent as a belt-and-braces guard).
+            const eligible = isSessionActive(session)
+            const wasEligible = isSessionActive(prev)
+            if (eligible) {
                 actions.markActive()
-            } else if (isTerminal && !wasTerminal) {
+            } else if (wasEligible) {
                 actions.scheduleMarkInactive()
             }
             if (!prev) {

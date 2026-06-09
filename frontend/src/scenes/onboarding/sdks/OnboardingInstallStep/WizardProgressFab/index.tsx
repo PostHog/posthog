@@ -15,13 +15,7 @@ import { ProgressRing } from './ProgressRing'
 
 export function WizardProgressFab(): JSX.Element | null {
     const isSyncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
-    // Same killswitch flag the SSE endpoint honors (returns 204). Reading it
-    // here unmounts the detector + tracker entirely, which covers the case
-    // where the killswitch was added to stop runaway connections but the
-    // REST list poll alone would otherwise keep the FAB trying to mount the
-    // SSE on every active session.
-    const isKilled = useFeatureFlag('ONBOARDING_WIZARD_SYNC_KILLSWITCH')
-    if (!isSyncEnabled || isKilled) {
+    if (!isSyncEnabled) {
         return null
     }
     return <WizardProgressFabGate />

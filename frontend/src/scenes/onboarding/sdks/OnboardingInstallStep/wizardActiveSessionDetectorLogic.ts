@@ -6,9 +6,9 @@ import { ApiError } from 'lib/api-error'
 import { projectLogic } from 'scenes/projectLogic'
 
 // Cross-product import (onboarding core → wizard product) is intentional: this
-// detector is the single client that owns the wizard list poll. Going through
-// the generated facade keeps types in sync with the backend serializer.
-import { wizardSessionsList } from 'products/wizard/frontend/generated/api'
+// detector is the single client that owns the wizard latest-session poll. Going
+// through the generated facade keeps types in sync with the backend serializer.
+import { wizardSessionsLatestRetrieve } from 'products/wizard/frontend/generated/api'
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 
 import type { wizardActiveSessionDetectorLogicType } from './wizardActiveSessionDetectorLogicType'
@@ -24,7 +24,7 @@ const REPOLL_INTERVAL_MS = 60 * 1000
 
 // Jitter window applied to the very first poll after mount, so a fleet-wide
 // reload (deploy rollout, pgbouncer restart) doesn't synchronize the herd
-// against the wizard list endpoint.
+// against the wizard latest-session endpoint.
 const INITIAL_POLL_JITTER_MS = 30 * 1000
 
 // Throttle for visibility-resume rechecks. The kea disposables plugin re-runs
@@ -44,7 +44,7 @@ const TERMINAL_GRACE_MS = 30 * 1000
 // INC-886 at single-user scale.
 const MAX_SESSION_LIFETIME_MS = 60 * 60 * 1000
 
-function isSessionActive(session: WizardSessionDTOApi | null | undefined): boolean {
+export function isSessionActive(session: WizardSessionDTOApi | null | undefined): boolean {
     if (!session) {
         return false
     }
@@ -77,7 +77,7 @@ function isSessionActive(session: WizardSessionDTOApi | null | undefined): boole
  *  - `markActive()` from the install step's tracker logic, the moment the SSE
  *    sees a real session — flips the detector synchronously so the FAB
  *    survives a navigation away from the install step.
- *  - REST `wizardSessionsList(workflow_id=posthog-integration, limit=1)`,
+ *  - REST `wizardSessionsLatestRetrieve(workflow_id=posthog-integration)`,
  *    polled on mount (jittered), on tab visibility return (throttled), and
  *    on a 60s loop while the tab is visible.
  */
@@ -94,8 +94,8 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
         cancelScheduledMarkInactive: true,
         setLastError: (error: string | null) => ({ error }),
         // Permanent kill — the backend told us we have no business calling this
-        // endpoint (401/403/404 / endpoint missing on a half-deploy). Set once
-        // and we stop polling for the rest of the session lifetime.
+        // endpoint (401/403 access denial). Set once and we stop polling for the
+        // rest of the session lifetime.
         markPermanentlyDisabled: true,
     }),
     reducers({
@@ -138,14 +138,13 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             // "active" if responses race.
             const seq = (cache.pollSeq = (cache.pollSeq ?? 0) + 1)
             try {
-                const resp = await wizardSessionsList(String(projectId), {
-                    workflow_id: WORKFLOW_ID,
-                    limit: 1,
-                })
+                // 204 (no run) returns an empty body, which the api client resolves to null.
+                const session: WizardSessionDTOApi | null =
+                    (await wizardSessionsLatestRetrieve(String(projectId), { workflow_id: WORKFLOW_ID })) || null
                 if (seq !== cache.pollSeq) {
                     return
                 }
-                if (isSessionActive(resp.results[0])) {
+                if (isSessionActive(session)) {
                     actions.markActive()
                 } else if (values.hasActiveSession) {
                     // Was streaming, REST now reports terminal / empty: defer
@@ -159,26 +158,35 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 if (seq !== cache.pollSeq) {
                     return
                 }
+                // A cancelled fetch (unmount / navigation) is not a real failure;
+                // skip it so it doesn't pollute lastError or telemetry.
+                if (err instanceof Error && err.name === 'AbortError') {
+                    return
+                }
                 if (err instanceof ApiError && err.status !== undefined) {
-                    // 401/403/404 are structural: the user can't or shouldn't
-                    // talk to this endpoint. Stop polling permanently rather
-                    // than burning load on a URL we know is wrong (a half-
-                    // deploy missing the wizard backend would otherwise be
-                    // polled on a 60s loop forever).
-                    if (err.status === 401 || err.status === 403 || err.status === 404) {
+                    // 401/403 are structural access denials: the user can't or
+                    // shouldn't talk to this endpoint. Stop polling permanently
+                    // rather than burning load on a URL we know is wrong. A 404
+                    // is deliberately excluded — during a rolling deploy the
+                    // /latest/ route is absent on old pods, so a transient 404
+                    // falls through to the retry path and self-heals once the
+                    // rollout completes.
+                    if (err.status === 401 || err.status === 403) {
                         posthog.captureException(err, {
                             tags: { feature: 'wizard-active-session-detector', reason: 'permanently_disabled' },
                             extra: { status: err.status },
                         })
-                        actions.setLastError(`wizard list endpoint returned ${err.status} — disabling detector`)
+                        actions.setLastError(
+                            `wizard latest-session endpoint returned ${err.status} — disabling detector`
+                        )
                         actions.markPermanentlyDisabled()
                         cache.disposables.dispose('rest-poll')
                         return
                     }
                 }
-                // Transient REST failure — surface it via lastError + Sentry,
-                // but leave hasActiveSession as-is so SSE-driven state isn't
-                // clobbered. The next poll retries.
+                // Transient REST failure (including a deploy-window 404) — surface
+                // it via lastError + Sentry, but leave hasActiveSession as-is so
+                // SSE-driven state isn't clobbered. The next poll retries.
                 posthog.captureException(err, {
                     tags: { feature: 'wizard-active-session-detector', reason: 'transient' },
                 })
@@ -187,6 +195,10 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
         },
         markActive: () => {
             actions.cancelScheduledMarkInactive()
+        },
+        markInactive: () => {
+            cache.markInactiveAt = undefined
+            cache.disposables.dispose('mark-inactive-grace')
         },
         scheduleMarkInactive: () => {
             // Idempotent: if a teardown timer is already scheduled, keep the
@@ -197,12 +209,20 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             if (cache.disposables.registry.has('mark-inactive-grace')) {
                 return
             }
+            // Deadline-based teardown. The disposables plugin re-runs this setup
+            // on every `visibilitychange → visible`; pinning an absolute wall-
+            // clock deadline (rather than a fresh TERMINAL_GRACE_MS timeout each
+            // resume) means rapid alt-tabbing schedules only the *remaining*
+            // time and can't starve teardown.
+            cache.markInactiveAt = Date.now() + TERMINAL_GRACE_MS
             cache.disposables.add(() => {
-                const id = window.setTimeout(() => actions.markInactive(), TERMINAL_GRACE_MS)
+                const remaining = Math.max(0, (cache.markInactiveAt ?? 0) - Date.now())
+                const id = window.setTimeout(() => actions.markInactive(), remaining)
                 return () => window.clearTimeout(id)
             }, 'mark-inactive-grace')
         },
         cancelScheduledMarkInactive: () => {
+            cache.markInactiveAt = undefined
             cache.disposables.dispose('mark-inactive-grace')
         },
     })),
@@ -227,16 +247,16 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
         cache.disposables.add(() => {
             // Stagger the initial call across the fleet so a deploy rollout
             // doesn't translate into a synchronized REST spike on the wizard
-            // list endpoint. Throttled by `cache.lastResumeCheckAt` so a rapid
-            // alt-tab can't bypass the jitter via the disposables resume path.
+            // latest-session endpoint. Throttled by `cache.lastResumeAt` (the
+            // instant of the previous setup run) so a rapid alt-tab can't bypass
+            // the jitter via the disposables resume path.
             const now = Date.now()
-            const lastResume = cache.lastResumeCheckAt ?? 0
-            const sinceLastResume = now - lastResume
+            const sinceLastResume = now - (cache.lastResumeAt ?? 0)
+            cache.lastResumeAt = now
             const initialDelay =
                 sinceLastResume < VISIBILITY_RESUME_THROTTLE_MS
-                    ? VISIBILITY_RESUME_THROTTLE_MS - sinceLastResume
+                    ? VISIBILITY_RESUME_THROTTLE_MS
                     : Math.random() * INITIAL_POLL_JITTER_MS
-            cache.lastResumeCheckAt = now + initialDelay
             const initialId = window.setTimeout(() => actions.check(), initialDelay)
             const intervalId = window.setInterval(() => actions.check(), REPOLL_INTERVAL_MS)
             return () => {
