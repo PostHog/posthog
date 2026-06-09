@@ -170,8 +170,8 @@ export interface PatchedExperimentSavedMetricApi {
 
 /**
  * * `server` - Server
- * `client` - Client
- * `all` - All
+ * * `client` - Client
+ * * `all` - All
  */
 export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
 
@@ -183,7 +183,7 @@ export const EvaluationRuntimeEnumApi = {
 
 /**
  * * `distinct_id` - User ID (default)
- * `device_id` - Device ID
+ * * `device_id` - Device ID
  */
 export type BucketingIdentifierEnumApi = (typeof BucketingIdentifierEnumApi)[keyof typeof BucketingIdentifierEnumApi]
 
@@ -212,15 +212,15 @@ export interface MinimalFeatureFlagApi {
      */
     version?: number | null
     /** Specifies where this feature flag should be evaluated
-
-  * `server` - Server
-  * `client` - Client
-  * `all` - All */
+     *
+     * * `server` - Server
+     * * `client` - Client
+     * * `all` - All */
     evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | null
     /** Identifier used for bucketing users into rollout and variants
-
-  * `distinct_id` - User ID (default)
-  * `device_id` - Device ID */
+     *
+     * * `distinct_id` - User ID (default)
+     * * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
     readonly evaluation_contexts: readonly string[]
 }
