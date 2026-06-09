@@ -11,8 +11,8 @@ import * as zod from 'zod'
 
 /**
  * Only for setting properties on the person. "properties" from the request data will be updated via a "$set" event.
-This means that only the properties listed will be updated, but other properties won't be removed nor updated.
-If you would like to remove a property use the `delete_property` endpoint.
+ * This means that only the properties listed will be updated, but other properties won't be removed nor updated.
+ * If you would like to remove a property use the `delete_property` endpoint.
  */
 export const PersonsUpdateBody = /* @__PURE__ */ zod.object({
     properties: zod
