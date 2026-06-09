@@ -120,6 +120,8 @@ class TestFindRelatedTicketsQuery(ClickhouseTestMixin, APIBaseTest):
 
     def _seed_default_universe(self) -> None:
         self._truncate()
+        self.near = self._make_ticket("Near: also cannot log in")
+        self.far = self._make_ticket("Far: billing question")
         self._seed_row(
             document_id=str(self.anchor.id),
             embedding=_ANCHOR_VECTOR,
@@ -127,10 +129,10 @@ class TestFindRelatedTicketsQuery(ClickhouseTestMixin, APIBaseTest):
             metadata=self._metadata(title="Anchor", ticket_id=str(self.anchor.id)),
         )
         self._seed_row(
-            document_id="near-id",
+            document_id=str(self.near.id),
             embedding=_NEAR_VECTOR,
             product=PRODUCT_CONVERSATIONS,
-            metadata=self._metadata(title="Near", ticket_number=11, ticket_id="near-id"),
+            metadata=self._metadata(title="Near", ticket_number=11, ticket_id=str(self.near.id)),
         )
         self._seed_row(
             document_id="zendesk-id",
@@ -141,10 +143,10 @@ class TestFindRelatedTicketsQuery(ClickhouseTestMixin, APIBaseTest):
             ),
         )
         self._seed_row(
-            document_id="far-id",
+            document_id=str(self.far.id),
             embedding=_FAR_VECTOR,
             product=PRODUCT_CONVERSATIONS,
-            metadata=self._metadata(title="Far", ticket_number=99, ticket_id="far-id"),
+            metadata=self._metadata(title="Far", ticket_number=99, ticket_id=str(self.far.id)),
         )
 
     def _patched_embedding(self, vector: list[float]):
@@ -161,9 +163,9 @@ class TestFindRelatedTicketsQuery(ClickhouseTestMixin, APIBaseTest):
             results = find_related_tickets(self.team, self.anchor)
 
         ids = [r.id for r in results]
-        assert ids == ["near-id", "zendesk-id"]
+        assert ids == [str(self.near.id), "zendesk-id"]
         assert str(self.anchor.id) not in ids
-        assert "far-id" not in ids
+        assert str(self.far.id) not in ids
         sources = {r.source for r in results}
         assert "zendesk" in sources
 
@@ -173,17 +175,18 @@ class TestFindRelatedTicketsQuery(ClickhouseTestMixin, APIBaseTest):
             results = find_related_tickets(self.team, self.anchor, max_distance=1.0)
 
         ids = [r.id for r in results]
-        assert ids == ["near-id", "zendesk-id", "far-id"]
+        assert ids == [str(self.near.id), "zendesk-id", str(self.far.id)]
 
     def test_limit_is_respected(self):
         self._seed_default_universe()
         with self._patched_embedding(_ANCHOR_VECTOR):
             results = find_related_tickets(self.team, self.anchor, limit=1)
 
-        assert [r.id for r in results] == ["near-id"]
+        assert [r.id for r in results] == [str(self.near.id)]
 
     def test_dedup_keeps_latest_inserted_row(self):
         self._truncate()
+        dup = self._make_ticket("Dup: repeated report")
         self._seed_row(
             document_id=str(self.anchor.id),
             embedding=_ANCHOR_VECTOR,
@@ -191,18 +194,18 @@ class TestFindRelatedTicketsQuery(ClickhouseTestMixin, APIBaseTest):
             metadata=self._metadata(ticket_id=str(self.anchor.id)),
         )
         self._seed_row(
-            document_id="dup-id",
+            document_id=str(dup.id),
             embedding=_FAR_VECTOR,
             product=PRODUCT_CONVERSATIONS,
-            metadata=self._metadata(title="Stale", ticket_id="dup-id"),
+            metadata=self._metadata(title="Stale", ticket_id=str(dup.id)),
             timestamp=self.base_timestamp - timedelta(days=40),
             inserted_at=self.base_timestamp - timedelta(days=40),
         )
         self._seed_row(
-            document_id="dup-id",
+            document_id=str(dup.id),
             embedding=_NEAR_VECTOR,
             product=PRODUCT_CONVERSATIONS,
-            metadata=self._metadata(title="Fresh", ticket_id="dup-id"),
+            metadata=self._metadata(title="Fresh", ticket_id=str(dup.id)),
             timestamp=self.base_timestamp,
             inserted_at=self.base_timestamp + timedelta(days=1),
         )
@@ -210,7 +213,7 @@ class TestFindRelatedTicketsQuery(ClickhouseTestMixin, APIBaseTest):
         with self._patched_embedding(_ANCHOR_VECTOR):
             results = find_related_tickets(self.team, self.anchor)
 
-        assert [r.id for r in results] == ["dup-id"]
+        assert [r.id for r in results] == [str(dup.id)]
         assert results[0].title == "Fresh"
 
     @parameterized.expand(
@@ -247,14 +250,38 @@ class TestFindRelatedTicketsQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        assert [r["id"] for r in body] == ["near-id", "zendesk-id"]
-        near = next(r for r in body if r["id"] == "near-id")
+        assert [r["id"] for r in body] == [str(self.near.id), "zendesk-id"]
+        near = next(r for r in body if r["id"] == str(self.near.id))
         zendesk = next(r for r in body if r["id"] == "zendesk-id")
         assert near["url"] is None
         assert near["source"] == PRODUCT_CONVERSATIONS
         assert zendesk["url"] == "https://z.example/2"
         assert zendesk["source"] == "zendesk"
         assert zendesk["ticket_number"] is None
+
+    def test_deleted_conversations_ticket_is_dropped(self):
+        self._seed_default_universe()
+        self.near.delete()
+
+        with self._patched_embedding(_ANCHOR_VECTOR):
+            results = find_related_tickets(self.team, self.anchor, max_distance=1.0)
+
+        ids = [r.id for r in results]
+        assert str(self.near.id) not in ids
+        assert ids == ["zendesk-id", str(self.far.id)]
+
+    def test_live_fields_refreshed_from_postgres(self):
+        self._seed_default_universe()
+        self.near.status = Status.RESOLVED
+        self.near.save()
+
+        with self._patched_embedding(_ANCHOR_VECTOR):
+            results = find_related_tickets(self.team, self.anchor)
+
+        near = next(r for r in results if r.id == str(self.near.id))
+        assert near.status == Status.RESOLVED
+        assert near.ticket_number == self.near.ticket_number
+        assert near.ticket_number != 11
 
 
 class TestRowToRelatedTicketMapping(APIBaseTest):

@@ -1,5 +1,6 @@
 import json
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, replace
 from typing import Any
 
 import structlog
@@ -70,7 +71,7 @@ _RELATED_TICKETS_QUERY = """
 """
 
 
-def _row_to_related_ticket(row: tuple[Any, ...]) -> RelatedTicket | None:
+def _row_to_related_ticket(row: tuple[Any, ...]) -> RelatedTicket:
     document_id, product, metadata_str, _distance = row
     try:
         metadata: dict[str, Any] = json.loads(metadata_str) if metadata_str else {}
@@ -136,9 +137,53 @@ def find_related_tickets(
         capture_exception(e, {"team_id": team.id, "ticket_id": str(ticket.id)})
         return []
 
-    related: list[RelatedTicket] = []
-    for row in result.results or []:
-        mapped = _row_to_related_ticket(row)
-        if mapped is not None:
-            related.append(mapped)
-    return related
+    related = [_row_to_related_ticket(row) for row in result.results or []]
+    return _reconcile_conversations_with_live_tickets(team, related)
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+        return True
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
+def _reconcile_conversations_with_live_tickets(team: Team, related: list[RelatedTicket]) -> list[RelatedTicket]:
+    """Drop conversations results whose ticket was deleted and refresh live fields from Postgres.
+
+    Results are built from persisted embedding metadata, which outlives its source ticket and can
+    drift from it. For conversations-source rows we re-check the live ``Ticket`` table: rows whose
+    ticket no longer exists are dropped, and surviving rows get fresh status/number/activity.
+    External sources have no ``Ticket`` row, so they pass through untouched.
+    """
+    conv_ids = {rt.id for rt in related if rt.source == PRODUCT_CONVERSATIONS and _is_uuid(rt.id)}
+    live: dict[str, dict[str, Any]] = (
+        {
+            str(row["id"]): row
+            for row in Ticket.objects.filter(team_id=team.id, id__in=conv_ids).values(
+                "id", "status", "ticket_number", "last_message_at", "created_at"
+            )
+        }
+        if conv_ids
+        else {}
+    )
+
+    reconciled: list[RelatedTicket] = []
+    for rt in related:
+        if rt.source != PRODUCT_CONVERSATIONS:
+            reconciled.append(rt)
+            continue
+        row = live.get(rt.id)
+        if row is None:
+            continue  # ticket deleted — drop its stale metadata rather than expose it
+        last_activity = row["last_message_at"] or row["created_at"]
+        reconciled.append(
+            replace(
+                rt,
+                status=row["status"],
+                ticket_number=row["ticket_number"],
+                last_activity=last_activity.isoformat() if last_activity else None,
+            )
+        )
+    return reconciled
