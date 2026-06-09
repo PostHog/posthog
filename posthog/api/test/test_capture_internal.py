@@ -5,7 +5,12 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.api.capture import CaptureInternalError, capture_batch_internal, capture_internal
+from posthog.api.capture import (
+    CAPTURE_INTERNAL_REQUEST_FAILED,
+    CaptureInternalError,
+    capture_batch_internal,
+    capture_internal,
+)
 from posthog.settings.ingestion import (
     CAPTURE_INTERNAL_URL,
     CAPTURE_REPLAY_INTERNAL_URL,
@@ -198,6 +203,10 @@ class TestCaptureInternal(BaseTest):
             "some_custom_property": True,
         }
 
+        before = CAPTURE_INTERNAL_REQUEST_FAILED.labels(
+            event_source="test_capture_internal_with_capture_post_server_error", status_code="503"
+        )._value.get()
+
         InstallCapturePostSpy(mock_session_class, status_code=503)
         response = capture_internal(
             token=token,
@@ -208,7 +217,11 @@ class TestCaptureInternal(BaseTest):
             properties=test_props,
         )
         assert response.status_code == 503
-        # note: retry mechanism is disabled since we mocked requests.Session
+
+        after = CAPTURE_INTERNAL_REQUEST_FAILED.labels(
+            event_source="test_capture_internal_with_capture_post_server_error", status_code="503"
+        )._value.get()
+        assert after == before + 1
 
     @patch("posthog.api.capture.internal_requests_session")
     def test_capture_internal_replay(self, mock_session_class):
