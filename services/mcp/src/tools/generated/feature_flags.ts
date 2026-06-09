@@ -35,7 +35,11 @@ import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const CreateFeatureFlagSchema = FeatureFlagsCreateBody
+const CreateFeatureFlagSchema = FeatureFlagsCreateBody.extend({
+    is_remote_configuration: FeatureFlagsCreateBody.shape['is_remote_configuration'].describe(
+        'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string — there is no dedicated payload parameter.'
+    ),
+})
 
 const createFeatureFlag = (): ToolBase<typeof CreateFeatureFlagSchema, WithPostHogUrl<Schemas.FeatureFlag>> => ({
     name: 'create-feature-flag',
@@ -591,7 +595,12 @@ const scheduledChangesUpdate = (): ToolBase<typeof ScheduledChangesUpdateSchema,
 
 const UpdateFeatureFlagSchema = FeatureFlagsPartialUpdateParams.omit({ project_id: true })
     .extend(FeatureFlagsPartialUpdateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams.shape['id']) })
+    .extend({
+        id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams.shape['id']),
+        is_remote_configuration: FeatureFlagsPartialUpdateBody.shape['is_remote_configuration'].describe(
+            'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string — there is no dedicated payload parameter.'
+        ),
+    })
 
 const updateFeatureFlag = (): ToolBase<typeof UpdateFeatureFlagSchema, WithPostHogUrl<Schemas.FeatureFlag>> => ({
     name: 'update-feature-flag',
