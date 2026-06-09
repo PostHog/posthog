@@ -4,7 +4,6 @@ use personhog_proto::personhog::{
 };
 use quick_cache::sync::Cache;
 use std::collections::HashMap;
-use tonic::codec::CompressionEncoding;
 use tonic::transport::Channel;
 use tracing::{info, warn};
 
@@ -39,10 +38,7 @@ impl GroupTypeResolver {
                         connect_timeout_ms = config.personhog_connect_timeout_ms,
                         "Created personhog gRPC client"
                     );
-                    Some(
-                        PersonHogServiceClient::new(channel)
-                            .accept_compressed(CompressionEncoding::Gzip),
-                    )
+                    Some(PersonHogServiceClient::new(channel))
                 }
                 Err(e) => {
                     warn!(

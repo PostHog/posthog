@@ -20,6 +20,7 @@ import type {
     ReplayObservationApi,
     ReplayScannerApi,
     ScannerCreatorsResponseApi,
+    ScannerStatsResponseApi,
     VisionObservationsListParams,
     VisionQuotaApi,
     VisionScannersListParams,
@@ -359,5 +360,22 @@ export const visionScannersEstimateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(estimateRequestApi),
+    })
+}
+
+export const getVisionScannersStatsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/stats/`
+}
+
+/**
+ * Team-wide scanner counts — independent of list filters, so the overview stays stable.
+ */
+export const visionScannersStatsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScannerStatsResponseApi> => {
+    return apiMutator<ScannerStatsResponseApi>(getVisionScannersStatsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }

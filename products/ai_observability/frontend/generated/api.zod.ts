@@ -976,6 +976,27 @@ export const LlmAnalyticsOfflineEvaluationsExperimentItemsCreateBody = /* @__PUR
         .describe('Upper bound on `timestamp` (ISO-8601). Omit to leave the upper bound open.'),
 })
 
+export const llmAnalyticsParserRecipesCreateBodyNameMax = 255
+
+export const LlmAnalyticsParserRecipesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(llmAnalyticsParserRecipesCreateBodyNameMax)
+        .describe('Human-readable recipe name shown in the editor.'),
+    source: zod.string().describe('Raw YAML recipe source, compiled and validated client-side.'),
+})
+
+export const llmAnalyticsParserRecipesPartialUpdateBodyNameMax = 255
+
+export const LlmAnalyticsParserRecipesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(llmAnalyticsParserRecipesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable recipe name shown in the editor.'),
+    source: zod.string().optional().describe('Raw YAML recipe source, compiled and validated client-side.'),
+})
+
 export const llmAnalyticsProviderKeysCreateBodyNameMax = 255
 
 export const llmAnalyticsProviderKeysCreateBodyApiVersionMax = 20

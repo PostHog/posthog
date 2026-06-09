@@ -1,60 +1,16 @@
 import { fireEvent, waitFor } from '@testing-library/dom'
-import { useEffect, useState } from 'react'
 
+import { useChartTheme } from './core/theme'
 import type { ChartTheme } from './core/types'
 
-const DATA_COLOR_VARS = [
-    'data-color-1',
-    'data-color-2',
-    'data-color-3',
-    'data-color-4',
-    'data-color-5',
-    'data-color-6',
-    'data-color-7',
-    'data-color-8',
-    'data-color-9',
-    'data-color-10',
-    'data-color-11',
-    'data-color-12',
-    'data-color-13',
-    'data-color-14',
-    'data-color-15',
-]
-
-function readCssVar(name: string): string | undefined {
-    const value = getComputedStyle(document.body)
-        .getPropertyValue('--' + name)
-        .trim()
-    return value || undefined
-}
-
-function buildTheme(): ChartTheme {
-    return {
-        colors: DATA_COLOR_VARS.map((v) => readCssVar(v) ?? '#000'),
-        backgroundColor: readCssVar('color-bg-surface-primary') ?? '#ffffff',
-        axisColor: readCssVar('color-graph-axis-label'),
-        gridColor: readCssVar('color-graph-axis-line'),
-        crosshairColor: readCssVar('color-graph-crosshair'),
-        tooltipBackground: readCssVar('color-bg-surface-tooltip'),
-        tooltipColor: readCssVar('color-text-primary-inverse'),
-    }
-}
-
 /**
- * `buildTheme()` reads CSS variables from `document.body` once. The Storybook
- * test runner takes a second screenshot after flipping `body[theme="dark"]`,
- * but stories that captured the theme at first render keep light-mode colors
- * in the dark snapshot. This hook re-evaluates `buildTheme()` whenever the
- * theme attribute changes so the chart's own colors actually update.
+ * Theme for stories, read from the quill data-viz CSS vars and kept in sync as
+ * the active light/dark mode changes (the visual test runner flips the theme
+ * for its second screenshot). Thin alias over the package's {@link useChartTheme}
+ * so stories and product code resolve colors through the exact same reader.
  */
 export function useReactiveTheme(): ChartTheme {
-    const [theme, setTheme] = useState<ChartTheme>(() => buildTheme())
-    useEffect(() => {
-        const observer = new MutationObserver(() => setTheme(buildTheme()))
-        observer.observe(document.body, { attributes: true, attributeFilter: ['theme', 'class'] })
-        return () => observer.disconnect()
-    }, [])
-    return theme
+    return useChartTheme()
 }
 
 interface StageProps {

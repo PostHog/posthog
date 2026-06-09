@@ -488,6 +488,38 @@ export interface EstimateResponseApi {
     sampling_rate: number
 }
 
+/**
+ * Per-scanner-type count of enabled vs total scanners.
+ */
+export interface ScannerTypeStatsApi {
+    /** Number of enabled scanners of this type. */
+    enabled: number
+    /** Number of scanners of this type (enabled + disabled). */
+    total: number
+}
+
+/**
+ * One `ScannerTypeStats` per scanner type — explicit fields give callers a typed shape, not `Record<string, …>`.
+ */
+export interface ScannerStatsByTypeApi {
+    monitor: ScannerTypeStatsApi
+    classifier: ScannerTypeStatsApi
+    scorer: ScannerTypeStatsApi
+    summarizer: ScannerTypeStatsApi
+}
+
+/**
+ * Team-wide scanner counts independent of any list-filter state.
+ */
+export interface ScannerStatsResponseApi {
+    /** Total scanners on the team. */
+    total: number
+    /** Number of enabled scanners on the team. */
+    enabled: number
+    /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer). */
+    by_type: ScannerStatsByTypeApi
+}
+
 export type VisionObservationsListParams = {
     /**
      * Number of results to return per page.

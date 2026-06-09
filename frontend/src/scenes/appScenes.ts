@@ -107,7 +107,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.HealthCategoryDetail]: () => import('./health/categoryDetail/HealthCategoryDetailScene'),
     [Scene.HealthAlerts]: () => import('./health-alerts/HealthAlertsScene'),
     [Scene.PipelineStatus]: () => import('./health/pipelineStatus/PipelineStatusScene'),
-    [Scene.SdkDoctor]: () => import('./onboarding/sdks/SdkDoctorScene'),
+    [Scene.SdkHealth]: () => import('./onboarding/sdks/SdkHealthScene'),
     [Scene.Exports]: () => import('./exports/ExportsScene'),
     [Scene.Subscriptions]: () => import('./subscriptions/SubscriptionsScene'),
     [Scene.Subscription]: () => import('./subscriptions/SubscriptionScene'),

@@ -65,6 +65,24 @@ DEFAULT_SECRET_KEY = "<randomly generated secret key>"
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY: str = os.getenv("SECRET_KEY", DEFAULT_SECRET_KEY)
 
+SECRET_KEY_FALLBACKS: list[str] = get_list(os.getenv("SECRET_KEY_FALLBACKS", ""))
+
+# Dedicated key for signing PostHog-issued JWTs (posthog.jwt), so JWT signing can move off
+# SECRET_KEY. Defaults to SECRET_KEY, so deployments keep working until they provision a
+# separate key; once set, add the old key to JWT_SIGNING_KEY_FALLBACKS so tokens already in
+# flight keep validating until they expire. An empty value coalesces back to SECRET_KEY —
+# signing with an empty key is never a valid intent.
+JWT_SIGNING_KEY: str = os.getenv("JWT_SIGNING_KEY", "") or SECRET_KEY
+# Previous JWT signing keys still trusted for verifying tokens in flight, newest first.
+# Defaults to SECRET_KEY_FALLBACKS only when *unset*; an explicit empty value (e.g.
+# JWT_SIGNING_KEY_FALLBACKS="") clears it, so operators can stop trusting old JWT keys
+# without disturbing SECRET_KEY_FALLBACKS (which Django also uses for session/CSRF rotation).
+JWT_SIGNING_KEY_FALLBACKS: list[str] = (
+    get_list(os.environ["JWT_SIGNING_KEY_FALLBACKS"])
+    if "JWT_SIGNING_KEY_FALLBACKS" in os.environ
+    else (SECRET_KEY_FALLBACKS if JWT_SIGNING_KEY == SECRET_KEY else [])
+)
+
 
 if not DEBUG and not TEST and not STATIC_COLLECTION and SECRET_KEY == DEFAULT_SECRET_KEY:
     logger.critical(

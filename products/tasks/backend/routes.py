@@ -2,6 +2,7 @@ from posthog.api.routing import RouterRegistry
 
 import products.tasks.backend.api as tasks
 import products.tasks.backend.seat_api as seats
+import products.tasks.backend.code_home_api as code_home
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -11,5 +12,7 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(
         r"sandbox_environments", tasks.SandboxEnvironmentViewSet, "project_sandbox_environments", ["team_id"]
     )
+    routers.projects.register(r"code_workflow", code_home.CodeWorkflowViewSet, "project_code_workflow", ["team_id"])
+    routers.projects.register(r"code_home", code_home.CodeHomeViewSet, "project_code_home", ["team_id"])
     routers.root.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
     routers.root.register(r"seats", seats.SeatViewSet, "seats")

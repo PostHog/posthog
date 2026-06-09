@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 import pytest_asyncio
+from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
@@ -158,6 +159,44 @@ class TestSearchRecentRuns(BaseTest):
         detail = get_run(team_id=self.team.id, run_id=str(run.id))
         assert detail is not None
         assert detail.summary == "emit-free run; only known-noise patterns"
+
+    def test_emit_tally_round_trips_through_projection(self) -> None:
+        run = _create_run(self.team, emitted_count=2, emitted_finding_ids=["f-a", "f-b"])
+
+        hits = search_recent_runs(team_id=self.team.id, limit=1)
+
+        assert hits[0].emitted_count == 2
+        assert hits[0].emitted_finding_ids == ["f-a", "f-b"]
+        detail = get_run(team_id=self.team.id, run_id=str(run.id))
+        assert detail is not None
+        assert detail.emitted_count == 2
+        assert detail.emitted_finding_ids == ["f-a", "f-b"]
+
+    def test_emit_tally_defaults_to_zero_and_empty(self) -> None:
+        _create_run(self.team)
+
+        hits = search_recent_runs(team_id=self.team.id, limit=1)
+
+        assert hits[0].emitted_count == 0
+        assert hits[0].emitted_finding_ids == []
+
+    @parameterized.expand([("emitted_true", True), ("emitted_false", False)])
+    def test_emitted_filter_keeps_only_the_matching_runs(self, _name: str, emitted: bool) -> None:
+        emitting = _create_run(self.team, emitted_count=1, emitted_finding_ids=["f-x"])
+        quiet = _create_run(self.team)  # emitted_count defaults to 0
+
+        hits = search_recent_runs(team_id=self.team.id, emitted=emitted)
+
+        expected = emitting if emitted else quiet
+        assert [h.run_id for h in hits] == [str(expected.id)]
+
+    def test_emitted_filter_omitted_returns_both(self) -> None:
+        _create_run(self.team, emitted_count=1, emitted_finding_ids=["f-x"])
+        _create_run(self.team)
+
+        hits = search_recent_runs(team_id=self.team.id)
+
+        assert len(hits) == 2
 
 
 class TestGetRun(BaseTest):
@@ -339,6 +378,7 @@ class TestBuildEmitExtra:
     def _minimal(self) -> dict:
         return _build_extra(
             run_id="run-uuid",
+            task_run_id="task-run-uuid",
             finding_id="finding-uuid",
             skill_name="signals-scout-errors",
             skill_version=2,
@@ -355,6 +395,7 @@ class TestBuildEmitExtra:
         extra = self._minimal()
         # Required by schema:
         assert extra["scout_run_id"] == "run-uuid"
+        assert extra["task_run_id"] == "task-run-uuid"
         assert extra["finding_id"] == "finding-uuid"
         assert extra["skill_name"] == "signals-scout-errors"
         assert extra["confidence"] == 0.7
@@ -375,6 +416,7 @@ class TestBuildEmitExtra:
     def test_full_extra_includes_all_optional_fields(self) -> None:
         extra = _build_extra(
             run_id="run-uuid",
+            task_run_id="task-run-uuid",
             finding_id="finding-uuid",
             skill_name="signals-scout-errors",
             skill_version=1,
@@ -490,6 +532,7 @@ async def test_emit_finding_happy_path_calls_emit_signal_with_deterministic_sour
     assert call_kwargs["description"] == "Checkout 500s post-deploy"
     assert call_kwargs["weight"] == 0.7
     assert call_kwargs["extra"]["scout_run_id"] == str(arun_emit.id)
+    assert call_kwargs["extra"]["task_run_id"] == str(arun_emit.task_run_id)
     assert call_kwargs["extra"]["finding_id"] == "f-happy"
     assert call_kwargs["extra"]["skill_name"] == "signals-scout-errors"
     assert call_kwargs["extra"]["skill_version"] == 3.0
@@ -632,8 +675,8 @@ async def test_emit_finding_returns_skipped_when_scout_emit_disabled(arun_emit, 
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_emit_finding_fails_closed_when_config_missing(arun_emit, ateam_emit):
-    # scout_config is nullable and a config can be deleted mid-run; a missing config must
-    # NOT emit (a recreated config defaults to dry-run), so it fails closed.
+    # scout_config is SET_NULL: deleting the config mid-run nulls the run's FK, so the gate
+    # has no live config to emit against and fails closed.
     await database_sync_to_async(
         SignalScoutConfig.all_teams.filter(team=ateam_emit, skill_name=arun_emit.skill_name).delete
     )()
@@ -647,6 +690,113 @@ async def test_emit_finding_fails_closed_when_config_missing(arun_emit, ateam_em
             confidence=0.5,
             evidence=[EvidenceEntry(source_product="logs", summary="x")],
             finding_id="f-no-config",
+        )
+
+    assert result.emitted is False
+    assert result.skipped_reason == "scout_config_missing"
+    mock_emit.assert_not_called()
+
+
+# --- emit tally (emitted_count / emitted_finding_ids) tests ---
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_records_tally_on_run(ateam_emit, arun_emit):
+    # Two successful emits bump emitted_count to 2 and append both finding_ids in order.
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()):
+        for fid in ("f-one", "f-two"):
+            await emit_finding(
+                team=ateam_emit,
+                run=arun_emit,
+                description="d",
+                weight=0.5,
+                confidence=0.5,
+                evidence=[EvidenceEntry(source_product="logs", summary="x")],
+                finding_id=fid,
+            )
+
+    await database_sync_to_async(arun_emit.refresh_from_db)()
+    assert arun_emit.emitted_count == 2
+    assert arun_emit.emitted_finding_ids == ["f-one", "f-two"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_skip_does_not_record_tally(arun_emit, ateam_emit):
+    # A dry-run (preflight-skipped) emit must leave the tally untouched — only signals
+    # that actually fired count toward "did this run surface anything?".
+    await database_sync_to_async(
+        SignalScoutConfig.all_teams.filter(team=ateam_emit, skill_name=arun_emit.skill_name).update
+    )(emit=False)
+
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()):
+        result = await emit_finding(
+            team=ateam_emit,
+            run=arun_emit,
+            description="d",
+            weight=0.5,
+            confidence=0.5,
+            evidence=[EvidenceEntry(source_product="logs", summary="x")],
+            finding_id="f-skip",
+        )
+
+    assert result.emitted is False
+    await database_sync_to_async(arun_emit.refresh_from_db)()
+    assert arun_emit.emitted_count == 0
+    assert arun_emit.emitted_finding_ids == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_succeeds_when_tally_write_fails(ateam_emit, arun_emit):
+    # The tally is best-effort: a DB failure recording it must NOT surface as a failed
+    # emit. The signal already fired, so a propagated error would invite a double-emitting
+    # retry on a non-idempotent endpoint.
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()):
+        # Fail only the tally write's row lock, not the preflight gate's config lookup
+        # (both go through the same manager), so we exercise _record_emit's swallow.
+        with patch.object(SignalScoutRun.all_teams, "select_for_update", side_effect=RuntimeError("db down")):
+            result = await emit_finding(
+                team=ateam_emit,
+                run=arun_emit,
+                description="d",
+                weight=0.5,
+                confidence=0.5,
+                evidence=[EvidenceEntry(source_product="logs", summary="x")],
+                finding_id="f-tally-fail",
+            )
+
+    assert result.emitted is True
+    assert result.skipped_reason is None
+    # The tally write blew up and was swallowed, so the row stays at its default.
+    await database_sync_to_async(arun_emit.refresh_from_db)()
+    assert arun_emit.emitted_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_fails_closed_when_config_deleted_then_recreated(arun_emit, ateam_emit):
+    # The config the run was dispatched with is deleted (SET_NULL nulls the run's FK) and a
+    # fresh emit-on config for the same (team, skill) is recreated before emit. The gate is
+    # anchored on the run's own (now-null) FK, not re-resolved by skill_name, so the stale run
+    # still fails closed — independent of the emit default now being True.
+    await database_sync_to_async(
+        SignalScoutConfig.all_teams.filter(team=ateam_emit, skill_name=arun_emit.skill_name).delete
+    )()
+    await database_sync_to_async(SignalScoutConfig.all_teams.create)(
+        team=ateam_emit, skill_name=arun_emit.skill_name, emit=True
+    )
+
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()) as mock_emit:
+        result = await emit_finding(
+            team=ateam_emit,
+            run=arun_emit,
+            description="d",
+            weight=0.5,
+            confidence=0.5,
+            evidence=[EvidenceEntry(source_product="logs", summary="x")],
+            finding_id="f-recreated-config",
         )
 
     assert result.emitted is False

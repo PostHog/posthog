@@ -112,42 +112,17 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.11
@@ -188,6 +163,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -394,6 +370,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -699,12 +676,6 @@
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
          "posthog_datawarehousemanagedviewset"."created_by_id",
          "posthog_datawarehousemanagedviewset"."created_at",
          "posthog_datawarehousemanagedviewset"."updated_at",
@@ -714,7 +685,6 @@
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
@@ -763,16 +733,9 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
@@ -931,42 +894,17 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.11
@@ -1007,6 +945,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -1209,6 +1148,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -1514,12 +1454,6 @@
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
          "posthog_datawarehousemanagedviewset"."created_by_id",
          "posthog_datawarehousemanagedviewset"."created_at",
          "posthog_datawarehousemanagedviewset"."updated_at",
@@ -1529,7 +1463,6 @@
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
@@ -1578,16 +1511,9 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
@@ -1746,42 +1672,17 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.11
@@ -1822,6 +1723,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -2020,6 +1922,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -2325,12 +2228,6 @@
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
          "posthog_datawarehousemanagedviewset"."created_by_id",
          "posthog_datawarehousemanagedviewset"."created_at",
          "posthog_datawarehousemanagedviewset"."updated_at",
@@ -2340,7 +2237,6 @@
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
@@ -2389,16 +2285,9 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
@@ -2557,42 +2446,17 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.11
@@ -2633,6 +2497,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -2831,6 +2696,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -3136,12 +3002,6 @@
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
          "posthog_datawarehousemanagedviewset"."created_by_id",
          "posthog_datawarehousemanagedviewset"."created_at",
          "posthog_datawarehousemanagedviewset"."updated_at",
@@ -3151,7 +3011,6 @@
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
@@ -3200,16 +3059,9 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
@@ -3368,42 +3220,17 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.11
@@ -3444,6 +3271,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -3646,6 +3474,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -3951,12 +3780,6 @@
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
          "posthog_datawarehousemanagedviewset"."created_by_id",
          "posthog_datawarehousemanagedviewset"."created_at",
          "posthog_datawarehousemanagedviewset"."updated_at",
@@ -3966,7 +3789,6 @@
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
@@ -4015,16 +3837,9 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
@@ -4183,42 +3998,17 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.11
@@ -4259,6 +4049,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -4461,6 +4252,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -4766,12 +4558,6 @@
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
          "posthog_datawarehousemanagedviewset"."created_by_id",
          "posthog_datawarehousemanagedviewset"."created_at",
          "posthog_datawarehousemanagedviewset"."updated_at",
@@ -4781,7 +4567,6 @@
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
@@ -4830,16 +4615,9 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
@@ -4998,42 +4776,17 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.11
@@ -5074,6 +4827,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -5276,6 +5030,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -5581,12 +5336,6 @@
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
          "posthog_datawarehousemanagedviewset"."created_by_id",
          "posthog_datawarehousemanagedviewset"."created_at",
          "posthog_datawarehousemanagedviewset"."updated_at",
@@ -5596,7 +5345,6 @@
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
@@ -5645,16 +5393,9 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
@@ -5867,42 +5608,17 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.102
@@ -5943,6 +5659,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -6248,6 +5965,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -6384,6 +6102,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -6689,12 +6408,6 @@
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
          "posthog_datawarehousemanagedviewset"."created_by_id",
          "posthog_datawarehousemanagedviewset"."created_at",
          "posthog_datawarehousemanagedviewset"."updated_at",
@@ -6704,7 +6417,6 @@
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
@@ -6753,16 +6465,9 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
@@ -6821,42 +6526,17 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.118
@@ -6897,6 +6577,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -7251,6 +6932,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -7598,12 +7280,6 @@
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
          "posthog_datawarehousemanagedviewset"."created_by_id",
          "posthog_datawarehousemanagedviewset"."created_at",
          "posthog_datawarehousemanagedviewset"."updated_at",
@@ -7613,7 +7289,6 @@
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
@@ -7662,16 +7337,9 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
@@ -7730,42 +7398,17 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.134
@@ -7806,6 +7449,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -8032,6 +7676,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -8254,6 +7899,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -8559,12 +8205,6 @@
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
          "posthog_datawarehousemanagedviewset"."created_by_id",
          "posthog_datawarehousemanagedviewset"."created_at",
          "posthog_datawarehousemanagedviewset"."updated_at",
@@ -8574,7 +8214,6 @@
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
@@ -8623,16 +8262,9 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
@@ -8691,42 +8323,17 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.15
@@ -8818,6 +8425,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -9135,6 +8743,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -9486,12 +9095,6 @@
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
          "posthog_datawarehousemanagedviewset"."created_by_id",
          "posthog_datawarehousemanagedviewset"."created_at",
          "posthog_datawarehousemanagedviewset"."updated_at",
@@ -9501,7 +9104,6 @@
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
@@ -9550,16 +9152,9 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
@@ -9618,42 +9213,17 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.166
@@ -9694,6 +9264,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -10001,12 +9572,6 @@
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
          "posthog_datawarehousemanagedviewset"."created_by_id",
          "posthog_datawarehousemanagedviewset"."created_at",
          "posthog_datawarehousemanagedviewset"."updated_at",
@@ -10016,7 +9581,6 @@
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
@@ -10065,16 +9629,9 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
@@ -10099,6 +9656,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -10268,42 +9826,17 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.22
@@ -10344,6 +9877,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -10680,6 +10214,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -10985,12 +10520,6 @@
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
          "posthog_datawarehousemanagedviewset"."created_by_id",
          "posthog_datawarehousemanagedviewset"."created_at",
          "posthog_datawarehousemanagedviewset"."updated_at",
@@ -11000,7 +10529,6 @@
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
@@ -11049,16 +10577,9 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
@@ -11117,42 +10638,17 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.38
@@ -11193,6 +10689,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -11528,6 +11025,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -11882,12 +11380,6 @@
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
          "posthog_datawarehousemanagedviewset"."created_by_id",
          "posthog_datawarehousemanagedviewset"."created_at",
          "posthog_datawarehousemanagedviewset"."updated_at",
@@ -11897,7 +11389,6 @@
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
@@ -11946,16 +11437,9 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
@@ -12014,42 +11498,17 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.54
@@ -12090,6 +11549,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -12320,12 +11780,6 @@
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
          "posthog_datawarehousemanagedviewset"."created_by_id",
          "posthog_datawarehousemanagedviewset"."created_at",
          "posthog_datawarehousemanagedviewset"."updated_at",
@@ -12335,7 +11789,6 @@
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
@@ -12448,6 +11901,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -12753,12 +12207,6 @@
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
          "posthog_datawarehousemanagedviewset"."created_by_id",
          "posthog_datawarehousemanagedviewset"."created_at",
          "posthog_datawarehousemanagedviewset"."updated_at",
@@ -12768,7 +12216,6 @@
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
@@ -12817,16 +12264,9 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
@@ -12885,42 +12325,17 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.7
@@ -12964,16 +12379,9 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
@@ -13018,6 +12426,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -13315,6 +12724,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -13654,12 +13064,6 @@
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
          "posthog_datawarehousemanagedviewset"."created_by_id",
          "posthog_datawarehousemanagedviewset"."created_at",
          "posthog_datawarehousemanagedviewset"."updated_at",
@@ -13669,7 +13073,6 @@
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
@@ -13718,16 +13121,9 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
@@ -13786,42 +13182,17 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.86
@@ -13862,6 +13233,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -14044,42 +13416,17 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
+  ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.90
@@ -14219,6 +13566,7 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -14524,12 +13872,6 @@
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
          "posthog_datawarehousemanagedviewset"."created_by_id",
          "posthog_datawarehousemanagedviewset"."created_at",
          "posthog_datawarehousemanagedviewset"."updated_at",
@@ -14539,7 +13881,6 @@
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
@@ -14588,16 +13929,9 @@
          "posthog_datawarehousetable"."columns",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousetable"."size_in_s3_mib"
   FROM "posthog_datawarehousesavedquery"
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
          AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
          AND NOT ("posthog_datawarehousesavedquery"."deleted"

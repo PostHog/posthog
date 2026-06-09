@@ -34,6 +34,11 @@ from products.signals.backend.temporal.grouping import (
     verify_match_specificity_activity,
 )
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow, read_signals_from_s3_activity
+from products.signals.backend.temporal.inbox_notification import (
+    SignalReportInboxNotificationWorkflow,
+    get_inbox_notification_state_activity,
+    send_report_inbox_notifications_activity,
+)
 from products.signals.backend.temporal.reingestion import (
     SignalReportReingestionWorkflow,
     TeamSignalReingestionWorkflow,
@@ -79,10 +84,13 @@ WORKFLOWS = [
     CustomSignalAgentWorkflow,
     RunSignalsScoutWorkflow,
     SignalsScoutCoordinatorWorkflow,
+    SignalReportInboxNotificationWorkflow,
 ]
 
 ACTIVITIES = [
     dispatch_inbox_slack_notifications_activity,
+    get_inbox_notification_state_activity,
+    send_report_inbox_notifications_activity,
     emit_backfill_signal_activity,
     fetch_error_tracking_issues_activity,
     fetch_enabled_signals_scout_runs_activity,

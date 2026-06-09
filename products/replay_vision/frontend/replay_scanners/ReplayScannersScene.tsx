@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
+import { IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -20,6 +20,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { FilterPill } from '../components/FilterPill'
+import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { VisionMetrics } from './components/VisionMetrics'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
 import {
@@ -57,8 +58,9 @@ export function ReplayScannersScene(): JSX.Element {
         createdByFilter,
         createdByOptions,
         hasActiveFilters,
+        scannerStats,
     } = useValues(replayScannersLogic)
-    const { loadScanners, deleteScanner, duplicateScanner, toggleScannerEnabled, setScannersFilters, clearFilters } =
+    const { loadScanners, deleteScanner, toggleScannerEnabled, setScannersFilters, clearFilters } =
         useActions(replayScannersLogic)
     const { push } = useActions(router)
 
@@ -90,6 +92,8 @@ export function ReplayScannersScene(): JSX.Element {
                             onChange={() => toggleScannerEnabled(scanner.id)}
                             disabled={togglingIds.includes(scanner.id)}
                             size="small"
+                            data-attr="vision-scanner-toggle-enabled"
+                            data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                         />
                     </AccessControlAction>
                     <span className={`inline-block min-w-[4.5rem] ${scanner.enabled ? 'text-success' : 'text-muted'}`}>
@@ -154,18 +158,8 @@ export function ReplayScannersScene(): JSX.Element {
                             icon={<IconPencil />}
                             onClick={() => push(urls.replayVision(scanner.id))}
                             tooltip="Edit"
-                        />
-                    </AccessControlAction>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.SessionRecording}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconCopy />}
-                            onClick={() => duplicateScanner(scanner.id)}
-                            tooltip="Duplicate"
+                            data-attr="vision-scanner-edit-row"
+                            data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                         />
                     </AccessControlAction>
                     <AccessControlAction
@@ -190,6 +184,8 @@ export function ReplayScannersScene(): JSX.Element {
                                 })
                             }
                             tooltip="Delete"
+                            data-attr="vision-scanner-delete"
+                            data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                         />
                     </AccessControlAction>
                 </div>
@@ -203,6 +199,7 @@ export function ReplayScannersScene(): JSX.Element {
                 name="Replay vision"
                 description="Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event."
                 resourceType={{ type: 'replay_vision' }}
+                actions={<ReplayVisionFeedbackButton />}
             />
 
             <ProductIntroduction
@@ -215,7 +212,7 @@ export function ReplayScannersScene(): JSX.Element {
                 action={() => push(urls.replayVisionTemplates())}
             />
 
-            {scanners.length > 0 && <VisionMetrics />}
+            {(scannerStats?.total ?? 0) > 0 && <VisionMetrics />}
 
             <SceneSection
                 title="Scanners"
@@ -228,7 +225,7 @@ export function ReplayScannersScene(): JSX.Element {
                             type="primary"
                             icon={<IconPlus />}
                             to={urls.replayVisionTemplates()}
-                            data-attr="create-replay-scanner"
+                            data-attr="vision-scanner-create"
                         >
                             New scanner
                         </LemonButton>
@@ -245,6 +242,7 @@ export function ReplayScannersScene(): JSX.Element {
                         className="max-w-sm"
                     />
                     <div className="ml-auto flex flex-wrap items-center gap-2">
+                        <ReplayVisionFeedbackButton label="Feedback?" type="tertiary" />
                         <FilterPill<EnabledFilter>
                             label="Status"
                             options={ENABLED_OPTIONS}
@@ -268,9 +266,14 @@ export function ReplayScannersScene(): JSX.Element {
                                 Clear filters
                             </LemonButton>
                         )}
-                        <LemonButton type="secondary" onClick={() => loadScanners()} size="small">
-                            Refresh
-                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconRefresh />}
+                            tooltip="Refresh"
+                            onClick={() => loadScanners()}
+                            loading={scannersLoading}
+                        />
                     </div>
                 </div>
 
@@ -296,7 +299,12 @@ export function ReplayScannersScene(): JSX.Element {
                         scannersTotal === 0 && !hasActiveFilters ? (
                             <div className="flex flex-col items-center gap-3 p-8 text-center">
                                 <div className="text-muted">No scanners yet.</div>
-                                <LemonButton type="primary" icon={<IconPlus />} to={urls.replayVisionTemplates()}>
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconPlus />}
+                                    to={urls.replayVisionTemplates()}
+                                    data-attr="vision-scanner-create-empty"
+                                >
                                     Create your first scanner
                                 </LemonButton>
                             </div>

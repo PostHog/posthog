@@ -2,6 +2,7 @@ from posthog.temporal.data_imports.sources.generated_configs import (
     BigQuerySourceConfig,
     ChargebeeSourceConfig,
     DoItSourceConfig,
+    GitLabSourceConfig,
     GoogleAdsSourceConfig,
     GoogleSheetsSourceConfig,
     GorgiasSourceConfig,
@@ -61,6 +62,20 @@ def test_chargebee_config():
 def test_doit_config():
     config = DoItSourceConfig.from_dict({"api_key": "api_key"})
     assert config.api_key == "api_key"
+
+
+def test_gitlab_config():
+    config = GitLabSourceConfig.from_dict(
+        {"personal_access_token": "glpat-token", "project": "group/project", "gitlab_host": "https://gitlab.com"}
+    )
+    assert config.personal_access_token == "glpat-token"
+    assert config.project == "group/project"
+    assert config.gitlab_host == "https://gitlab.com"
+
+
+def test_gitlab_config_without_host():
+    config = GitLabSourceConfig.from_dict({"personal_access_token": "glpat-token", "project": "42"})
+    assert config.gitlab_host is None
 
 
 def test_google_ads_config():

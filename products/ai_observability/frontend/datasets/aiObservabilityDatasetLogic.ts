@@ -1,13 +1,12 @@
 import { actions, afterMount, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
-import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual } from '~/lib/utils'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
@@ -378,7 +377,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
         },
     })),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.aiObservabilityDataset(':id')]: (_, searchParams) => {
             if (
                 searchParams.tab &&
@@ -404,7 +403,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         closeModalAndRefetchDatasetItems: () => {
             const nextSearchParams = { ...router.values.searchParams, item: undefined }
             return [

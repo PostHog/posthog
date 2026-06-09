@@ -4,14 +4,21 @@ Each finding is forwarded to `emit_signal` with a deterministic `source_id`:
 `f"run:{run.id}:finding:{finding_id}"`. This is for traceability only — it is NOT
 an idempotency barrier. The downstream pipeline assigns every signal a fresh random
 `document_id` and dedupes on that, never on `source_id` (which it only stores in
-metadata), so a re-call with the same `finding_id` emits a *second* signal. The
-previous in-postgres idempotency layer (writing to `SignalScoutRun.findings` jsonb
-pre-emit, marking `emitted=True` post-success) was dropped in PR 2 review along with
-the `findings` field itself; this module no longer persists any scout-side state and
-provides no dedupe, so callers must not retry an emit that may have already succeeded.
+metadata), so a re-call with the same `finding_id` emits a *second* signal.
 
-Attribution (`scout_run_id`, `finding_id`, `skill_name`, `skill_version`) is read
-off the run row so the agent never has to plumb it through. The `SignalsScoutSignalExtra`
+Post-success we bump a scout-side tally on the run row (`emitted_count` +
+`emitted_finding_ids` via `_record_emit`) so "did this run surface anything?" is a
+column lookup rather than a prose-`summary` parse or a ClickHouse scan. The tally write
+is best-effort: a failure to record it never propagates out of the emit, because the
+signal has already fired and the caller must not be told the emit failed. It is
+observability only, NOT a dedupe layer — there is no scout-side idempotency, so callers
+must not retry an emit that may have already succeeded; a retry double-counts here
+exactly as it double-emits downstream.
+
+Attribution (`scout_run_id`, `task_run_id`, `finding_id`, `skill_name`, `skill_version`)
+is read off the run row so the agent never has to plumb it through. `task_run_id` is the
+join key into the `signals_scouts_runs` LLM-analytics view (the `scout_run_id` bridge row
+is not on that view). The `SignalsScoutSignalExtra`
 shape (defined in `posthog.schema`) is what the existing `_SIGNAL_VARIANT_LOOKUP`
 in `products/signals/backend/api.py` validates against.
 """
@@ -22,6 +29,8 @@ import uuid
 import logging
 from dataclasses import asdict, dataclass
 from typing import Any
+
+from django.db import transaction
 
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -62,7 +71,7 @@ class EmitResult:
 
     Possible `skipped_reason` values:
       - None: emit fired
-      - "scout_config_missing": no SignalScoutConfig row for this (team, skill) — fail closed
+      - "scout_config_missing": the run's dispatch-time config FK is null/gone — fail closed
       - "scout_emit_disabled": the scout's config has emit=False (dry-run)
       - "ai_processing_not_approved": team's organization has not approved AI processing
       - "source_disabled": SignalSourceConfig disables the signals_scout source for this team
@@ -98,6 +107,7 @@ async def emit_finding(
     finding_id = finding_id or _new_finding_id()
     extra = _build_extra(
         run_id=str(run.id),
+        task_run_id=str(run.task_run_id),
         finding_id=finding_id,
         skill_name=run.skill_name,
         skill_version=run.skill_version,
@@ -144,6 +154,7 @@ async def emit_finding(
         weight=weight,
         extra=extra,
     )
+    await database_sync_to_async(_record_emit, thread_sensitive=False)(run_id=run.id, finding_id=finding_id)
     logger.info(
         "signals_scout.emit: emitted",
         extra={**attempt_extra, "source_id": source_id},
@@ -178,6 +189,7 @@ def emit_finding_sync(
     finding_id = finding_id or _new_finding_id()
     extra = _build_extra(
         run_id=str(run.id),
+        task_run_id=str(run.task_run_id),
         finding_id=finding_id,
         skill_name=run.skill_name,
         skill_version=run.skill_version,
@@ -223,6 +235,7 @@ def emit_finding_sync(
         weight=weight,
         extra=extra,
     )
+    _record_emit(run_id=run.id, finding_id=finding_id)
     logger.info(
         "signals_scout.emit: emitted",
         extra={**attempt_extra, "source_id": source_id},
@@ -266,6 +279,7 @@ def _validate_inputs(
 def _build_extra(
     *,
     run_id: str,
+    task_run_id: str,
     finding_id: str,
     skill_name: str,
     skill_version: int,
@@ -282,6 +296,7 @@ def _build_extra(
     fields that don't accept it."""
     extra: dict[str, Any] = {
         "scout_run_id": run_id,
+        "task_run_id": task_run_id,
         "finding_id": finding_id,
         "skill_name": skill_name,
         "skill_version": float(skill_version),
@@ -303,6 +318,34 @@ def _build_extra(
 
 def _new_finding_id() -> str:
     return str(uuid.uuid4())
+
+
+def _record_emit(*, run_id: Any, finding_id: str) -> None:
+    """Bump the run's post-success emit tally: append `finding_id` and recount.
+
+    Best-effort and observability only — not a dedupe barrier (see the module docstring).
+    The emit has already fired by the time this runs, so **any** failure here (row gone,
+    lock timeout, transient DB error) is swallowed: surfacing it would make a succeeded
+    emit look failed and invite a double-emitting retry. Runs under `select_for_update` so
+    the read-modify-write on `emitted_finding_ids` is safe even though emits within a single
+    run are sequential today, and keeps `emitted_count` exactly `len(emitted_finding_ids)`
+    so the two never drift. Uses the unscoped `all_teams` manager because the caller already
+    validated `team`/`run` ownership and emit can run with no team scope set (Temporal
+    activity)."""
+    try:
+        with transaction.atomic():
+            run = SignalScoutRun.all_teams.select_for_update().filter(pk=run_id).first()
+            if run is None:
+                logger.warning("signals_scout.emit: run %s gone, skipping emit tally", run_id)
+                return
+            finding_ids = [*(run.emitted_finding_ids or []), finding_id]
+            run.emitted_finding_ids = finding_ids
+            run.emitted_count = len(finding_ids)
+            run.save(update_fields=["emitted_finding_ids", "emitted_count"])
+    except Exception:
+        # Tally is best-effort; the signal already emitted. Log and move on so the emit
+        # call returns success rather than a false failure the caller might retry.
+        logger.exception("signals_scout.emit: failed to record emit tally for run %s", run_id)
 
 
 def _log_extra(
@@ -341,11 +384,20 @@ def _preflight_emit_gates(team: Team, run: SignalScoutRun) -> str | None:
     instead of "emitted" for an emit the pipeline silently dropped. The per-scout
     `emit` toggle is checked first: a dry-run scout runs and logs but emits nothing.
 
-    Fails closed when no config row exists: `SignalScoutRun.scout_config` is nullable and a
-    config can be deleted mid-run, but a recreated config defaults to dry-run (`emit=False`),
-    so a missing config must not be treated as "emit allowed".
+    Anchored on the run's own config FK, re-read live from the DB (not the in-memory `run`,
+    which may be stale, and not re-resolved by `skill_name`). `scout_config` is `SET_NULL`,
+    so if the config the run was dispatched with is deleted mid-run the FK goes NULL and we
+    fail closed — even if a same-`(team, skill_name)` config was recreated in the meantime. A
+    stale run must emit only against the config it was dispatched with. This keeps the gate
+    fail-closed independent of the `emit` default (now `True`); re-reading the row by pk still
+    honors a mid-run `emit` flip on that same config.
     """
-    config = SignalScoutConfig.all_teams.filter(team_id=team.id, skill_name=run.skill_name).first()
+    config_id = (
+        SignalScoutRun.all_teams.filter(pk=run.pk, team_id=team.id).values_list("scout_config_id", flat=True).first()
+    )
+    if config_id is None:
+        return "scout_config_missing"
+    config = SignalScoutConfig.all_teams.filter(pk=config_id).first()
     if config is None:
         return "scout_config_missing"
     if not config.emit:

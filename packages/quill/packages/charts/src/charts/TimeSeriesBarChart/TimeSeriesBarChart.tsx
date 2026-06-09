@@ -2,6 +2,7 @@ import React, { useMemo } from 'react'
 
 import type {
     BarChartConfig,
+    BarFillStyle,
     ChartTheme,
     PointClickData,
     Series,
@@ -41,6 +42,10 @@ export interface TimeSeriesBarChartConfig {
     tooltip?: TooltipConfig
     /** Stacked layout only — stack negatives below the zero baseline (d3.stackOffsetDiverging). */
     divergingStack?: boolean
+    /** Bar fill treatment — `flat` (default), `gradient`, or `gloss`. */
+    fillStyle?: BarFillStyle
+    /** Ease the hover highlight in over this many ms (`true` = default duration). Omit to snap. */
+    animateHover?: boolean | number
 }
 
 export interface TimeSeriesBarChartProps<Meta = unknown> {
@@ -79,6 +84,8 @@ export function TimeSeriesBarChart<Meta = unknown>({
         showCrosshair,
         tooltip: tooltipConfig,
         divergingStack,
+        fillStyle,
+        animateHover,
     } = config ?? {}
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
@@ -119,10 +126,12 @@ export function TimeSeriesBarChart<Meta = unknown>({
         axisOrientation,
         showCrosshair,
         tooltip: tooltipConfig,
+        animateHover,
         bars: {
             cornerRadius: barCornerRadius,
             divergingStack,
             valueDomain,
+            fillStyle,
         },
     }
 

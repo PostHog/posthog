@@ -2,7 +2,8 @@ use chrono::Utc;
 use property_defs_rs::types::{
     detect_property_type, get_floored_last_seen, Event, PropertyValueType, Update,
 };
-use serde_json::{json, Number, Value};
+use rstest::rstest;
+use serde_json::{json, Map, Number, Value};
 
 #[test]
 fn test_date_flooring() {
@@ -635,4 +636,60 @@ fn test_plain_event_properties_still_emitted() {
     );
     assert!(event_property_keys.contains(&"page"));
     assert!(event_property_keys.contains(&"referrer"));
+}
+
+#[rstest]
+#[case("$feature/", "$feature/my-flag")]
+#[case("$feature_enrollment/", "$feature_enrollment/enrolled-flag")]
+fn test_feature_flag_properties_skip_event_property_but_keep_property_definition(
+    #[case] prefix: &str,
+    #[case] flagged_key: &str,
+) {
+    let mut props_map = Map::new();
+    props_map.insert("page".to_string(), json!("/home"));
+    props_map.insert("$active_feature_flags".to_string(), json!(["my-flag"]));
+    props_map.insert(flagged_key.to_string(), json!(true));
+
+    let event = Event {
+        team_id: 1,
+        project_id: 1,
+        event: "$pageview".to_string(),
+        properties: Some(Value::Object(props_map).to_string()),
+    };
+
+    let updates = event.into_updates(1000);
+
+    let event_property_keys: Vec<&str> = updates
+        .iter()
+        .filter_map(|u| match u {
+            Update::EventProperty(ep) => Some(ep.property.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(
+        !event_property_keys.iter().any(|k| k.starts_with(prefix)),
+        "{prefix}* must not appear in EventProperty: {event_property_keys:?}"
+    );
+
+    assert!(
+        event_property_keys.contains(&"page"),
+        "expected EventProperty for 'page': {event_property_keys:?}"
+    );
+    assert!(
+        event_property_keys.contains(&"$active_feature_flags"),
+        "expected EventProperty for '$active_feature_flags': {event_property_keys:?}"
+    );
+
+    let prop_def_names: Vec<&str> = updates
+        .iter()
+        .filter_map(|u| match u {
+            Update::Property(pd) => Some(pd.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        prop_def_names.contains(&flagged_key),
+        "expected PropertyDefinition for '{flagged_key}': {prop_def_names:?}"
+    );
 }

@@ -1,4 +1,5 @@
 import type { RequestProperties } from '@/lib/request-properties'
+import { redactToken } from '@/lib/utils'
 import type { State } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
@@ -44,6 +45,13 @@ export async function recordRateLimitBlock(
         }
     }
     rateLimitBlockedByTeam.inc({ scope: result.scope, team_id: normalizeTeamId(teamId) })
+
+    // Log so we can trace which token is hitting the limit; the token is redacted
+    // to its last 4 chars so the line is useless to anyone who shouldn't have it.
+    console.warn(
+        '[RateLimiter] rate limited',
+        JSON.stringify({ scope: result.scope, projectId: teamId ?? null, token: redactToken(props.apiToken) })
+    )
 }
 
 // test-only: reset the process-lifetime cardinality cap between cases

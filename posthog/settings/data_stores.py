@@ -533,6 +533,8 @@ FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 # Dedicated Redis for ai-gateway HyperCache reads
 AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", None)
 
+TASKS_REDIS_URL = os.getenv("TASKS_REDIS_URL", None)
+
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
@@ -587,6 +589,19 @@ if AI_GATEWAY_REDIS_URL:
     CACHES[AI_GATEWAY_DEDICATED_CACHE_ALIAS] = {
         "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": AI_GATEWAY_REDIS_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",
+        },
+        "KEY_PREFIX": "posthog",
+    }
+
+if TASKS_REDIS_URL:
+    from posthog.caching.tasks_redis_cache import TASKS_DEDICATED_CACHE_ALIAS
+
+    CACHES[TASKS_DEDICATED_CACHE_ALIAS] = {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": TASKS_REDIS_URL,
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
             "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",

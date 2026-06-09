@@ -56,7 +56,7 @@ class Product(StrEnum):
     REPLAY = "replay"
     REPLAY_VISION = "replay_vision"
     REVENUE_ANALYTICS = "revenue_analytics"
-    SDK_DOCTOR = "sdk_doctor"
+    SDK_HEALTH = "sdk_health"
     SESSION_SUMMARY = "session_summary"
     SIGNALS = "signals"
     SURVEYS = "surveys"
@@ -102,7 +102,6 @@ class Feature(StrEnum):
     QUOTA_LIMITING = "quota_limiting"
     MIGRATION = "migration"
     MANAGEMENT_COMMAND = "management_command"
-    LLM_ANALYTICS = "llm_analytics"
     # Endpoints product features
     ENDPOINT_EXECUTION = "endpoint_execution"  # external API callers (personal_api_key or oauth)
     ENDPOINT_PLAYGROUND = "endpoint_playground"  # frontend Playground tab (browser session auth)

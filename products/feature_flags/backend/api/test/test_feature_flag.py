@@ -26,10 +26,7 @@ from rest_framework.relations import ManyRelatedField
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.constants import AvailableFeature
-from posthog.helpers.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, get_decrypted_flag_payload
 from posthog.models import GroupTypeMapping, TaggedItem, User
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.cohort import CohortType
 from posthog.models.group.group import Group
 from posthog.models.group.util import create_group
 from posthog.models.organization import Organization, OrganizationMembership
@@ -40,10 +37,12 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, get_decrypted_flag_payload
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import (
     FeatureFlag,

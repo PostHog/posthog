@@ -1,5 +1,7 @@
+import os
 import base64
 import hashlib
+import importlib
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Optional, cast
@@ -12,12 +14,13 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.db import OperationalError
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from oauth2_provider.utils import jwk_from_pem
 from parameterized import parameterized
 from rest_framework import status
 
@@ -29,6 +32,7 @@ from posthog.models.oauth import (
     OAuthApplicationAccessLevel,
     OAuthGrant,
     OAuthRefreshToken,
+    revoke_application_sessions,
 )
 from posthog.models.team.team import Team
 
@@ -47,6 +51,26 @@ def generate_rsa_key() -> str:
     )
 
     return pem.decode("utf-8")
+
+
+def jwks_entry_to_public_key(key_data: dict):
+    # Rebuild an RSA public key from a JWKS entry's modulus (n) and exponent (e).
+    public_numbers = rsa.RSAPublicNumbers(
+        e=int.from_bytes(base64.urlsafe_b64decode(key_data["e"] + "=="), "big"),
+        n=int.from_bytes(base64.urlsafe_b64decode(key_data["n"] + "=="), "big"),
+    )
+    return public_numbers.public_key()
+
+
+def public_pem(public_key) -> str:
+    return public_key.public_bytes(
+        encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo
+    ).decode("utf-8")
+
+
+def private_pem_to_public_pem(private_key_pem: str) -> str:
+    private_key = serialization.load_pem_private_key(private_key_pem.encode(), password=None)
+    return public_pem(private_key.public_key())
 
 
 @override_settings(
@@ -340,31 +364,47 @@ class TestOAuthAPI(APIBaseTest):
         redirect_to = response.json()["redirect_to"]
         self.assertEqual(redirect_to, "https://example.com/callback?error=access_denied")
 
-    def test_authorize_with_prompt_none_openid_does_not_500(self):
-        # Regression: a missing `validate_silent_login` override on OAuthValidator caused
-        # oauthlib to raise NotImplementedError -> 500 whenever an OIDC client sent
-        # `prompt=none` with the `openid` scope. Any well-formed response (consent page,
-        # spec-compliant error redirect, or successful auth) is acceptable here — the
-        # point is the request must not crash.
+    def test_authorize_with_prompt_none_openid_is_rejected_not_500(self):
+        # PostHog does not support OIDC silent authentication: `prompt=none` is always rejected
+        # with a spec-compliant error, never a token and never a 500. On the GET validate path
+        # oauthlib hasn't attached the user yet, so it rejects at the first gate with
+        # `login_required` (a missing validate_silent_login override used to crash here instead).
         url = f"{self.base_authorization_url}&scope=openid&prompt=none"
 
         response = self.client.get(url)
 
         self.assertLess(response.status_code, 500)
+        self.assertIn("error=login_required", response.headers["Location"])
 
-    def test_validate_silent_login_returns_true_for_authenticated_user(self):
-        # The @login_required decorator on OAuthAuthorizationView intercepts unauthenticated
-        # requests before validate_silent_login runs, so the validator's False branch can't
-        # be exercised through the HTTP flow — call it directly instead.
-        self.assertTrue(OAuthValidator().validate_silent_login(SimpleNamespace(user=self.user)))
+    # The @login_required decorator on OAuthAuthorizationView intercepts unauthenticated
+    # requests before validate_silent_login runs, so the validator's False branch can't
+    # be exercised through the HTTP flow — call it directly instead.
+    @parameterized.expand(
+        [
+            ("authenticated_user", lambda self: SimpleNamespace(user=self.user), True),
+            ("unauthenticated_user", lambda self: SimpleNamespace(user=SimpleNamespace(is_authenticated=False)), False),
+            ("no_user_attr", lambda self: SimpleNamespace(), False),
+            ("none_user", lambda self: SimpleNamespace(user=None), False),
+        ]
+    )
+    def test_validate_silent_login(self, _name, make_request, expected):
+        self.assertEqual(OAuthValidator().validate_silent_login(make_request(self)), expected)
 
-    def test_validate_silent_login_returns_false_for_unauthenticated_request(self):
-        unauthenticated = SimpleNamespace(user=SimpleNamespace(is_authenticated=False))
-        self.assertFalse(OAuthValidator().validate_silent_login(unauthenticated))
+    def test_validate_silent_authorization_always_false(self):
+        # PostHog never authorizes silently; prompt=none must fall back to interactive consent.
+        self.assertFalse(OAuthValidator().validate_silent_authorization(SimpleNamespace(user=self.user)))
 
-        # request object with no `user` attribute at all
-        self.assertFalse(OAuthValidator().validate_silent_login(SimpleNamespace()))
-        self.assertFalse(OAuthValidator().validate_silent_login(SimpleNamespace(user=None)))
+    def test_authorize_post_allow_with_prompt_none_returns_consent_required(self):
+        # The authorization-completion path (unlike the GET validate path) attaches the
+        # authenticated user, so oauthlib runs validate_silent_authorization here. We reject
+        # silent authorization with a spec-compliant consent_required error rather than a 500.
+        response = self.client.post(
+            "/oauth/authorize/?scope=openid&prompt=none",
+            {**self.base_authorization_post_body, "allow": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("error=consent_required", response.json()["redirect_to"])
 
     def test_cannot_get_token_with_invalid_code(self):
         data = {
@@ -861,23 +901,81 @@ class TestOAuthAPI(APIBaseTest):
         jwks = response.json()
         self.assertIn("keys", jwks)
 
-        jwks = response.json()
+        self.assertEqual(public_pem(jwks_entry_to_public_key(jwks["keys"][0])), self.public_key)
 
-        key_data = jwks["keys"][0]
-        public_numbers = rsa.RSAPublicNumbers(
-            e=int.from_bytes(base64.urlsafe_b64decode(key_data["e"] + "=="), "big"),
-            n=int.from_bytes(base64.urlsafe_b64decode(key_data["n"] + "=="), "big"),
+    def test_jwks_endpoint_publishes_active_and_inactive_keys(self):
+        inactive_key_1 = generate_rsa_key()
+        inactive_key_2 = generate_rsa_key()
+
+        with override_settings(
+            OAUTH2_PROVIDER={
+                **settings.OAUTH2_PROVIDER,
+                "OIDC_RSA_PRIVATE_KEYS_INACTIVE": [inactive_key_1, inactive_key_2],
+            }
+        ):
+            response = self.client.get("/.well-known/jwks.json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        keys = response.json()["keys"]
+
+        # Active key plus both inactive keys, each published under a distinct kid
+        self.assertEqual(len(keys), 3)
+        self.assertEqual(len({key["kid"] for key in keys}), 3)
+
+        published_public_pems = {public_pem(jwks_entry_to_public_key(key)) for key in keys}
+        expected_public_pems = {
+            private_pem_to_public_pem(pem) for pem in (self.private_key, inactive_key_1, inactive_key_2)
+        }
+        self.assertEqual(published_public_pems, expected_public_pems)
+
+    def test_jwks_endpoint_publishes_only_active_key_when_no_inactive_keys(self):
+        with override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEYS_INACTIVE": []}):
+            response = self.client.get("/.well-known/jwks.json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        keys = response.json()["keys"]
+        self.assertEqual(len(keys), 1)
+        self.assertEqual(public_pem(jwks_entry_to_public_key(keys[0])), self.public_key)
+
+    def test_token_signed_with_inactive_key_still_verifies_via_jwks(self):
+        # Simulates a rotation: a token signed by the previous active key keeps verifying
+        # because that key is still published as an inactive key in the JWKS.
+        previous_key = generate_rsa_key()
+        previous_kid = jwk_from_pem(previous_key).thumbprint()
+
+        token = jwt.encode(
+            {"sub": "user-123", "aud": "test_confidential_client_id"},
+            previous_key,
+            algorithm="RS256",
+            headers={"kid": previous_kid},
         )
 
-        public_key = public_numbers.public_key()
+        with override_settings(
+            OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEYS_INACTIVE": [previous_key]}
+        ):
+            response = self.client.get("/.well-known/jwks.json")
 
-        public_key_pem_bytes = public_key.public_bytes(
-            encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        matching_entry = next(key for key in response.json()["keys"] if key["kid"] == previous_kid)
+
+        decoded = jwt.decode(
+            token,
+            jwks_entry_to_public_key(matching_entry),
+            algorithms=["RS256"],
+            audience="test_confidential_client_id",
         )
+        self.assertEqual(decoded["sub"], "user-123")
 
-        public_key_pem_str = public_key_pem_bytes.decode("utf-8")
+    def test_jwks_endpoint_errors_when_an_inactive_key_is_empty(self):
+        # An empty PEM raises in the JWKS view — this is why settings filters empties out
+        # before they ever reach OIDC_RSA_PRIVATE_KEYS_INACTIVE.
+        with override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEYS_INACTIVE": [""]}):
+            with self.assertRaises(ValueError):
+                self.client.get("/.well-known/jwks.json")
 
-        self.assertEqual(public_key_pem_str, self.public_key)
+    def test_configured_inactive_keys_never_contain_empty_strings(self):
+        inactive_keys = cast(list[str], settings.OAUTH2_PROVIDER["OIDC_RSA_PRIVATE_KEYS_INACTIVE"])
+        self.assertNotIn("", inactive_keys)
 
     def test_id_token_not_returned_without_openid_scope(self):
         data_without_openid = {
@@ -1183,18 +1281,21 @@ class TestOAuthAPI(APIBaseTest):
             scoped_organizations=None,
         )
 
-    def _refresh_and_get_scopes(self, refresh_token: OAuthRefreshToken) -> set[str]:
+    def _refresh(self, refresh_token: str) -> dict:
         response = self.post(
             "/oauth/token/",
             {
                 "grant_type": "refresh_token",
-                "refresh_token": refresh_token.token,
+                "refresh_token": refresh_token,
                 "client_id": self.confidential_application.client_id,
                 "client_secret": "test_confidential_client_secret",
             },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        new_access_token = OAuthAccessToken.objects.get(token=response.json()["access_token"])
+        return response.json()
+
+    def _refresh_and_get_scopes(self, refresh_token: OAuthRefreshToken) -> set[str]:
+        new_access_token = OAuthAccessToken.objects.get(token=self._refresh(refresh_token.token)["access_token"])
         return set((new_access_token.scope or "").split())
 
     @parameterized.expand(
@@ -1241,14 +1342,214 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_grant")
 
-    def test_refresh_leaves_wildcard_token_untouched(self):
+    @freeze_time("2026-01-01 00:00:00")
+    def test_refresh_racing_app_revoke_is_rejected(self):
+        # A refresh validates its token in autocommit, before save_bearer_token takes the row
+        # lock, so revoke_application_sessions can commit in between and the refresh would mint
+        # tokens that escape the bulk revoke. The mint-time sessions_revoked_at check closes it,
+        # including within the 120s refresh-token grace period that keeps a just-revoked token
+        # valid through validate_refresh_token.
+        refresh_token = self._create_refreshable_token_pair("openid")
+
+        with freeze_time("2026-01-01 00:00:05"):
+            revoke_application_sessions(self.confidential_application)
+
+            response = self.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token.token,
+                    "client_id": self.confidential_application.client_id,
+                    "client_secret": "test_confidential_client_secret",
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
+        self.assertEqual(response["Content-Type"], "application/json")
+        self.assertFalse(
+            OAuthRefreshToken.objects.filter(application=self.confidential_application, revoked__isnull=True).exists()
+        )
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_refresh_succeeds_for_token_issued_after_revoke(self):
+        # A token minted after the revoke stamp (i.e. the client re-authorized) refreshes normally.
+        self.confidential_application.sessions_revoked_at = timezone.now()
+        self.confidential_application.save()
+
+        with freeze_time("2026-01-01 00:00:05"):
+            refresh_token = self._create_refreshable_token_pair("openid")
+            data = self._refresh(refresh_token.token)
+
+        self.assertIn("access_token", data)
+
+    def _authorize_and_get_code(self) -> str:
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+    def _exchange_code(self, code: str):
+        return self.post("/oauth/token/", {**self.base_token_body, "code": code})
+
+    def _assert_no_live_tokens(self) -> None:
+        self.assertFalse(OAuthAccessToken.objects.filter(application=self.confidential_application).exists())
+        self.assertFalse(
+            OAuthRefreshToken.objects.filter(application=self.confidential_application, revoked__isnull=True).exists()
+        )
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_code_exchange_racing_app_revoke_is_rejected(self):
+        # The race leaves this committed state at mint time: sessions_revoked_at stamped, grant
+        # predating it. Stamping without the full revoke (which also deletes the grant — covered
+        # by the validate-then-revoke test below) exercises the timestamp branch.
+        code = self._authorize_and_get_code()
+
+        with freeze_time("2026-01-01 00:00:05"):
+            self.confidential_application.sessions_revoked_at = timezone.now()
+            self.confidential_application.save()
+
+            response = self._exchange_code(code)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
+        self.assertEqual(response["Content-Type"], "application/json")
+        self._assert_no_live_tokens()
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_code_exchange_validated_before_app_revoke_is_rejected(self):
+        # oauthlib validates the grant in autocommit, before save_bearer_token's transaction, so
+        # revoke_application_sessions can commit (deleting the grant and stamping) after
+        # validation but before the mint. Inject the revoke right before save_bearer_token to
+        # reproduce that interleaving deterministically; the mint-time check then sees the grant
+        # missing with the stamp set.
+        code = self._authorize_and_get_code()
+        real_save_bearer_token = OAuthValidator.save_bearer_token
+
+        def revoke_then_save(validator, token, oauth_request, *args, **kwargs):
+            revoke_application_sessions(self.confidential_application)
+            return real_save_bearer_token(validator, token, oauth_request, *args, **kwargs)
+
+        with (
+            freeze_time("2026-01-01 00:00:05"),
+            patch.object(OAuthValidator, "save_bearer_token", revoke_then_save),
+        ):
+            response = self._exchange_code(code)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
+        self._assert_no_live_tokens()
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_code_exchange_succeeds_for_grant_issued_after_revoke(self):
+        # A grant created after the revoke stamp (i.e. the user re-authorized) exchanges normally.
+        self.confidential_application.sessions_revoked_at = timezone.now()
+        self.confidential_application.save()
+
+        with freeze_time("2026-01-01 00:00:05"):
+            code = self._authorize_and_get_code()
+            response = self._exchange_code(code)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access_token", response.json())
+
+    @parameterized.expand(
+        [
+            ("tightened_ceiling", ["experiment:read"], "*", {"*"}),
+            ("empty_ceiling", [], "*", {"*"}),
+            ("wildcard_with_oidc", ["experiment:read"], "* openid", {"*", "openid"}),
+        ]
+    )
+    def test_refresh_leaves_wildcard_token_untouched(self, _name, ceiling, token_scope, expected):
+        # Wildcard narrowing is deferred to #60342: a `*` token must refresh into the
+        # exact same scope set, never narrowed down (an empty scope is rejected by
+        # APIScopePermission and would break the long-lived `*` CLI/MCP sessions).
+        self.confidential_application.scopes = ceiling
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair(token_scope)
+
+        self.assertEqual(self._refresh_and_get_scopes(refresh_token), expected)
+
+    @parameterized.expand(
+        [
+            ("oidc_only_survives_nonoverlapping_ceiling", "openid", ["experiment:read"], {"openid"}),
+            ("oidc_survives_while_resource_scope_drops", "openid insight:read", ["experiment:read"], {"openid"}),
+        ]
+    )
+    def test_refresh_always_allowed_scopes_bypass_ceiling(self, _name, token_scope, ceiling, expected):
+        # OIDC/introspection scopes are identity/token-management, not resource
+        # permissions: they survive refresh even against a ceiling they don't overlap,
+        # and they keep a token alive when every resource scope is narrowed away.
+        self.confidential_application.scopes = ceiling
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair(token_scope)
+
+        self.assertEqual(self._refresh_and_get_scopes(refresh_token), expected)
+
+    def test_get_original_scopes_resolves_ceiling_from_token_when_client_missing(self):
+        # oauthlib doesn't always populate `request.client` during the refresh grant,
+        # so the override falls back to resolving the application (and its ceiling)
+        # from the refresh-token row. Exercise that branch directly.
+        self.confidential_application.scopes = ["experiment:read"]
+        self.confidential_application.save()
+        refresh_token = self._create_refreshable_token_pair("openid experiment:read insight:read")
+
+        validator = OAuthValidator()
+        request = SimpleNamespace(client=None)
+        with patch(
+            "oauth2_provider.oauth2_validators.OAuth2Validator.get_original_scopes",
+            return_value="openid experiment:read insight:read",
+        ):
+            result = validator.get_original_scopes(refresh_token.token, request)
+
+        self.assertEqual(set(result), {"openid", "experiment:read"})
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_narrowed_scopes_persist_across_multiple_refreshes(self):
+        # After a narrowed refresh, the rotated token already carries the narrowed
+        # set, so a second refresh must hold steady rather than re-broaden.
         self.confidential_application.scopes = ["experiment:read"]
         self.confidential_application.save()
 
-        refresh_token = self._create_refreshable_token_pair("*")
+        refresh_token = self._create_refreshable_token_pair("openid experiment:read insight:read")
 
-        # Wildcard narrowing is deferred to #60342; the token must keep working.
-        self.assertIn("*", self._refresh_and_get_scopes(refresh_token))
+        first = self._refresh(refresh_token.token)
+        first_scopes = set(OAuthAccessToken.objects.get(token=first["access_token"]).scope.split())
+        self.assertEqual(first_scopes, {"openid", "experiment:read"})
+
+        second = self._refresh(first["refresh_token"])
+        second_scopes = set(OAuthAccessToken.objects.get(token=second["access_token"]).scope.split())
+        self.assertEqual(second_scopes, {"openid", "experiment:read"})
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_refresh_rejected_outside_ceiling_does_not_revoke_token(self):
+        # The zero-overlap rejection bounces the single request without revoking the
+        # token: re-widening the ceiling lets the very same refresh token work again.
+        self.confidential_application.scopes = ["experiment:read"]
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair("insight:read")
+        refresh_data = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token.token,
+            "client_id": self.confidential_application.client_id,
+            "client_secret": "test_confidential_client_secret",
+        }
+
+        rejected = self.post("/oauth/token/", refresh_data)
+        self.assertEqual(rejected.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(rejected.json()["error"], "invalid_grant")
+
+        refresh_token.refresh_from_db()
+        self.assertIsNone(refresh_token.revoked)
+
+        self.confidential_application.scopes = ["experiment:read", "insight:read"]
+        self.confidential_application.save()
+        retry = self.post("/oauth/token/", refresh_data)
+        self.assertEqual(retry.status_code, status.HTTP_200_OK)
+        retry_scopes = set(OAuthAccessToken.objects.get(token=retry.json()["access_token"]).scope.split())
+        self.assertEqual(retry_scopes, {"insight:read"})
 
     def test_refresh_with_injected_code_does_not_escalate_scopes(self):
         """A refresh request that includes a `code` parameter from a broader-scope
@@ -2362,11 +2663,27 @@ class TestOAuthAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("ceiling_excludes_requested", ["experiment:read"], "experiment:write"),
-            ("empty_ceiling_rejects_privileged", [], "llm_gateway:read"),
+            (
+                "ceiling_excludes_requested",
+                ["experiment:read"],
+                "experiment:write",
+                "experiment:write",
+                ["experiment:write"],
+            ),
+            ("empty_ceiling_rejects_privileged", [], "llm_gateway:read", "llm_gateway:read", ["llm_gateway:read"]),
+            # mixed grantable + out-of-ceiling scope: requested records the full set, rejected pins to just the offender
+            (
+                "mixed_scope_isolates_offender",
+                ["experiment:read"],
+                "experiment:read%20experiment:write",
+                "experiment:read experiment:write",
+                ["experiment:write"],
+            ),
         ]
     )
-    def test_authorize_rejection_captures_invalid_scope_event(self, _name, ceiling, requested_scope):
+    def test_authorize_rejection_captures_invalid_scope_event(
+        self, _name, ceiling, requested_scope, expected_requested_scopes, expected_rejected_scopes
+    ):
         self._set_ceiling(*ceiling)
         with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
             response = self.client.get(f"{self.base_authorization_url}&scope={requested_scope}")
@@ -2381,6 +2698,8 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(props["registration_type"], "manual")
         self.assertEqual(props["is_verified"], self.confidential_application.is_verified)
         self.assertEqual(props["is_first_party"], self.confidential_application.is_first_party)
+        self.assertEqual(props["requested_scopes"], expected_requested_scopes)
+        self.assertEqual(props["rejected_scopes"], expected_rejected_scopes)
 
     def test_authorize_success_does_not_capture_invalid_scope_event(self):
         self._set_ceiling("experiment:read")
@@ -3343,3 +3662,44 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         response = self.client.get("/.well-known/oauth-authorization-server")
         metadata = response.json()
         self.assertNotIn("posthog_region", metadata)
+
+
+class TestOIDCInactiveKeysSetting(SimpleTestCase):
+    """OIDC_RSA_PRIVATE_KEYS_INACTIVE is assembled from two env vars so multi-line PEMs
+    don't need delimiter parsing. Only keys that are actually set may be included — an
+    empty entry would break the JWKS endpoint (see test_jwks_endpoint_errors_when_an_inactive_key_is_empty).
+
+    Reloading posthog.settings.web only rebinds names in that module; django.conf.settings
+    is populated from the posthog.settings package and is unaffected, so this stays isolated.
+    """
+
+    @parameterized.expand(
+        [
+            ("both_unset", None, None, []),
+            ("both_blank", "", "", []),
+            ("only_first_set", "key-1", None, ["key-1"]),
+            ("only_second_set", None, "key-2", ["key-2"]),
+            ("first_blank_second_set", "", "key-2", ["key-2"]),
+            ("both_set", "key-1", "key-2", ["key-1", "key-2"]),
+        ]
+    )
+    def test_inactive_keys_built_from_env_vars(self, _name, env_1, env_2, expected):
+        env_vars = {
+            "OIDC_RSA_PRIVATE_KEY_INACTIVE_1": env_1,
+            "OIDC_RSA_PRIVATE_KEY_INACTIVE_2": env_2,
+        }
+        overrides = {var: value for var, value in env_vars.items() if value is not None}
+
+        web_settings = importlib.import_module("posthog.settings.web")
+        try:
+            with patch.dict(os.environ, overrides, clear=False):
+                for var, value in env_vars.items():
+                    if value is None:
+                        os.environ.pop(var, None)
+                importlib.reload(web_settings)
+                self.assertEqual(web_settings.OIDC_RSA_PRIVATE_KEYS_INACTIVE, expected)
+                self.assertNotIn("", web_settings.OIDC_RSA_PRIVATE_KEYS_INACTIVE)
+        finally:
+            # Restore module attributes to the real environment (patch.dict has already
+            # restored os.environ by this point, so this reload sees the original vars).
+            importlib.reload(web_settings)
