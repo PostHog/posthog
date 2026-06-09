@@ -1,5 +1,6 @@
-import { LemonCollapse } from '@posthog/lemon-ui'
 import { JSX, useEffect, useState } from 'react'
+
+import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { Step, StepList } from '../StepList'
 

@@ -11,14 +11,7 @@
  * identical to the reference so downstream legends line up.
  */
 
-export type ContextCategoryKey =
-    | 'systemPrompt'
-    | 'tools'
-    | 'rules'
-    | 'skills'
-    | 'mcp'
-    | 'subagents'
-    | 'conversation'
+export type ContextCategoryKey = 'systemPrompt' | 'tools' | 'rules' | 'skills' | 'mcp' | 'subagents' | 'conversation'
 
 export interface CategoryStyle {
     key: ContextCategoryKey

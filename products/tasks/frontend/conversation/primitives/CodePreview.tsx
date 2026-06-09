@@ -146,12 +146,7 @@ function PlainCodePreview({
             {showPath && filePath && <PreviewPath filePath={filePath} />}
             <div className="overflow-auto text-[12px]" style={maxHeight ? { maxHeight } : { maxHeight: '750px' }}>
                 {lines.map((line, index) => (
-                    <CodeListingLine
-                        key={index}
-                        lineNumber={firstLineNumber + index}
-                        text={line}
-                        language={language}
-                    />
+                    <CodeListingLine key={index} lineNumber={firstLineNumber + index} text={line} language={language} />
                 ))}
             </div>
         </PreviewContainer>
@@ -208,7 +203,7 @@ export function computeLineDiff(oldText: string, newText: string): DiffLine[] {
     const m = newLines.length
 
     // lcs[i][j] = length of LCS of oldLines[i:] and newLines[j:].
-    const lcs: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0))
+    const lcs: number[][] = Array.from({ length: n + 1 }, () => Array.from<number>({ length: m + 1 }).fill(0))
     for (let i = n - 1; i >= 0; i--) {
         for (let j = m - 1; j >= 0; j--) {
             lcs[i][j] = oldLines[i] === newLines[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1])
@@ -273,8 +268,7 @@ function DiffLineRow({ line, language }: { line: DiffLine; language: Language })
     const background =
         line.kind === 'added' ? 'bg-success-highlight' : line.kind === 'removed' ? 'bg-danger-highlight' : ''
     const marker = line.kind === 'added' ? '+' : line.kind === 'removed' ? '-' : ' '
-    const markerColor =
-        line.kind === 'added' ? 'text-success' : line.kind === 'removed' ? 'text-danger' : 'text-muted'
+    const markerColor = line.kind === 'added' ? 'text-success' : line.kind === 'removed' ? 'text-danger' : 'text-muted'
 
     return (
         <div className={`flex items-start ${background}`}>

@@ -1,5 +1,6 @@
-import { Spinner } from '@posthog/lemon-ui'
 import { JSX } from 'react'
+
+import { Spinner } from '@posthog/lemon-ui'
 
 interface StatusNotificationViewProps {
     status: string

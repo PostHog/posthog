@@ -1,5 +1,6 @@
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { JSX, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import type { AcpMessage, QueuedMessage } from './acp-types'
 import type { ConversationItem, TurnContext } from './buildConversationItems'
@@ -11,8 +12,8 @@ import { QueuedMessageView } from './messages/QueuedMessageView'
 import { UserMessage } from './messages/UserMessage'
 import { UserShellExecuteView } from './messages/UserShellExecuteView'
 import { IconArrowRightDown, IconX } from './primitives/icons'
-import { type RenderItem, SessionUpdateView } from './SessionUpdateView'
 import { SessionFooter } from './SessionFooter'
+import { type RenderItem, SessionUpdateView } from './SessionUpdateView'
 import { useConversationItems } from './useConversationItems'
 
 interface ConversationViewProps {
@@ -104,7 +105,11 @@ export const ConversationView = memo(function ConversationView({
 
     return (
         <div className={`group/thread relative flex h-full flex-col ${className ?? ''}`}>
-            <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-auto bg-bg-3000 px-2 py-1.5">
+            <div
+                ref={scrollContainerRef}
+                onScroll={handleScroll}
+                className="flex-1 overflow-auto bg-bg-3000 px-2 py-1.5"
+            >
                 {items.map((item) => (
                     <div key={item.id} className="mx-auto max-w-4xl px-2 py-1.5">
                         <ConversationItemRow item={item} />
@@ -134,7 +139,12 @@ export const ConversationView = memo(function ConversationView({
             {showScrollButton && (
                 <div className="absolute right-6 bottom-4 z-10">
                     <Tooltip title="Scroll to bottom">
-                        <LemonButton size="small" type="secondary" icon={<IconArrowRightDown />} onClick={scrollToBottom} />
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconArrowRightDown />}
+                            onClick={scrollToBottom}
+                        />
                     </Tooltip>
                 </div>
             )}
@@ -142,7 +152,11 @@ export const ConversationView = memo(function ConversationView({
     )
 })
 
-const ConversationItemRow = memo(function ConversationItemRow({ item }: { item: ConversationItem }): JSX.Element | null {
+const ConversationItemRow = memo(function ConversationItemRow({
+    item,
+}: {
+    item: ConversationItem
+}): JSX.Element | null {
     switch (item.type) {
         case 'user_message':
             return <UserMessage content={item.content} attachments={item.attachments} timestamp={item.timestamp} />
@@ -197,7 +211,8 @@ const TurnCancelledView = memo(function TurnCancelledView({
 }: {
     interruptReason?: string
 }): JSX.Element {
-    const message = interruptReason === 'moving_to_worktree' ? 'Paused while worktree is focused' : 'Interrupted by user'
+    const message =
+        interruptReason === 'moving_to_worktree' ? 'Paused while worktree is focused' : 'Interrupted by user'
 
     return (
         <div className="border-l-2 border-border py-0.5 pl-3">

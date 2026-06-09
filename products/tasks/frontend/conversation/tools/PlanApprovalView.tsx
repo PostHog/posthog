@@ -1,8 +1,9 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { JSX, useMemo, useState } from 'react'
 
-import { MarkdownMessage } from '../primitives/MarkdownMessage'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { IconCheckCircle, IconChevronDown, IconChevronRight, IconList } from '../primitives/icons'
+import { MarkdownMessage } from '../primitives/MarkdownMessage'
 import { type ToolViewProps, useToolCallStatus } from '../primitives/toolCallUtils'
 
 /**

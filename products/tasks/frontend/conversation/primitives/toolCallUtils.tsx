@@ -1,5 +1,6 @@
-import { Spinner as LemonSpinner } from '@posthog/lemon-ui'
 import { JSX, ReactNode } from 'react'
+
+import { Spinner as LemonSpinner } from '@posthog/lemon-ui'
 
 import { ToolCall, ToolCallContent } from '../acp-types'
 import { getFileName } from '../lib/path'

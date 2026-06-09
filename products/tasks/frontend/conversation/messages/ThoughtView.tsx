@@ -1,8 +1,8 @@
 import { JSX, memo, useState } from 'react'
 
-import { ExpandableIcon } from '../primitives/toolCallUtils'
 import { IconBrain } from '../primitives/icons'
 import { MarkdownMessage } from '../primitives/MarkdownMessage'
+import { ExpandableIcon } from '../primitives/toolCallUtils'
 
 interface ThoughtViewProps {
     content: string

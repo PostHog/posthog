@@ -1,6 +1,7 @@
+import { JSX, ReactNode } from 'react'
+
 import { IconCloud, IconGitBranch, IconPullRequest, IconRefresh } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
-import { JSX, ReactNode } from 'react'
 
 /**
  * Ported from

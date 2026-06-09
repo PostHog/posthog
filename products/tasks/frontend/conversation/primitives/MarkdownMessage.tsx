@@ -31,7 +31,10 @@ interface MarkdownMessageProps {
  * keeps re-renders cheap and tolerant of partial markdown while a message is
  * still streaming in.
  */
-export const MarkdownMessage = memo(function MarkdownMessage({ content, className }: MarkdownMessageProps): JSX.Element {
+export const MarkdownMessage = memo(function MarkdownMessage({
+    content,
+    className,
+}: MarkdownMessageProps): JSX.Element {
     const id = useId()
     const blocks = useMemo(() => parseMarkdownIntoBlocks(content), [content])
     return (

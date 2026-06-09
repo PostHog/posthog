@@ -101,7 +101,10 @@ export function SessionFooter({
                 {showDuration && (
                     <div className="flex items-center gap-2 min-w-0 select-none text-muted">
                         <IconBrain className="shrink-0" style={{ fontSize: 12 }} />
-                        <span className="truncate text-[13px] text-muted" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                        <span
+                            className="truncate text-[13px] text-muted"
+                            style={{ fontVariantNumeric: 'tabular-nums' }}
+                        >
                             Generated in {formatDuration(lastGenerationDuration)}
                         </span>
                     </div>

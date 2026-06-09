@@ -1,11 +1,11 @@
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { JSX, memo, useEffect, useRef, useState } from 'react'
 
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+
+import type { UserMessageAttachment } from '../buildConversationItems'
 import { IconCheck, IconChevronDown, IconCopy, IconDocument } from '../primitives/icons'
 import { MarkdownMessage } from '../primitives/MarkdownMessage'
 import { hasFileMentions, parseFileMentions } from '../primitives/parseFileMentions'
-
-import type { UserMessageAttachment } from '../buildConversationItems'
 
 export type { UserMessageAttachment }
 
@@ -109,10 +109,7 @@ export const UserMessage = memo(function UserMessage({
                     onClick={() => setIsExpanded((prev) => !prev)}
                     className="mt-1 inline-flex items-center gap-1 text-[12px] text-accent hover:text-accent-highlight"
                 >
-                    <IconChevronDown
-                        className={isExpanded ? 'rotate-180' : undefined}
-                        style={{ fontSize: 12 }}
-                    />
+                    <IconChevronDown className={isExpanded ? 'rotate-180' : undefined} style={{ fontSize: 12 }} />
                     {isExpanded ? 'Show less' : 'Show more'}
                 </button>
             )}

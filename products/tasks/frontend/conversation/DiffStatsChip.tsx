@@ -1,5 +1,6 @@
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { JSX } from 'react'
+
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { IconList } from './primitives/icons'
 

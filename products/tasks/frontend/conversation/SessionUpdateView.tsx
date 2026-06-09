@@ -81,7 +81,9 @@ export const SessionUpdateView = memo(function SessionUpdateView({
                 />
             )
         case 'compact_boundary':
-            return <CompactBoundaryView trigger={item.trigger} preTokens={item.preTokens} contextSize={item.contextSize} />
+            return (
+                <CompactBoundaryView trigger={item.trigger} preTokens={item.preTokens} contextSize={item.contextSize} />
+            )
         case 'status':
             return <StatusNotificationView status={item.status} isComplete={item.isComplete} />
         case 'error':

@@ -1,7 +1,6 @@
 import { JSX, useState } from 'react'
 
 import { compactHomePath } from '../lib/path'
-import { stripAnsi } from '../strip-ansi'
 import { ICONS } from '../primitives/icons'
 import {
     ExpandableIcon,
@@ -14,6 +13,7 @@ import {
     truncateText,
     useToolCallStatus,
 } from '../primitives/toolCallUtils'
+import { stripAnsi } from '../strip-ansi'
 
 const MAX_COMMAND_LENGTH = 120
 
@@ -22,7 +22,12 @@ interface ExecuteRawInput {
     description?: string
 }
 
-export function ExecuteToolView({ toolCall, turnCancelled, turnComplete, expanded = false }: ToolViewProps): JSX.Element {
+export function ExecuteToolView({
+    toolCall,
+    turnCancelled,
+    turnComplete,
+    expanded = false,
+}: ToolViewProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(expanded)
     const { status, rawInput, content, title } = toolCall
     const { isLoading, isFailed, wasCancelled } = useToolCallStatus(status, turnCancelled, turnComplete)
@@ -43,10 +48,7 @@ export function ExecuteToolView({ toolCall, turnCancelled, turnComplete, expande
 
     return (
         <div className="py-0.5">
-            <div
-                className={`group flex min-w-0 gap-2 ${isExpandable ? 'cursor-pointer' : ''}`}
-                onClick={handleClick}
-            >
+            <div className={`group flex min-w-0 gap-2 ${isExpandable ? 'cursor-pointer' : ''}`} onClick={handleClick}>
                 <div className="shrink-0 pt-px">
                     <ExpandableIcon
                         icon={ICONS.Terminal}

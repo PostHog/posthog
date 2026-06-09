@@ -1,5 +1,6 @@
-import { IconDocument } from '@posthog/icons'
 import { JSX, useState } from 'react'
+
+import { IconDocument } from '@posthog/icons'
 
 import { CodePreview } from '../primitives/CodePreview'
 import { FileMentionChip } from '../primitives/FileMentionChip'

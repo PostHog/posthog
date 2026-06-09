@@ -1,9 +1,8 @@
 import { JSX, memo } from 'react'
 
 import { ToolCallContent } from '../acp-types'
-import { ExecuteToolView } from '../tools/ExecuteToolView'
-
 import type { UserShellExecute } from '../buildConversationItems'
+import { ExecuteToolView } from '../tools/ExecuteToolView'
 
 export type { UserShellExecute }
 
@@ -18,9 +17,7 @@ export const UserShellExecuteView = memo(function UserShellExecuteView({
     const status = isInProgress ? 'in_progress' : 'completed'
     const output = item.result ? item.result.stdout || item.result.stderr || '' : ''
 
-    const content: ToolCallContent[] = output
-        ? [{ type: 'content', content: { type: 'text', text: output } }]
-        : []
+    const content: ToolCallContent[] = output ? [{ type: 'content', content: { type: 'text', text: output } }] : []
 
     return (
         <div className="border-l-2 border-accent pl-2">

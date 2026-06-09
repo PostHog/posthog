@@ -1,5 +1,6 @@
-import { IconCheckCircle, IconCircleDashed, IconSpinner, IconX } from '@posthog/icons'
 import { JSX } from 'react'
+
+import { IconCheckCircle, IconCircleDashed, IconSpinner, IconX } from '@posthog/icons'
 
 /**
  * Ported from apps/code/src/renderer/components/ui/StepList.tsx.

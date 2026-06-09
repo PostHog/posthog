@@ -1,5 +1,6 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { JSX, useState } from 'react'
+
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { IconBrain, IconCollapse, IconExpand } from '../primitives/icons'
 import { getContentText, LoadingIcon, type ToolViewProps, useToolCallStatus } from '../primitives/toolCallUtils'

@@ -1,5 +1,6 @@
-import { IconFolder, IconWarning } from '@posthog/icons'
 import { memo, type ReactNode } from 'react'
+
+import { IconFolder, IconWarning } from '@posthog/icons'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
@@ -42,9 +43,7 @@ export const hasFileMentions = hasMentionTags
 /** Generic, non-clickable inline chip (slash commands, folders, error context). */
 function GenericMentionChip({ icon, label }: { icon: ReactNode; label: string }): JSX.Element {
     return (
-        <span
-            className="mx-0.5 inline-flex min-w-0 max-w-full items-center gap-1 rounded bg-accent-highlight px-1 py-px align-middle text-[13px] font-medium text-accent"
-        >
+        <span className="mx-0.5 inline-flex min-w-0 max-w-full items-center gap-1 rounded bg-accent-highlight px-1 py-px align-middle text-[13px] font-medium text-accent">
             {icon}
             <span className="truncate">{label}</span>
         </span>

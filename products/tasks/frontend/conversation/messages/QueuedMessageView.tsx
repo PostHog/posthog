@@ -1,5 +1,6 @@
-import { IconClock } from '@posthog/icons'
 import { JSX } from 'react'
+
+import { IconClock } from '@posthog/icons'
 
 import { QueuedMessage } from '../acp-types'
 import { MarkdownMessage } from '../primitives/MarkdownMessage'

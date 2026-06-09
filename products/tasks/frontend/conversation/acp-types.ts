@@ -140,7 +140,17 @@ export type ContentBlock = TextContent | ImageContent | AudioContent | ResourceL
 
 export type ToolCallStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
 
-export type ToolKind = 'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'think' | 'fetch' | 'switch_mode' | 'other'
+export type ToolKind =
+    | 'read'
+    | 'edit'
+    | 'delete'
+    | 'move'
+    | 'search'
+    | 'execute'
+    | 'think'
+    | 'fetch'
+    | 'switch_mode'
+    | 'other'
 
 /** PostHog adds a synthetic `question` kind on top of the ACP kinds. */
 export type CodeToolKind = ToolKind | 'question'

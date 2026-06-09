@@ -1,9 +1,9 @@
 import { JSX, useState } from 'react'
 
 import type { ConversationItem, TurnContext } from '../buildConversationItems'
-import { SessionUpdateView } from '../SessionUpdateView'
 import { IconAI, IconCollapse, IconExpand } from '../primitives/icons'
 import { LoadingIcon, StatusIndicators, type ToolViewProps, useToolCallStatus } from '../primitives/toolCallUtils'
+import { SessionUpdateView } from '../SessionUpdateView'
 
 interface SubagentToolViewProps extends ToolViewProps {
     childItems: ConversationItem[]

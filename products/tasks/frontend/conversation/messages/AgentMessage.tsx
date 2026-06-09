@@ -1,5 +1,6 @@
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { JSX, memo, useCallback, useState } from 'react'
+
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { IconCheck, IconCopy } from '../primitives/icons'
 import { MarkdownMessage } from '../primitives/MarkdownMessage'

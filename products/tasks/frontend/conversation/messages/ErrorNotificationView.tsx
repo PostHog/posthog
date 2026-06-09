@@ -11,9 +11,7 @@ export function ErrorNotificationView({ errorType, message }: ErrorNotificationV
     // Context-related errors get a softer warning treatment with a recovery tip.
     const isContextError = errorType === 'invalid_request'
 
-    const containerClass = isContextError
-        ? 'bg-warning-highlight text-warning'
-        : 'bg-danger-highlight text-danger'
+    const containerClass = isContextError ? 'bg-warning-highlight text-warning' : 'bg-danger-highlight text-danger'
 
     return (
         <div className="my-2">

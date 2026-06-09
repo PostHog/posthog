@@ -1,5 +1,6 @@
-import { LemonTag } from '@posthog/lemon-ui'
 import { JSX } from 'react'
+
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { formatTokensCompact } from '../lib/contextColors'
 import { IconRefresh } from '../primitives/icons'

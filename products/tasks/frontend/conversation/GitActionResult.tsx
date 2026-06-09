@@ -1,6 +1,7 @@
+import { JSX } from 'react'
+
 import { IconCheckCircle, IconCommit, IconExternal, IconPullRequest } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
-import { JSX } from 'react'
 
 import { GitActionType } from './GitActionMessage'
 

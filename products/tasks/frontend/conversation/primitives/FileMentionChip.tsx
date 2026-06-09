@@ -1,5 +1,6 @@
-import { IconDocument } from '@posthog/icons'
 import { memo } from 'react'
+
+import { IconDocument } from '@posthog/icons'
 
 import { getFileName } from '../lib/path'
 

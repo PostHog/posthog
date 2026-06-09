@@ -283,8 +283,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         // no stream events have arrived yet (historical/replayed runs).
         events: [
             (s) => [s.streamEvents, s.parsedLogEvents],
-            (streamEvents, parsedLogEvents): AcpMessage[] =>
-                streamEvents.length > 0 ? streamEvents : parsedLogEvents,
+            (streamEvents, parsedLogEvents): AcpMessage[] => (streamEvents.length > 0 ? streamEvents : parsedLogEvents),
         ],
     }),
 

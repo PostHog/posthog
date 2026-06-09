@@ -91,10 +91,7 @@ export function ToolCallView({
 
     return (
         <div className="py-0.5">
-            <div
-                className={`group flex min-w-0 gap-2 ${isExpandable ? 'cursor-pointer' : ''}`}
-                onClick={handleClick}
-            >
+            <div className={`group flex min-w-0 gap-2 ${isExpandable ? 'cursor-pointer' : ''}`} onClick={handleClick}>
                 <div className="shrink-0 pt-px">
                     <ExpandableIcon
                         icon={KindIcon}
