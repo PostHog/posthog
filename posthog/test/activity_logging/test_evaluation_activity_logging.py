@@ -4,9 +4,9 @@ from rest_framework import status
 
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
-from products.llm_analytics.backend.models.evaluations import Evaluation
-from products.llm_analytics.backend.models.model_configuration import LLMModelConfiguration
-from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
+from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
+from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 
 def _create_evaluation_payload(**overrides: Any) -> dict[str, Any]:

@@ -3,7 +3,16 @@ from typing import Optional
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
-from posthog.schema import ActionConversionGoal, CalendarHeatmapQuery, CustomEventConversionGoal, DateRange, EventsNode
+from parameterized import parameterized
+
+from posthog.schema import (
+    ActionConversionGoal,
+    CalendarHeatmapFilter,
+    CalendarHeatmapQuery,
+    CustomEventConversionGoal,
+    DateRange,
+    EventsNode,
+)
 
 from posthog.hogql_queries.insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
 from posthog.models.utils import uuid7
@@ -1323,11 +1332,32 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert (date_to_explicit.hour, date_to_explicit.minute, date_to_explicit.second) == (14, 32, 11)
         assert (date_to_explicit - date_from_explicit).total_seconds() == 7 * 24 * 60 * 60
 
-    def test_unique_users_buckets_per_event_not_per_session(self):
-        # Regression test: with `dau` math, every (day-of-week, hour) bucket the user touched
-        # must report the user — not just the bucket containing the session's first event.
-        # All events below share one session_id, so the previous templateUniqueUsers
-        # implementation would only count the user in the 23:00 bucket of Saturday.
+    @parameterized.expand(
+        [
+            # Default mode (post-#57296): user contributes to every (day-of-week, hour) bucket they have
+            # an event in. All three cells get the user.
+            (
+                "per_event_bucket_default",
+                None,
+                {(6, 23): 1, (7, 0): 1, (7, 1): 1},
+            ),
+            (
+                "per_event_bucket_explicit_false",
+                CalendarHeatmapFilter(bucketBySessionStart=False),
+                {(6, 23): 1, (7, 0): 1, (7, 1): 1},
+            ),
+            # Session-start mode (restored pre-#57296 behaviour, opt-in): user contributes only to the
+            # bucket of their session's first event — matches web overview's session-start attribution.
+            (
+                "per_session_bucket_when_opted_in",
+                CalendarHeatmapFilter(bucketBySessionStart=True),
+                {(6, 23): 1},
+            ),
+        ]
+    )
+    def test_unique_users_bucket_attribution(
+        self, _name: str, calendar_filter: Optional[CalendarHeatmapFilter], expected: dict[tuple[int, int], int]
+    ) -> None:
         shared_session_id = str(uuid7())
         timestamps = [
             "2023-12-02 23:50:00",  # Saturday 23:00
@@ -1351,13 +1381,87 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties=[],
             filterTestAccounts=False,
             series=[EventsNode(kind="EventsNode", math="dau")],
+            calendarHeatmapFilter=calendar_filter,
         )
         response = CalendarHeatmapQueryRunner(team=self.team, query=query).calculate()
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
 
-        assert results_dict.get((6, 23)) == 1, f"Expected 1 unique user at Sat 23:00, got {results_dict.get((6, 23))}"
-        assert results_dict.get((7, 0)) == 1, f"Expected 1 unique user at Sun 00:00, got {results_dict.get((7, 0))}"
-        assert results_dict.get((7, 1)) == 1, f"Expected 1 unique user at Sun 01:00, got {results_dict.get((7, 1))}"
+        for cell, expected_value in expected.items():
+            assert results_dict.get(cell) == expected_value, (
+                f"Expected {expected_value} at {cell}, got {results_dict.get(cell)}"
+            )
+        # Cells outside the expected set must be empty so the modes can't silently overlap.
+        for cell, value in results_dict.items():
+            if cell not in expected:
+                assert value == 0, f"Unexpected non-zero count at {cell}: {value}"
         assert response.results.allAggregations == 1, (
             f"Expected 1 unique user total, got {response.results.allAggregations}"
         )
+
+    def test_session_bucket_does_not_collapse_missing_session_ids(self) -> None:
+        # Two distinct visitors hit a page in the same hour, but neither event
+        # carries a `$session_id`. Without the IS NOT NULL filter inside
+        # `uniqueSessionEvents` they would group into one synthetic session and
+        # `any(person_id)` would pick a single visitor — undercounting the
+        # bucket. The fix drops null-session events entirely so the count
+        # reflects only attributable sessions.
+        _create_person(team_id=self.team.pk, distinct_ids=["userA"], properties={"name": "userA"})
+        _create_person(team_id=self.team.pk, distinct_ids=["userB"], properties={"name": "userB"})
+        for distinct_id in ("userA", "userB"):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp="2023-12-03 01:30:00",
+                uuid=str(uuid7()),
+                properties={},  # no $session_id
+            )
+
+        query = CalendarHeatmapQuery(
+            dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-04"),
+            properties=[],
+            filterTestAccounts=False,
+            series=[EventsNode(kind="EventsNode", math="dau")],
+            calendarHeatmapFilter=CalendarHeatmapFilter(bucketBySessionStart=True),
+        )
+        response = CalendarHeatmapQueryRunner(team=self.team, query=query).calculate()
+
+        assert response.results.allAggregations == 0
+        assert response.results.data == []
+
+    def test_session_bucket_ignores_pre_lookback_session_start(self) -> None:
+        # A session whose first event is older than the 24h lookback applied to
+        # `uniqueSessionEvents` would, before the bound, scan unbounded history
+        # and surface here. After the bound, the scan misses the pre-window
+        # event and the only remaining timestamps fall inside the requested
+        # range — so the session is attributed to those in-range events instead
+        # of being discarded. This documents the documented trade-off in the
+        # template comment (sessions continuously open > 24h get re-attributed).
+        shared_session_id = str(uuid7())
+        _create_person(team_id=self.team.pk, distinct_ids=["userA"], properties={"name": "userA"})
+        timestamps = [
+            "2023-11-29 12:00:00",  # > 24h before date_from
+            "2023-12-03 01:30:00",  # inside the requested window
+        ]
+        for ts in timestamps:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="userA",
+                timestamp=ts,
+                uuid=str(uuid7()),
+                properties={"$session_id": shared_session_id},
+            )
+
+        query = CalendarHeatmapQuery(
+            dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-04"),
+            properties=[],
+            filterTestAccounts=False,
+            series=[EventsNode(kind="EventsNode", math="dau")],
+            calendarHeatmapFilter=CalendarHeatmapFilter(bucketBySessionStart=True),
+        )
+        response = CalendarHeatmapQueryRunner(team=self.team, query=query).calculate()
+
+        results_dict = {(r.row, r.column): r.value for r in response.results.data}
+        assert results_dict.get((7, 1)) == 1, f"Expected 1 visitor at (Sun, 01h), got {results_dict}"
+        assert response.results.allAggregations == 1

@@ -1,0 +1,77 @@
+import { actions, connect, kea, path, reducers } from 'kea'
+import { loaders } from 'kea-loaders'
+
+import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { teamLogic } from 'scenes/teamLogic'
+
+import type { llmEvaluationExecutionLogicType } from './llmEvaluationExecutionLogicType'
+
+export const llmEvaluationExecutionLogic = kea<llmEvaluationExecutionLogicType>([
+    path(['products', 'ai_observability', 'frontend', 'llmEvaluationExecutionLogic']),
+    connect(() => ({
+        values: [teamLogic, ['currentTeamId']],
+    })),
+    actions({
+        runEvaluation: (
+            evaluationId: string,
+            targetEventId: string,
+            timestamp: string,
+            event: string,
+            distinctId?: string
+        ) => ({
+            evaluationId,
+            targetEventId,
+            timestamp,
+            event,
+            distinctId,
+        }),
+    }),
+    loaders(({ values }) => ({
+        evaluationRun: [
+            null as { workflow_id: string } | null,
+            {
+                runEvaluation: async ({ evaluationId, targetEventId, timestamp, event, distinctId }) => {
+                    if (!values.currentTeamId) {
+                        throw new Error('No team selected')
+                    }
+
+                    try {
+                        const payload: {
+                            evaluation_id: string
+                            target_event_id: string
+                            timestamp: string
+                            event: string
+                            distinct_id?: string
+                        } = {
+                            evaluation_id: evaluationId,
+                            target_event_id: targetEventId,
+                            timestamp: timestamp,
+                            event: event,
+                        }
+
+                        if (distinctId) {
+                            payload.distinct_id = distinctId
+                        }
+
+                        const response = await api.evaluationRuns.create(payload)
+
+                        lemonToast.success('Evaluation started successfully')
+                        return response
+                    } catch (error) {
+                        lemonToast.error('Failed to start evaluation')
+                        throw error
+                    }
+                },
+            },
+        ],
+    })),
+    reducers({
+        lastRunWorkflowId: [
+            null as string | null,
+            {
+                runEvaluationSuccess: (_, { evaluationRun }) => evaluationRun?.workflow_id || null,
+            },
+        ],
+    }),
+])

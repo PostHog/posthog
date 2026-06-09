@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { parseRequestProperties } from '@/lib/request-properties'
 import { parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 
 function parseIdFromRequest(
@@ -218,6 +219,38 @@ describe('URL Routing', () => {
 
             // Mirrors the merge order in `src/index.ts` — header wins over query param.
             expect(parseMcpMode(headerValue || queryValue)).toBe(expected)
+        })
+    })
+
+    describe('shared request property mode parsing', () => {
+        it('uses header mode before URL mode', () => {
+            const request = new Request('https://example.com/mcp?mode=tools', {
+                headers: {
+                    Authorization: 'Bearer phx_test',
+                    'x-posthog-mcp-mode': 'cli',
+                },
+            })
+
+            expect(parseRequestProperties(request, {}).mode).toBe('cli')
+        })
+    })
+
+    describe('mcpVendorClient parsing', () => {
+        it('captures x-anthropic-client into mcpVendorClient', () => {
+            const request = new Request('https://example.com/mcp', {
+                headers: {
+                    Authorization: 'Bearer phx_test',
+                    'x-anthropic-client': 'ClaudeCode',
+                },
+            })
+            expect(parseRequestProperties(request, {}).mcpVendorClient).toBe('ClaudeCode')
+        })
+
+        it('returns undefined when x-anthropic-client is missing', () => {
+            const request = new Request('https://example.com/mcp', {
+                headers: { Authorization: 'Bearer phx_test' },
+            })
+            expect(parseRequestProperties(request, {}).mcpVendorClient).toBeUndefined()
         })
     })
 

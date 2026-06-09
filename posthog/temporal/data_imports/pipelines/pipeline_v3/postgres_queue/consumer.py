@@ -21,6 +21,7 @@ import psycopg
 import structlog
 from asgiref.sync import sync_to_async
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import BatchQueue, PendingBatch
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
     ACTIVE_GROUPS,
@@ -32,6 +33,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics 
     RECOVERY_SWEEPS_TOTAL,
     RUNS_FAILED_TOTAL,
 )
+from posthog.temporal.data_imports.pipelines.pipeline_v3.sync_lock import release_v3_pipeline_lock
 
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
@@ -43,6 +45,8 @@ POLL_INTERVAL_SECONDS = 2.0
 
 
 RECOVERY_INTERVAL_SECONDS = 30.0
+RETRY_BACKOFF_BASE_SECONDS = 15
+HEARTBEAT_INTERVAL_SECONDS = 5.0
 
 
 @dataclass
@@ -56,7 +60,14 @@ class ConsumerConfig:
     poll_limit: int = 50
     health_port: int = 8080
     health_timeout_seconds: float = 60.0
+    heartbeat_interval_seconds: float = HEARTBEAT_INTERVAL_SECONDS
     recovery_interval_seconds: float = RECOVERY_INTERVAL_SECONDS
+    retry_backoff_base_seconds: int = RETRY_BACKOFF_BASE_SECONDS
+    recovery_grace_seconds: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.recovery_grace_seconds is None:
+            self.recovery_grace_seconds = int(self.recovery_interval_seconds)
 
 
 class BatchConsumer:
@@ -81,6 +92,7 @@ class BatchConsumer:
         self._conn: psycopg.AsyncConnection[Any] | None = None
         self._recovery_conn: psycopg.AsyncConnection[Any] | None = None
         self._recovery_task: asyncio.Task[None] | None = None
+        self._heartbeat_task: asyncio.Task[None] | None = None
 
     async def run(self) -> None:
         """Main loop: poll → group → process → unlock → repeat."""
@@ -105,6 +117,7 @@ class BatchConsumer:
         try:
             await self._recovery_sweep()
             self._recovery_task = asyncio.create_task(self._recovery_loop())
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
             while not self._shutdown.is_set():
                 if self._health_reporter:
@@ -114,6 +127,7 @@ class BatchConsumer:
                 batches = await BatchQueue.get_unprocessed_and_lock(
                     self._conn,
                     limit=self._config.poll_limit,
+                    retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
                 )
                 POLL_DURATION_SECONDS.observe(time.monotonic() - poll_start)
                 POLL_BATCHES_FETCHED.observe(len(batches))
@@ -161,17 +175,30 @@ class BatchConsumer:
                     logger.info(
                         "shutdown_mid_group",
                         team_id=team_id,
-                        schema_id=schema_id,
+                        external_data_schema_id=schema_id,
+                        batch_id=batch.id,
+                        batch_index=batch.batch_index,
                         remaining=len(batches) - batches.index(batch),
                     )
                     break
-                await self._process_single(batch)
+                succeeded = await self._process_single(batch)
+                if not succeeded:
+                    # Stop processing sibling batches in this group
+                    logger.info(
+                        "group_halted_by_non_success",
+                        team_id=team_id,
+                        external_data_schema_id=schema_id,
+                        run_uuid=batch.run_uuid,
+                        batch_index=batch.batch_index,
+                        remaining=len(batches) - batches.index(batch) - 1,
+                    )
+                    break
         finally:
             self._semaphore.release()
             assert self._conn is not None
             await BatchQueue.unlock_for_batches(self._conn, batches=batches)
 
-    async def _process_single(self, batch: PendingBatch) -> None:
+    async def _process_single(self, batch: PendingBatch) -> bool:
         """Increment attempt, check max retries, then process the batch.
 
         Binds per-batch contextvars so every downstream log line (including loader calls)
@@ -195,9 +222,9 @@ class BatchConsumer:
         # LogMessagesRenderer needs workflow_type/id/run_id + team_id; log_source_id routes the line.
         bound_keys = (
             "team_id",
-            "schema_id",
-            "source_id",
-            "job_id",
+            "external_data_schema_id",
+            "external_data_source_id",
+            "external_data_job_id",
             "run_uuid",
             "batch_id",
             "resource_name",
@@ -209,9 +236,9 @@ class BatchConsumer:
         )
         structlog.contextvars.bind_contextvars(
             team_id=batch.team_id,
-            schema_id=batch.schema_id,
-            source_id=batch.source_id,
-            job_id=batch.job_id,
+            external_data_schema_id=batch.schema_id,
+            external_data_source_id=batch.source_id,
+            external_data_job_id=batch.job_id,
             run_uuid=batch.run_uuid,
             batch_id=batch.id,
             resource_name=batch.resource_name,
@@ -222,12 +249,12 @@ class BatchConsumer:
             attempt=attempt,
         )
         try:
-            await self._process_single_inner(batch, attempt, team_id, schema_id)
+            return await self._process_single_inner(batch, attempt, team_id, schema_id)
         finally:
             # Unbind only the keys we set so any ambient context (parent logger, test setup) survives.
             structlog.contextvars.unbind_contextvars(*bound_keys)
 
-    async def _process_single_inner(self, batch: PendingBatch, attempt: int, team_id: str, schema_id: str) -> None:
+    async def _process_single_inner(self, batch: PendingBatch, attempt: int, team_id: str, schema_id: str) -> bool:
         assert self._conn is not None
 
         # Check before we even try — if already at max, fail the whole run.
@@ -236,10 +263,11 @@ class BatchConsumer:
                 "batch_max_retries_exceeded",
                 batch_id=batch.id,
                 run_uuid=batch.run_uuid,
+                batch_index=batch.batch_index,
                 attempt=attempt,
             )
             await self._fail_run(batch, reason=f"max retries exceeded (attempt {attempt})")
-            return
+            return False
 
         logger.info(
             "batch_picked_up",
@@ -281,6 +309,7 @@ class BatchConsumer:
                 is_final_batch=batch.is_final_batch,
                 duration_seconds=round(duration, 3),
             )
+            return True
         except Exception as e:
             BATCHES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="error").inc()
             BATCH_RETRY_TOTAL.labels(attempt=str(attempt), error_type=type(e).__name__).inc()
@@ -290,6 +319,7 @@ class BatchConsumer:
                     "batch_failed_no_retries_left",
                     batch_id=batch.id,
                     run_uuid=batch.run_uuid,
+                    batch_index=batch.batch_index,
                     attempt=attempt,
                 )
                 await self._fail_run(batch, reason=f"max retries exceeded: {e}")
@@ -297,6 +327,7 @@ class BatchConsumer:
                 logger.warning(
                     "batch_failed_will_retry",
                     batch_id=batch.id,
+                    batch_index=batch.batch_index,
                     attempt=attempt,
                     error=str(e),
                 )
@@ -307,6 +338,7 @@ class BatchConsumer:
                     attempt=attempt,
                     error_response={"error": str(e)[:1000]},
                 )
+            return False
 
     async def _fail_run(
         self,
@@ -327,6 +359,23 @@ class BatchConsumer:
             error=reason,
         )
 
+        workflow_run_id = batch.metadata.get("workflow_run_id")
+        if workflow_run_id:
+            try:
+                await sync_to_async(release_v3_pipeline_lock)(
+                    team_id=batch.team_id,
+                    schema_id=batch.schema_id,
+                    token=workflow_run_id,
+                )
+            except Exception as e:
+                logger.error(
+                    "failed_to_release_v3_pipeline_lock",
+                    job_id=batch.job_id,
+                    schema_id=batch.schema_id,
+                    exc_info=True,
+                )
+                capture_exception(e)
+
     async def _recovery_loop(self) -> None:
         """Run recovery sweeps periodically until shutdown."""
         while not self._shutdown.is_set():
@@ -346,12 +395,27 @@ class BatchConsumer:
             except Exception:
                 logger.exception("recovery_sweep_error")
 
+    async def _heartbeat_loop(self) -> None:
+        """Report liveness on a fixed cadence, independent of batch processing."""
+        while not self._shutdown.is_set():
+            if self._health_reporter:
+                self._health_reporter()
+            try:
+                await asyncio.wait_for(
+                    self._shutdown.wait(),
+                    timeout=self._config.heartbeat_interval_seconds,
+                )
+            except TimeoutError:
+                pass
+
     async def _recovery_sweep(self) -> None:
         """Recover batches left in 'executing' by a crashed pod."""
         conn = self._recovery_conn or self._conn
         assert conn is not None
 
-        stale = await BatchQueue.get_stale_executing(conn)
+        grace_seconds = self._config.recovery_grace_seconds
+        assert grace_seconds is not None
+        stale = await BatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
         if not stale:
             RECOVERY_SWEEPS_TOTAL.labels(outcome="clean").inc()
             return
@@ -359,18 +423,54 @@ class BatchConsumer:
         RECOVERY_SWEEPS_TOTAL.labels(outcome="orphans_found").inc()
         logger.info("recovery_sweep_found_stale_batches", count=len(stale))
 
+        recovery_bound_keys = (
+            "team_id",
+            "external_data_schema_id",
+            "external_data_source_id",
+            "external_data_job_id",
+            "run_uuid",
+            "batch_id",
+            "resource_name",
+            "log_source_id",
+            "attempt",
+        )
         for batch in stale:
             # latest_attempt was already incremented before the crash
             # (pre-increment in _process_single), so no +1 needed here.
-            if batch.latest_attempt >= self._config.max_attempts:
-                await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
-            else:
-                await BatchQueue.update_status(
-                    conn,
-                    batch_id=batch.id,
-                    job_state=SourceBatchStatus.State.WAITING_RETRY,
-                    attempt=batch.latest_attempt,
-                )
+            structlog.contextvars.bind_contextvars(
+                team_id=batch.team_id,
+                external_data_schema_id=batch.schema_id,
+                external_data_source_id=batch.source_id,
+                external_data_job_id=batch.job_id,
+                run_uuid=batch.run_uuid,
+                batch_id=batch.id,
+                resource_name=batch.resource_name,
+                log_source_id=batch.schema_id,
+                attempt=batch.latest_attempt,
+            )
+            try:
+                if batch.latest_attempt >= self._config.max_attempts:
+                    logger.warning(
+                        "batch_recovered_max_retries_exceeded",
+                        batch_index=batch.batch_index,
+                        attempt=batch.latest_attempt,
+                    )
+                    await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
+                else:
+                    logger.warning(
+                        "batch_recovered_for_retry",
+                        batch_index=batch.batch_index,
+                        attempt=batch.latest_attempt,
+                    )
+                    await BatchQueue.update_status(
+                        conn,
+                        batch_id=batch.id,
+                        job_state=SourceBatchStatus.State.WAITING_RETRY,
+                        attempt=batch.latest_attempt,
+                        error_response={"error": "executing timed out — pod restart or OOM"},
+                    )
+            finally:
+                structlog.contextvars.unbind_contextvars(*recovery_bound_keys)
 
     def _install_signal_handlers(self) -> None:
         """Wire SIGTERM/SIGINT to trigger graceful shutdown."""
@@ -379,13 +479,14 @@ class BatchConsumer:
             loop.add_signal_handler(sig, self._shutdown.set)
 
     async def _close(self) -> None:
-        """Cancel the recovery task, release all advisory locks, and close both connections."""
-        if self._recovery_task is not None:
-            self._recovery_task.cancel()
-            try:
-                await self._recovery_task
-            except asyncio.CancelledError:
-                pass
+        """Cancel the recovery and heartbeat tasks, release all advisory locks, and close both connections."""
+        for task in (self._recovery_task, self._heartbeat_task):
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
         if self._recovery_conn is not None and not self._recovery_conn.closed:
             await self._recovery_conn.close()

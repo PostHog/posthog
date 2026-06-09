@@ -53,7 +53,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'MCP analytics',
-            intents: [ProductKey.LLM_ANALYTICS],
+            intents: [ProductKey.AI_OBSERVABILITY],
             category: ProductItemCategory.AI_ENGINEERING,
             visualOrder: 2,
             type: 'mcp_analytics',

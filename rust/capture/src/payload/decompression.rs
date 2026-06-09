@@ -8,7 +8,7 @@ use std::io::prelude::*;
 use bytes::Bytes;
 use flate2::read::GzDecoder;
 use metrics;
-use tracing::{debug, error, instrument, warn, Span};
+use tracing::{debug, info, instrument, warn, Span};
 
 use crate::{
     api::CaptureError,
@@ -42,8 +42,7 @@ pub fn decompress_gzip_to_bytes(compressed: &[u8], limit: usize) -> Result<Vec<u
     loop {
         let got = match zipstream.read(&mut chunk) {
             Ok(got) => got,
-            Err(e) => {
-                error!("decompress_gzip_to_bytes: failed to read GZIP chunk: {}", e);
+            Err(_) => {
                 return Err(CaptureError::RequestDecodingError(String::from(
                     "invalid GZIP data",
                 )));
@@ -54,12 +53,6 @@ pub fn decompress_gzip_to_bytes(compressed: &[u8], limit: usize) -> Result<Vec<u
         }
 
         if total_read + got > limit {
-            error!(
-                decompressed_size = total_read + got,
-                compressed_size = len,
-                limit = limit,
-                "decompress_gzip_to_bytes: GZIP decompression would exceed size limit"
-            );
             metrics::counter!(METRIC_PAYLOAD_SIZE_EXCEEDED, "kind" => "gzip").increment(1);
             metrics::histogram!("capture_full_payload_size", "oversize" => "true")
                 .record((total_read + got) as f64);
@@ -131,8 +124,7 @@ pub fn decompress_payload(
 
         match String::from_utf8(buf) {
             Ok(s) => s,
-            Err(e) => {
-                error!("decompress_payload: failed to decode gzip: {e:#}");
+            Err(_) => {
                 return Err(CaptureError::RequestDecodingError(String::from(
                     "invalid gzip data",
                 )));
@@ -143,13 +135,7 @@ pub fn decompress_payload(
             payload_len = bytes.len(),
             "decompress_payload: matched LZ64 compression"
         );
-        match decompress_lz64(&bytes, limit) {
-            Ok(payload) => payload,
-            Err(e) => {
-                error!("decompress_payload: failed LZ64 decompress: {e:#}");
-                return Err(e);
-            }
-        }
+        decompress_lz64(&bytes, limit)?
     } else {
         debug!(
             path = path,
@@ -158,14 +144,13 @@ pub fn decompress_payload(
         );
 
         let s = String::from_utf8(bytes.into()).map_err(|e| {
-            error!(
+            debug!(
                 valid_up_to = &e.utf8_error().valid_up_to(),
                 "decompress_payload: failed to convert request payload to UTF8: {e:#}"
             );
             CaptureError::RequestDecodingError(String::from("invalid UTF8 in request payload"))
         })?;
         if s.len() > limit {
-            error!("decompress_payload: request size limit reached");
             metrics::counter!(METRIC_PAYLOAD_SIZE_EXCEEDED, "kind" => "none").increment(1);
             metrics::histogram!("capture_full_payload_size", "oversize" => "true")
                 .record(s.len() as f64);
@@ -190,8 +175,6 @@ pub fn decompress_payload(
                     Ok(unwrapped_payload) => {
                         let unwrapped_size = unwrapped_payload.len();
                         if unwrapped_size > limit {
-                            error!(unwrapped_size,
-                                    "decompress_payload: request size limit exceeded after post-decode base64 unwrap");
                             report_dropped_events("event_too_big", 1);
                             return Err(CaptureError::EventTooBig(format!(
                                     "decompress_payload: payload size limit {limit} exceeded after post-decode base64 unwrap: {unwrapped_size}",
@@ -200,12 +183,14 @@ pub fn decompress_payload(
                         unwrapped_payload
                     }
                     Err(e) => {
-                        error!("decompress_payload: failed UTF8 conversion after post-decode base64: {e:#}");
+                        info!(
+                            "decompress_payload: failed UTF8 conversion after post-decode base64: {e:#}"
+                        );
                         payload
                     }
                 },
                 Err(e) => {
-                    error!(
+                    info!(
                         path = path,
                         "decompress_payload: failed post-decode base64 unwrap: {e:#}"
                     );

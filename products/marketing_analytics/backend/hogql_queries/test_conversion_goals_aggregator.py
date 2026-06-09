@@ -1,7 +1,11 @@
+import re
+import uuid
+import itertools
 from datetime import datetime
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from posthog.schema import (
     BaseMathType,
@@ -9,32 +13,81 @@ from posthog.schema import (
     ConversionGoalFilter2,
     DateRange,
     MarketingAnalyticsBaseColumns,
-    NodeKind,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.preaggregation.conversion_goal_attributed_sql import (
+    TRUNCATE_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL,
+)
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.actions.backend.models.action import Action
+from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 
 from .conversion_goal_processor import ConversionGoalProcessor
 from .conversion_goals_aggregator import ConversionGoalsAggregator
 from .marketing_analytics_config import MarketingAnalyticsConfig
 
 
+def _deterministic_job_uuid_factory():
+    """Monotonic 00000000-0000-0000-0000-0000000000XX so snapshots are stable."""
+    counter = itertools.count(1)
+
+    def _next() -> uuid.UUID:
+        return uuid.UUID(f"00000000-0000-0000-0000-{next(counter):012d}")
+
+    return _next
+
+
+_JOB_UUID_RE = re.compile(r"'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'")
+
+
+def _normalize_job_uuids(hogql: str) -> str:
+    """Rewrite each distinct job UUID to 001, 002, ... in order of appearance.
+
+    Job ids are generated per run (UUIDv7, time-based), so we normalise any UUID
+    to a clean 001/002/... view that's stable across runs, without losing the
+    distinction when multiple jobs appear.
+    """
+    seen: dict[str, int] = {}
+
+    def _repl(match: re.Match) -> str:
+        raw = match.group(0)
+        if raw not in seen:
+            seen[raw] = len(seen) + 1
+        return f"'00000000-0000-0000-0000-{seen[raw]:012d}'"
+
+    return _JOB_UUID_RE.sub(_repl, hogql)
+
+
 class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
+        sync_execute(TRUNCATE_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL())
+        PreaggregationJob.objects.all().delete()
+        # Force deterministic job_ids so the precompute snapshots are stable in CI.
+        self._job_uuid_patcher = patch.object(
+            PreaggregationJob._meta.get_field("id"),
+            "default",
+            _deterministic_job_uuid_factory(),
+        )
+        self._job_uuid_patcher.start()
         self.config = MarketingAnalyticsConfig.from_team(self.team)
+        self.config.conversion_goal_precomputation_enabled = True
         self.date_range = QueryDateRange(
             date_range=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
             team=self.team,
             interval=None,
             now=datetime(2023, 1, 31, 23, 59, 59),
         )
+
+    def tearDown(self):
+        self._job_uuid_patcher.stop()
+        super().tearDown()
 
     def _create_test_conversion_goal(
         self,
@@ -45,7 +98,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         math_property: str | None = None,
     ) -> ConversionGoalFilter1:
         return ConversionGoalFilter1(
-            kind=NodeKind.EVENTS_NODE,
+            kind="EventsNode",
             event=event_name or goal_name.lower().replace(" ", "_"),
             conversion_goal_id=goal_id,
             conversion_goal_name=goal_name,
@@ -56,8 +109,8 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
     def _create_test_action_goal(self, action: Action, goal_id: str, goal_name: str) -> ConversionGoalFilter2:
         return ConversionGoalFilter2(
-            kind=NodeKind.ACTIONS_NODE,
-            id=str(action.id),
+            kind="ActionsNode",
+            id=action.pk,
             conversion_goal_id=goal_id,
             conversion_goal_name=goal_name,
             math=BaseMathType.TOTAL,
@@ -182,7 +235,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         cte = aggregator.generate_unified_cte(self.date_range, additional_conditions_getter)
         response = execute_hogql_query(query=cte.expr, team=self.team)
 
-        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+        assert _normalize_job_uuids(pretty_print_in_tests(response.hogql, self.team.pk)) == self.snapshot
 
     def test_unified_cte_ast_structure(self):
         goal1 = self._create_test_conversion_goal("ast_goal1", "AST Goal 1", "sign_up")
@@ -361,7 +414,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         cte = aggregator.generate_unified_cte(self.date_range, additional_conditions_getter)
         response = execute_hogql_query(query=cte.expr, team=self.team)
 
-        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+        assert _normalize_job_uuids(pretty_print_in_tests(response.hogql, self.team.pk)) == self.snapshot
 
     def test_aggregation_ast_validation(self):
         events_goal1 = self._create_test_conversion_goal("simple_events1", "Simple Events 1", "purchase")
@@ -393,7 +446,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
     def test_empty_goal_name(self):
         goal = ConversionGoalFilter1(
-            kind=NodeKind.EVENTS_NODE,
+            kind="EventsNode",
             event="test_event",
             conversion_goal_id="empty_name_test",
             conversion_goal_name="",
@@ -498,7 +551,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         # Execute to get the SQL string
         response = execute_hogql_query(query=cte.expr, team=self.team)
 
-        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+        assert _normalize_job_uuids(pretty_print_in_tests(response.hogql, self.team.pk)) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_campaign_name_mapping_single_source_sql(self):
@@ -519,7 +572,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         response = execute_hogql_query(query=cte.expr, team=self.team)
 
-        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+        assert _normalize_job_uuids(pretty_print_in_tests(response.hogql, self.team.pk)) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_campaign_name_mapping_no_mappings(self):
@@ -536,7 +589,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         response = execute_hogql_query(query=cte.expr, team=self.team)
 
-        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+        assert _normalize_job_uuids(pretty_print_in_tests(response.hogql, self.team.pk)) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_campaign_name_mapping_integration_with_events(self):
@@ -562,7 +615,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         response = execute_hogql_query(query=cte.expr, team=self.team)
 
         # Verify the SQL contains campaign name mapping logic
-        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+        assert _normalize_job_uuids(pretty_print_in_tests(response.hogql, self.team.pk)) == self.snapshot
 
         # Verify that the SQL contains the expected campaign name mapping logic
         sql_string = pretty_print_in_tests(response.hogql, self.team.pk)

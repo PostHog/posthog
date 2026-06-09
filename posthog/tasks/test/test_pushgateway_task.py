@@ -93,7 +93,7 @@ class TestPushGatewayTask:
     def test_task_name_extracted_correctly(
         self, mock_push_context: MagicMock, mock_registry: CollectorRegistry
     ) -> None:
-        @shared_task(bind=True, base=PushGatewayTask, name="posthog.tasks.feature_flags.my_complex_task")
+        @shared_task(bind=True, base=PushGatewayTask, name="products.feature_flags.backend.tasks.my_complex_task")
         def my_complex_task(self: Any) -> str:
             return "done"
 

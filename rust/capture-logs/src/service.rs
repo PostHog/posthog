@@ -23,9 +23,42 @@ use crate::kafka::KafkaSink;
 
 use tracing::{debug, error, instrument};
 
-// due to a bug in the otel proto rust library we need to patch the json to support (valid) empty Values
-// see https://github.com/open-telemetry/opentelemetry-rust/issues/1253
-// FIXME: remove once upstream has fixed the issue, OR we should fork upstream and fix the issue ourselves
+// `patch_otel_json` normalises an OTLP/JSON payload so it can be deserialized by
+// upstream `opentelemetry-proto`'s generated types. This is a workaround layer
+// for three known upstream gaps; each `FIXME` below is independently removable
+// once its upstream issue lands. We string-match JSON keys to compensate for type
+// system gaps in a third-party crate — it is not elegant. The function is bounded,
+// idempotent, and side-effect-free, and the regression tests in tests/metrics_test.rs
+// (the `#[ignore]`-d `edge_*_should_error` tests in particular) will surface upstream
+// changes — un-ignore them when the silencing pattern is fixed.
+//
+// FIXME(upstream-1253): empty `value: {}` AnyValue objects fail to deserialize.
+//   https://github.com/open-telemetry/opentelemetry-rust/issues/1253
+//   Workaround: replace empty `value`/`body` objects with `null`.
+//
+// FIXME(upstream-3328): several fixed64/uint64/sfixed64 fields in the metrics
+//   protos lack the `deserialize_string_to_u64` annotation, so the OTLP/JSON
+//   spec-canonical string encoding fails. Combined with the silencing pattern
+//   below, affected metrics end up with `data: None` instead of erroring.
+//   https://github.com/open-telemetry/opentelemetry-rust/issues/3328
+//   https://github.com/open-telemetry/opentelemetry-rust/pull/3329  (stale)
+//   Workaround: coerce string-encoded integers to JSON numbers for the affected
+//   fields (`count`, `zeroCount`, `asInt`, `bucketCounts[*]`, and timestamp
+//   descendants under `exponentialHistogram` / `summary` / `exemplars`).
+//
+// FIXME(upstream-unreported): `ExponentialHistogram`, `ExponentialHistogramDataPoint`,
+//   `SummaryDataPoint`, `Buckets`, and `Exemplar` all lack `#[serde(default)]`
+//   upstream, so any missing non-Option proto field hard-errors and trips the
+//   silencing pattern. No upstream issue filed yet — open one alongside removing
+//   this workaround. Workaround: the `fill_*_defaults` functions inject defaults
+//   for every required-by-serde field below.
+//
+// Silencing pattern (the reason these gaps silently drop metrics rather than
+// returning a 400): `Metric` declares `data` as `#[serde(flatten)] Option<Data>`
+// on a `#[serde(default)]` struct, so any error deserializing the inner oneof
+// variant is swallowed and `data` becomes `None`. `flatten_metric` then emits
+// zero rows with no log line. Until upstream changes the silencing structure
+// itself, the only defense is to never let the inner deserialization fail.
 pub fn patch_otel_json(v: &mut Value) {
     match v {
         Value::Object(map) => {
@@ -44,6 +77,37 @@ pub fn patch_otel_json(v: &mut Value) {
                     *inner = Value::Null;
                 }
             }
+            // Universal string→integer coercions for u64/i64 fields that have NO custom
+            // deserializer in upstream opentelemetry-proto. Safe in any context.
+            for key in ["count", "zeroCount", "asInt"] {
+                if let Some(inner) = map.get_mut(key) {
+                    coerce_string_to_integer(inner);
+                }
+            }
+            if let Some(Value::Array(arr)) = map.get_mut("bucketCounts") {
+                for el in arr.iter_mut() {
+                    coerce_string_to_integer(el);
+                }
+            }
+            // Context-aware fixes for the metric variants whose data point types lack both
+            // the string→u64 deserializer and #[serde(default)] upstream. We coerce
+            // timestamp strings to numbers AND inject defaults for every non-Option proto
+            // field, since any missing field hard-errors and trips the silencing pattern.
+            if let Some(inner) = map.get_mut("exponentialHistogram") {
+                coerce_unix_nano_descendants(inner);
+                fill_exponential_histogram_defaults(inner);
+            }
+            if let Some(inner) = map.get_mut("summary") {
+                coerce_unix_nano_descendants(inner);
+                fill_summary_defaults(inner);
+            }
+            // Exemplar also lacks #[serde(default)] upstream — missing fields silently drop
+            // the parent metric, not just the exemplar. Fill defaults wherever we see one.
+            if let Some(Value::Array(arr)) = map.get_mut("exemplars") {
+                for el in arr.iter_mut() {
+                    fill_exemplar_defaults(el);
+                }
+            }
             // Recurse through all other keys
             for (_, val) in map.iter_mut() {
                 patch_otel_json(val);
@@ -52,6 +116,146 @@ pub fn patch_otel_json(v: &mut Value) {
         Value::Array(arr) => {
             for val in arr.iter_mut() {
                 patch_otel_json(val);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn coerce_string_to_integer(v: &mut Value) {
+    let Value::String(s) = v else { return };
+    if let Ok(n) = s.parse::<i64>() {
+        *v = Value::Number(n.into());
+    } else if let Ok(n) = s.parse::<u64>() {
+        *v = Value::Number(n.into());
+    }
+}
+
+fn number_u64(n: u64) -> Value {
+    Value::Number(n.into())
+}
+
+fn number_zero_f64() -> Value {
+    // serde_json::Number::from_f64 only fails for NaN/Infinity — never for 0.0.
+    Value::Number(serde_json::Number::from_f64(0.0).expect("0.0 is finite"))
+}
+
+fn empty_string() -> Value {
+    Value::String(String::new())
+}
+
+fn empty_array() -> Value {
+    Value::Array(Vec::new())
+}
+
+fn fill_exponential_histogram_defaults(variant: &mut Value) {
+    let Value::Object(map) = variant else { return };
+    // ExponentialHistogram itself lacks #[serde(default)].
+    map.entry("aggregationTemporality".to_string())
+        .or_insert_with(|| number_u64(0));
+    map.entry("dataPoints".to_string())
+        .or_insert_with(empty_array);
+    if let Some(Value::Array(arr)) = map.get_mut("dataPoints") {
+        for dp in arr.iter_mut() {
+            fill_exponential_histogram_dp_defaults(dp);
+        }
+    }
+}
+
+fn fill_exponential_histogram_dp_defaults(dp: &mut Value) {
+    let Value::Object(obj) = dp else { return };
+    obj.entry("attributes".to_string())
+        .or_insert_with(empty_array);
+    obj.entry("startTimeUnixNano".to_string())
+        .or_insert_with(|| number_u64(0));
+    obj.entry("timeUnixNano".to_string())
+        .or_insert_with(|| number_u64(0));
+    obj.entry("count".to_string())
+        .or_insert_with(|| number_u64(0));
+    obj.entry("scale".to_string())
+        .or_insert_with(|| number_u64(0));
+    obj.entry("zeroCount".to_string())
+        .or_insert_with(|| number_u64(0));
+    obj.entry("flags".to_string())
+        .or_insert_with(|| number_u64(0));
+    obj.entry("exemplars".to_string())
+        .or_insert_with(empty_array);
+    obj.entry("zeroThreshold".to_string())
+        .or_insert_with(number_zero_f64);
+    if let Some(buckets) = obj.get_mut("positive") {
+        fill_buckets_defaults(buckets);
+    }
+    if let Some(buckets) = obj.get_mut("negative") {
+        fill_buckets_defaults(buckets);
+    }
+}
+
+fn fill_buckets_defaults(buckets: &mut Value) {
+    let Value::Object(obj) = buckets else { return };
+    obj.entry("offset".to_string())
+        .or_insert_with(|| number_u64(0));
+    obj.entry("bucketCounts".to_string())
+        .or_insert_with(empty_array);
+}
+
+fn fill_summary_defaults(variant: &mut Value) {
+    // Summary itself has #[serde(default)] upstream, so the variant-level fields
+    // (dataPoints, aggregationTemporality if present) are tolerated when missing.
+    // SummaryDataPoint is the level that needs help.
+    let Value::Object(map) = variant else { return };
+    if let Some(Value::Array(arr)) = map.get_mut("dataPoints") {
+        for dp in arr.iter_mut() {
+            fill_summary_dp_defaults(dp);
+        }
+    }
+}
+
+fn fill_summary_dp_defaults(dp: &mut Value) {
+    let Value::Object(obj) = dp else { return };
+    obj.entry("attributes".to_string())
+        .or_insert_with(empty_array);
+    obj.entry("startTimeUnixNano".to_string())
+        .or_insert_with(|| number_u64(0));
+    obj.entry("timeUnixNano".to_string())
+        .or_insert_with(|| number_u64(0));
+    obj.entry("count".to_string())
+        .or_insert_with(|| number_u64(0));
+    obj.entry("sum".to_string()).or_insert_with(number_zero_f64);
+    obj.entry("quantileValues".to_string())
+        .or_insert_with(empty_array);
+    obj.entry("flags".to_string())
+        .or_insert_with(|| number_u64(0));
+}
+
+fn fill_exemplar_defaults(exemplar: &mut Value) {
+    let Value::Object(obj) = exemplar else { return };
+    obj.entry("filteredAttributes".to_string())
+        .or_insert_with(empty_array);
+    obj.entry("timeUnixNano".to_string())
+        .or_insert_with(|| number_u64(0));
+    obj.entry("spanId".to_string()).or_insert_with(empty_string);
+    obj.entry("traceId".to_string())
+        .or_insert_with(empty_string);
+    if let Some(t) = obj.get_mut("timeUnixNano") {
+        coerce_string_to_integer(t);
+    }
+}
+
+fn coerce_unix_nano_descendants(v: &mut Value) {
+    match v {
+        Value::Object(map) => {
+            for key in ["timeUnixNano", "startTimeUnixNano"] {
+                if let Some(inner) = map.get_mut(key) {
+                    coerce_string_to_integer(inner);
+                }
+            }
+            for (_, val) in map.iter_mut() {
+                coerce_unix_nano_descendants(val);
+            }
+        }
+        Value::Array(arr) => {
+            for val in arr.iter_mut() {
+                coerce_unix_nano_descendants(val);
             }
         }
         _ => {}

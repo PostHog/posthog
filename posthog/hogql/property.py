@@ -6,6 +6,7 @@ from django.db import models
 from django.db.models import Q
 from django.db.models.functions.comparison import Coalesce
 
+import re2
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
@@ -47,8 +48,9 @@ from posthog.hogql.parser import CacheOrigin, parse_expr
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
-from posthog.models import Cohort, Property, PropertyDefinition, Team
+from posthog.models import Property, PropertyDefinition, Team
 from posthog.models.element import Element
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup, ValueT
@@ -56,6 +58,7 @@ from posthog.models.property.util import build_selector_regex
 from posthog.utils import get_from_dict_or_attr
 
 from products.actions.backend.models.action import Action, ActionStepJSON
+from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
@@ -458,6 +461,18 @@ def _create_multi_search_call(expr: ast.Expr, value: list) -> ast.Call:
     )
 
 
+def _validate_regex(value: ValueT) -> None:
+    """Reject an invalid regular expression with a clear user-facing error rather
+    than letting ClickHouse fail the whole query with CANNOT_COMPILE_REGEXP. The
+    same RE2 engine ClickHouse uses validates the pattern here."""
+    if not isinstance(value, str):
+        return
+    try:
+        re2.compile(value)
+    except re2.error as err:
+        raise QueryError(f"Invalid regular expression: '{value}'") from err
+
+
 def _expr_to_compare_op(
     expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
 ) -> ast.Expr:
@@ -512,6 +527,7 @@ def _expr_to_compare_op(
             values_list = cast(list, [value])
         return _multi_search_not_found(_create_multi_search_call(expr, values_list))
     elif operator == PropertyOperator.REGEX:
+        _validate_regex(value)
         return ast.Call(
             name="ifNull",
             args=[
@@ -520,6 +536,7 @@ def _expr_to_compare_op(
             ],
         )
     elif operator == PropertyOperator.NOT_REGEX:
+        _validate_regex(value)
         return ast.Call(
             name="ifNull",
             args=[
@@ -791,6 +808,7 @@ def property_to_expr(
         raise QueryError(f"property_to_expr with property of type {type(property).__name__} not implemented")
 
     if property.type == "hogql":
+        tag_contains_user_hogql()
         return parse_expr(property.key, cache_origin=CacheOrigin.USER)
     elif property.type == "event_metadata" and scope == "group" and GROUP_KEY_PATTERN.match(property.key) is not None:
         group_type_index = property.key.split("_")[1]

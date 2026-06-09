@@ -32,7 +32,6 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
-    ProductKey,
     PropertyOperator,
     QueryRequest,
     QueryStatus,
@@ -41,7 +40,6 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
@@ -56,6 +54,7 @@ from posthog.api.query import _process_query_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemViewSetMixin, cleanup_orphan_tags, set_tags_on_object
 from posthog.api.utils import action
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -64,7 +63,6 @@ from posthog.ducklake.common import get_duckgres_server_for_organization
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
 from posthog.models import User
@@ -75,7 +73,6 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
-from posthog.models.insight_variable import InsightVariable
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
 
@@ -125,6 +122,7 @@ from products.endpoints.backend.serializers import (
     EndpointRunResponseSerializer,
     EndpointVersionResponseSerializer,
 )
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 from products.warehouse_sources.backend.models.external_data_schema import sync_frequency_to_sync_frequency_interval
 
 from common.hogvm.python.utils import HogVMException
@@ -140,7 +138,6 @@ DATA_FRESHNESS_BUCKETS: dict[int, str] = {
 }
 VALID_DATA_FRESHNESS_SECONDS: frozenset[int] = frozenset(DATA_FRESHNESS_BUCKETS)
 DEFAULT_DATA_FRESHNESS_SECONDS = 86400
-
 
 ENDPOINT_NAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"
 
@@ -166,7 +163,7 @@ def _emit_endpoint_failure_signal(
 
     Fails silently — signal emission must never mask the underlying error.
     """
-    from products.signals.backend.api import emit_signal
+    from products.signals.backend.facade.api import emit_signal
 
     try:
         error_class = type(exc).__name__
@@ -389,8 +386,7 @@ class MaterializationPreviewRequestSerializer(serializers.Serializer):
         description="Update an existing endpoint.",
     ),
 )
-@extend_schema(tags=[ProductKey.ENDPOINTS])
-class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
+class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemViewSetMixin, viewsets.ModelViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "endpoint"
     # Special case for query - these are all essentially read actions
@@ -402,6 +398,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         "openapi_spec",
         "materialization_preview",
         "materialization_status",
+        "get_endpoints_last_execution_times",
     ]
     scope_object_write_actions: list[str] = [
         "create",
@@ -444,6 +441,32 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 raise ValidationError({"version": f"Must be an integer, got: {query_version}"})
 
         return None
+
+    def _get_tag_names(self, endpoint: Endpoint) -> list[str]:
+        """Read tag names from the prefetched cache or from the DB if not prefetched."""
+        if hasattr(endpoint, "prefetched_tags"):
+            return sorted({ti.tag.name for ti in endpoint.prefetched_tags})
+        return sorted(endpoint.tagged_items.values_list("tag__name", flat=True))
+
+    def _apply_tags(self, endpoint: Endpoint, tags: list[str] | None) -> None:
+        """Replace the endpoint's tags. No-op when tags is None (field omitted)."""
+        if tags is None:
+            return
+        # `prefetched_tags` is a dynamic attribute populated by the TaggedItem prefetch / set_tags_on_object;
+        # it's not declared on the Endpoint model.
+        endpoint.prefetched_tags = set_tags_on_object(tags, endpoint)  # type: ignore[attr-defined]
+        cleanup_orphan_tags(endpoint.team_id)
+
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=False)
+    def bulk_update_tags(self, request: Request, *args, **kwargs) -> Response:
+        # The inherited TaggedItemViewSetMixin.bulk_update_tags assumes integer PKs (its
+        # BulkUpdateTagsRequestSerializer validates ids as IntegerField). Endpoint uses
+        # UUID PKs, so the action is unusable. Return 405 until the mixin gains UUID support.
+        return Response(
+            {"detail": "Bulk tag updates are not supported for endpoints."},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
 
     def _build_materialization_info(self, version: EndpointVersion, endpoint_name: str | None = None) -> dict:
         """Build materialization status dict for a version."""
@@ -515,12 +538,15 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "materialization": self._build_materialization_info(version),
             "bucket_overrides": version.bucket_overrides,
             "columns": version.get_columns() if version else [],
+            "tags": self._get_tag_names(endpoint),
         }
 
         if isinstance(obj, EndpointVersion):
             result["version"] = version.version
             result["version_id"] = str(version.id)
             result["endpoint_is_active"] = endpoint.is_active
+            # Version detail returns the version's own execution time (may be null until it's been run).
+            result["last_executed_at"] = version.last_executed_at.isoformat() if version.last_executed_at else None
             result["version_created_at"] = version.created_at.isoformat()
             result["version_updated_at"] = version.updated_at.isoformat() if version.updated_at else None
             result["version_created_by"] = UserBasicSerializer(version.created_by).data if version.created_by else None
@@ -780,6 +806,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 columns=columns,
             )
 
+            self._apply_tags(endpoint, data.tags)
+
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team.id,
@@ -850,6 +878,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         Otherwise, the current version is used.
         """
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
+        # Enforce object-level RBAC: a user with global editor scope can still be restricted
+        # from a specific endpoint via per-object access controls.
+        self.check_object_permissions(request, endpoint)
         endpoint_before_update = Endpoint.objects.get(pk=endpoint.id)
 
         upgraded_query = upgrade(request.data)
@@ -998,6 +1029,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                             raise
                 elif should_disable:
                     self._disable_materialization(endpoint, request, target_version)
+
+            self._apply_tags(endpoint, data.tags)
 
             endpoint_changes = changes_between("Endpoint", previous=endpoint_before_update, current=endpoint)
             if endpoint_changes:
@@ -1159,6 +1192,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         saved_query.save()
 
+        version.saved_query = saved_query
+        version.bucket_overrides = bucket_overrides
+        version.save(update_fields=["saved_query", "bucket_overrides", "updated_at"])
+
         saved_query.schedule_materialization()
 
         try:
@@ -1178,9 +1215,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     "saved_query_id": version.saved_query.id if version and version.saved_query else None,
                 },
             )
-        version.saved_query = saved_query
-        version.bucket_overrides = bucket_overrides
-        version.save(update_fields=["saved_query", "bucket_overrides", "updated_at"])
 
     def _disable_materialization(
         self, endpoint: Endpoint, request: Request, version: EndpointVersion | None = None
@@ -2340,9 +2374,15 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         if get_query_tag_value("access_method") == "personal_api_key":
             now = timezone.now()
-            if endpoint.last_executed_at is None or (now - endpoint.last_executed_at > timedelta(hours=1)):
+            throttle = timedelta(minutes=30)
+            if endpoint.last_executed_at is None or (now - endpoint.last_executed_at > throttle):
                 endpoint.last_executed_at = now
                 endpoint.save(update_fields=["last_executed_at"])
+            if version_obj is not None and (
+                version_obj.last_executed_at is None or (now - version_obj.last_executed_at > throttle)
+            ):
+                version_obj.last_executed_at = now
+                version_obj.save(update_fields=["last_executed_at"])
 
         if isinstance(result.data, dict):
             result.data["name"] = endpoint.name
@@ -2409,14 +2449,17 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     )
 
     @extend_schema(
-        description="Get the last execution times in the past 6 months for multiple endpoints.",
+        description=(
+            "Get the most recent execution time per endpoint (endpoint-level). "
+            "Timestamps are recorded by the run path for personal-API-key calls. "
+            "For per-version usage, query the query_log table directly."
+        ),
         request=EndpointLastExecutionTimesRequest,
         responses={200: QueryStatusResponse},
     )
     @action(methods=["POST"], detail=False, url_path="last_execution_times")
     def get_endpoints_last_execution_times(self, request: Request, *args, **kwargs) -> Response:
         try:
-            tag_queries(product=Product.ENDPOINTS, feature=Feature.ENDPOINT_LAST_EXECUTION)
             data = EndpointLastExecutionTimesRequest.model_validate(request.data)
             names = data.names
             if not names:
@@ -2427,30 +2470,20 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     status=200,
                 )
 
-            validated_names = []
             for name in names:
                 if not isinstance(name, str) or not re.fullmatch(ENDPOINT_NAME_REGEX, name):
                     raise ValidationError({"names": f"Invalid endpoint name: {name}"})
-                validated_names.append(f"'{name}'")
-            names_list = ",".join(validated_names)
 
-            query = HogQLQuery(
-                query=f"select name, max(query_start_time) as last_executed_at from query_log where name in ({names_list}) and endpoint like '%/endpoints/%' and is_personal_api_key_request and query_start_time >= (today() - interval 6 month) group by name",
-                name="get_endpoints_last_execution_times",
+            endpoint_rows = list(
+                Endpoint.objects.filter(team=self.team, name__in=names, last_executed_at__isnull=False).values_list(
+                    "name", "last_executed_at"
+                )
             )
-            hogql_runner = HogQLQueryRunner(
-                query=query,
-                team=self.team,
-                modifiers=HogQLQueryModifiers(),
-                limit_context=LimitContext.QUERY,
-            )
-            result = hogql_runner.calculate()
+            results = [[name, ts.isoformat()] for name, ts in endpoint_rows if ts is not None]
 
-            query_status = QueryStatus(id="", team_id=self.team.pk, complete=True, results=result.results)
+            query_status = QueryStatus(id="", team_id=self.team.pk, complete=True, results=results)
 
             return Response(QueryStatusResponse(query_status=query_status).model_dump(), status=200)
-        except ConcurrencyLimitExceeded as c:
-            raise Throttled(detail=str(c))
         except Exception as e:
             capture_exception(e, {"product": Product.ENDPOINTS, "team_id": self.team_id})
             raise

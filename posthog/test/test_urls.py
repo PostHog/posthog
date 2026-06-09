@@ -48,6 +48,20 @@ class TestUrls(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("no_slash_no_qs", "/sign-up", "/signup"),
+            ("trailing_slash_no_qs", "/sign-up/", "/signup"),
+            ("no_slash_with_qs", "/sign-up?email=foo%40bar.com", "/signup?email=foo%40bar.com"),
+            ("trailing_slash_with_qs", "/sign-up/?email=foo%40bar.com", "/signup?email=foo%40bar.com"),
+        ]
+    )
+    def test_sign_up_redirects_to_signup(self, _name, request_path, expected_location):
+        self.client.logout()
+        response = self.client.get(request_path, follow=False)
+        self.assertEqual(response.status_code, status.HTTP_301_MOVED_PERMANENTLY)
+        self.assertEqual(response["Location"], expected_location)
+
+    @parameterized.expand(
+        [
             ("no_query_string", "/admin", "/admin/"),
             ("with_query_string", "/admin?foo=bar&baz=qux", "/admin/?foo=bar&baz=qux"),
         ]

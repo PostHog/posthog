@@ -638,8 +638,6 @@ export interface FeatureFlagMultivariateSchemaApi {
  */
 export type FeatureFlagFiltersSchemaApiPayloads = { [key: string]: string }
 
-export type FeatureFlagFiltersSchemaApiSuperGroupsItem = { [key: string]: unknown }
-
 export interface FeatureFlagFiltersSchemaApi {
     /** Release condition groups for the feature flag. */
     groups?: FeatureFlagConditionGroupSchemaApi[]
@@ -652,13 +650,13 @@ export interface FeatureFlagFiltersSchemaApi {
     aggregation_group_type_index?: number | null
     /** Optional payload values keyed by variant key. */
     payloads?: FeatureFlagFiltersSchemaApiPayloads
-    /** Additional super condition groups used by experiments. */
-    super_groups?: FeatureFlagFiltersSchemaApiSuperGroupsItem[]
     /**
      * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
      * @nullable
      */
     feature_enrollment?: boolean | null
+    /** When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups. */
+    early_exit?: boolean
 }
 
 export interface FeatureFlagCreateRequestSchemaApi {
@@ -1100,13 +1098,6 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
-export type LocalEvaluationResponseApiGroupTypeMapping = { [key: string]: string }
-
-/**
- * Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters).
- */
-export type LocalEvaluationResponseApiCohorts = { [key: string]: unknown }
-
 export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
 
 export interface MinimalFeatureFlagApi {
@@ -1140,13 +1131,6 @@ export interface MinimalFeatureFlagApi {
     readonly evaluation_contexts: readonly string[]
 }
 
-export interface LocalEvaluationResponseApi {
-    flags: MinimalFeatureFlagApi[]
-    group_type_mapping: LocalEvaluationResponseApiGroupTypeMapping
-    /** Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters). */
-    cohorts: LocalEvaluationResponseApiCohorts
-}
-
 export interface MyFlagsResponseApi {
     feature_flag: MinimalFeatureFlagApi
     value: unknown
@@ -1172,6 +1156,15 @@ export interface UserBlastRadiusResponseApi {
     affected: number
     /** Total number of entities of this type in the project */
     total: number
+}
+
+export interface FlagValueItemApi {
+    name: unknown
+}
+
+export interface FlagValueResponseApi {
+    results: FlagValueItemApi[]
+    refreshing: boolean
 }
 
 /**
@@ -1418,19 +1411,18 @@ export type FeatureFlagsEvaluationReasonsRetrieveParams = {
     groups?: string
 }
 
-export type FeatureFlagsLocalEvaluationRetrieveParams = {
-    /**
-     * Include cohorts in response
-     * @nullable
-     */
-    send_cohorts?: boolean | null
-}
-
 export type FeatureFlagsMyFlagsRetrieveParams = {
     /**
      * Groups for feature flag evaluation (JSON object string)
      */
     groups?: string
+}
+
+export type FlagValueValuesRetrieveParams = {
+    /**
+     * The flag ID
+     */
+    key?: string
 }
 
 export type ScheduledChangesListParams = {

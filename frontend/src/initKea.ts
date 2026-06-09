@@ -100,6 +100,12 @@ export function initKea({
         formsPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
+                // Read-only mode (`ReadOnlyModeError`) flows through this path unchanged:
+                // it extends `ApiError` with `status=403`, so the `!(isLoadAction && error.status === 403)`
+                // condition already suppresses the toast for load actions, and write actions
+                // get a toast with the read-only `detail` as the message. The
+                // `posthog.captureException` event is dropped by the central
+                // `before_send` filter in `selfReadOnlyModeLogic`.
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
                 if (

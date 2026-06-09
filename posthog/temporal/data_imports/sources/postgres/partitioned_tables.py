@@ -21,7 +21,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     QueryTimeoutException,
     table_from_iterator,
 )
-from posthog.temporal.data_imports.sources.postgres.query_builders import build_select_clause
+from posthog.temporal.data_imports.sources.common.sql import compute_projected_columns
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -509,7 +509,10 @@ def build_partition_query(
     pipeline can advance the incremental cursor per chunk via max() without risking
     data loss on restart; the non-incremental branch returns a bare SELECT *.
     """
-    select_clause = build_select_clause(enabled_columns, primary_keys, incremental_field)
+    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+    select_clause: sql.Composable = (
+        sql.SQL("*") if projected is None else sql.SQL(", ").join(sql.Identifier(c) for c in projected)
+    )
 
     if not should_use_incremental_field:
         return sql.SQL("SELECT {cols} FROM {schema}.{table}").format(

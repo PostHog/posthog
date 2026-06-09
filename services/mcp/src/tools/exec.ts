@@ -6,6 +6,7 @@ import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { formatResponse } from '@/lib/response'
 
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
+import type { ScopeGatedTool } from './toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_META_KEY,
@@ -13,6 +14,10 @@ import {
     type Tool,
     type ZodObjectAny,
 } from './types'
+
+/** Upper bound on a `search` regex pattern — keeps a pathological pattern from
+ *  forcing catastrophic backtracking against tool metadata. */
+const MAX_SEARCH_PATTERN_LENGTH = 200
 
 type ExecSchema = ReturnType<typeof makeExecSchema>
 
@@ -79,28 +84,27 @@ export function createExecInnerToolCallResolver(
     }
 }
 
-// Tools removed from v2 (single-exec) MCP. When the model attempts to call one,
-// surface a targeted redirect to the v2 replacement instead of dumping the full
-// tool catalog. Sourced from tools marked `new_mcp: false` in
-// schema/tool-definitions.json. Keep the redirect text editorial — schemas
-// don't carry "use X instead" guidance.
+// Tools that were removed from the MCP server. When the model attempts to call
+// one, surface a targeted redirect to the replacement instead of dumping the
+// full tool catalog. Keep the redirect text editorial — schemas don't carry
+// "use X instead" guidance.
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
     'entity-search': () =>
-        'Tool "entity-search" was removed in MCP v2. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).',
+        'Tool "entity-search" was removed. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).',
     'event-definitions-list': () =>
-        'Tool "event-definitions-list" was removed in MCP v2. Use "read-data-schema" with input { "query": { "kind": "events" } } to list event definitions.',
+        'Tool "event-definitions-list" was removed. Use "read-data-schema" with input { "query": { "kind": "events" } } to list event definitions.',
     'properties-list': () =>
-        'Tool "properties-list" was removed in MCP v2. Use "read-data-schema": { "query": { "kind": "event_properties", "event_name": "..." } } for event properties, or { "kind": "entity_properties", "entity": "person" | "session" | "group/<n>" } for entity properties.',
+        'Tool "properties-list" was removed. Use "read-data-schema": { "query": { "kind": "event_properties", "event_name": "..." } } for event properties, or { "kind": "entity_properties", "entity": "person" | "session" | "group/<n>" } for entity properties.',
     'property-definitions': () =>
-        'Tool "property-definitions" was removed in MCP v2. Use "read-data-schema" with the appropriate kind: "event_properties", "entity_properties", or "action_properties" — see its info schema for required fields.',
+        'Tool "property-definitions" was removed. Use "read-data-schema" with the appropriate kind: "event_properties", "entity_properties", or "action_properties" — see its info schema for required fields.',
     'query-generate-hogql-from-question': () =>
-        'Tool "query-generate-hogql-from-question" was removed in MCP v2. Write the HogQL yourself and run it via "execute-sql". Consult the `querying-posthog-data` skill for HogQL patterns.',
+        'Tool "query-generate-hogql-from-question" was removed. Write the HogQL yourself and run it via "execute-sql". Consult the `querying-posthog-data` skill for HogQL patterns.',
     'query-run': (allTools) => {
         const queryTools = allTools
             .filter((t) => t.name.startsWith('query-'))
             .map((t) => `- ${t.name}: ${t.description.split('\n')[0]}`)
             .join('\n')
-        return `Tool "query-run" was removed in MCP v2. Pick the typed query tool that matches your intent, or use "execute-sql" for arbitrary HogQL. Available query-* tools:\n${queryTools}`
+        return `Tool "query-run" was removed. Pick the typed query tool that matches your intent, or use "execute-sql" for arbitrary HogQL. Available query-* tools:\n${queryTools}`
     },
 }
 
@@ -123,7 +127,8 @@ export function createExecTool(
     toolDescription: string,
     commandReference: string,
     mcpConsumer: string | undefined,
-    trackInnerCall?: ExecInnerCallTracker
+    trackInnerCall?: ExecInnerCallTracker,
+    scopeGatedTools: ScopeGatedTool[] = []
 ): Tool<ExecSchema> {
     const ExecSchema = makeExecSchema(commandReference)
 
@@ -151,6 +156,13 @@ export function createExecTool(
                     if (!rest) {
                         throw new Error('Usage: search <regex_pattern>')
                     }
+                    // Bound the user-supplied pattern length to limit the blast
+                    // radius of a pathological (catastrophic-backtracking) regex.
+                    if (rest.length > MAX_SEARCH_PATTERN_LENGTH) {
+                        throw new Error(
+                            `Search pattern too long (${rest.length} chars, max ${MAX_SEARCH_PATTERN_LENGTH}). Use a shorter, more targeted pattern.`
+                        )
+                    }
                     let regex: RegExp
                     try {
                         regex = new RegExp(rest, 'i')
@@ -160,6 +172,22 @@ export function createExecTool(
                     const matches = allTools
                         .filter((t) => regex.test(t.name) || regex.test(t.title) || regex.test(t.description))
                         .map((t) => t.name)
+                    const gatedMatches = scopeGatedTools.filter(
+                        (t) => regex.test(t.name) || regex.test(t.title) || regex.test(t.description)
+                    )
+                    if (gatedMatches.length > 0) {
+                        const requiredScopes = [...new Set(gatedMatches.flatMap((t) => t.missingScopes))].sort()
+                        return JSON.stringify({
+                            matches,
+                            scope_gated_matches: gatedMatches.map((t) => ({
+                                name: t.name,
+                                missing_scopes: t.missingScopes,
+                            })),
+                            hint:
+                                `These tools also match but are hidden because the API key is missing the ` +
+                                `required scope(s): ${requiredScopes.join(', ')}. The user needs to re-authenticate the MCP or connector, if the harness supports OAuth, or add the scopes to the personal API key to use these tools.`,
+                        })
+                    }
                     if (matches.length === 0) {
                         return JSON.stringify({
                             matches: [],
@@ -310,9 +338,9 @@ export function createExecTool(
                                 toolName: tool.name,
                                 params: useJson ? { ...input, output_format: 'json' } : input,
                                 // Consumer is the UI-apps host; keep `structuredContent` for the UI.
-                                // Passing `undefined` bypasses the coding-agent suppression in
+                                // Passing `false` bypasses coding-agent suppression in
                                 // `buildToolResultPayload` because this path explicitly wants it.
-                                clientName: undefined,
+                                suppressStructuredContentForFormattedResults: false,
                                 distinctId,
                                 includeUiResponseMeta: true,
                             })

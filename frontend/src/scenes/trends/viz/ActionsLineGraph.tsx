@@ -34,6 +34,7 @@ export function ActionsLineGraph({
         showValuesOnSeries,
         showPercentStackView,
         supportsPercentStackView,
+        showAnnotations,
         trendsFilter,
         lifecycleFilter,
         isLifecycle,
@@ -204,7 +205,7 @@ export function ActionsLineGraph({
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             legend={legend}
-            hideAnnotations={inSharedMode}
+            hideAnnotations={inSharedMode || showAnnotations === false}
             goalLines={[...alertThresholdLines, ...(goalLines || [])]}
             anomalyPoints={alertAnomalyPoints}
             onDateRangeZoom={context?.onDateRangeZoom}

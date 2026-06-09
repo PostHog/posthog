@@ -182,5 +182,13 @@ export const manifest: ProductManifest = {
             href: urls.dataWarehouseManagedViewsets(),
             flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
         },
+        {
+            path: 'Exports',
+            category: 'Pipeline',
+            iconType: 'exports',
+            href: urls.exports(),
+            sceneKey: 'Exports',
+            sceneKeys: ['Exports'],
+        },
     ],
 }

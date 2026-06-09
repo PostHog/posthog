@@ -1,6 +1,23 @@
 import type { SourceFieldConfig } from '~/queries/schema/schema-general'
+import type { ExternalDataSourceSchema } from '~/types'
 
-import { isSensitiveCredentialField, removeEmptySensitiveValues } from './sourceSettingsLogic'
+import {
+    clampFrequencyForSchema,
+    isSensitiveCredentialField,
+    removeEmptySensitiveValues,
+    runBulkSchemaAction,
+    schemasEligibleForSync,
+} from './sourceSettingsLogic'
+
+function makeSchema(overrides: Partial<ExternalDataSourceSchema>): ExternalDataSourceSchema {
+    return {
+        id: 'schema-id',
+        name: 'public.table',
+        should_sync: false,
+        sync_type: null,
+        ...overrides,
+    } as ExternalDataSourceSchema
+}
 
 describe('isSensitiveCredentialField', () => {
     it('treats password-typed fields as sensitive', () => {
@@ -171,5 +188,56 @@ describe('removeEmptySensitiveValues', () => {
         }
         removeEmptySensitiveValues(fields, value)
         expect(value).toEqual({ feature: { enabled: true } })
+    })
+})
+
+describe('schemasEligibleForSync', () => {
+    it('keeps only schemas that are enabled with a sync method', () => {
+        const schemas = [
+            makeSchema({ id: 'a', sync_type: 'incremental', should_sync: true }),
+            makeSchema({ id: 'b', sync_type: 'incremental', should_sync: false }), // disabled
+            makeSchema({ id: 'c', sync_type: null, should_sync: true }), // no method
+            makeSchema({ id: 'd', sync_type: 'cdc', should_sync: true }),
+        ]
+        expect(schemasEligibleForSync(schemas).map((s) => s.id)).toEqual(['a', 'd'])
+    })
+
+    it('returns an empty list when nothing is eligible', () => {
+        expect(schemasEligibleForSync([makeSchema({ sync_type: null, should_sync: true })])).toEqual([])
+    })
+})
+
+describe('clampFrequencyForSchema', () => {
+    it('floors non-CDC schemas at 5 minutes', () => {
+        const incremental = makeSchema({ sync_type: 'incremental' })
+        expect(clampFrequencyForSchema('1min', incremental)).toBe('5min')
+        expect(clampFrequencyForSchema('5min', incremental)).toBe('5min')
+        expect(clampFrequencyForSchema('1hour', incremental)).toBe('1hour')
+    })
+
+    it('lets CDC schemas go down to 1 minute', () => {
+        const cdc = makeSchema({ sync_type: 'cdc' })
+        expect(clampFrequencyForSchema('1min', cdc)).toBe('1min')
+        expect(clampFrequencyForSchema('6hour', cdc)).toBe('6hour')
+    })
+})
+
+describe('runBulkSchemaAction', () => {
+    it('invokes the action for every schema and reports zero failures on success', async () => {
+        const schemas = [makeSchema({ id: 'a' }), makeSchema({ id: 'b' })]
+        const action = jest.fn().mockResolvedValue(undefined)
+        const failed = await runBulkSchemaAction(schemas, action)
+        expect(action).toHaveBeenCalledTimes(2)
+        expect(action).toHaveBeenCalledWith('a')
+        expect(action).toHaveBeenCalledWith('b')
+        expect(failed).toBe(0)
+    })
+
+    it('counts rejected actions without throwing', async () => {
+        const schemas = [makeSchema({ id: 'a' }), makeSchema({ id: 'b' }), makeSchema({ id: 'c' })]
+        const action = jest.fn((id: string) => (id === 'b' ? Promise.reject(new Error('boom')) : Promise.resolve()))
+        const failed = await runBulkSchemaAction(schemas, action)
+        expect(failed).toBe(1)
+        expect(action).toHaveBeenCalledTimes(3)
     })
 })

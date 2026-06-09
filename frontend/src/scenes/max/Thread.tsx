@@ -1599,7 +1599,7 @@ function SuccessActions({
                 )}
                 {(user?.is_staff || isDev) && traceId && (
                     <LemonButton
-                        to={`${preflight?.region === Region.EU ? 'https://us.posthog.com/project/2' : ''}${urls.llmAnalyticsTrace(traceId)}`}
+                        to={`${preflight?.region === Region.EU ? 'https://us.posthog.com/project/2' : ''}${urls.aiObservabilityTrace(traceId)}`}
                         icon={<IconEye />}
                         type="tertiary"
                         size="xsmall"

@@ -10,8 +10,9 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from posthog.models import OAuthApplication, Team
-from posthog.models.feature_flag import FeatureFlag
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 AUTO_FILL_KEYS = [
     "OIDC_RSA_PRIVATE_KEY",

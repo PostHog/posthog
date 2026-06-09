@@ -54,6 +54,7 @@ message GetPersonResponse {
 
 message GetPersonsRequest {
   int64 team_id = 1;
+  // Max 250 per request.
   repeated int64 person_ids = 2;
   ReadOptions read_options = 3;
 }
@@ -71,6 +72,7 @@ message GetPersonByUuidRequest {
 
 message GetPersonsByUuidsRequest {
   int64 team_id = 1;
+  // Max 250 per request.
   repeated string uuids = 2;
   ReadOptions read_options = 3;
 }
@@ -83,6 +85,7 @@ message GetPersonByDistinctIdRequest {
 
 message GetPersonsByDistinctIdsInTeamRequest {
   int64 team_id = 1;
+  // Max 250 per request.
   repeated string distinct_ids = 2;
   ReadOptions read_options = 3;
 }
@@ -92,6 +95,7 @@ message PersonsByDistinctIdsInTeamResponse {
 }
 
 message GetPersonsByDistinctIdsRequest {
+  // Max 250 per request.
   repeated TeamDistinctId team_distinct_ids = 1;
   ReadOptions read_options = 2;
 }

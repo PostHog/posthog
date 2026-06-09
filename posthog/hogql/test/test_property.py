@@ -35,9 +35,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import clear_locations
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
-from posthog.models import Cohort, Property, PropertyDefinition, Team
+from posthog.models import Property, PropertyDefinition, Team
 from posthog.models.property import PropertyGroup
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
@@ -1415,6 +1416,21 @@ class TestProperty(BaseTest):
 
         with self.assertRaisesMessage(QueryError, "between operator requires numeric values"):
             self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [None, 10]})
+
+    @parameterized.expand(
+        [
+            ("trailing_backslash", "^abc\\"),
+            ("unsupported_lookahead", "^foo(?!bar).+"),
+            ("unbalanced_paren", "(unclosed"),
+        ]
+    )
+    def test_property_to_expr_invalid_regex_raises_query_error(self, _name: str, bad_regex: str):
+        # An invalid regex must surface as a user-facing QueryError, not crash the
+        # whole query in ClickHouse with CANNOT_COMPILE_REGEXP.
+        with self.assertRaisesMessage(QueryError, "Invalid regular expression"):
+            self._property_to_expr({"type": "event", "key": "$ip", "value": bad_regex, "operator": "regex"})
+        with self.assertRaisesMessage(QueryError, "Invalid regular expression"):
+            self._property_to_expr({"type": "event", "key": "$ip", "value": bad_regex, "operator": "not_regex"})
 
     def test_property_to_expr_min_max_operators(self):
         # Test MIN operator (alias for GTE)

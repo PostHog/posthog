@@ -9,7 +9,10 @@ use tracing::{info, warn};
 
 use crate::{
     config::Config,
-    metrics_consts::{GROUP_TYPE_CACHE, PERSONHOG_RESOLVE_DURATION, PERSONHOG_RESOLVE_ERRORS},
+    metrics_consts::{
+        GROUP_TYPE_CACHE, PERSONHOG_ERRORS_TOTAL, PERSONHOG_RESOLVE_DURATION,
+        PERSONHOG_RESOLVE_ERRORS,
+    },
     types::{GroupType, Update},
 };
 
@@ -88,8 +91,19 @@ impl GroupTypeResolver {
             let resolved_map = match self.resolve_via_personhog(&to_resolve).await {
                 Ok(map) => map,
                 Err(e) => {
-                    warn!(error = %e, "personhog group type resolution failed");
+                    let error_type = e
+                        .downcast_ref::<tonic::Status>()
+                        .map(|s| format!("{:?}", s.code()))
+                        .unwrap_or_else(|| "unknown".to_string());
+                    warn!(error = %e, error_type = %error_type, "personhog group type resolution failed");
                     metrics::counter!(PERSONHOG_RESOLVE_ERRORS).increment(1);
+                    metrics::counter!(
+                        PERSONHOG_ERRORS_TOTAL,
+                        "method" => "GetGroupTypeMappingsByTeamIds",
+                        "client" => "property-defs-rs",
+                        "error_type" => error_type,
+                    )
+                    .increment(1);
                     return Err(e);
                 }
             };
@@ -145,10 +159,15 @@ impl GroupTypeResolver {
             team_ids: unique_team_ids,
             read_options: Some(ReadOptions {
                 consistency: consistency.into(),
+                ..Default::default()
             }),
         });
         let metadata = request.metadata_mut();
         metadata.insert("x-client-name", "property-defs-rs".parse().unwrap());
+        metadata.insert(
+            "x-caller-tag",
+            "property-defs/group-type-resolution".parse().unwrap(),
+        );
         metadata.insert(
             "x-read-consistency",
             match consistency {

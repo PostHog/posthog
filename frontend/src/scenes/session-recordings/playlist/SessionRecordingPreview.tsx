@@ -50,6 +50,11 @@ export interface SessionRecordingPreviewProps {
      * @default false
      */
     selectable?: boolean
+    /**
+     * Sort column for duration/error/TTL display. When set, playlist logic is not required
+     * (e.g. dashboard widgets that pass order from widget config).
+     */
+    order?: RecordingsQuery['order']
 }
 
 function RecordingDuration({ recordingDuration }: { recordingDuration: number | undefined }): JSX.Element {
@@ -317,18 +322,21 @@ const RecordingSummaryIcon = memo(function RecordingSummaryIcon({
     )
 })
 
-export const SessionRecordingPreview = memo(
-    function SessionRecordingPreview({
+const SessionRecordingPreviewBase = memo(
+    function SessionRecordingPreviewBase({
         recording,
         isActive,
         selectable = false,
-    }: SessionRecordingPreviewProps): JSX.Element {
+        order,
+    }: SessionRecordingPreviewProps & { order: RecordingsQuery['order'] }): JSX.Element {
         const { playlistTimestampFormat } = useValues(playerSettingsLogic)
 
-        const { filters } = useValues(sessionRecordingsPlaylistLogic)
         const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
         const { featureFlags } = useValues(featureFlagLogic)
-        const summaryEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VIDEO_BASED_SUMMARIZATION]
+
+        // Vision teams trigger analysis from the replay-page dock, not the list. Hide the legacy
+        // summarize icon when replay-vision is on so it doesn't surface alongside Vision.
+        const replayVisionEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION]
 
         const recordingProperties = recordingPropertiesById[recording.id]
         const loading = !recordingProperties && recordingPropertiesLoading
@@ -396,12 +404,12 @@ export const SessionRecordingPreview = memo(
                                 </div>
                             </div>
 
-                            {filters.order === 'console_error_count' ? (
+                            {order === 'console_error_count' ? (
                                 <ErrorCount
                                     iconClassNames={iconClassNames}
                                     errorCount={recording.console_error_count}
                                 />
-                            ) : filters.order === 'recording_ttl' ? (
+                            ) : order === 'recording_ttl' ? (
                                 <RecordingExpiry
                                     iconClassNames={iconClassNames}
                                     recordingTtl={recording.recording_ttl}
@@ -410,7 +418,7 @@ export const SessionRecordingPreview = memo(
                                 <RecordingDuration
                                     recordingDuration={durationToShow(
                                         recording,
-                                        filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
+                                        order || DEFAULT_RECORDING_FILTERS_ORDER_BY
                                     )}
                                 />
                             )}
@@ -418,7 +426,7 @@ export const SessionRecordingPreview = memo(
 
                         <div className="flex items-center justify-between">
                             <FirstURL startUrl={recording.start_url} />
-                            {summaryEnabled && <RecordingSummaryIcon recording={recording} />}
+                            {!replayVisionEnabled && <RecordingSummaryIcon recording={recording} />}
                         </div>
                     </div>
 
@@ -440,7 +448,28 @@ export const SessionRecordingPreview = memo(
     (prevProps, nextProps) =>
         prevProps.recording.id === nextProps.recording.id &&
         prevProps.isActive === nextProps.isActive &&
-        prevProps.selectable === nextProps.selectable
+        prevProps.selectable === nextProps.selectable &&
+        prevProps.order === nextProps.order
+)
+
+function SessionRecordingPreviewFromPlaylist(props: Omit<SessionRecordingPreviewProps, 'order'>): JSX.Element {
+    const { filters } = useValues(sessionRecordingsPlaylistLogic)
+    const order = filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
+    return <SessionRecordingPreviewBase {...props} order={order} />
+}
+
+export const SessionRecordingPreview = memo(
+    function SessionRecordingPreview({ order, ...props }: SessionRecordingPreviewProps): JSX.Element {
+        if (order !== undefined) {
+            return <SessionRecordingPreviewBase {...props} order={order} />
+        }
+        return <SessionRecordingPreviewFromPlaylist {...props} />
+    },
+    (prevProps, nextProps) =>
+        prevProps.recording.id === nextProps.recording.id &&
+        prevProps.isActive === nextProps.isActive &&
+        prevProps.selectable === nextProps.selectable &&
+        prevProps.order === nextProps.order
 )
 
 export function SessionRecordingPreviewSkeleton(): JSX.Element {

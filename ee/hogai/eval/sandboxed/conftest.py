@@ -7,6 +7,7 @@ import logging
 import threading
 import subprocess
 from collections.abc import Generator
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -71,7 +72,13 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
             if own_markers is not None:
                 node.own_markers = [marker for marker in own_markers if marker.name != "django_db"]
             node = node.parent
-        item.keywords.pop("django_db", None)
+        # NodeKeywords forbids __delitem__ in newer pytest — the own_markers
+        # mutation above is what actually strips the marker; this pop is a
+        # legacy belt-and-braces that's a no-op when not supported.
+        try:
+            item.keywords.pop("django_db", None)
+        except (ValueError, TypeError):
+            pass
 
 
 @pytest.fixture(scope="session")
@@ -270,7 +277,7 @@ def _sandbox_settings(
     tasks queue in the developer's environment.
 
     Also patches ``posthoganalytics.feature_enabled`` to return True for all
-    flags so permission checks (TasksAccessPermission) and workflow guards pass.
+    flags so workflow guards pass.
     """
     from unittest.mock import patch
 
@@ -503,6 +510,10 @@ def _mcp_server(_django_live_server, _sandbox_settings):
 
     Pointed at the in-process Django live server (which uses the test DB).
     Uses a non-default port to avoid conflicts with a running dev MCP server.
+
+    Runs the Node-native Hono server via ``pnpm dev:hono``. In production the
+    Cloudflare Worker is now a proxy that forwards to a regional Hono
+    deployment, so Hono is what real users hit.
     """
     mcp_dir = Path(settings.BASE_DIR) / "services" / "mcp"
     if not (mcp_dir / "node_modules").exists():
@@ -511,30 +522,24 @@ def _mcp_server(_django_live_server, _sandbox_settings):
 
     api_url = str(_django_live_server)
 
+    # The Hono server reads config directly from process env — no wrangler
+    # --var wiring needed. PORT picks the listen port; the dev:hono script
+    # bundles via esbuild then spawns Node on the bundle.
     env = {
         **os.environ,
         "POSTHOG_API_BASE_URL": api_url,
         "MCP_APPS_BASE_URL": f"http://localhost:{MCP_PORT}",
         "POSTHOG_MCP_APPS_ANALYTICS_BASE_URL": api_url,
         "NODE_ENV": "development",
+        "PORT": str(MCP_PORT),
+        "HOST": "0.0.0.0",
     }
 
-    # Wrangler's .dev.vars file (committed) overrides process env, so we must
-    # pass --var on the CLI to point the MCP at our in-process Django test DB.
-    wrangler_vars = [
-        f"POSTHOG_API_BASE_URL:{api_url}",
-        f"POSTHOG_MCP_APPS_ANALYTICS_BASE_URL:{api_url}",
-        f"MCP_APPS_BASE_URL:http://localhost:{MCP_PORT}",
-    ]
-    var_args: list[str] = []
-    for v in wrangler_vars:
-        var_args.extend(["--var", v])
-
-    logger.info("Starting MCP server on port %d (API: %s)", MCP_PORT, api_url)
+    logger.info("Starting MCP server (Hono runtime) on port %d (API: %s)", MCP_PORT, api_url)
     _, stop = _LONG_LIVED_SUBPROCESSES.start(
         name="MCP server",
         port=MCP_PORT,
-        cmd=["pnpm", "wrangler", "dev", "--port", str(MCP_PORT), *var_args],
+        cmd=["pnpm", "dev:hono"],
         cwd=mcp_dir,
         env=env,
         log_prefix="mcp",
@@ -579,6 +584,39 @@ class SandboxedDemoData:
         )
 
 
+# Event-level properties the error-tracking ``searchQuery`` test cases match on
+# (see ``products/error_tracking/backend/hogql_queries/error_tracking_query_runner_utils.py``).
+# These are stored as JSON arrays (``["TypeError"]``); without materialized
+# columns the bare ``properties.$exception_types`` lookup goes through
+# ``JSONExtractString`` which returns ``""`` for non-string JSON values, so
+# ``searchQuery`` filtering on these properties silently never matches anything.
+# Materializing and backfilling once per session makes the sandbox behave like
+# prod for error-tracking searchQuery, including reused local ClickHouse state
+# where the columns already exist but older demo rows still need values.
+_EVAL_MATERIALIZED_EVENT_PROPERTIES: tuple[str, ...] = (
+    "$exception_types",
+    "$exception_values",
+)
+
+
+def _ensure_event_search_columns_materialized(django_db_blocker) -> None:
+    from ee.clickhouse.materialized_columns.columns import (
+        backfill_materialized_columns,
+        get_materialized_columns,
+        materialize,
+    )
+
+    with django_db_blocker.unblock():
+        existing_columns = get_materialized_columns("events")
+        columns = []
+        for property_name in _EVAL_MATERIALIZED_EVENT_PROPERTIES:
+            column = existing_columns.get((property_name, "properties"))
+            if column is None:
+                column = materialize("events", property_name)
+            columns.append(column)
+        backfill_materialized_columns("events", columns, timedelta(days=180))
+
+
 @pytest.fixture(scope="session", autouse=True)
 def sandboxed_demo_data(
     set_up_evals,  # noqa: F811
@@ -589,6 +627,7 @@ def sandboxed_demo_data(
     from posthog.clickhouse.client import sync_execute
 
     master_team_id = ensure_master_demo_team(django_db_blocker)
+    _ensure_event_search_columns_materialized(django_db_blocker)
     with django_db_blocker.unblock():
         rows = sync_execute(
             "SELECT event, count() FROM events WHERE team_id = %(team_id)s GROUP BY event ORDER BY 2 DESC LIMIT 20",

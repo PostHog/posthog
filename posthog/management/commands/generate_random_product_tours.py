@@ -13,10 +13,11 @@ from nanoid import generate
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX
-from posthog.models import FeatureFlag, Team, User
+from posthog.models import Team, User
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL
 from posthog.models.person.person import Person, PersonDistinctId
 
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 
 # Sample step content for generating realistic tours

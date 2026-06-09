@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.llm_analytics.backend.llm.types import StreamChunk
+from products.ai_observability.backend.llm.types import StreamChunk
 from products.tasks.backend.services.title_generator import _fallback_title, generate_task_title
 
 

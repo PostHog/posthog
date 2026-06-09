@@ -147,7 +147,7 @@ Roughly:
 8. **Tests** — round-trip (lazy == raw) parameterized over team timezones, gate fallthrough for each disqualifying condition, half-hour-offset fallthrough, cache hit (second call doesn't create new jobs).
 9. **Cache warmer** — add the new `query_type` to the warmer DAG's allowlist in `products/web_analytics/dags/cache_warming.py`.
 
-Roadmap order in `~/notes/work/posthog/web-analytics/investigations/2026-05-19-lazy-computation-candidates.md`: `web_overview_query` (shipped), `stats_table_path_bounce_query` (shipped — this PR), `stats_table_main_query` (next), then `web_goals_query` deferred for custom-goal-definition complexity.
+Rollout order across query families: `web_overview_query` (shipped), `stats_table_path_bounce_query` (shipped — this PR), `stats_table_main_query` (next), then `web_goals_query` deferred for custom-goal-definition complexity.
 
 ## Lazy computation for the PATHS tile
 
@@ -182,6 +182,92 @@ Single `sync_execute` over `web_stats_paths_preaggregated` with `uniqMergeIf` / 
 - INITIAL_PAGE + bounce (entry-pathname tab) is a different SQL shape — separate precompute table or shared one with an entry-only state column.
 - `usedLazyPrecompute` is set on the response; the frontend's `PreAggregatedBadge` already keys off `usedPreAggregatedTables` so users see the badge without further wiring. Distinguishing lazy from v2 in the UI is a separate follow-up.
 
+## Lazy computation for the web vitals path-breakdown tile
+
+`WebVitalsPathBreakdownQueryRunner._calculate` follows the same gate-then-fallthrough shape as web overview:
+
+1. **Lazy precompute** (`can_use_lazy_precompute` + `execute_lazy_precomputed_read`) — short-circuits when eligible and returns immediately.
+2. **Raw events scan** — the original `quantile(p)(toFloat(properties.$web_vitals_*_value))` per path.
+
+### Schema
+
+`web_vitals_paths_preaggregated` (sharded by `sipHash64(job_id)`, partitioned by `toYYYYMMDD(expires_at)`, `ReplicatedReplacingMergeTree` with `computed_at` as the version column). One row per `(team, job, hour, path)`, four state columns — one per Web Vitals metric:
+
+- `inp_quantiles_state AggregateFunction(quantiles(0.75, 0.90, 0.99), Float64)`
+- `lcp_quantiles_state AggregateFunction(quantiles(0.75, 0.90, 0.99), Float64)`
+- `cls_quantiles_state AggregateFunction(quantiles(0.75, 0.90, 0.99), Float64)`
+- `fcp_quantiles_state AggregateFunction(quantiles(0.75, 0.90, 0.99), Float64)`
+
+Each state holds one reservoir covering all three percentiles. Reads pick the queried percentile via `arrayElement(quantilesMergeIf(0.75, 0.90, 0.99)(state, range_filter), pct_index)`. Same reservoir algorithm as the raw `quantile(p)` — exact when unsaturated, within sampling noise once it is.
+
+Four columns vs. a metric discriminator: ARRAY JOIN would fan one event into four rows, but the new ClickHouse analyzer rejects bare `events.properties` references inside the ARRAY JOIN source array (the source array is resolved before the FROM alias scope). Four columns let the INSERT stay a single `FROM events GROUP BY (hour, path)`, no fan-out, and each metric tab reads exactly one column.
+
+### Bucketing and timezones
+
+**Daily, team-tz aligned.** Bucket key is `toStartOfDay(timestamp, team_tz)` — start of the team's local day. The underlying Unix timestamp stored in `time_window_start` is the UTC instant of that local midnight, so reads filter against the team-tz date range converted to UTC and get exact alignment.
+
+This differs from web overview / web stats which use UTC-hourly buckets:
+
+- The path-breakdown tile only consumes day-aligned date ranges from the dashboard filter, so a daily bucket is sufficient and ~24× smaller than hourly.
+- Bucketing in the team's tz means **half-hour-offset timezones** (IST +5:30, Newfoundland -3:30, Nepal +5:45, Iran +3:30) are supported too — this runner opts out of the shared `is_integer_timezone` gate.
+- A UTC-daily INSERT job typically writes into TWO team-tz day buckets (events in the first hours of UTC day N belong to team-tz day N-1 for non-UTC teams). The `ReplacingMergeTree` key `(team_id, job_id, time_window_start, path)` keeps the rows distinct per job; reads merge them via `quantilesMergeIf` for full team-tz day coverage.
+
+No session join in the raw query, so no `SESSION_FORWARD_PAD_MINUTES` — each event maps to exactly one (team-tz day, path) bucket.
+
+### Read
+
+Mirrors the raw query's outer shape:
+
+```sql
+SELECT multiIf(value <= good, 'good', value <= needs_improvements, 'needs_improvements', 'poor') AS band, path, value
+FROM (
+    SELECT path,
+           arrayElement(quantilesMergeIf(0.75, 0.90, 0.99)(<metric>_quantiles_state, time_filter), pct_index) AS value
+    FROM posthog.web_vitals_paths_preaggregated
+    WHERE team_id = ? AND job_id IN (...)
+    GROUP BY path HAVING value >= 0
+)
+ORDER BY value ASC, path ASC
+LIMIT 20 BY band
+```
+
+The runner re-partitions the resulting `(band, path, value)` tuples into the `good` / `needs_improvements` / `poor` arrays the response expects.
+
+### Eligibility gate
+
+`can_use_lazy_precompute` in `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` delegates to the shared gate with `require_integer_timezone=False` (see "Bucketing and timezones" above). The shared gate rejects: org feature flag off, per-query opt-in not set, conversion goal, sampling enabled, `sessionsV2JoinMode=uuid`, more than one property filter, anything other than a `$host` exact-equals filter, missing date range, and date range over 90 days.
+
+### Observability
+
+- **Read query**: tagged `query_type="web_vitals_paths_lazy_query"`.
+- **INSERT query**: tagged `query_type="web_vitals_paths_lazy_insert"`.
+- **Failures**: `web_vitals_paths_lazy_precompute_failed_total{error_type}` Prometheus counter.
+- **Cache warmer**: `web_vitals_paths_lazy_query` is in the warmer DAG allowlist in `products/web_analytics/dags/cache_warming.py`.
+
+### Known limitations
+
+1. **`WebVitalsQuery` (line-chart tile) is not covered.** That query wraps a `TrendsQuery` and dispatches through `TrendsQueryRunner`; lazy precompute for it would need a different shape and is deferred.
+2. **Adding a metric** (e.g. TTFB) is a schema change — add the column to `web_vitals_paths_preaggregated`, the HogQL table registration, the INSERT template, and the `_METRIC_STATE_COLUMN` map.
+3. **Bands are computed in ClickHouse from the runtime thresholds**, not stored — so a threshold change is free on the read side.
+
+## Eager baseline warming (hourly Dagster job)
+
+The lazy path computes on first read, but for high-traffic teams the dashboard's main tiles are requested constantly — there's no reason to make the first user of every cycle pay the INSERT cost. The eager job pre-warms the same lazy precompute cache (and the Django response cache) for a fixed query matrix, ahead of users.
+
+- **Location**: `products/web_analytics/dags/eager_web_analytics_precompute.py`
+- **Schedule**: `5 * * * *` (hourly, offset 5 min from the existing `cache_warming_schedule` at `0 * * * *`); skipped if a prior run is still in flight (`check_for_concurrent_runs`).
+- **Window**: trailing 28 days. The lazy precompute stores per-day buckets, so a 28-day warm naturally covers any sub-window the dashboard asks for.
+- **Matrix per team**: `WebOverviewQuery` + `WebGoalsQuery` + `WebVitalsPathBreakdownQuery` + one `WebStatsTableQuery` per `WebStatsBreakdown` rendered by the dashboard (~23 breakdowns including `FrustrationMetrics`).
+- **Per-query opt-in**: every warmer query sets `useWebAnalyticsPrecompute=True` so the lazy precompute path accepts it; without this the gate rejects via `PerQueryOptInNotSet` and the warming is a silent no-op.
+- **Freshness handoff**: each payload is dispatched via `get_query_runner(...).run(...)`. The runner routes through its family's `*_lazy_precompute.py` module, which calls `ensure_*_precomputed` — already idempotent. The DAG does not enumerate windows or inspect job state; the runner is the source of truth for what's stale.
+- **Audience**: teams belonging to organizations rolled out on the `web-analytics-precompute-toggle` feature flag — the same flag the runtime lazy read path checks. The job parses the flag's `Match organizations against id equals <uuid>` group conditions and resolves them to teams via `Team.objects.filter(organization_id__in=...)`. The flag lives on PostHog's internal dogfooding project; self-hosted instances are gated out via `is_cloud()` so a same-keyed flag on someone else's team-2 doesn't trigger anything.
+- **Audience cap**: 200 teams. A typo in the flag config fails-loudly (op returns with `skipped=N` and zero warmed) rather than silently overloading ClickHouse.
+- **Cycle budget**: 45 minutes of wall-clock; remaining teams are reported as `skipped` if the budget is exhausted. The concurrency guard absorbs the next tick.
+
+Because the eager job and the lazy read path consult the same flag, the warming audience never drifts from the audience the read path will actually serve — there is no second flag to keep in sync.
+
+This job is complementary to `cache_warming.py`, which replays whatever queries users actually ran in the last N days. The eager job covers the fixed UI matrix; the replay job covers the long tail of team-specific filter combinations.
+
 ## Related code
 
 - `posthog/hogql_queries/web_analytics/web_overview.py` — runner
@@ -192,4 +278,8 @@ Single `sync_execute` over `web_stats_paths_preaggregated` with `uniqMergeIf` / 
 - `posthog/hogql_queries/web_analytics/web_lazy_precompute_common.py` — shared eligibility gate + helpers
 - `posthog/clickhouse/preaggregation/web_overview_preaggregated_sql.py` — overview schema
 - `posthog/clickhouse/preaggregation/web_stats_paths_preaggregated_sql.py` — PATHS schema
+- `products/web_analytics/backend/hogql_queries/web_vitals_path_breakdown.py` — vitals runner
+- `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` — vitals lazy path
+- `posthog/clickhouse/preaggregation/web_vitals_paths_preaggregated_sql.py` — vitals schema
 - `products/analytics_platform/backend/lazy_computation/` — framework + CONSISTENCY.md + README
+- `products/web_analytics/dags/eager_web_analytics_precompute.py` — hourly baseline pre-warmer

@@ -26,6 +26,7 @@ from llm_gateway.circuit_breaker import build_anthropic_circuit_breaker, publish
 from llm_gateway.config import Settings, get_settings
 from llm_gateway.db.postgres import close_db_pool, init_db_pool
 from llm_gateway.metrics.prometheus import DB_POOL_SIZE, get_instrumentator
+from llm_gateway.rate_limiting.billable_credits_throttle import BillableCreditThrottle
 from llm_gateway.rate_limiting.cost_gauge_publisher import publish_product_cost_gauges_loop
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.cost_throttles import (
@@ -37,6 +38,7 @@ from llm_gateway.rate_limiting.denial_event import PosthogDenialCapturer
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.request_context import RequestContext, set_request_context
 from llm_gateway.services.plan_resolver import PlanResolver
+from llm_gateway.services.quota_resolver import QuotaResolver
 
 
 def configure_logging(debug: bool = False) -> None:
@@ -158,6 +160,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
     app.state.throttle_runner = ThrottleRunner(
         throttles=[
+            BillableCreditThrottle(),
             product_throttle,
             UserCostBurstThrottle(redis=app.state.redis),
             UserCostSustainedThrottle(redis=app.state.redis),
@@ -183,6 +186,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     app.state.http_client = httpx.AsyncClient()
     app.state.plan_resolver = PlanResolver(
+        redis=app.state.redis,
+        http_client=app.state.http_client,
+    )
+    app.state.quota_resolver = QuotaResolver(
         redis=app.state.redis,
         http_client=app.state.http_client,
     )

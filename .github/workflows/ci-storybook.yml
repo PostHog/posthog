@@ -62,6 +62,7 @@ jobs:
                         - 'products/**/frontend/**'
                         - 'common/{esbuilder,mosaic,storybook,tailwind}/**'
                         - 'ee/frontend/**'
+                        - 'services/mcp/src/ui-apps/**'
                         - '.storybook/**'
                         - 'package.json'
                         - '.github/workflows/ci-storybook.yml'
@@ -111,10 +112,7 @@ jobs:
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
             - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -124,6 +122,7 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-storybook.yml
+                  token: ${{ github.token }}
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
@@ -192,6 +191,7 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  token: ${{ github.token }}
 
             - name: Install VR CLI
               run: cd products/visual_review/cli && npm ci && npm run build && npm link
@@ -221,7 +221,7 @@ jobs:
 
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
-        runs-on: ubuntu-latest
+        runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-latest' || 'ubuntu-latest' }}
         needs: [changes, build-storybook, vr-setup]
         if: >-
             always()
@@ -229,7 +229,7 @@ jobs:
             && needs.build-storybook.result == 'success'
         timeout-minutes: 60
         container:
-            image: ghcr.io/posthog/playwright:v1.45.0
+            image: ghcr.io/posthog/playwright:v1.60.0
         strategy:
             fail-fast: false
             # Shard counts and worker config (maxWorkers in common/storybook/package.json)
@@ -249,15 +249,13 @@ jobs:
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
             - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  token: ${{ github.token }}
 
             - name: Get pnpm store path
               id: pnpm-store
@@ -380,7 +378,7 @@ jobs:
         if: needs.changes.outputs.frontend == 'true' && github.event_name == 'pull_request'
         timeout-minutes: 30
         container:
-            image: ghcr.io/posthog/playwright:v1.45.0
+            image: ghcr.io/posthog/playwright:v1.60.0
         env:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
@@ -391,15 +389,13 @@ jobs:
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
 
             - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  token: ${{ github.token }}
 
             - name: Get pnpm store path
               id: pnpm-store
@@ -498,6 +494,7 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  token: ${{ github.token }}
 
             - name: Install VR CLI
               run: cd products/visual_review/cli && npm ci && npm run build && npm link
@@ -581,6 +578,7 @@ jobs:
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  token: ${{ github.token }}
 
             - name: Download module-graph artifact
               id: download

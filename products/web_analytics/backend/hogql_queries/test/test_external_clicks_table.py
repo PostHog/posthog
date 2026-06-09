@@ -67,6 +67,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
         filter_test_accounts: Optional[bool] = False,
         strip_query_params: Optional[bool] = False,
+        do_path_cleaning: Optional[bool] = False,
         order_by: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None,
     ):
         modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
@@ -76,6 +77,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             limit=limit,
             filterTestAccounts=filter_test_accounts,
             stripQueryParams=strip_query_params,
+            doPathCleaning=do_path_cleaning,
             orderBy=order_by,
         )
         runner = WebExternalClicksTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
@@ -273,6 +275,49 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ["https://other.com/", (1, 0), (1, 0)],
             ],
             results,
+        )
+
+    def test_path_cleaning(self):
+        self.team.path_cleaning_filters = [{"alias": "/items/:id", "regex": "/items/\\d+"}]
+        self.team.save()
+
+        s1 = str(uuid7("2023-12-02"))
+        self._create_events(
+            [
+                (
+                    "user1",
+                    [
+                        ("2023-12-02", s1, "https://www.partner.com/catalog/items/12345"),
+                        ("2023-12-02", s1, "https://www.partner.com/catalog/items/67890"),
+                        ("2023-12-02", s1, "https://www.other.com/page"),
+                    ],
+                )
+            ]
+        )
+
+        cleaned = self._run_external_clicks_table_query(
+            "2023-12-01", "2023-12-03", filter_test_accounts=False, do_path_cleaning=True
+        ).results
+
+        self.assertEqual(
+            cleaned,
+            [
+                ["https://www.partner.com/catalog/items/:id", (1, 0), (2, 0)],
+                ["https://www.other.com/page", (1, 0), (1, 0)],
+            ],
+        )
+
+        not_cleaned = self._run_external_clicks_table_query(
+            "2023-12-01", "2023-12-03", filter_test_accounts=False, do_path_cleaning=False
+        ).results
+
+        self.assertEqual(
+            not_cleaned,
+            [
+                ["https://www.other.com/page", (1, 0), (1, 0)],
+                ["https://www.partner.com/catalog/items/12345", (1, 0), (1, 0)],
+                ["https://www.partner.com/catalog/items/67890", (1, 0), (1, 0)],
+            ],
         )
 
     def test_custom_order_by(self):

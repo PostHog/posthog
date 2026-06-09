@@ -5,7 +5,10 @@ import type { Schemas } from '@/api/generated'
 import {
     EndpointsCreateBody,
     EndpointsDestroyParams,
+    EndpointsLastExecutionTimesCreateBody,
     EndpointsListQueryParams,
+    EndpointsMaterializationPreviewCreateBody,
+    EndpointsMaterializationPreviewCreateParams,
     EndpointsMaterializationStatusRetrieveParams,
     EndpointsOpenapiSpecRetrieveParams,
     EndpointsOpenapiSpecRetrieveQueryParams,
@@ -48,6 +51,9 @@ const endpointCreate = (): ToolBase<typeof EndpointCreateSchema, WithPostHogUrl<
         }
         if (params.is_materialized !== undefined) {
             body['is_materialized'] = params.is_materialized
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         const result = await context.api.request<Schemas.EndpointResponse>({
             method: 'POST',
@@ -193,6 +199,9 @@ const endpointUpdate = (): ToolBase<typeof EndpointUpdateSchema, WithPostHogUrl<
         if (params.version !== undefined) {
             body['version'] = params.version
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         const result = await context.api.request<Schemas.EndpointResponse>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/`,
@@ -270,6 +279,54 @@ const endpointsGetAll = (): ToolBase<
     },
 })
 
+const EndpointsLastExecutionTimesSchema = EndpointsLastExecutionTimesCreateBody
+
+const endpointsLastExecutionTimes = (): ToolBase<
+    typeof EndpointsLastExecutionTimesSchema,
+    Schemas.QueryStatusResponse
+> => ({
+    name: 'endpoints-last-execution-times',
+    schema: EndpointsLastExecutionTimesSchema,
+    handler: async (context: Context, params: z.infer<typeof EndpointsLastExecutionTimesSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.names !== undefined) {
+            body['names'] = params.names
+        }
+        const result = await context.api.request<Schemas.QueryStatusResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/last_execution_times/`,
+            body,
+        })
+        return result
+    },
+})
+
+const EndpointsMaterializationPreviewSchema = EndpointsMaterializationPreviewCreateParams.omit({
+    project_id: true,
+}).extend(EndpointsMaterializationPreviewCreateBody.shape)
+
+const endpointsMaterializationPreview = (): ToolBase<typeof EndpointsMaterializationPreviewSchema, unknown> => ({
+    name: 'endpoints-materialization-preview',
+    schema: EndpointsMaterializationPreviewSchema,
+    handler: async (context: Context, params: z.infer<typeof EndpointsMaterializationPreviewSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.version !== undefined) {
+            body['version'] = params.version
+        }
+        if (params.bucket_overrides !== undefined) {
+            body['bucket_overrides'] = params.bucket_overrides
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/endpoints/${encodeURIComponent(String(params.name))}/materialization_preview/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/endpoints/${params.name}`)
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'endpoint-create': endpointCreate,
     'endpoint-delete': endpointDelete,
@@ -280,4 +337,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'endpoint-update': endpointUpdate,
     'endpoint-versions': endpointVersions,
     'endpoints-get-all': endpointsGetAll,
+    'endpoints-last-execution-times': endpointsLastExecutionTimes,
+    'endpoints-materialization-preview': endpointsMaterializationPreview,
 }

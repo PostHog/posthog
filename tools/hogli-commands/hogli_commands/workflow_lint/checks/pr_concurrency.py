@@ -44,6 +44,8 @@ class PrConcurrencyCheck(WorkflowCheck):
             "ci-backend-update-test-timing.yml",
             # Migration enforcement; arguably wants to complete on every PR state.
             "ci-migrations-service-separation-check.yml",
+            # Shared concurrency group on master causes intermediate runs to be cancelled.
+            "ci-security.yaml",
         }
     )
 

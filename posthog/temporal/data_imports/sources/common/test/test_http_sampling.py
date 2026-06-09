@@ -391,7 +391,16 @@ def test_sample_payload_preserves_json_body_keys():
 
 @pytest.mark.parametrize(
     "header_name",
-    ["Authorization", "authorization", "X-API-Key", "x-auth-token", "Cookie", "Set-Cookie", "Proxy-Authorization"],
+    [
+        "Authorization",
+        "authorization",
+        "X-API-Key",
+        "x-sn-apikey",
+        "x-auth-token",
+        "Cookie",
+        "Set-Cookie",
+        "Proxy-Authorization",
+    ],
 )
 def test_scrub_headers_redacts_auth_headers(header_name: str):
     cleaned = _scrub_headers({header_name: "Bearer sk_live_secret"})
@@ -449,7 +458,7 @@ def test_scrub_body_handles_none():
 def test_scrub_string_fails_closed_when_scrubadub_fails():
     """A scrubadub crash must NOT leak the raw value — replace with a placeholder."""
     with patch(
-        "posthog.temporal.data_imports.sources.common.http.sampling._get_scrubber",
+        "posthog.temporal.data_imports.sources.common.sample_scrub.get_scrubber",
         side_effect=RuntimeError("scrubadub broken"),
     ):
         result = sampling._scrub_string("super-secret-token-123")

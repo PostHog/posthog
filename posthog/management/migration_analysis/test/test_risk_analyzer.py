@@ -2,8 +2,11 @@ from unittest.mock import MagicMock
 
 from django.db import migrations, models
 
+from parameterized import parameterized
+
 from posthog.management.migration_analysis.analyzer import RiskAnalyzer
 from posthog.management.migration_analysis.models import RiskLevel
+from posthog.management.migration_analysis.policies import ConcurrentIndexIdempotencyPolicy
 
 
 def create_mock_operation(op_class, **kwargs):
@@ -1656,7 +1659,11 @@ class TestAtomicFalsePolicy:
         assert any("atomic=False" in v for v in migration_risk.policy_violations)
 
     def test_atomic_false_with_add_index_concurrently_ok(self):
-        """atomic=False with AddIndexConcurrently is correct - no warning"""
+        """AtomicFalsePolicy does not flag AddIndexConcurrently with atomic=False.
+
+        Idempotency of AddIndexConcurrently is a separate concern enforced by
+        ConcurrentIndexIdempotencyPolicy (see TestConcurrentIndexIdempotencyPolicy).
+        """
         mock_migration = MagicMock()
         mock_migration.atomic = False
         mock_migration.app_label = "posthog"
@@ -1669,10 +1676,12 @@ class TestAtomicFalsePolicy:
 
         migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
 
-        # Should not have atomic-related warnings
+        # AtomicFalsePolicy is satisfied (concurrent op with atomic=False)
         assert not any("atomic=False" in v for v in migration_risk.policy_violations)
         # Should recognize the operation (not "Unknown")
         assert not any("Unknown" in r.reason for r in migration_risk.operations)
+        # ConcurrentIndexIdempotencyPolicy still blocks the non-idempotent op
+        assert any("non-idempotent" in v for v in migration_risk.policy_violations)
 
     def test_atomic_true_with_concurrent_blocked(self):
         """CONCURRENTLY without atomic=False should be BLOCKED (will fail at runtime)"""
@@ -1692,7 +1701,11 @@ class TestAtomicFalsePolicy:
         assert any("atomic=False" in v for v in migration_risk.policy_violations)
 
     def test_atomic_false_with_runsql_concurrently_ok(self):
-        """atomic=False with RunSQL CONCURRENTLY is correct - no warning"""
+        """AtomicFalsePolicy does not flag RunSQL CONCURRENTLY with atomic=False.
+
+        This SQL is missing IF NOT EXISTS, so ConcurrentIndexIdempotencyPolicy
+        blocks it separately (see TestConcurrentIndexIdempotencyPolicy).
+        """
         mock_migration = MagicMock()
         mock_migration.atomic = False
         mock_migration.app_label = "posthog"
@@ -1703,8 +1716,10 @@ class TestAtomicFalsePolicy:
 
         migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
 
-        # Should not have atomic-related warnings
+        # AtomicFalsePolicy is satisfied (concurrent op with atomic=False)
         assert not any("atomic=False" in v for v in migration_risk.policy_violations)
+        # ConcurrentIndexIdempotencyPolicy blocks the missing IF NOT EXISTS
+        assert any("non-idempotent" in v for v in migration_risk.policy_violations)
 
     def test_atomic_true_with_runsql_concurrently_blocked(self):
         """RunSQL with CONCURRENTLY without atomic=False should be BLOCKED"""
@@ -1816,3 +1831,236 @@ class TestAtomicFalsePolicy:
 
         # Product app should trigger policy checks - atomic=False without CONCURRENTLY warns
         assert any("atomic=False" in v for v in migration_risk.policy_violations)
+
+    @parameterized.expand(["CreateIndexConcurrently", "DropIndexConcurrently"])
+    def test_posthog_helpers_recognized_as_concurrent(self, op_name):
+        """The PostHog helpers must register as concurrent ops in
+        CONCURRENT_OP_TYPES, otherwise atomic=False migrations using them
+        would trip the `atomic=False without CONCURRENTLY` warning.
+        """
+        mock_migration = MagicMock()
+        mock_migration.atomic = False
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+
+        # Plain MagicMock (no spec=) — spec= on a Django operation class
+        # would cause `__class__.__name__ = ...` to mutate the real class
+        # name globally and bleed across tests.
+        op = MagicMock()
+        op.__class__.__name__ = op_name
+        op.sql = 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx" ON "t" (c)'
+        op.reverse_sql = 'DROP INDEX CONCURRENTLY IF EXISTS "idx"'
+        mock_migration.operations = [op]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+        assert not any("atomic=False" in v for v in migration_risk.policy_violations)
+
+
+class TestConcurrentIndexIdempotencyPolicy:
+    """ConcurrentIndexIdempotencyPolicy blocks non-idempotent concurrent index ops.
+
+    Regression coverage for the deploy-blocking failure where a transient
+    lock_timeout cancellation of a bare CREATE INDEX CONCURRENTLY left an
+    invalid index and every bin/migrate retry then failed with
+    "relation already exists".
+    """
+
+    def setup_method(self):
+        self.analyzer = RiskAnalyzer()
+
+    def _analyze(self, operations, atomic=False, app_label="posthog"):
+        mock_migration = MagicMock()
+        mock_migration.atomic = atomic
+        mock_migration.app_label = app_label
+        mock_migration.name = "0001_test"
+        mock_migration.operations = operations
+        return self.analyzer.analyze_migration(mock_migration, f"{app_label}/migrations/0001_test.py")
+
+    @parameterized.expand(["AddIndexConcurrently", "RemoveIndexConcurrently"])
+    def test_django_concurrent_op_blocked(self, op_name):
+        op = MagicMock()
+        op.__class__.__name__ = op_name
+        risk = self._analyze([op])
+        assert risk.level == RiskLevel.BLOCKED
+        assert any(op_name in v and "non-idempotent" in v for v in risk.policy_violations)
+
+    @parameterized.expand(
+        [
+            ("create_no_if_not_exists", "CREATE INDEX CONCURRENTLY idx_foo ON t (c);"),
+            ("drop_no_if_exists", "DROP INDEX CONCURRENTLY idx_foo;"),
+        ]
+    )
+    def test_runsql_non_idempotent_concurrent_index_blocked(self, _name, sql):
+        op = create_mock_operation(migrations.RunSQL, sql=sql)
+        risk = self._analyze([op])
+        assert risk.level == RiskLevel.BLOCKED
+        assert any("non-idempotent" in v for v in risk.policy_violations)
+
+    @parameterized.expand(
+        [
+            ("create_idempotent", "SET lock_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON t (c);"),
+            ("drop_idempotent", "DROP INDEX CONCURRENTLY IF EXISTS idx_foo;"),
+            ("reindex", "REINDEX INDEX CONCURRENTLY idx_foo;"),
+        ]
+    )
+    def test_runsql_safe_concurrent_index_not_flagged(self, _name, sql):
+        op = create_mock_operation(migrations.RunSQL, sql=sql)
+        risk = self._analyze([op])
+        assert not any("non-idempotent" in v for v in risk.policy_violations)
+
+    def test_safe_pattern_in_separate_database_and_state_not_flagged(self):
+        state_op = create_mock_operation(migrations.AddIndex, model_name="mymodel", index=MagicMock())
+        db_op = create_mock_operation(
+            migrations.RunSQL,
+            sql="SET lock_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON mymodel (c);",
+        )
+        sep = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[state_op], database_operations=[db_op]
+        )
+        risk = self._analyze([sep])
+        assert not any("non-idempotent" in v for v in risk.policy_violations)
+
+    def test_non_idempotent_runsql_inside_separate_database_and_state_blocked(self):
+        db_op = create_mock_operation(migrations.RunSQL, sql="CREATE INDEX CONCURRENTLY idx_foo ON mymodel (c);")
+        sep = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[], database_operations=[db_op]
+        )
+        risk = self._analyze([sep])
+        assert risk.level == RiskLevel.BLOCKED
+        assert any("non-idempotent" in v for v in risk.policy_violations)
+
+    def test_third_party_app_not_checked(self):
+        op = MagicMock()
+        op.__class__.__name__ = "AddIndexConcurrently"
+        risk = self._analyze([op], app_label="some_third_party_app")
+        assert not any("non-idempotent" in v for v in risk.policy_violations)
+
+    def test_non_idempotent_reverse_sql_blocked(self):
+        """Forward SQL is idempotent but reverse_sql is bare DROP. Rollback runs through the same retry loop, so a non-idempotent reverse re-opens the stuck-migration class."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="SET lock_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON t (c);",
+            reverse_sql="DROP INDEX CONCURRENTLY idx_foo;",
+        )
+        risk = self._analyze([op])
+        assert risk.level == RiskLevel.BLOCKED
+        assert any("non-idempotent" in v and "reverse_sql" in v for v in risk.policy_violations)
+
+    def test_non_idempotent_runsql_inside_nested_separate_database_and_state_blocked(self):
+        """SeparateDatabaseAndState can nest; descent must reach inner ops at any depth."""
+        inner_db_op = create_mock_operation(migrations.RunSQL, sql="CREATE INDEX CONCURRENTLY idx_foo ON mymodel (c);")
+        inner_sep = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[], database_operations=[inner_db_op]
+        )
+        outer_sep = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[], database_operations=[inner_sep]
+        )
+        risk = self._analyze([outer_sep])
+        assert risk.level == RiskLevel.BLOCKED
+        assert any("non-idempotent" in v for v in risk.policy_violations)
+
+    def test_policy_in_isolation_catches_nested_sdas(self):
+        """Calling the policy directly proves it stands on its own, independent of sibling policies firing on the same migration."""
+        inner_db_op = create_mock_operation(migrations.RunSQL, sql="CREATE INDEX CONCURRENTLY idx_foo ON mymodel (c);")
+        inner_sep = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[], database_operations=[inner_db_op]
+        )
+        outer_sep = create_mock_operation(
+            migrations.SeparateDatabaseAndState, state_operations=[], database_operations=[inner_sep]
+        )
+        mock_migration = MagicMock()
+        mock_migration.app_label = "posthog"
+        mock_migration.operations = [outer_sep]
+
+        violations = ConcurrentIndexIdempotencyPolicy().check_migration(mock_migration)
+
+        assert any("non-idempotent" in v for v in violations)
+
+    @parameterized.expand(
+        [
+            (
+                "create_table_if_not_exists_hides_bare_create_index",
+                "CREATE TABLE IF NOT EXISTS some_table (a int); CREATE INDEX CONCURRENTLY idx_foo ON t (c);",
+            ),
+            (
+                "drop_table_if_exists_hides_bare_drop_index",
+                "DROP TABLE IF EXISTS old_table; DROP INDEX CONCURRENTLY idx_foo;",
+            ),
+            (
+                "block_comment_if_not_exists_hides_bare_create_index",
+                "/* IF NOT EXISTS */ CREATE INDEX CONCURRENTLY idx_foo ON t (c);",
+            ),
+            (
+                "list_form_mixed_create_table_and_bare_index",
+                [
+                    "CREATE TABLE IF NOT EXISTS some_table (a int);",
+                    "CREATE INDEX CONCURRENTLY idx_foo ON t (c);",
+                ],
+            ),
+            (
+                "bare_create_unique_index_concurrently",
+                "CREATE UNIQUE INDEX CONCURRENTLY idx_foo ON t (c);",
+            ),
+        ]
+    )
+    def test_substring_collision_no_longer_hides_bare_concurrent_index(self, _name, sql):
+        """Regression: a substring check `"IF NOT EXISTS" in sql` matched unrelated statements
+        in the same RunSQL blob and silently allowed a bare CREATE/DROP INDEX CONCURRENTLY through.
+        Per-statement regex catches the bare index op even when the blob also contains a legitimate
+        `CREATE TABLE IF NOT EXISTS` / `DROP TABLE IF EXISTS` / block comment / list-form sibling.
+        """
+        op = create_mock_operation(migrations.RunSQL, sql=sql)
+        risk = self._analyze([op])
+        assert risk.level == RiskLevel.BLOCKED
+        assert any("non-idempotent" in v for v in risk.policy_violations)
+
+    @parameterized.expand(
+        [
+            (
+                "create_unique_index_with_if_not_exists",
+                "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON t (c);",
+            ),
+            (
+                "create_table_if_not_exists_alongside_safe_concurrent_index",
+                "CREATE TABLE IF NOT EXISTS some_table (a int);"
+                " CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON t (c);",
+            ),
+            (
+                "comment_only_mention_of_bare_concurrently",
+                "-- old form was: CREATE INDEX CONCURRENTLY idx_foo ON t (c);\n"
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON t (c);",
+            ),
+        ]
+    )
+    def test_per_statement_regex_does_not_overreach(self, _name, sql):
+        """Don't false-positive on safe SQL that happens to contain a non-CONCURRENTLY DDL or
+        the bare keyword sequence inside a comment.
+        """
+        op = create_mock_operation(migrations.RunSQL, sql=sql)
+        risk = self._analyze([op])
+        assert not any("non-idempotent" in v for v in risk.policy_violations)
+
+    @parameterized.expand(
+        [
+            ("CreateIndexConcurrently",),
+            ("DropIndexConcurrently",),
+        ]
+    )
+    def test_posthog_helper_ops_pass_through(self, op_name):
+        """The PostHog migration helpers encode the idempotency guarantee internally
+        (indisvalid recovery + IF [NOT] EXISTS + timeout disabling), so the static
+        check must not flag them — even though they inherit from RunSQL and their
+        display SQL contains a CONCURRENTLY index statement.
+
+        Plain MagicMock (no spec=) — spec= on a Django operation class would
+        cause `__class__.__name__ = ...` to mutate the real class name globally
+        and bleed across tests.
+        """
+        op = MagicMock()
+        op.__class__.__name__ = op_name
+        # Mirror what the real helpers stash on `sql` for sqlmigrate display:
+        op.sql = 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx" ON "t" (c)'
+        op.reverse_sql = 'DROP INDEX CONCURRENTLY IF EXISTS "idx"'
+        risk = self._analyze([op])
+        assert not any("non-idempotent" in v for v in risk.policy_violations)
+        assert risk.level != RiskLevel.BLOCKED

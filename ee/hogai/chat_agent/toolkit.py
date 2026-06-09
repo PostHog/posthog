@@ -6,6 +6,7 @@ from django.conf import settings
 
 from langchain_core.runnables import RunnableConfig
 
+from products.ai_observability.backend.tools.skills import GetLLMSkillFileTool, GetLLMSkillTool, ListLLMSkillsTool
 from products.tasks.backend.max_tools import (
     CreateTaskTool,
     GetTaskRunLogsTool,
@@ -51,6 +52,9 @@ DEFAULT_TOOLS: list[type[MaxTool]] = [
     SwitchModeTool,
     CreateFormTool,
     CreateNotebookTool,
+    ListLLMSkillsTool,
+    GetLLMSkillTool,
+    GetLLMSkillFileTool,
 ]
 
 TASK_TOOLS: list[type[MaxTool]] = [

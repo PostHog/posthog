@@ -2,6 +2,9 @@ import datetime
 
 from posthog.test.base import BaseTest
 
+from django.core.management import call_command
+from django.core.management.base import CommandError
+
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
@@ -15,6 +18,18 @@ class TestUser(BaseTest):
             user = User.objects.create_user(first_name="Tim", email="tim@gmail.com", password=None)
         self.assertNotEqual(user.distinct_id, "")
         self.assertNotEqual(user.distinct_id, None)
+
+    def test_create_superuser_raises_with_guidance(self):
+        with self.assertRaises(CommandError) as ctx:
+            User.objects.create_superuser(email="admin@posthog.com", password="12345678")
+        self.assertIn("doesn't support `createsuperuser`", str(ctx.exception))
+        self.assertIn("generate_demo_data", str(ctx.exception))
+        self.assertIn("is_staff", str(ctx.exception))
+
+    def test_createsuperuser_command_fails_with_guidance(self):
+        with self.assertRaises(CommandError) as ctx:
+            call_command("createsuperuser", "--noinput", "--email", "admin@posthog.com")
+        self.assertIn("doesn't support `createsuperuser`", str(ctx.exception))
 
     def test_analytics_metadata(self):
         self.maxDiff = None

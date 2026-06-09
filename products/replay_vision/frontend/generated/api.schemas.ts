@@ -8,11 +8,27 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `pending` - Pending
+ * `running` - Running
+ * `succeeded` - Succeeded
+ * `failed` - Failed
+ * `ineligible` - Ineligible
+ */
+export type ObservationStatusEnumApi = (typeof ObservationStatusEnumApi)[keyof typeof ObservationStatusEnumApi]
+
+export const ObservationStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Succeeded: 'succeeded',
+    Failed: 'failed',
+    Ineligible: 'ineligible',
+} as const
+
+/**
  * * `monitor` - Monitor
  * `classifier` - Classifier
  * `scorer` - Scorer
  * `summarizer` - Summarizer
- * `indexer` - Indexer
  */
 export type ScannerTypeEnumApi = (typeof ScannerTypeEnumApi)[keyof typeof ScannerTypeEnumApi]
 
@@ -21,7 +37,17 @@ export const ScannerTypeEnumApi = {
     Classifier: 'classifier',
     Scorer: 'scorer',
     Summarizer: 'summarizer',
-    Indexer: 'indexer',
+} as const
+
+/**
+ * * `gemini-3-flash-preview` - Gemini 3 Flash
+ * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
+ */
+export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
+
+export const ScannerModelEnumApi = {
+    Gemini3FlashPreview: 'gemini-3-flash-preview',
+    Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
 } as const
 
 /**
@@ -34,14 +60,57 @@ export const ScannerProviderEnumApi = {
 } as const
 
 /**
- * * `gemini-3-flash-preview` - Gemini 3 Flash
- * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
+ * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
  */
-export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
+export interface ScannerSnapshotApi {
+    /** Scanner name at run time. */
+    name: string
+    /** Scanner type (monitor, classifier, scorer, summarizer) at run time.
 
-export const ScannerModelEnumApi = {
-    Gemini3FlashPreview: 'gemini-3-flash-preview',
-    Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
+  * `monitor` - Monitor
+  * `classifier` - Classifier
+  * `scorer` - Scorer
+  * `summarizer` - Summarizer */
+    scanner_type: ScannerTypeEnumApi
+    /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
+    scanner_version: number
+    /** Concrete model that ran the observation.
+
+  * `gemini-3-flash-preview` - Gemini 3 Flash
+  * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
+    model: ScannerModelEnumApi
+    /** Concrete provider that ran the observation.
+
+  * `google` - Google */
+    provider: ScannerProviderEnumApi
+    /** Whether the observation was run with Signal emission enabled. */
+    emits_signals: boolean
+    /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
+    scanner_config: unknown
+}
+
+/**
+ * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
+ */
+export interface ScannerResultApi {
+    /** Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `confidence` and `scanner_type`. */
+    model_output: unknown
+    /**
+     * Number of PostHog Signals emitted from this observation.
+     * @minimum 0
+     */
+    signals_count: number
+}
+
+/**
+ * * `schedule` - Schedule
+ * `on_demand` - On demand
+ */
+export type ObservationTriggerEnumApi = (typeof ObservationTriggerEnumApi)[keyof typeof ObservationTriggerEnumApi]
+
+export const ObservationTriggerEnumApi = {
+    Schedule: 'schedule',
+    OnDemand: 'on_demand',
 } as const
 
 /**
@@ -99,6 +168,66 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface ReplayObservationApi {
+    readonly id: string
+    /** The scanner that produced this observation. */
+    readonly scanner_id: string
+    /** Session recording id this scanner was applied to. */
+    readonly session_id: string
+    /** Observation status (pending, running, succeeded, failed, ineligible).
+
+  * `pending` - Pending
+  * `running` - Running
+  * `succeeded` - Succeeded
+  * `failed` - Failed
+  * `ineligible` - Ineligible */
+    readonly status: ObservationStatusEnumApi
+    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / internal_error. */
+    readonly error_reason: string
+    /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
+    readonly workflow_id: string
+    /** Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. */
+    readonly scanner_snapshot: ScannerSnapshotApi | null
+    /** Result data persisted on success; null until the observation succeeds. */
+    readonly scanner_result: ScannerResultApi | null
+    /** Whether this observation came from the schedule or an on-demand request.
+
+  * `schedule` - Schedule
+  * `on_demand` - On demand */
+    readonly triggered_by: ObservationTriggerEnumApi
+    /** User who triggered an on-demand observation; null for scheduled observations. */
+    readonly triggered_by_user: UserBasicApi | null
+    /** @nullable */
+    started_at?: string | null
+    /** @nullable */
+    completed_at?: string | null
+    readonly created_at: string
+}
+
+export interface PaginatedReplayObservationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ReplayObservationApi[]
+}
+
+export interface VisionQuotaApi {
+    /** Total observations the org may complete per calendar month. */
+    readonly monthly_quota: number
+    /** Observations created this month that are in flight or have succeeded, counted against the quota. */
+    readonly usage_this_month: number
+    /** `monthly_quota - usage_this_month`, floored at 0. */
+    readonly remaining: number
+    /** True when `usage_this_month >= monthly_quota`; further observations are skipped until next period. */
+    readonly exhausted: boolean
+    /** First moment of the current quota period (UTC). */
+    readonly period_start: string
+    /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
+    readonly period_end: string
+}
+
 export interface ReplayScannerApi {
     readonly id: string
     /**
@@ -108,15 +237,14 @@ export interface ReplayScannerApi {
     name: string
     /** Free-form description shown in the scanner management UI. */
     description?: string
-    /** What the scanner does: monitor, classifier, scorer, summarizer, or indexer.
+    /** What the scanner does: monitor, classifier, scorer, or summarizer.
 
   * `monitor` - Monitor
   * `classifier` - Classifier
   * `scorer` - Scorer
-  * `summarizer` - Summarizer
-  * `indexer` - Indexer */
+  * `summarizer` - Summarizer */
     scanner_type: ScannerTypeEnumApi
-    /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
+    /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config: unknown
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
     query?: unknown
@@ -167,15 +295,14 @@ export interface PatchedReplayScannerApi {
     name?: string
     /** Free-form description shown in the scanner management UI. */
     description?: string
-    /** What the scanner does: monitor, classifier, scorer, summarizer, or indexer.
+    /** What the scanner does: monitor, classifier, scorer, or summarizer.
 
   * `monitor` - Monitor
   * `classifier` - Classifier
   * `scorer` - Scorer
-  * `summarizer` - Summarizer
-  * `indexer` - Indexer */
+  * `summarizer` - Summarizer */
     scanner_type?: ScannerTypeEnumApi
-    /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
+    /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config?: unknown
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
     query?: unknown
@@ -227,136 +354,173 @@ export interface ObserveResponseApi {
     workflow_id: string
 }
 
-/**
- * * `pending` - Pending
- * `running` - Running
- * `succeeded` - Succeeded
- * `failed` - Failed
- */
-export type ObservationStatusEnumApi = (typeof ObservationStatusEnumApi)[keyof typeof ObservationStatusEnumApi]
-
-export const ObservationStatusEnumApi = {
-    Pending: 'pending',
-    Running: 'running',
-    Succeeded: 'succeeded',
-    Failed: 'failed',
-} as const
-
-/**
- * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
- */
-export interface ScannerSnapshotApi {
-    /** Scanner name at run time. */
-    name: string
-    /** Scanner type (monitor, classifier, scorer, summarizer, indexer) at run time.
-
-  * `monitor` - Monitor
-  * `classifier` - Classifier
-  * `scorer` - Scorer
-  * `summarizer` - Summarizer
-  * `indexer` - Indexer */
-    scanner_type: ScannerTypeEnumApi
-    /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
-    scanner_version: number
-    /** Concrete model that ran the observation.
-
-  * `gemini-3-flash-preview` - Gemini 3 Flash
-  * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
-    model: ScannerModelEnumApi
-    /** Concrete provider that ran the observation.
-
-  * `google` - Google */
-    provider: ScannerProviderEnumApi
-    /** Whether the observation was run with Signal emission enabled. */
-    emits_signals: boolean
-    /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
-    scanner_config: unknown
-}
-
-/**
- * Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited.
- */
-export type ScannerResultApiEventIdMapping = { [key: string]: unknown }
-
-/**
- * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
- */
-export interface ScannerResultApi {
-    /** Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `confidence` and `scanner_type`. */
-    model_output: unknown
+export interface ObservationStatusCountsApi {
+    /** Total observations in the filtered set. */
+    total: number
+    /** Observations with `status=succeeded`. */
+    succeeded: number
+    /** Observations with `status=failed`. */
+    failed: number
+    /** Observations with `status=ineligible`. */
+    ineligible: number
+    /** Observations not yet in a terminal status. */
+    in_flight: number
     /**
-     * Number of PostHog Signals emitted from this observation.
-     * @minimum 0
+     * Percentage of (succeeded + failed) observations that succeeded; ineligible rows are excluded. Null when no observations have completed.
+     * @nullable
      */
-    signals_count: number
-    /** Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited. */
-    event_id_mapping: ScannerResultApiEventIdMapping
+    success_rate: number | null
 }
 
-/**
- * * `schedule` - Schedule
- * `on_demand` - On demand
- */
-export type ObservationTriggerEnumApi = (typeof ObservationTriggerEnumApi)[keyof typeof ObservationTriggerEnumApi]
-
-export const ObservationTriggerEnumApi = {
-    Schedule: 'schedule',
-    OnDemand: 'on_demand',
-} as const
-
-export interface ReplayObservationApi {
-    readonly id: string
-    /** The scanner that produced this observation. */
-    readonly scanner_id: string
-    /** Session recording id this scanner was applied to. */
-    readonly session_id: string
-    /** Observation status (pending, running, succeeded, failed).
-
-  * `pending` - Pending
-  * `running` - Running
-  * `succeeded` - Succeeded
-  * `failed` - Failed */
-    readonly status: ObservationStatusEnumApi
-    /** Populated on failure; includes the malformed model response when validation fails. */
-    readonly error_reason: string
-    /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
-    readonly workflow_id: string
-    /** Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. */
-    readonly scanner_snapshot: ScannerSnapshotApi | null
-    /** Result data persisted on success; null until the observation succeeds. */
-    readonly scanner_result: ScannerResultApi | null
-    /** Whether this observation came from the schedule or an on-demand request.
-
-  * `schedule` - Schedule
-  * `on_demand` - On demand */
-    readonly triggered_by: ObservationTriggerEnumApi
-    /** User who triggered an on-demand observation; null for scheduled observations. */
-    readonly triggered_by_user: UserBasicApi | null
-    /** @nullable */
-    started_at?: string | null
-    /** @nullable */
-    completed_at?: string | null
-    readonly created_at: string
+export interface CoverageStatsApi {
+    /** Distinct sessions observed within the last `recent_days` days. */
+    recent_sessions: number
+    /** Distinct sessions observed overall. */
+    total_sessions: number
+    /** Window size in days used for `recent_sessions`. */
+    recent_days: number
 }
 
-export interface PaginatedReplayObservationListApi {
+export interface MonitorStatsApi {
+    /** Succeeded observations whose verdict was `yes`. */
+    yes_total: number
+    /** Succeeded observations whose verdict was `no`. */
+    no_total: number
+    /** Succeeded observations whose verdict was `inconclusive`. */
+    inconclusive_total: number
+}
+
+export interface TagCountApi {
+    /** The tag value. */
+    tag: string
+    /** Number of succeeded observations carrying this tag. */
     count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ReplayObservationApi[]
 }
 
-export type VisionScannersListParams = {
+export interface ClassifierStatsApi {
+    /** Top fixed-vocabulary tags by emission count. */
+    fixed_ranked: TagCountApi[]
+    /** Top freeform tags by emission count. */
+    freeform_ranked: TagCountApi[]
+    /** Succeeded observations that emitted at least one tag. */
+    total_with_tags: number
+}
+
+export interface ScorerSummaryApi {
+    /** Minimum observed score. */
+    min: number
+    /** 25th-percentile score. */
+    p25: number
+    /** Median score. */
+    median: number
+    /** Mean score. */
+    mean: number
+    /** 75th-percentile score. */
+    p75: number
+    /** Maximum observed score. */
+    max: number
+    /** Number of scored observations summarized. */
+    count: number
+}
+
+export interface ScorerHistogramApi {
+    /** Bucket labels (one per histogram bar) spanning the scanner's configured scale. */
+    labels: string[]
+    /** Observation count per bucket; same length as `labels`. */
+    counts: number[]
+}
+
+export interface ScorerStatsApi {
+    /** Score quantile summary; null when no observations have been scored. */
+    summary: ScorerSummaryApi | null
+    /** Score histogram; null when no observations have been scored. */
+    histogram: ScorerHistogramApi | null
+}
+
+export interface ObservationStatsApi {
+    /** Counts of observations by terminal status. */
+    status_counts: ObservationStatusCountsApi
+    /** Session-level scanner coverage. */
+    coverage: CoverageStatsApi
+    /** All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set. */
+    available_tags: string[]
+    /** Monitor-type aggregates; null when the scanner is not a monitor. */
+    monitor: MonitorStatsApi | null
+    /** Classifier-type aggregates; null when the scanner is not a classifier. */
+    classifier: ClassifierStatsApi | null
+    /** Scorer-type aggregates; null when the scanner is not a scorer. */
+    scorer: ScorerStatsApi | null
+}
+
+/**
+ * Distinct creators across all scanners on the team — feeds the `Created by` filter dropdown.
+ */
+export interface ScannerCreatorsResponseApi {
+    /** Users who created at least one scanner on this team. Returned regardless of pagination state so the dropdown stays stable across pages. */
+    creators: UserBasicApi[]
+}
+
+/**
+ * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
+ */
+export interface EstimateRequestApi {
+    /** Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate against all recordings. */
+    query?: unknown
     /**
-     * Filter to scanners that emit Signals.
+     * 0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).
+     * @minimum 0
+     * @maximum 1
      */
-    emits_signals?: boolean
-    /**
-     * Filter to enabled vs disabled scanners.
-     */
-    enabled?: boolean
+    sampling_rate?: number
+}
+
+/**
+ * Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic.
+ */
+export interface EstimateResponseApi {
+    /** Distinct sessions matching the query within the 30-day lookback, before sampling. */
+    matched_sessions_in_window: number
+    /** Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings. */
+    window_days: number
+    /** Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate. */
+    estimated_observations_per_month: number
+    /** Sampling rate applied to the projection. Echoed from the request. */
+    sampling_rate: number
+}
+
+/**
+ * Per-scanner-type count of enabled vs total scanners.
+ */
+export interface ScannerTypeStatsApi {
+    /** Number of enabled scanners of this type. */
+    enabled: number
+    /** Number of scanners of this type (enabled + disabled). */
+    total: number
+}
+
+/**
+ * One `ScannerTypeStats` per scanner type — explicit fields give callers a typed shape, not `Record<string, …>`.
+ */
+export interface ScannerStatsByTypeApi {
+    monitor: ScannerTypeStatsApi
+    classifier: ScannerTypeStatsApi
+    scorer: ScannerTypeStatsApi
+    summarizer: ScannerTypeStatsApi
+}
+
+/**
+ * Team-wide scanner counts independent of any list-filter state.
+ */
+export interface ScannerStatsResponseApi {
+    /** Total scanners on the team. */
+    total: number
+    /** Number of enabled scanners on the team. */
+    enabled: number
+    /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer). */
+    by_type: ScannerStatsByTypeApi
+}
+
+export type VisionObservationsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -366,40 +530,49 @@ export type VisionScannersListParams = {
      */
     offset?: number
     /**
- * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
-
-* `name` - Name
-* `-name` - Name (descending)
-* `created_at` - Created at
-* `-created_at` - Created at (descending)
-* `updated_at` - Updated at
-* `-updated_at` - Updated at (descending)
-* `scanner_type` - Scanner type
-* `-scanner_type` - Scanner type (descending)
- */
-    order_by?: string[]
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
+     */
+    order_by?: string
     /**
- * Filter by scanner type (monitor, classifier, scorer, summarizer, indexer).
-
-* `monitor` - Monitor
-* `classifier` - Classifier
-* `scorer` - Scorer
-* `summarizer` - Summarizer
-* `indexer` - Indexer
- */
-    scanner_type?: VisionScannersListScannerType
+     * Session recording id to return observations for.
+     */
+    session_id: string
 }
 
-export type VisionScannersListScannerType =
-    (typeof VisionScannersListScannerType)[keyof typeof VisionScannersListScannerType]
-
-export const VisionScannersListScannerType = {
-    Classifier: 'classifier',
-    Indexer: 'indexer',
-    Monitor: 'monitor',
-    Scorer: 'scorer',
-    Summarizer: 'summarizer',
-} as const
+export type VisionScannersListParams = {
+    /**
+     * Filter to scanners created by the given user IDs (comma-separated).
+     */
+    created_by?: string
+    /**
+     * Filter to scanners that emit Signals.
+     */
+    emits_signals?: boolean
+    /**
+     * Filter by enabled state. Accepts a comma-separated list of `enabled`/`disabled`.
+     */
+    enabled?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.
+     */
+    order_by?: string
+    /**
+     * Filter by scanner type (monitor, classifier, scorer, summarizer). Accepts a comma-separated list.
+     */
+    scanner_type?: string
+    /**
+     * Case-insensitive substring match across name, description, and the prompt in scanner_config.
+     */
+    search?: string
+}
 
 export type VisionScannersObservationsListParams = {
     /**
@@ -411,54 +584,50 @@ export type VisionScannersObservationsListParams = {
      */
     offset?: number
     /**
- * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
-
-* `created_at` - Created at
-* `-created_at` - Created at (descending)
-* `started_at` - Started at
-* `-started_at` - Started at (descending)
-* `completed_at` - Completed at
-* `-completed_at` - Completed at (descending)
-* `status` - Status
-* `-status` - Status (descending)
- */
-    order_by?: string[]
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
+     */
+    order_by?: string
     /**
      * Filter to observations of a specific session recording.
      */
     session_id?: string
     /**
- * Filter by observation status.
-
-* `pending` - Pending
-* `running` - Running
-* `succeeded` - Succeeded
-* `failed` - Failed
- */
-    status?: VisionScannersObservationsListStatus
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string
     /**
- * Filter by trigger source (schedule or on_demand).
-
-* `schedule` - Schedule
-* `on_demand` - On demand
- */
-    triggered_by?: VisionScannersObservationsListTriggeredBy
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string
+    /**
+     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     */
+    triggered_by?: string
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string
 }
 
-export type VisionScannersObservationsListStatus =
-    (typeof VisionScannersObservationsListStatus)[keyof typeof VisionScannersObservationsListStatus]
-
-export const VisionScannersObservationsListStatus = {
-    Failed: 'failed',
-    Pending: 'pending',
-    Running: 'running',
-    Succeeded: 'succeeded',
-} as const
-
-export type VisionScannersObservationsListTriggeredBy =
-    (typeof VisionScannersObservationsListTriggeredBy)[keyof typeof VisionScannersObservationsListTriggeredBy]
-
-export const VisionScannersObservationsListTriggeredBy = {
-    OnDemand: 'on_demand',
-    Schedule: 'schedule',
-} as const
+export type VisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Filter to observations of a specific session recording.
+     */
+    session_id?: string
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string
+    /**
+     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     */
+    triggered_by?: string
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string
+}

@@ -1,3 +1,4 @@
+import json
 import time
 import datetime
 from dataclasses import dataclass
@@ -38,6 +39,61 @@ def add_email_mfa_bypass(email: str) -> None:
 
 def remove_email_mfa_bypass(email: str) -> None:
     get_client().srem(EMAIL_MFA_BYPASS_REDIS_KEY, email.lower())
+
+
+# Global kill-switch: when this Redis key is present, email MFA verification is skipped for every
+# user (e.g. while transactional email delivery is down and the verification link can't be
+# delivered). The key carries the reason/actor/timestamp and a mandatory TTL so it auto-re-enables.
+# Only the email factor is affected — TOTP and passkey 2FA are gated earlier in the login flow.
+EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY = "email_mfa_global_disable"
+MAX_EMAIL_MFA_GLOBAL_DISABLE_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
+
+
+def is_email_mfa_globally_disabled() -> bool:
+    # Fail closed: if Redis is unreachable, keep email MFA enforced (the secure default) rather than
+    # silently dropping the second factor — and never let a Redis hiccup break the login flow.
+    try:
+        return bool(get_client().exists(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY))
+    except Exception:
+        mfa_logger.exception("Failed to read email MFA global disable flag; keeping email MFA enforced")
+        return False
+
+
+def get_email_mfa_global_disable() -> Optional[dict]:
+    try:
+        client = get_client()
+        raw = client.get(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY)
+        if not raw:
+            return None
+        data = json.loads(raw)
+        ttl = client.ttl(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY)
+        data["expires_in_seconds"] = ttl if isinstance(ttl, int) and ttl > 0 else None
+        return data
+    except Exception:
+        mfa_logger.exception("Failed to read email MFA global disable state")
+        return None
+
+
+def set_email_mfa_global_disable(reason: str, ttl_seconds: int, disabled_by: str) -> None:
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValueError("A reason is required to disable email MFA.")
+    if not 0 < ttl_seconds <= MAX_EMAIL_MFA_GLOBAL_DISABLE_TTL_SECONDS:
+        raise ValueError(
+            f"TTL must be between 1 second and {MAX_EMAIL_MFA_GLOBAL_DISABLE_TTL_SECONDS} seconds (7 days)."
+        )
+    payload = json.dumps(
+        {
+            "reason": reason,
+            "disabled_by": disabled_by,
+            "disabled_at": datetime.datetime.now(datetime.UTC).isoformat(),
+        }
+    )
+    get_client().set(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY, payload, ex=ttl_seconds)
+
+
+def clear_email_mfa_global_disable() -> None:
+    get_client().delete(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY)
 
 
 def has_passkeys(user: User) -> bool:
@@ -329,6 +385,9 @@ class EmailMFAVerifier:
             )
 
     def should_send_email_mfa_verification(self, user: User) -> EmailMFACheckResult:
+        if is_email_mfa_globally_disabled():
+            return EmailMFACheckResult(should_send=False)
+
         if is_dev_mode() and not settings.TEST:
             return EmailMFACheckResult(should_send=False)
 

@@ -11,8 +11,6 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tracing::Level;
 
-use crate::billing::AggregatorMode;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlexBool(pub bool);
 
@@ -95,42 +93,6 @@ impl FromStr for BotFilterMode {
             _ => Err(format!(
                 "Invalid FLAGS_BOT_FILTER_MODE: '{s}'. Expected 'disabled', 'log_only', or 'enforced'"
             )),
-        }
-    }
-}
-
-/// Tristate selector for the in-process billing aggregator. Encoded as one
-/// enum so `(authoritative=true, enabled=false)` is unrepresentable — the
-/// previous two-boolean form allowed it and `server.rs` had to panic on it.
-/// See `AggregatorMode` for what each non-`Off` variant does at runtime.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AggregatorModeConfig {
-    Off,
-    Shadow,
-    Authoritative,
-}
-
-impl FromStr for AggregatorModeConfig {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_lowercase().as_str() {
-            "off" => Ok(AggregatorModeConfig::Off),
-            "shadow" => Ok(AggregatorModeConfig::Shadow),
-            "authoritative" => Ok(AggregatorModeConfig::Authoritative),
-            _ => Err(format!(
-                "Invalid FLAGS_BILLING_AGGREGATOR_MODE: '{s}'. Expected 'off', 'shadow', or 'authoritative'"
-            )),
-        }
-    }
-}
-
-impl AggregatorModeConfig {
-    pub fn into_runtime(self) -> Option<AggregatorMode> {
-        match self {
-            AggregatorModeConfig::Off => None,
-            AggregatorModeConfig::Shadow => Some(AggregatorMode::Shadow),
-            AggregatorModeConfig::Authoritative => Some(AggregatorMode::Authoritative),
         }
     }
 }
@@ -274,6 +236,83 @@ impl FromStr for RateLimitingAllowList {
         }
 
         Ok(RateLimitingAllowList(team_ids))
+    }
+}
+
+/// Per-team /flags request/response body logging config.
+/// Parses JSON from FLAGS_LOG_BODIES_TEAMS environment variable, also refreshed
+/// at runtime from posthog_instancesetting (key:
+/// `constance:posthog:FLAGS_LOG_BODIES_TEAMS`).
+///
+/// Format: {"team_id": ["pattern", ...], ...}
+/// Each team must specify at least one pattern; the response's `flags` map is
+/// filtered to keys matching any pattern. To capture every flag (rare and
+/// noisy), use `["*"]` explicitly.
+/// Patterns support `*` wildcards (e.g., "my-feature", "checkout-*", "*-targeting-*").
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BodyLogTeams(pub HashMap<TeamId, Vec<String>>);
+
+// Caps on the parsed `FLAGS_LOG_BODIES_TEAMS` shape. Mirrors the pattern in
+// `MAX_FLAGS_RATE_LIMIT_OVERRIDES`: the setting is admin-gated, but a typo
+// or paste of a large blob would otherwise fan out across every pod and
+// flood Loki silently.
+
+/// Matches `MAX_FLAGS_RATE_LIMIT_OVERRIDES`; well above any realistic
+/// per-cluster opt-in count.
+pub const MAX_BODY_LOG_TEAMS: usize = 100;
+/// Realistic teams configure <10 patterns; 50 leaves headroom without
+/// inviting blob-pasting.
+pub const MAX_BODY_LOG_PATTERNS_PER_TEAM: usize = 50;
+/// Longest production flag-key is ~80 chars; 256 bytes leaves room for
+/// `*` prefixes and suffixes.
+pub const MAX_BODY_LOG_PATTERN_LEN: usize = 256;
+
+impl FromStr for BodyLogTeams {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+
+        if s.is_empty() {
+            return Ok(BodyLogTeams::default());
+        }
+
+        let parsed: HashMap<String, Vec<String>> = serde_json::from_str(s)
+            .map_err(|e| format!("Failed to parse FLAGS_LOG_BODIES_TEAMS as JSON: {e}"))?;
+
+        if parsed.len() > MAX_BODY_LOG_TEAMS {
+            return Err(format!(
+                "Too many FLAGS_LOG_BODIES_TEAMS entries: {} (max {MAX_BODY_LOG_TEAMS})",
+                parsed.len()
+            ));
+        }
+
+        let mut out = HashMap::new();
+        for (team_id_str, patterns) in parsed {
+            if patterns.is_empty() {
+                return Err(format!(
+                    "Team {team_id_str} has no patterns; specify at least one (use [\"*\"] to log every flag)"
+                ));
+            }
+            if patterns.len() > MAX_BODY_LOG_PATTERNS_PER_TEAM {
+                return Err(format!(
+                    "Too many patterns for team {team_id_str}: {} (max {MAX_BODY_LOG_PATTERNS_PER_TEAM})",
+                    patterns.len()
+                ));
+            }
+            if let Some(p) = patterns.iter().find(|p| p.len() > MAX_BODY_LOG_PATTERN_LEN) {
+                return Err(format!(
+                    "Pattern too long for team {team_id_str}: {} bytes (max {MAX_BODY_LOG_PATTERN_LEN})",
+                    p.len()
+                ));
+            }
+            let team_id = team_id_str.parse::<TeamId>().map_err(|e| {
+                format!("Invalid team ID '{team_id_str}' in FLAGS_LOG_BODIES_TEAMS: {e}")
+            })?;
+            out.insert(team_id, patterns);
+        }
+
+        Ok(BodyLogTeams(out))
     }
 }
 
@@ -606,6 +645,19 @@ pub struct Config {
     #[envconfig(from = "RATE_LIMITING_ALLOW_LIST_TEAMS", default = "")]
     pub rate_limiting_allow_list_teams: RateLimitingAllowList,
 
+    // Per-team /flags body logging. JSON: {"team_id": ["flag-key-pattern", ...], ...}
+    // Mirrors Django's FLAGS_LOG_BODIES_TEAMS dynamic setting; refreshed every ~60s
+    // from posthog_instancesetting at runtime.
+    #[envconfig(from = "FLAGS_LOG_BODIES_TEAMS", default = "")]
+    pub flags_log_bodies_teams: BodyLogTeams,
+
+    // Maximum request body bytes to include in body-log events.
+    // Bodies larger than this are truncated; truncated/original_size_bytes fields
+    // record what happened. Response side is naturally bounded by the per-flag
+    // filter when one is set.
+    #[envconfig(from = "FLAGS_LOG_BODIES_REQUEST_MAX_BYTES", default = "65536")]
+    pub flags_log_bodies_request_max_bytes: usize,
+
     // OpenTelemetry configuration
     #[envconfig(from = "OTEL_EXPORTER_OTLP_ENDPOINT")]
     pub otel_url: Option<String>,
@@ -773,14 +825,6 @@ pub struct Config {
     #[envconfig(from = "SERVICE_MODE", default = "all")]
     pub service_mode: ServiceMode,
 
-    // Selects the in-process billing aggregator mode. See `AggregatorModeConfig`.
-    // Defaults to `shadow` to match what's deployed in dev/prod-eu/prod-us today,
-    // so swapping the old `FLAGS_BILLING_AGGREGATOR_ENABLED=true` env var for
-    // unsetting it leaves runtime behavior unchanged. `default_test_config` keeps
-    // `Off` so tests that don't opt in don't start the aggregator.
-    #[envconfig(from = "FLAGS_BILLING_AGGREGATOR_MODE", default = "shadow")]
-    pub billing_aggregator_mode: AggregatorModeConfig,
-
     // BillingAggregator tuning knobs. `BillingAggregatorConfig::validate`
     // rejects zero values at boot — see the module docs on
     // `src/billing/aggregator.rs` for the durability trade-offs that hang
@@ -920,6 +964,16 @@ impl Config {
         }
     }
 
+    /// Baseline config for the integration test harness.
+    ///
+    /// Diverges from production defaults in one billing-critical way:
+    /// `billing_flush_interval_ms` is 100 (vs 10_000 in production). Tests
+    /// that poll Redis for an aggregator write expect a flush inside their
+    /// ~1s budget; tests that assert *absence* of a write sleep ≥ 500ms
+    /// (several flush windows) before reading. If you raise this default,
+    /// audit `test_skip_writes_suppresses_billing_redis_counter` and
+    /// `test_flag_definitions_billing_counter` — their negative-case sleeps
+    /// must cover at least one full flush window.
     pub fn default_test_config() -> Self {
         Self {
             continuous_profiling: ContinuousProfilingConfig::default(),
@@ -985,6 +1039,8 @@ impl Config {
             flag_definitions_default_rate_per_minute: 600,
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
             rate_limiting_allow_list_teams: RateLimitingAllowList::default(),
+            flags_log_bodies_teams: BodyLogTeams::default(),
+            flags_log_bodies_request_max_bytes: 65_536,
             otel_url: None,
             otel_sampling_rate: 1.0,
             otel_service_name: "posthog-feature-flags".to_string(),
@@ -1020,8 +1076,7 @@ impl Config {
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
             internal_request_token: None,
-            billing_aggregator_mode: AggregatorModeConfig::Off,
-            billing_flush_interval_ms: 10_000,
+            billing_flush_interval_ms: 100,
             billing_max_pending_entries: 500_000,
             billing_per_flush_batch_size: 200,
             billing_shutdown_flush_timeout_ms: 15_000,
@@ -1092,6 +1147,17 @@ impl Config {
         }
     }
 
+    pub fn get_billing_aggregator_config(&self) -> crate::billing::BillingAggregatorConfig {
+        crate::billing::BillingAggregatorConfig {
+            flush_interval: std::time::Duration::from_millis(self.billing_flush_interval_ms),
+            max_pending_entries: self.billing_max_pending_entries,
+            per_flush_batch_size: self.billing_per_flush_batch_size,
+            shutdown_flush_timeout: std::time::Duration::from_millis(
+                self.billing_shutdown_flush_timeout_ms,
+            ),
+        }
+    }
+
     /// Check if persons database routing is enabled
     pub fn is_persons_db_routing_enabled(&self) -> bool {
         !self.persons_read_database_url.is_empty() && !self.persons_write_database_url.is_empty()
@@ -1125,7 +1191,6 @@ pub static DEFAULT_TEST_CONFIG: Lazy<Config> = Lazy::new(Config::default_test_co
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rstest::rstest;
 
     #[test]
     fn test_default_config() {
@@ -1167,7 +1232,6 @@ mod tests {
         // posture so a future env-var rename / refactor can't silently
         // flip it back to Enforced.
         assert_eq!(config.bot_filter_mode, BotFilterMode::LogOnly);
-        assert_eq!(config.billing_aggregator_mode, AggregatorModeConfig::Shadow);
     }
 
     #[test]
@@ -1227,40 +1291,6 @@ mod tests {
         assert_eq!(
             config.element_chain_as_string_excluded_teams,
             TeamIdCollection::None
-        );
-    }
-
-    #[rstest]
-    #[case::off("off", AggregatorModeConfig::Off)]
-    #[case::shadow("shadow", AggregatorModeConfig::Shadow)]
-    #[case::authoritative("authoritative", AggregatorModeConfig::Authoritative)]
-    #[case::trim_and_lowercase("  SHADOW  ", AggregatorModeConfig::Shadow)]
-    fn aggregator_mode_config_parses_valid_values(
-        #[case] input: &str,
-        #[case] expected: AggregatorModeConfig,
-    ) {
-        assert_eq!(input.parse::<AggregatorModeConfig>().unwrap(), expected);
-    }
-
-    #[test]
-    fn aggregator_mode_config_rejects_invalid_value() {
-        let err = "yes".parse::<AggregatorModeConfig>().unwrap_err();
-        assert!(
-            err.contains("Invalid FLAGS_BILLING_AGGREGATOR_MODE"),
-            "unexpected error message: {err}"
-        );
-    }
-
-    #[test]
-    fn aggregator_mode_config_into_runtime_maps_correctly() {
-        assert_eq!(AggregatorModeConfig::Off.into_runtime(), None);
-        assert_eq!(
-            AggregatorModeConfig::Shadow.into_runtime(),
-            Some(AggregatorMode::Shadow)
-        );
-        assert_eq!(
-            AggregatorModeConfig::Authoritative.into_runtime(),
-            Some(AggregatorMode::Authoritative)
         );
     }
 
@@ -1589,6 +1619,27 @@ mod service_mode_tests {
         assert!("on".parse::<BotFilterMode>().is_err());
         assert!("off".parse::<BotFilterMode>().is_err());
         assert!("true".parse::<BotFilterMode>().is_err());
+    }
+
+    /// Pin the `Config → BillingAggregatorConfig` field mapping. A swap of
+    /// `from_millis`/`from_secs`, or a transposition of `flush_interval` and
+    /// `shutdown_flush_timeout`, would silently change the production
+    /// flush cadence by 1000×.
+    #[test]
+    fn get_billing_aggregator_config_maps_fields_correctly() {
+        use std::time::Duration;
+        let mut config = Config::default_test_config();
+        config.billing_flush_interval_ms = 250;
+        config.billing_max_pending_entries = 99;
+        config.billing_per_flush_batch_size = 7;
+        config.billing_shutdown_flush_timeout_ms = 5_000;
+
+        let bcfg = config.get_billing_aggregator_config();
+
+        assert_eq!(bcfg.flush_interval, Duration::from_millis(250));
+        assert_eq!(bcfg.max_pending_entries, 99);
+        assert_eq!(bcfg.per_flush_batch_size, 7);
+        assert_eq!(bcfg.shutdown_flush_timeout, Duration::from_millis(5_000));
     }
 }
 

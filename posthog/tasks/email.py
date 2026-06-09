@@ -14,7 +14,6 @@ from celery import shared_task
 from posthoganalytics import new_context, tag
 
 from posthog.api.two_factor_reset import TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS
-from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
@@ -22,26 +21,19 @@ from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
-from posthog.models import (
-    Organization,
-    OrganizationInvite,
-    OrganizationMembership,
-    PersonalAPIKey,
-    Plugin,
-    PluginConfig,
-    Team,
-    User,
-)
+from posthog.models import Organization, OrganizationInvite, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
-from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.messaging import MessagingRecord, get_email_hash
+from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
 from products.error_tracking.backend.facade import api as error_tracking_api
 
@@ -98,13 +90,16 @@ def get_members_to_notify(team: Team, notification_setting: NotificationSettingT
     return memberships_to_email
 
 
-def get_members_to_notify_for_pipeline_error(team: Team, failure_rate: float = 1.0) -> list[OrganizationMembership]:
+def get_members_to_notify_for_pipeline_error(
+    team: Team, failure_rate: float = 1.0, pipeline_id: Optional[str] = None
+) -> list[OrganizationMembership]:
     """
-    Get members to notify for a data pipeline error, respecting threshold.
+    Get members to notify for a data pipeline error, respecting threshold and per-pipeline opt-out.
 
     Args:
         team: The team that owns the pipeline
         failure_rate: The current failure rate (0.0 to 1.0). Defaults to 1.0 (100%) for single failures.
+        pipeline_id: Optional pipeline identifier (e.g. "hog_function:<uuid>"). Used for per-pipeline opt-out.
 
     Returns:
         List of organization memberships to notify
@@ -112,7 +107,9 @@ def get_members_to_notify_for_pipeline_error(team: Team, failure_rate: float = 1
     members_to_notify = get_members_to_notify(team, "plugin_disabled")
 
     return [
-        member for member in members_to_notify if should_send_pipeline_error_notification(member.user, failure_rate)
+        member
+        for member in members_to_notify
+        if should_send_pipeline_error_notification(member.user, failure_rate, pipeline_id)
     ]
 
 
@@ -194,6 +191,7 @@ def should_send_notification(
 def should_send_pipeline_error_notification(
     user: User,
     failure_rate: float = 1.0,
+    pipeline_id: Optional[str] = None,
 ) -> bool:
     """
     Determines if a data pipeline error notification should be sent to a user.
@@ -201,11 +199,18 @@ def should_send_pipeline_error_notification(
     Args:
         user: The user to check settings for
         failure_rate: The current failure rate (0.0 to 1.0) for this pipeline. Defaults to 1.0 (100%) for single failures.
+        pipeline_id: Optional pipeline identifier (e.g. "hog_function:<uuid>"). If provided, checks per-pipeline opt-out.
 
     Returns:
         bool: True if the notification should be sent, False otherwise
     """
     settings = user.notification_settings
+
+    # Check per-pipeline opt-out
+    if pipeline_id is not None:
+        pipeline_disabled = settings.get("pipeline_notifications_disabled", {})
+        if pipeline_disabled.get(pipeline_id, False):
+            return False
 
     # Check threshold - if threshold is 0.0, notify on any failure
     threshold = settings.get("data_pipeline_error_threshold", 0.0)
@@ -295,17 +300,19 @@ def send_invite(invite_id: str) -> None:
         # idempotency guard (a previous attempt had already set `sent_at`). Without this
         # snapshot, "delivered=True" after `send()` reads identically in both cases — which
         # can mislead an operator looking at the success log.
-        # MessagingRecord stores SHA-256(SECRET_KEY + email) in `email_hash`. The custom
-        # manager remaps a `raw_email=` kwarg to `email_hash=` magically, but django-stubs
-        # can't follow that override and mypy then can't resolve `raw_email` against the
-        # model's actual fields. Compute the hash directly to keep mypy happy.
-        target_email_hash = get_email_hash(invite.target_email)
+        # MessagingRecord stores a one-way SHA-256(MESSAGING_HASH_SALT + email) in
+        # `email_hash`. The custom manager remaps a `raw_email=` kwarg to `email_hash=`
+        # magically, but django-stubs can't follow that override and mypy then can't
+        # resolve `raw_email` against the model's actual fields. Compute the hashes
+        # directly to keep mypy happy, matching the primary salt and any rotation
+        # fallbacks so dedup still works across a salt rotation.
+        target_email_hashes = get_email_hashes(invite.target_email)
         already_delivered = MessagingRecord.objects.filter(
-            campaign_key=campaign_key, email_hash=target_email_hash, sent_at__isnull=False
+            campaign_key=campaign_key, email_hash__in=target_email_hashes, sent_at__isnull=False
         ).exists()
         message.send(send_async=False)
         delivered = MessagingRecord.objects.filter(
-            campaign_key=campaign_key, email_hash=target_email_hash, sent_at__isnull=False
+            campaign_key=campaign_key, email_hash__in=target_email_hashes, sent_at__isnull=False
         ).exists()
         if delivered:
             OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
@@ -504,7 +511,8 @@ def send_fatal_plugin_error(
     if team is None:
         return
 
-    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
+    pipeline_id = f"plugin_config:{plugin_config_id}"
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0, pipeline_id=pipeline_id)
     if not memberships_to_email:
         return
 
@@ -532,7 +540,8 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     hog_function: HogFunction = HogFunction.objects.prefetch_related("team").get(id=hog_function_id)
     team = hog_function.team
 
-    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
+    pipeline_id = f"hog_function:{hog_function_id}"
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0, pipeline_id=pipeline_id)
     if not memberships_to_email:
         return
 
@@ -565,7 +574,8 @@ def send_batch_export_run_failure(
     batch_export = batch_export_run.parent
     team: Team = batch_export.team
 
-    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate)
+    pipeline_id = f"batch_export:{batch_export.id}"
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate, pipeline_id=pipeline_id)
     if not memberships_to_email:
         return
 
@@ -1184,12 +1194,16 @@ def send_hog_functions_digest_email(digest_data: dict, test_email_override: str 
     for membership in memberships_to_email:
         user = membership.user
 
-        # Filter functions based on user's threshold
+        # Filter functions based on user's threshold and per-pipeline opt-out
         # failure_rate is stored as a percentage (e.g., 15.5 for 15.5%), convert to decimal for threshold check
         user_functions = [
             f
             for f in all_functions
-            if should_send_pipeline_error_notification(user, float(f.get("failure_rate", 0) or 0) / 100)
+            if should_send_pipeline_error_notification(
+                user,
+                float(f.get("failure_rate", 0) or 0) / 100,
+                pipeline_id=f"hog_function:{f['id']}" if f.get("id") else None,
+            )
         ]
 
         # Skip this user if no functions exceed their threshold
@@ -1294,7 +1308,8 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
     """
     from posthog.clickhouse.client import sync_execute
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-    from posthog.models.hog_functions.hog_function import HogFunction
+
+    from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
     logger.info(f"Processing HogFunctions digest for team {team_id}")
 

@@ -11,6 +11,9 @@ class SourceSchema:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     row_count: int | None = None
     supports_webhooks: bool = False
+    # True for resources with no API list endpoint that can only be populated via webhooks
+    # (e.g. Stripe `Discount`). The UI should hide non-webhook sync methods for these.
+    webhook_only: bool = False
     supports_cdc: bool = False
     columns: list[tuple[str, str, bool]] = field(default_factory=list)
     foreign_keys: list[tuple[str, str, str]] = field(default_factory=list)

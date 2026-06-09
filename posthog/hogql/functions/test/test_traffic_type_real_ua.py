@@ -7,11 +7,7 @@ from posthog.test.base import BaseTest, _create_event, flush_persons_and_events
 from posthog.hogql.query import execute_hogql_query
 
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
-from products.web_analytics.backend.hogql_queries.bot_ua_fixtures import (
-    BOT_USER_AGENTS,
-    CATEGORY_TO_TRAFFIC_CATEGORY,
-    CATEGORY_TO_TRAFFIC_TYPE,
-)
+from products.web_analytics.backend.hogql_queries.bot_ua_fixtures import BOT_USER_AGENTS, CATEGORY_TO_TRAFFIC_CATEGORY
 
 
 def _find_matching_pattern(ua: str) -> str | None:
@@ -26,15 +22,20 @@ def _find_matching_pattern(ua: str) -> str | None:
     return None
 
 
-def _build_classification_cases() -> list[tuple[str, str, bool, str, str]]:
-    """Build (ua, category, is_bot, traffic_type, traffic_category) tuples for all real UA strings."""
+def _build_classification_cases() -> list[tuple[str, str, bool, str]]:
+    """Build (ua, category, is_bot, traffic_category) tuples for all real UA strings.
+
+    `traffic_type` is intentionally derived per-UA from the matched BotDefinition at
+    assert time, not the fixture bucket: a single bucket (e.g. `http_client`) can
+    legitimately contain entries with different traffic_types (`curl` → Automation,
+    `AmazonProductDiscovery` → Bot).
+    """
     cases = []
     for category, ua_list in BOT_USER_AGENTS.items():
         expected_is_bot = category != "regular_browser"
-        expected_traffic_type = CATEGORY_TO_TRAFFIC_TYPE[category]
         expected_traffic_category = CATEGORY_TO_TRAFFIC_CATEGORY[category]
         for ua in ua_list:
-            cases.append((ua, category, expected_is_bot, expected_traffic_type, expected_traffic_category))
+            cases.append((ua, category, expected_is_bot, expected_traffic_category))
     return cases
 
 
@@ -43,12 +44,12 @@ CLASSIFICATION_CASES = _build_classification_cases()
 
 class TestBotClassificationRealUA:
     @pytest.mark.parametrize(
-        "ua,category,expected_is_bot,expected_traffic_type,expected_traffic_category",
+        "ua,category,expected_is_bot,expected_traffic_category",
         CLASSIFICATION_CASES,
         ids=[f"{c[1]}:{c[0][:50]}" for c in CLASSIFICATION_CASES],
     )
     def test_pattern_matches_expected_category(
-        self, ua: str, category: str, expected_is_bot: bool, expected_traffic_type: str, expected_traffic_category: str
+        self, ua: str, category: str, expected_is_bot: bool, expected_traffic_category: str
     ):
         pattern = _find_matching_pattern(ua)
 
@@ -58,10 +59,6 @@ class TestBotClassificationRealUA:
 
         assert pattern is not None, f"Bot UA should match a pattern: {ua}"
         bot_def = BOT_DEFINITIONS[pattern]
-        assert bot_def.traffic_type == expected_traffic_type, (
-            f"UA '{ua[:50]}' matched pattern '{pattern}' with traffic_type '{bot_def.traffic_type}', "
-            f"expected '{expected_traffic_type}'"
-        )
         assert bot_def.category == expected_traffic_category, (
             f"UA '{ua[:50]}' matched pattern '{pattern}' with category '{bot_def.category}', "
             f"expected '{expected_traffic_category}'"
@@ -97,8 +94,11 @@ class TestTrafficTypeIntegration(BaseTest):
         where = f"properties._test_tag = '{tag}'"
         if extra_where:
             where += f" AND {extra_where}"
+        # Explicit LIMIT — `BOT_USER_AGENTS` exceeds the default HogQL row cap
+        # (`DEFAULT_RETURNED_ROWS = 100`), and `test_all_real_ua_classify_correctly`
+        # would otherwise drop the alphabetically-trailing UAs from its results.
         return execute_hogql_query(
-            f"SELECT {select} FROM events WHERE {where} ORDER BY properties.$user_agent",
+            f"SELECT {select} FROM events WHERE {where} ORDER BY properties.$user_agent LIMIT 10000",
             self.team,
         )
 
@@ -138,15 +138,19 @@ class TestTrafficTypeIntegration(BaseTest):
             _ua, is_bot, traffic_type, traffic_category, bot_name = row
 
             expected_is_bot = category != "regular_browser"
-            expected_traffic_type = CATEGORY_TO_TRAFFIC_TYPE[category]
             expected_traffic_category = CATEGORY_TO_TRAFFIC_CATEGORY[category]
 
             assert is_bot == expected_is_bot, f"is_bot mismatch for {ua[:60]}: got {is_bot}"
-            assert traffic_type == expected_traffic_type, f"traffic_type mismatch for {ua[:60]}: got {traffic_type}"
             assert traffic_category == expected_traffic_category, (
                 f"traffic_category mismatch for {ua[:60]}: got {traffic_category}"
             )
             if expected_is_bot:
+                matched_pattern = _find_matching_pattern(ua)
+                assert matched_pattern is not None, f"Bot UA should match a pattern: {ua[:60]}"
+                expected_traffic_type = BOT_DEFINITIONS[matched_pattern].traffic_type
+                assert traffic_type == expected_traffic_type, (
+                    f"traffic_type mismatch for {ua[:60]}: got {traffic_type}, expected {expected_traffic_type}"
+                )
                 assert bot_name != "", f"bot_name should not be empty for bot UA: {ua[:60]}"
             else:
                 assert bot_name == "", f"bot_name should be empty for regular UA: {ua[:60]}"

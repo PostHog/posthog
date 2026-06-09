@@ -1,5 +1,6 @@
 from typing import (
     ClassVar as _ClassVar,
+    Iterable as _Iterable,
     Optional as _Optional,
     Union as _Union,
 )
@@ -8,7 +9,10 @@ from google.protobuf import (
     descriptor as _descriptor,
     message as _message,
 )
-from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
+from google.protobuf.internal import (
+    containers as _containers,
+    enum_type_wrapper as _enum_type_wrapper,
+)
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
@@ -23,11 +27,15 @@ CONSISTENCY_LEVEL_EVENTUAL: ConsistencyLevel
 CONSISTENCY_LEVEL_STRONG: ConsistencyLevel
 
 class ReadOptions(_message.Message):
-    __slots__ = ("consistency",)
+    __slots__ = ("consistency", "field_mask")
     CONSISTENCY_FIELD_NUMBER: _ClassVar[int]
+    FIELD_MASK_FIELD_NUMBER: _ClassVar[int]
     consistency: ConsistencyLevel
+    field_mask: _containers.RepeatedScalarFieldContainer[str]
 
-    def __init__(self, consistency: _Optional[_Union[ConsistencyLevel, str]] = ...) -> None: ...
+    def __init__(
+        self, consistency: _Optional[_Union[ConsistencyLevel, str]] = ..., field_mask: _Optional[_Iterable[str]] = ...
+    ) -> None: ...
 
 class TeamDistinctId(_message.Message):
     __slots__ = ("team_id", "distinct_id")

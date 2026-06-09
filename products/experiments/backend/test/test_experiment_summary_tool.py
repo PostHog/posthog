@@ -20,7 +20,6 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 
 from products.experiments.backend.experiment_summary_data_service import (
     ExperimentSummaryDataService,
@@ -31,6 +30,7 @@ from products.experiments.backend.experiment_summary_data_service import (
 )
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 @override_settings(IN_UNIT_TESTING=True)

@@ -492,6 +492,55 @@ describe('CDP API', () => {
         `)
     })
 
+    it('redacts secret input values in mocked async function logs', async () => {
+        const SECRET_TOKEN = 'super-secret-bearer-token-xyz'
+
+        const hogFunctionWithSecret = await insertHogFunction({
+            name: 'test hog function with secret in headers',
+            ...HOG_EXAMPLES.simple_fetch,
+            ...HOG_FILTERS_EXAMPLES.no_filters,
+            inputs_schema: [
+                { key: 'url', type: 'string', label: 'URL', secret: false, required: true },
+                { key: 'access_token', type: 'string', label: 'Access token', secret: true, required: true },
+                {
+                    key: 'method',
+                    type: 'choice',
+                    label: 'HTTP Method',
+                    secret: false,
+                    choices: [
+                        { label: 'POST', value: 'POST' },
+                        { label: 'GET', value: 'GET' },
+                    ],
+                    required: true,
+                },
+                { key: 'headers', type: 'dictionary', label: 'Headers', secret: false, required: false },
+                { key: 'body', type: 'json', label: 'Body', secret: false, required: true },
+            ],
+            inputs: {
+                url: { value: 'https://example.com/posthog-webhook' },
+                access_token: { value: SECRET_TOKEN },
+                method: { value: 'POST' },
+                headers: { value: { Authorization: `Bearer ${SECRET_TOKEN}` } },
+                body: { value: {} },
+            },
+        })
+
+        const res = await supertest(app)
+            .post(
+                `/api/projects/${hogFunctionWithSecret.team_id}/hog_functions/${hogFunctionWithSecret.id}/invocations`
+            )
+            .send({ globals, mock_async_functions: true })
+
+        expect(res.status).toEqual(200)
+        expect(res.body.errors).toEqual([])
+
+        const allLogText = res.body.logs.map((log: any) => log.message).join('\n')
+        expect(allLogText).not.toContain(SECRET_TOKEN)
+        // Confirm the sanitization path actually ran rather than the test passing by virtue of
+        // no fetch log being emitted at all.
+        expect(allLogText).toContain('***REDACTED***')
+    })
+
     describe('transformations', () => {
         let configuration: HogFunctionType
 
@@ -636,6 +685,83 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(413)
             expect(res.body).toEqual({ error: 'Request entity too large' })
+        })
+    })
+
+    describe('hogflow invocation groups', () => {
+        const resolvedGroup = {
+            id: 'org-1',
+            type: 'organization',
+            index: 0,
+            url: 'http://localhost:8000/groups/0/org-1',
+            properties: { plan: 'enterprise' },
+        }
+
+        const groupGlobals: Partial<HogFunctionInvocationGlobals> = {
+            ...globals,
+            groups: {},
+            event: {
+                ...globals.event!,
+                properties: { $groups: { organization: 'org-1' } },
+            },
+        }
+
+        let executeSpy: jest.SpyInstance
+        let getGroupsSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            executeSpy = jest.spyOn(api['hogFlowExecutor'], 'executeCurrentAction').mockImplementation(((
+                invocation: any
+            ) =>
+                Promise.resolve({
+                    invocation,
+                    error: null,
+                    logs: [],
+                    execResult: null,
+                })) as any)
+            getGroupsSpy = jest
+                .spyOn(api['groupsManager'], 'getGroupsForEvent')
+                .mockResolvedValue({ organization: resolvedGroup })
+        })
+
+        afterEach(() => {
+            executeSpy.mockRestore()
+            getGroupsSpy.mockRestore()
+        })
+
+        it('resolves groups from the event when none are provided', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+                .send({ globals: groupGlobals, mock_async_functions: true, configuration: {} })
+
+            expect(res.status).toEqual(200)
+            expect(getGroupsSpy).toHaveBeenCalledWith(
+                team.id,
+                expect.objectContaining({ $groups: { organization: 'org-1' } }),
+                expect.stringContaining(`/project/${team.id}`)
+            )
+            // Resolved groups flow into filterGlobals so conditional branches can evaluate them
+            const invocation = executeSpy.mock.calls[0][0]
+            expect(invocation.filterGlobals.group_0).toEqual({ properties: { plan: 'enterprise' } })
+            expect(invocation.filterGlobals.$group_0).toEqual('org-1')
+        })
+
+        it('does not override groups provided in the payload', async () => {
+            const providedGroups = {
+                organization: { ...resolvedGroup, id: 'org-provided', properties: { plan: 'startup' } },
+            }
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+                .send({
+                    globals: { ...groupGlobals, groups: providedGroups },
+                    mock_async_functions: true,
+                    configuration: {},
+                })
+
+            expect(res.status).toEqual(200)
+            expect(getGroupsSpy).not.toHaveBeenCalled()
+            const invocation = executeSpy.mock.calls[0][0]
+            expect(invocation.filterGlobals.$group_0).toEqual('org-provided')
         })
     })
 

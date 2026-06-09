@@ -1,8 +1,3 @@
-export {
-    createClientIngestionWarningSubpipeline,
-    type ClientIngestionWarningSubpipelineInput,
-} from './client-ingestion-warning-subpipeline'
-
 export { createEventSubpipeline, type EventSubpipelineConfig, type EventSubpipelineInput } from './event-subpipeline'
 
 export {
@@ -23,11 +18,6 @@ export {
     type PostTeamPreprocessingSubpipelineConfig,
     type PostTeamPreprocessingSubpipelineInput,
 } from './post-team-preprocessing-subpipeline'
-
-export {
-    createPreTeamPreprocessingSubpipeline,
-    type PreTeamPreprocessingSubpipelineConfig,
-} from './pre-team-preprocessing-subpipeline'
 
 export {
     createJoinedIngestionPipeline,

@@ -493,7 +493,7 @@ class ActivityLogTestHelper(APILicensedTest):
     # BatchExport
     def create_batch_export(self, name: str = "Test Export", **kwargs) -> dict[str, Any]:
         """Create a batch export via direct model creation (like the original tests)."""
-        from posthog.batch_exports.models import BatchExport, BatchExportDestination
+        from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 
         # Create destination first (like the original tests do)
         destination = BatchExportDestination.objects.create(
@@ -518,7 +518,7 @@ class ActivityLogTestHelper(APILicensedTest):
 
     def update_batch_export(self, export_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         """Update a batch export via direct model access (like the original tests)."""
-        from posthog.batch_exports.models import BatchExport
+        from products.batch_exports.backend.models.batch_export import BatchExport
 
         batch_export = BatchExport.objects.get(id=export_id)
         for field, value in updates.items():

@@ -57,7 +57,6 @@ export interface FeatureFlagReleaseConditionsLogicProps {
     readOnly?: boolean
     onChange?: (filters: FeatureFlagFilters, errors: any) => void
     nonEmptyFeatureFlagVariants?: MultivariateFlagVariant[]
-    isSuper?: boolean
     evaluationRuntime?: FeatureFlagEvaluationRuntime
 }
 
@@ -80,10 +79,7 @@ function ensureSortKeys(
 export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseConditionsLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagReleaseConditionsLogic']),
     props({} as FeatureFlagReleaseConditionsLogicProps),
-    key(({ id, isSuper }) => {
-        const key = `${id ?? 'unknown'}-${isSuper ? 'super' : 'normal'}`
-        return key
-    }),
+    key(({ id }) => id ?? 'unknown'),
     connect(() => ({
         values: [projectLogic, ['currentProjectId'], groupsModel, ['groupTypes', 'aggregationLabel']],
     })),
@@ -109,6 +105,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             newVariant,
             newDescription,
         }),
+        setEarlyExit: (earlyExit: boolean) => ({ earlyExit }),
         setConditionAggregation: (index: number, groupTypeIndex: number | null) => ({
             index,
             groupTypeIndex,
@@ -255,6 +252,12 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }
 
                 return { ...state, groups }
+            },
+            setEarlyExit: (state, { earlyExit }) => {
+                if (!state) {
+                    return state
+                }
+                return { ...state, early_exit: earlyExit }
             },
             switchToMixedTargeting: (state) => {
                 if (!state) {
@@ -627,11 +630,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         },
     })),
     selectors({
-        // Get the appropriate groups based on isSuper
-        filterGroups: [
-            (s) => [s.filters, (_, props) => props.isSuper],
-            (filters: FeatureFlagFilters, isSuper: boolean) => (isSuper ? filters.super_groups : filters.groups) || [],
-        ],
+        filterGroups: [(s) => [s.filters], (filters: FeatureFlagFilters) => filters.groups || []],
         taxonomicGroupTypes: [
             (s) => [s.filters, s.groupTypes],
             (filters, groupTypes): TaxonomicFilterGroupType[] => {

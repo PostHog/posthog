@@ -45,7 +45,19 @@ def _user_message_line(text: str) -> str:
     )
 
 
-def _usage_update_line(used: int = 1000) -> str:
+def _agent_error_line(message: str, category: str | None = None) -> str:
+    """Build a `_posthog/error` notification line as the sandbox agent emits on a
+    terminal failure. `category` mirrors classifyAgentError() output and is absent
+    on older agent builds."""
+    params: dict = {"message": message}
+    if category is not None:
+        params["error_category"] = category
+    return json.dumps({"notification": {"method": "_posthog/error", "params": params}})
+
+
+def _usage_update_line(used: int = 1000, cost: float | None = None) -> str:
+    # cost is null until the turn finalizes; an explicit null-cost tail with no end_turn is
+    # the dropped-finalization fingerprint poll_for_turn salvages on.
     return json.dumps(
         {
             "notification": {
@@ -54,8 +66,21 @@ def _usage_update_line(used: int = 1000) -> str:
                     "update": {
                         "sessionUpdate": "usage_update",
                         "used": used,
+                        "cost": cost,
                     }
                 },
+            }
+        }
+    )
+
+
+def _cost_less_usage_update_line(used: int = 1000) -> str:
+    # Older sandbox builds omit cost entirely — must NOT read as the null-cost fingerprint.
+    return json.dumps(
+        {
+            "notification": {
+                "method": "session/update",
+                "params": {"update": {"sessionUpdate": "usage_update", "used": used}},
             }
         }
     )

@@ -37,10 +37,10 @@ import dataclasses
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from posthog.hogql.errors import BaseHogQLError
-from posthog.hogql.parser import parse_expr, parse_program, parse_select
+from posthog.hogql.parser import HogQLParserShadowMismatch, parse_expr, parse_program, parse_select
 from posthog.hogql.visitor import clear_locations
 
 # Maps a diagnostic `--rule` value to its parser entry point. `program`
@@ -218,6 +218,27 @@ def _strip_locations() -> bool:
     return os.environ.get("CLEAR_LOCATIONS", "").lower() in ("1", "true", "yes")
 
 
+def _abort_on_shadow_mismatch(backend: str, exc: HogQLParserShadowMismatch) -> NoReturn:
+    """Abort the whole diagnostic when a backend raises HogQLParserShadowMismatch.
+
+    A `*_shadow` parser mode means `backend` is not a single pure parser: it ran the
+    primary plus a shadow comparison and the two disagreed. An oracle/candidate that
+    silently shadow-compares cannot be trusted because a genuine cpp-vs-rust ast_mismatch
+    surfaces here as a backend crash instead of being categorized. Fail loud so the
+    operator fixes the setup rather than recording masked results. Root cause is almost
+    always `TEST=1`: parser.py routes the default 'cpp-json' backend to CPP_WITH_RUST_SHADOW
+    whenever settings.TEST is truthy."""
+    raise SystemExit(
+        f"\nFATAL: backend {backend!r} raised HogQLParserShadowMismatch during the grind.\n"
+        f"It is running a built-in shadow comparison, not a single pure parser, so the "
+        f"diagnostic cannot trust it: real cpp-vs-rust AST divergences get masked as a crash "
+        f"rather than surfacing as ast_mismatch.\n"
+        f"Fix: re-run WITHOUT TEST=1. parser.py routes the default 'cpp-json' backend to "
+        f"CPP_WITH_RUST_SHADOW when settings.TEST is set; with TEST unset the oracle is pure.\n"
+        f"Shadow detail: {exc}"
+    )
+
+
 def _safe_parse(query: str, rule: str, backend: str) -> tuple[str, Any, str | None]:
     """Parse `query` for a diagnostic that must not abort mid-grind.
     Returns `(status, ast_or_none, detail)`:
@@ -238,6 +259,8 @@ def _safe_parse(query: str, rule: str, backend: str) -> tuple[str, Any, str | No
     parser_fn = _PARSER_FOR_RULE[rule]
     try:
         node = parser_fn(query, backend=backend)
+    except HogQLParserShadowMismatch as e:
+        _abort_on_shadow_mismatch(backend, e)
     except BaseHogQLError as e:
         return "reject", None, _normalize_error(str(e))
     except Exception as e:
@@ -275,14 +298,22 @@ def _shape_for(
     candidate_backend: str,
 ) -> DivergenceShape | None:
     """Determine the divergence shape of `query`, or None if there's no
-    divergence to track. Returns None when the oracle doesn't cleanly
-    accept (reject or crash — nothing to compare against) and when the
-    candidate crashes (a crash isn't a stable `DivergenceShape`, so the
-    shrinker simply won't reduce toward one)."""
+    divergence to track. Returns None when the oracle crashes (nothing
+    to compare against) and when the candidate crashes (a crash isn't a
+    stable `DivergenceShape`, so the shrinker won't reduce toward one).
+
+    Two-sided contract: when the oracle *rejects*, a candidate that
+    *accepts* is the divergence (the candidate took an invalid query) —
+    shape `candidate_accepts_oracle_reject`. Both rejecting is agreement,
+    so there's nothing to shrink toward."""
     o_status, o_ast, _ = _safe_parse(query, rule, oracle_backend)
-    if o_status != "ok":
+    if o_status == "crash":
         return None
     c_status, c_ast, c_detail = _safe_parse(query, rule, candidate_backend)
+    if o_status == "reject":
+        if c_status == "ok":
+            return DivergenceShape(kind="candidate_accepts_oracle_reject")
+        return None
     if c_status == "reject":
         return DivergenceShape(kind="candidate_reject", reject_signature=c_detail)
     if c_status == "crash":
@@ -515,6 +546,8 @@ def corpus_try_parse(query: str, rule: str, backend: str) -> tuple[str, Any, str
     try:
         node = parser_fn(query, backend=backend)
         return "ok", clear_locations(node) if _strip_locations() else node, None
+    except HogQLParserShadowMismatch as e:
+        _abort_on_shadow_mismatch(backend, e)
     except BaseHogQLError as e:
         return "reject", None, str(e)
     except Exception:

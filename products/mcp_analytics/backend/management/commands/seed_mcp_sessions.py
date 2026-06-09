@@ -107,9 +107,9 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, required=True, help="Team ID to seed events for.")
-        parser.add_argument("--sessions", type=int, default=10, help="Number of sessions to create.")
+        parser.add_argument("--sessions", type=int, default=101, help="Number of sessions to create.")
         parser.add_argument("--min-calls", type=int, default=4, help="Minimum tool calls per session (inclusive).")
-        parser.add_argument("--max-calls", type=int, default=6, help="Maximum tool calls per session (inclusive).")
+        parser.add_argument("--max-calls", type=int, default=50, help="Maximum tool calls per session (inclusive).")
         parser.add_argument("--seed", type=int, default=None, help="Optional random seed for reproducible output.")
 
     def handle(self, *args: Any, **options: Any) -> None:

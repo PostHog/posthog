@@ -13,16 +13,23 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional, Protocol, Union
 
 import structlog
-import posthoganalytics
 from prometheus_client import Counter
 
-from posthog.schema import EventPropertyFilter, PropertyOperator, WebOverviewQuery, WebStatsTableQuery
+from posthog.schema import (
+    EventPropertyFilter,
+    PropertyOperator,
+    WebOverviewQuery,
+    WebStatsTableQuery,
+    WebVitalsPathBreakdownQuery,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog.models.team import Team
+
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
 
 logger = structlog.get_logger(__name__)
 
@@ -93,13 +100,14 @@ SESSION_FORWARD_PAD_MINUTES = 24 * 60
 class LazyPrecomputeRunner(Protocol):
     """Structural type for the attributes the shared helpers read off a runner.
 
-    Both `WebOverviewQueryRunner` and `WebStatsTableQueryRunner` satisfy this.
+    `WebOverviewQueryRunner`, `WebStatsTableQueryRunner` and
+    `WebVitalsPathBreakdownQueryRunner` all satisfy this.
     """
 
     team: Team
 
     @property
-    def query(self) -> Union[WebOverviewQuery, WebStatsTableQuery]: ...
+    def query(self) -> Union[WebOverviewQuery, WebStatsTableQuery, WebVitalsPathBreakdownQuery]: ...
 
     @property
     def query_date_range(self) -> object: ...
@@ -183,6 +191,7 @@ def can_use_lazy_precompute(
     *,
     log_prefix: str,
     extra_check: Optional[Callable[[LazyPrecomputeRunner], None]] = None,
+    require_integer_timezone: bool = True,
 ) -> bool:
     """Return True iff the lazy precompute gate is eligible. Logs the rejection
     reason at INFO level so every fall-through can be attributed.
@@ -190,10 +199,12 @@ def can_use_lazy_precompute(
     `log_prefix` differentiates the log event name per runner (e.g.
     `web_overview` / `web_stats`). `extra_check` lets a runner add its own
     eligibility checks — it must raise a `LazyPrecomputeIneligible` subclass on
-    rejection, and runs after the shared checks pass.
+    rejection, and runs after the shared checks pass. `require_integer_timezone`
+    can be opted out by runners whose bucket key is computed in the team's
+    timezone (and therefore aligns cleanly for half-hour-offset teams too).
     """
     try:
-        check_common_eligible(runner)
+        check_common_eligible(runner, require_integer_timezone=require_integer_timezone)
         if extra_check is not None:
             extra_check(runner)
     except LazyPrecomputeIneligible as exc:
@@ -213,10 +224,14 @@ def can_use_lazy_precompute(
     return True
 
 
-def check_common_eligible(runner: LazyPrecomputeRunner) -> None:
+def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timezone: bool = True) -> None:
     """Raise a `LazyPrecomputeIneligible` subclass if the query can't go through
     the lazy path on grounds that apply to every web analytics runner. Returns
-    None on success."""
+    None on success.
+
+    `require_integer_timezone` defaults to True for hourly-UTC-bucketed runners
+    (overview, stats). Runners that bucket in the team's timezone can opt out.
+    """
     query = runner.query
 
     # Rollout gate: shared PostHog feature flag AND per-query opt-in.
@@ -227,20 +242,7 @@ def check_common_eligible(runner: LazyPrecomputeRunner) -> None:
     #     None (falsy) on failure, so a flag-service outage fails-closed.
     #   - `query.useWebAnalyticsPrecompute` (per-query parameter set by the
     #     "Allow precompute" toggle).
-    if not posthoganalytics.feature_enabled(
-        "web-analytics-precompute-toggle",
-        str(runner.team.uuid),
-        groups={
-            "organization": str(runner.team.organization_id),
-            "project": str(runner.team.id),
-        },
-        group_properties={
-            "organization": {"id": str(runner.team.organization_id)},
-            "project": {"id": str(runner.team.id)},
-        },
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
-    ):
+    if not is_precompute_enabled_for_team(runner.team):
         raise OrgFeatureFlagDisabled()
 
     if query.useWebAnalyticsPrecompute is not True:
@@ -248,8 +250,9 @@ def check_common_eligible(runner: LazyPrecomputeRunner) -> None:
 
     # Half-hour-offset timezones (IST +5:30, Newfoundland -3:30, Nepal +5:45, etc.)
     # can't be served by UTC hourly buckets without sub-hour precision. Skip them
-    # rather than return wrong totals on the boundary days.
-    if not is_integer_timezone(runner.team.timezone):
+    # rather than return wrong totals on the boundary days. Runners that bucket
+    # by team-tz day instead (e.g. web vitals) can opt out of this check.
+    if require_integer_timezone and not is_integer_timezone(runner.team.timezone):
         raise NonIntegerTimezone()
 
     if query.conversionGoal is not None:

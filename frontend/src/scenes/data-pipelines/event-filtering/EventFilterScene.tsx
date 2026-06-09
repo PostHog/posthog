@@ -116,7 +116,7 @@ export function EventFilterScene(): JSX.Element {
                 }
             }
         },
-        [filterForm.filter_tree, updateTreeNode, setFilterFormValue]
+        [filterForm.filter_tree, updateTreeNode, setFilterFormValue, nodeIds]
     )
 
     const activeNode = activeId ? getNodeAtPath(filterForm.filter_tree, nodeIds.pathOf(activeId) ?? []) : null

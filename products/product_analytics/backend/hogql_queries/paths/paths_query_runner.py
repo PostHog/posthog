@@ -29,6 +29,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import HOGQL, PAGEVIEW_EVENT, SCREEN_EVENT
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
@@ -129,6 +130,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         event_hogql: ast.Expr = parse_expr("event")
 
         if self._should_query_event(HOGQL) and self.query.pathsFilter.pathsHogQLExpression:
+            tag_contains_user_hogql()
             event_hogql = parse_expr(self.query.pathsFilter.pathsHogQLExpression)
 
         if self._should_query_event(PAGEVIEW_EVENT):
@@ -219,6 +221,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         # HogQL aggregation (currently only properties.$session_id is exposed in the UI,
         # but funnelAggregateByHogQL supports arbitrary expressions).
         if funnelsFilter.funnelAggregateByHogQL and funnelsFilter.funnelAggregateByHogQL != "person_id":
+            tag_contains_user_hogql()
             return parse_expr(funnelsFilter.funnelAggregateByHogQL)
 
         # Default: person aggregation

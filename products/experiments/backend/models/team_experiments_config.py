@@ -62,6 +62,17 @@ class TeamExperimentsConfig(models.Model):
         ),
     )
 
+    default_cuped_lookback_days = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(30)],
+        help_text=(
+            "Default lookback window (in days) for CUPED variance reduction. "
+            "Overridden by the experiment-level `stats_config.cuped.lookback_days` setting when set. "
+            "Must be between 1 and 30 days."
+        ),
+    )
+
     default_minimum_detectable_effect = models.PositiveSmallIntegerField(
         null=True,
         blank=True,
@@ -70,6 +81,26 @@ class TeamExperimentsConfig(models.Model):
             "Default minimum detectable effect (MDE) percentage for new experiments in this environment. "
             "Valid values: 1-100. MDE is the smallest effect size you want to be able to detect with "
             "statistical significance. Lower values require more data and longer run times."
+        ),
+    )
+
+    default_sequential_testing_enabled = models.BooleanField(
+        default=False,
+        help_text=(
+            "Default for enabling sequential testing (always-valid p-values) on new experiments. "
+            "Overridden by the experiment-level `stats_config.frequentist.sequential_testing_enabled` "
+            "setting when set. Only applies to the frequentist statistical method."
+        ),
+    )
+
+    default_sequential_tuning_parameter = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(1_000_000_000)],
+        help_text=(
+            "Default tuning parameter for sequential testing. Roughly the sample size at which the "
+            "confidence sequence is tightest. Overridden by the experiment-level "
+            "`stats_config.frequentist.sequential_tuning_parameter` setting when set."
         ),
     )
 

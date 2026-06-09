@@ -191,7 +191,7 @@ class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCas
         _metric: str,
         mock_run_verification: MagicMock,
     ) -> None:
-        from posthog.models.feature_flag.local_evaluation import verify_team_flag_definitions
+        from products.feature_flags.backend.local_evaluation import verify_team_flag_definitions
 
         mock_run_verification.return_value = MagicMock()
 

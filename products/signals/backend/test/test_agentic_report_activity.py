@@ -3,7 +3,7 @@ import random
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -21,6 +21,7 @@ from products.signals.backend.report_generation.research import (
     PriorityAssessment,
     ReportResearchOutput,
     SignalFinding,
+    run_multi_turn_research,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.agentic.report import RunAgenticReportInput, run_agentic_report_activity
@@ -352,3 +353,23 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
             lambda: SignalReportArtefact.objects.filter(report=report).count()
         )()
         assert artefact_count == 0
+
+
+@pytest.mark.asyncio
+async def test_run_multi_turn_research_ends_session_when_followup_fails():
+    signals = _build_signals()
+
+    session = Mock()
+    session.send_followup = AsyncMock(side_effect=RuntimeError("custom_prompt - poll_for_turn: timed out after 1800s"))
+    session.end = AsyncMock()
+    first_finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
+
+    with patch(
+        "products.tasks.backend.services.custom_prompt_multi_turn_runner.MultiTurnSession.start",
+        AsyncMock(return_value=(session, first_finding)),
+    ):
+        with pytest.raises(RuntimeError, match="poll_for_turn"):
+            await run_multi_turn_research(signals, Mock())
+
+    session.end.assert_awaited_once()
+    assert session.end.await_args.kwargs["status"] == "failed"

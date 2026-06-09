@@ -14,9 +14,12 @@ from ee.hogai.chat_agent.toolkit import (
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
+from ee.hogai.core.agent_modes.presets.ai_observability import (
+    ai_observability_agent,
+    chat_agent_plan_ai_observability_agent,
+)
 from ee.hogai.core.agent_modes.presets.error_tracking import chat_agent_plan_error_tracking_agent, error_tracking_agent
 from ee.hogai.core.agent_modes.presets.flags import chat_agent_plan_flags_agent, flags_agent
-from ee.hogai.core.agent_modes.presets.llm_analytics import chat_agent_plan_llm_analytics_agent, llm_analytics_agent
 from ee.hogai.core.agent_modes.presets.product_analytics import (
     chat_agent_plan_product_analytics_agent,
     product_analytics_agent,
@@ -56,7 +59,7 @@ DEFAULT_CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
     AgentMode.ERROR_TRACKING: error_tracking_agent,
     AgentMode.FLAGS: flags_agent,
     AgentMode.SURVEY: survey_agent,
-    AgentMode.LLM_ANALYTICS: llm_analytics_agent,
+    AgentMode.LLM_ANALYTICS: ai_observability_agent,
 }
 
 DEFAULT_CHAT_AGENT_PLAN_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
@@ -67,7 +70,7 @@ DEFAULT_CHAT_AGENT_PLAN_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
     AgentMode.ERROR_TRACKING: chat_agent_plan_error_tracking_agent,
     AgentMode.FLAGS: chat_agent_plan_flags_agent,
     AgentMode.SURVEY: chat_agent_plan_survey_agent,
-    AgentMode.LLM_ANALYTICS: chat_agent_plan_llm_analytics_agent,
+    AgentMode.LLM_ANALYTICS: chat_agent_plan_ai_observability_agent,
 }
 
 SUBAGENT_CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
@@ -77,7 +80,7 @@ SUBAGENT_CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
     AgentMode.ERROR_TRACKING: error_tracking_agent,
     AgentMode.FLAGS: chat_agent_plan_flags_agent,
     AgentMode.SURVEY: subagent_survey_agent,
-    AgentMode.LLM_ANALYTICS: chat_agent_plan_llm_analytics_agent,
+    AgentMode.LLM_ANALYTICS: chat_agent_plan_ai_observability_agent,
 }
 
 

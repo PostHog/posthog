@@ -1,0 +1,34 @@
+.AccountsColumnConfiguratorModal {
+    .SelectedColumn {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 0 0.5rem;
+        margin: calc(var(--radius) / 2) 0;
+        overflow: hidden;
+        background-color: var(--color-accent-highlight-secondary);
+        border-radius: var(--radius);
+    }
+
+    .drag-handle {
+        padding-right: 0.25rem;
+        font-size: 1.2em;
+        color: var(--text-3000);
+        cursor: move;
+
+        svg {
+            transform: rotate(90deg);
+        }
+    }
+
+    // Both lists get a comparable fixed height (~7 rows for visible columns)
+    // and scroll independently — without this, the visible list grows
+    // unbounded and the modal sprouts a second scrollbar on top of the
+    // available-columns one. Keeping the two sections at the same height
+    // gives a clean 50/50 split.
+    .SelectedColumnsList,
+    .AvailableColumnsList {
+        height: 16rem;
+        overflow-y: auto;
+    }
+}

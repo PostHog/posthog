@@ -25,23 +25,16 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from posthog.schema import HogQLQueryModifiers
-
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
-from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids, get_persons_by_uuids
-from posthog.models.team import Team
+from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import (
     AIBurstRateThrottle,
@@ -65,63 +58,11 @@ from products.conversations.backend.events import (
 )
 from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
+from products.conversations.backend.person_lookup import _get_persons_by_email
 
 from ee.models.rbac.role import Role
 
 logger = structlog.get_logger(__name__)
-
-# Case-insensitive batch email lookup. Exposed so tests can EXPLAIN the exact query that runs.
-PERSON_EMAIL_LOOKUP_QUERY = """
-SELECT id, properties.email
-FROM persons
-WHERE lower(properties.email) IN {emails}
-"""
-
-
-def _get_persons_by_email(
-    team: Team,
-    emails: list[str],
-    modifiers: HogQLQueryModifiers | None = None,
-) -> dict[str, Person]:
-    """Batch look up persons by their properties.email value via ClickHouse.
-
-    Returns a dict mapping lowercase email -> Person for the first match.
-    Only checks ``properties.email`` (the canonical, materialized key with
-    a skip index). Uses the HogQL ``persons`` virtual table (argMax dedup
-    handled automatically).
-    """
-    if not emails:
-        return {}
-
-    emails_lower = [e.lower() for e in emails]
-    with tags_context(product=Product.CONVERSATIONS, feature=Feature.QUERY):
-        response = execute_hogql_query(
-            PERSON_EMAIL_LOOKUP_QUERY,
-            placeholders={"emails": ast.Constant(value=emails_lower)},
-            team=team,
-            query_type="conversations_person_email_lookup",
-            modifiers=modifiers,
-        )
-
-    if not response.results:
-        return {}
-
-    email_to_uuid: dict[str, str] = {}
-    for person_uuid, prop_email in response.results:
-        if prop_email:
-            lower = prop_email.lower()
-            if lower not in email_to_uuid:
-                email_to_uuid[lower] = str(person_uuid)
-
-    persons = get_persons_by_uuids(team.pk, list(email_to_uuid.values()))
-    uuid_to_person: dict[str, Person] = {str(p.uuid): p for p in persons}
-
-    result: dict[str, Person] = {}
-    for email_lower, person_uuid in email_to_uuid.items():
-        person = uuid_to_person.get(person_uuid)
-        if person is not None:
-            result[email_lower] = person
-    return result
 
 
 class SuggestReplyResponseSerializer(serializers.Serializer):
@@ -174,6 +115,30 @@ class ComposeTicketSerializer(serializers.Serializer):
 class ComposeTicketResponseSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Created ticket UUID.")
     ticket_number = serializers.IntegerField(help_text="Human-readable ticket number.")
+
+
+BULK_UPDATE_STATUS_MAX_IDS = 500
+
+
+class BulkUpdateStatusRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=BULK_UPDATE_STATUS_MAX_IDS,
+        help_text="List of ticket UUIDs to update.",
+    )
+    status = serializers.ChoiceField(
+        choices=Status.choices,
+        help_text="New status to apply to all selected tickets: new, open, pending, on_hold, or resolved.",
+    )
+
+
+class BulkUpdateStatusResponseSerializer(serializers.Serializer):
+    updated = serializers.IntegerField(help_text="Number of tickets whose status actually changed.")
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="UUIDs of the tickets whose status changed.",
+    )
 
 
 class TicketPagination(pagination.LimitOffsetPagination):
@@ -282,6 +247,8 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
 
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
+    scope_object_read_actions = ["list", "retrieve", "unread_count"]
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose"]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
@@ -800,6 +767,92 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         # Re-serialize to include updated assignee
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+    def _emit_status_change_side_effects(self, request, ticket: Ticket, old_status: str, new_status: str) -> None:
+        """Emit analytics + activity log for a single ticket status change.
+
+        Called from both ``update()`` and ``bulk_update_status()`` to keep
+        event-tracking logic in one place.
+        """
+        try:
+            capture_ticket_status_changed(ticket, old_status, new_status)
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=request.user,
+                was_impersonated=is_impersonated_session(request),
+                item_id=str(ticket.id),
+                scope="Ticket",
+                activity="updated",
+                detail=Detail(
+                    name=f"Ticket #{ticket.ticket_number}",
+                    changes=[
+                        Change(
+                            type="Ticket",
+                            field="status",
+                            before=old_status,
+                            after=new_status,
+                            action="changed",
+                        )
+                    ],
+                ),
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+
+    @extend_schema(
+        request=BulkUpdateStatusRequestSerializer,
+        responses={200: OpenApiResponse(response=BulkUpdateStatusResponseSerializer)},
+    )
+    @action(detail=False, methods=["POST"])
+    def bulk_update_status(self, request, *args, **kwargs):
+        """Update the status of multiple tickets in a single request.
+
+        Only tickets belonging to the current team are affected; other-team UUIDs
+        are silently ignored.  Tickets already in the requested status are skipped.
+        """
+        serializer = BulkUpdateStatusRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        ticket_ids: list[uuid.UUID] = serializer.validated_data["ids"]
+        new_status: str = serializer.validated_data["status"]
+
+        changed: list[tuple[Ticket, str]] = []
+        with transaction.atomic():
+            tickets = list(self.get_queryset().filter(id__in=ticket_ids).select_for_update(of=("self",)))
+            for ticket in tickets:
+                old_status = ticket.status
+                if old_status == new_status:
+                    continue
+                ticket.status = new_status
+                ticket.save(update_fields=["status", "updated_at"])
+                changed.append((ticket, old_status))
+
+        def _emit_bulk_side_effects() -> None:
+            if any(old == "resolved" or new_status == "resolved" for _, old in changed):
+                invalidate_unread_count_cache(self.team_id)
+
+            for ticket, old_status in changed:
+                self._emit_status_change_side_effects(request, ticket, old_status, new_status)
+
+            if changed:
+                try:
+                    report_user_action(
+                        request.user,
+                        "support tickets bulk status updated",
+                        {"count": len(changed), "ticket_status": new_status},
+                        team=self.team,
+                        request=request,
+                    )
+                except Exception as e:
+                    capture_exception(e, {"team_id": self.team_id})
+
+        transaction.on_commit(_emit_bulk_side_effects)
+
+        return Response({"updated": len(changed), "ids": [str(t.id) for t, _ in changed]})
 
     @extend_schema(
         request=None,

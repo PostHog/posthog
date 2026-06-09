@@ -168,9 +168,14 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
             prepare_and_print_ast(parsed_query, context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, HogQLNotImplementedError, QueryError, ResolutionError) as err:
             err_msg = str(err)
-            if err_msg.startswith("no viable alternative"):
-                # The "no viable alternative" ANTLR error is horribly unhelpful, both for humans and LLMs
-                err_msg = 'ANTLR parsing error: "no viable alternative at input". This means that the query isn\'t valid HogQL.'
+            # Both the antlr-based cpp parser and the hand-rolled rust-py parser produce
+            # terse low-level error wording on syntax failures ("no viable alternative…",
+            # "trailing tokens after expression…", "unexpected token in expression…").
+            # Replace any of them with a single human/LLM-friendly message.
+            if err_msg.startswith(
+                ("no viable alternative", "trailing tokens after expression", "unexpected token in expression")
+            ):
+                err_msg = "HogQL parsing error: this query isn't valid HogQL."
             raise PydanticOutputParserException(llm_output=cleaned_query, validation_message=err_msg)
 
         return AssistantHogQLQuery(query=cleaned_query)

@@ -151,6 +151,7 @@ async fn setup_router_with_limits(
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // replay_overflow_limiter
+        None,             // v1_sink_router
     );
 
     (app, sink)
@@ -1201,6 +1202,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // replay_overflow_limiter
+        None,             // v1_sink_router
     );
 
     let client = TestClient::new(app);
@@ -1289,6 +1291,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // replay_overflow_limiter
+        None,             // v1_sink_router
     );
 
     let client = TestClient::new(app);
@@ -1381,6 +1384,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // replay_overflow_limiter
+        None,             // v1_sink_router
     );
 
     let client = TestClient::new(app);
@@ -1810,6 +1814,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // replay_overflow_limiter
+        None,             // v1_sink_router
     );
 
     let client = TestClient::new(app);

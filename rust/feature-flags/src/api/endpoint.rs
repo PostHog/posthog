@@ -29,6 +29,7 @@ use bytes::Bytes;
 use serde_json;
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::sync::{Arc, OnceLock};
 use tracing::Instrument;
 use uuid::Uuid;
 
@@ -449,6 +450,17 @@ pub async fn flags(
         .as_deref()
         .map(|v| v.parse::<i32>().unwrap_or(1));
 
+    // Install a body-logging side channel only when at least one team is
+    // opted in. The OnceLock is filled inside the request decode flow with
+    // the post-gzip / post-base64 bytes, and read back here once the
+    // handler returns. This avoids decoding the body twice and ensures
+    // base64-wrapped bodies log as their decoded JSON. `Arc::clone` here is
+    // an O(1) refcount bump, paid only when at least one team is enabled.
+    let decoded_body_slot = state
+        .body_logger
+        .has_any_enabled()
+        .then(|| Arc::new(OnceLock::<Bytes>::new()));
+
     let context = RequestContext {
         request_id,
         state: state.clone(),
@@ -456,6 +468,7 @@ pub async fn flags(
         headers: headers.clone(),
         meta: modified_query_params,
         body,
+        decoded_body_for_logging: decoded_body_slot.clone(),
     };
 
     // Create debug span for detailed tracing when debugging
@@ -526,11 +539,24 @@ pub async fn flags(
 
     match result {
         Ok(response) => {
+            // Emit the body-log event before `response` is consumed by the
+            // versioning step. Skipped when the team isn't opted in. The
+            // request body bytes are the *decoded* form captured during
+            // `parse_and_authenticate` — we never decode the body twice,
+            // and base64-wrapped bodies log as JSON.
+            let decoded_body = decoded_body_slot
+                .as_ref()
+                .and_then(|slot| slot.get().cloned());
+            state
+                .body_logger
+                .log_response(request_id, log.team_id, decoded_body, &response);
+
             // Determine the response format based on whether request is from decide and version
             match get_versioned_response(is_from_legacy_decide, query_version, response) {
                 Ok((versioned_response, _response_format)) => {
                     log.http_status = 200;
                     log.emit();
+
                     let mut response = Json(versioned_response).into_response();
                     if log.rate_limit_warned {
                         response.headers_mut().insert(
@@ -918,7 +944,10 @@ mod tests {
 
         const GOOGLEBOT_UA: &str =
             "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
-        const GOOGLEBOT_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(66, 249, 79, 123));
+        // Interior of `66.249.66.0/27` — a densely-covered Googlebot /24 in
+        // the published JSON. The classifier is JSON-precise so unpublished
+        // /27 gaps (e.g. `.79.96/27`) no longer match.
+        const GOOGLEBOT_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(66, 249, 66, 0));
         const BENIGN_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8));
         const BENIGN_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X) Chrome/120 Safari/537.36";
 
