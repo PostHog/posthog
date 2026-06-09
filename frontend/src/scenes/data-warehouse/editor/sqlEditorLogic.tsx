@@ -2355,8 +2355,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                 } else if (searchParams.open_query) {
-                    // Open query string
-                    actions.createTab(searchParams.open_query)
+                    // kea-router decodes numeric/JSON-shaped URL values to non-strings; coerce so queryInput stays a string
+                    actions.createTab(String(searchParams.open_query))
                     tabAdded = true
                 } else if (
                     hashParams.q &&
@@ -2365,9 +2365,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     !insightShortIdFromUrl &&
                     (values.queryInput === null ||
                         !activeTabMatchesUrlTarget(values.activeTab, {}) ||
-                        values.queryInput !== hashParams.q)
+                        values.queryInput !== String(hashParams.q))
                 ) {
-                    actions.createTab(hashParams.q)
+                    // kea-router decodes numeric/JSON-shaped URL values to non-strings; coerce so queryInput stays a string
+                    actions.createTab(String(hashParams.q))
                     tabAdded = true
                 } else if (values.queryInput === null) {
                     actions.createTab('')
