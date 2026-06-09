@@ -14,10 +14,15 @@ import { initKeaTests } from '~/test/init'
 import { TaxonomicFilterHeadless } from '../headless'
 import { __clearTaxonomicResourceCache } from '../hooks/useTaxonomicResource'
 import { TaxonomicFilterGroupType } from '../types'
-import { MenuFilterCombobox } from './Combobox'
+import { MenuFilterCombobox, SEARCH_QUERY_DEBOUNCE_MS } from './Combobox'
 
 jest.mock('~/queries/query', () => ({
     performQuery: jest.fn(),
+}))
+
+jest.mock('posthog-js', () => ({
+    __esModule: true,
+    default: { capture: jest.fn() },
 }))
 
 jest.mock('lib/api', () => {
@@ -38,6 +43,7 @@ jest.mock('lib/api', () => {
 })
 
 const apiGet = jest.requireMock('lib/api').default.get as jest.MockedFunction<any>
+const captureMock = jest.requireMock('posthog-js').default.capture as jest.Mock
 
 function renderCombobox(): ReturnType<typeof render> {
     return render(
@@ -66,6 +72,7 @@ function renderAll(options: {
     recentEntries?: any[]
     pinnedEntries?: any[]
     searchQuery?: string
+    onCommit?: any
 }): ReturnType<typeof render> {
     return render(
         <Provider>
@@ -78,7 +85,7 @@ function renderAll(options: {
                     drillTo="all"
                     recentEntries={options.recentEntries}
                     pinnedEntries={options.pinnedEntries}
-                    onCommit={jest.fn()}
+                    onCommit={options.onCommit ?? jest.fn()}
                     onBack={jest.fn()}
                 />
             </TaxonomicFilterHeadless.Root>
@@ -96,6 +103,7 @@ describe('MenuFilterCombobox', () => {
     beforeEach(() => {
         __clearTaxonomicResourceCache()
         apiGet.mockReset()
+        captureMock.mockClear()
         ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
         useMocks({})
         initKeaTests()
@@ -400,5 +408,193 @@ describe('MenuFilterCombobox', () => {
         await user.click(screen.getByRole('combobox', { name: 'Filter category' }))
         expect(await screen.findByRole('option', { name: 'Recent' })).toBeInTheDocument()
         expect(screen.getByRole('option', { name: 'Pinned' })).toBeInTheDocument()
+    })
+
+    it('forwards row selection context on commit and does not emit the legacy event itself', async () => {
+        const user = userEvent.setup()
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+        const onCommit = jest.fn()
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.Events],
+            recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'pageview', 'Events')],
+            onCommit,
+        })
+
+        await waitFor(() => expect(document.querySelector('[data-slot="taxonomic-filter-menu-row"]')).toBeTruthy())
+        await user.click(document.querySelector('[data-slot="taxonomic-filter-menu-row"]') as HTMLElement)
+
+        expect(onCommit).toHaveBeenCalledWith(
+            expect.objectContaining({ group: expect.objectContaining({ type: TaxonomicFilterGroupType.Events }) }),
+            undefined,
+            // groupType is undefined for the 'all' meta scope; the final-commit funnel
+            // (TaxonomicFilterMenu) turns this context into the legacy event.
+            {
+                groupType: undefined,
+                position: 0,
+                wasFromRecents: true,
+                wasFromPinnedList: false,
+            }
+        )
+        // The combobox no longer fires the legacy event on row click — that moved to
+        // the final-commit funnel so cancelable DWH table picks are not counted.
+        expect(captureMock).not.toHaveBeenCalledWith('taxonomic filter item selected', expect.anything())
+    })
+
+    it('forwards wasFromPinnedList=true in the commit context for a pinned row', async () => {
+        const user = userEvent.setup()
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+        const onCommit = jest.fn()
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.EventProperties],
+            pinnedEntries: [makeEntry(TaxonomicFilterGroupType.EventProperties, 'plan', 'Event properties')],
+            onCommit,
+        })
+
+        await waitFor(() => expect(document.querySelector('[data-slot="taxonomic-filter-menu-row"]')).toBeTruthy())
+        await user.click(document.querySelector('[data-slot="taxonomic-filter-menu-row"]') as HTMLElement)
+
+        expect(onCommit).toHaveBeenCalledWith(
+            expect.anything(),
+            undefined,
+            expect.objectContaining({ wasFromPinnedList: true, wasFromRecents: false })
+        )
+    })
+
+    it('captures debounced `taxonomic_filter_search_query` for a typed query', async () => {
+        // Fake timers only here — the rest of the suite drives real async via
+        // userEvent/waitFor. Scoped so advancing the debounce is deterministic and
+        // instant instead of blocking on a real 500 ms timeout.
+        jest.useFakeTimers()
+        try {
+            apiGet.mockResolvedValue({ results: [], count: 0 })
+
+            renderAll({ groupTypes: [TaxonomicFilterGroupType.Events], searchQuery: 'pageview' })
+
+            await act(async () => {
+                // Flush the data-fetch microtasks the debounce effect rides behind…
+                await Promise.resolve()
+                // …then fire the debounce timer.
+                jest.advanceTimersByTime(SEARCH_QUERY_DEBOUNCE_MS)
+            })
+
+            expect(captureMock).toHaveBeenCalledWith(
+                'taxonomic_filter_search_query',
+                expect.objectContaining({
+                    surface: 'rebuild-menu',
+                    searchQuery: 'pageview',
+                    inputMode: 'typed',
+                    pastedFraction: 0,
+                    // Stale events hidden by default → excludeStale reads true at search time.
+                    excludeStale: true,
+                })
+            )
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('captures `taxonomic filter empty result` for a no-match search', async () => {
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+
+        renderAll({ groupTypes: [TaxonomicFilterGroupType.Events], searchQuery: 'zzz_no_match' })
+
+        await waitFor(() =>
+            expect(captureMock).toHaveBeenCalledWith(
+                'taxonomic filter empty result',
+                expect.objectContaining({ searchQuery: 'zzz_no_match' })
+            )
+        )
+    })
+
+    it('fires `taxonomic filter empty result` exactly once per scope+query (dedup)', async () => {
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+
+        renderAll({ groupTypes: [TaxonomicFilterGroupType.Events], searchQuery: 'zzz_no_match' })
+
+        await waitFor(() =>
+            expect(captureMock).toHaveBeenCalledWith(
+                'taxonomic filter empty result',
+                expect.objectContaining({ searchQuery: 'zzz_no_match' })
+            )
+        )
+
+        const emptyResultCalls = captureMock.mock.calls.filter(
+            ([event, props]: [string, any]) =>
+                event === 'taxonomic filter empty result' && props?.searchQuery === 'zzz_no_match'
+        )
+        expect(emptyResultCalls).toHaveLength(1)
+    })
+
+    it('re-fires empty result for a query revisited after a different one (last-key dedup, matches legacy)', async () => {
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+        const emptyFor = (q: string): number =>
+            captureMock.mock.calls.filter(
+                ([event, props]: [string, any]) => event === 'taxonomic filter empty result' && props?.searchQuery === q
+            ).length
+        const tree = (q: string): JSX.Element => (
+            <Provider>
+                <TaxonomicFilterHeadless.Root
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                    onChange={jest.fn()}
+                    searchQuery={q}
+                >
+                    <MenuFilterCombobox drillTo="all" onCommit={jest.fn()} onBack={jest.fn()} />
+                </TaxonomicFilterHeadless.Root>
+            </Provider>
+        )
+
+        const { rerender } = render(tree('aaa'))
+        await waitFor(() => expect(emptyFor('aaa')).toBe(1))
+
+        rerender(tree('bbb'))
+        await waitFor(() => expect(emptyFor('bbb')).toBe(1))
+
+        // Returning to "aaa" re-fires — an unbounded set would have suppressed it.
+        rerender(tree('aaa'))
+        await waitFor(() => expect(emptyFor('aaa')).toBe(2))
+    })
+
+    it('hides stale events by default and refetches including them when the empty-state button is clicked', async () => {
+        const user = userEvent.setup()
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+
+        render(
+            <Provider>
+                <TaxonomicFilterHeadless.Root
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                    onChange={jest.fn()}
+                    searchQuery="zzz_no_match"
+                >
+                    <MenuFilterCombobox
+                        drillTo={TaxonomicFilterGroupType.Events}
+                        onCommit={jest.fn()}
+                        onBack={jest.fn()}
+                    />
+                </TaxonomicFilterHeadless.Root>
+            </Provider>
+        )
+
+        // Default: the events fetch hides stale definitions.
+        await waitFor(() =>
+            expect(apiGet.mock.calls.some(([url]: [string]) => url.includes('exclude_stale=true'))).toBe(true)
+        )
+
+        const callsBeforeOptIn = apiGet.mock.calls.length
+        await user.click(await screen.findByRole('button', { name: 'Include stale events' }))
+
+        // Opting in emits the legacy toggle event…
+        expect(captureMock).toHaveBeenCalledWith(
+            'taxonomic filter include stale toggled',
+            expect.objectContaining({ surface: 'rebuild-menu', includeStaleEvents: true })
+        )
+
+        // …and refetches the events list without the stale exclusion.
+        await waitFor(() => {
+            const newUrls: string[] = apiGet.mock.calls.slice(callsBeforeOptIn).map(([url]: [string]) => url)
+            expect(newUrls.length).toBeGreaterThan(0)
+            expect(newUrls.every((url: string) => !url.includes('exclude_stale=true'))).toBe(true)
+        })
     })
 })

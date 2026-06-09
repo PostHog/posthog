@@ -27,7 +27,7 @@ describe('replayScannerLogic', () => {
             },
         })
         initKeaTests()
-        logic = replayScannerLogic({ id: 'new', tabId: 'test' })
+        logic = replayScannerLogic({ id: 'new' })
         logic.mount()
     })
 
@@ -341,7 +341,7 @@ describe('replayScannerLogic', () => {
                     },
                 },
             })
-            scannedLogic = replayScannerLogic({ id: 'sid', tabId: 'test-url' })
+            scannedLogic = replayScannerLogic({ id: 'sid' })
             scannedLogic.mount()
         })
 

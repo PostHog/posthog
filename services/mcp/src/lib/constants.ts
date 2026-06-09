@@ -11,7 +11,6 @@ export {
     isCloudApi,
     isLocalApi,
     MCP_DOCS_URL,
-    OAUTH_PROXY_URL,
     OAUTH_SCOPES_SUPPORTED,
 } from './oauth-constants'
 

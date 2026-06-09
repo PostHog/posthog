@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
@@ -22,11 +21,14 @@ export function VisionMetrics(): JSX.Element {
     const { setChartDateRange } = useActions(replayScannersLogic)
     const { quota } = useValues(visionQuotaLogic)
 
-    const ratio = quota && quota.monthly_quota > 0 ? Math.min(quota.usage_this_month / quota.monthly_quota, 1) : 0
     const projection = projectQuota(quota)
-    const { status, capReachDate, capReachInPeriod, projectionConfident, resetsOn } = projection
-    const quotaStroke =
-        status === 'danger' ? 'var(--danger)' : status === 'warning' ? 'var(--warning)' : 'var(--success)'
+    const { resetsOn, status, daysRemaining, combinedDailyRate } = projection
+    const used = quota?.usage_this_month ?? 0
+    const cap = quota?.monthly_quota ?? 0
+    const hasCap = cap > 0
+    const usedPct = hasCap ? Math.min((used / cap) * 100, 100) : 0
+    const additionalUsagePct = hasCap ? Math.min((combinedDailyRate * daysRemaining * 100) / cap, 100 - usedPct) : 0
+    const projectedBarColor = status === 'danger' ? 'bg-danger' : status === 'warning' ? 'bg-warning' : 'bg-success'
 
     // `tags.productKey` is required for ClickHouse query tagging; without it the runner aborts.
     const chartSource: TrendsQuery = {
@@ -105,28 +107,43 @@ export function VisionMetrics(): JSX.Element {
                                     {quota.monthly_quota.toLocaleString()}
                                 </span>
                             </div>
-                            <LemonProgress
-                                className="mt-2"
-                                percent={Math.round(ratio * 100)}
-                                strokeColor={quotaStroke}
-                            />
+                            <Tooltip
+                                title={
+                                    <div className="text-xs space-y-0.5">
+                                        <div>
+                                            Used this month: <strong>{quota.usage_this_month.toLocaleString()}</strong>
+                                        </div>
+                                        <div>
+                                            Monthly quota: <strong>{quota.monthly_quota.toLocaleString()}</strong>
+                                        </div>
+                                        {resetsOn && <div className="text-muted">Resets {resetsOn}</div>}
+                                    </div>
+                                }
+                            >
+                                <div
+                                    className="flex h-3 rounded overflow-hidden bg-fill-tertiary mt-2"
+                                    role="meter"
+                                    aria-valuemin={0}
+                                    aria-valuemax={100}
+                                    aria-valuenow={Math.round(usedPct + additionalUsagePct)}
+                                    aria-label={`${Math.round(usedPct + additionalUsagePct)}% of monthly observation quota`}
+                                >
+                                    <div className="bg-muted" style={{ width: `${usedPct}%` }} />
+                                    <div
+                                        className={projectedBarColor}
+                                        style={{
+                                            width: `${additionalUsagePct}%`,
+                                            backgroundImage:
+                                                'repeating-linear-gradient(135deg, rgba(255,255,255,0.25) 0, rgba(255,255,255,0.25) 4px, transparent 4px, transparent 8px)',
+                                        }}
+                                    />
+                                </div>
+                            </Tooltip>
                             <div className="text-muted text-sm mt-1">
                                 {quota.exhausted ? (
-                                    <span className="text-danger">Quota reached.</span>
-                                ) : capReachInPeriod && projectionConfident && capReachDate ? (
-                                    <span className="text-danger">
-                                        {quota.remaining.toLocaleString()} remaining. Cap reached on{' '}
-                                        <strong>{capReachDate.format('MMM D')}</strong> at this rate.
-                                    </span>
-                                ) : status === 'warning' && projectionConfident ? (
-                                    <span className="text-warning">
-                                        {quota.remaining.toLocaleString()} remaining. Approaching cap by{' '}
-                                        {resetsOn ?? 'period end'} at this rate.
-                                    </span>
+                                    <span className="text-danger">Quota exhausted</span>
                                 ) : (
-                                    `${quota.remaining.toLocaleString()} remaining${
-                                        resetsOn ? `. Resets ${resetsOn}.` : '.'
-                                    }`
+                                    `${quota.remaining.toLocaleString()} observations remaining.`
                                 )}
                             </div>
                         </>

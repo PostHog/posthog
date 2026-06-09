@@ -53,6 +53,7 @@
         "finding_id": {
             "anyOf": [
                 {
+                    "maxLength": 100,
                     "type": "string"
                 },
                 {
@@ -121,14 +122,8 @@
                 }
             ],
             "description": "Optional time window the finding refers to."
-        },
-        "weight": {
-            "description": "Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.",
-            "maximum": 1,
-            "minimum": 0,
-            "type": "number"
         }
     },
-    "required": ["id", "description", "weight", "confidence", "evidence"],
+    "required": ["id", "description", "confidence", "evidence"],
     "type": "object"
 }

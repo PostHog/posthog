@@ -130,6 +130,7 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                               AND toString(issue_id_v2) = '${issueId}'
                             GROUP BY bucket
                             ORDER BY bucket
+                            LIMIT ${option.bucketCount + 1}
                         `,
                         tags: { productKey: ProductKey.ERROR_TRACKING },
                     })) as HogQLQueryResponse

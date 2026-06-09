@@ -35,7 +35,7 @@ def refresh_affected_hog_functions(
             .filter(filters__contains={"actions": [{"id": str(action_id)}]})
         )
     elif cohort_id:
-        from posthog.models.cohort import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         try:
             cohort = Cohort.objects.select_related("team").get(id=cohort_id)
