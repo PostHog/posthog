@@ -119,7 +119,7 @@ The generalist (`signals-scout-general`) carries two references the rest of the
 fleet also reasons in terms of:
 
 - **`references/emit.md`** — the emit contract: required/recommended fields, the
-  weight vs. confidence rubrics, severity mapping, dedupe keys, `finding_id`
+  confidence rubric, severity mapping, dedupe keys, `finding_id`
   idempotency, and a worked example.
 - **`references/conventions.md`** — the four-states dedupe classifier, scratchpad
   key-prefix vocabulary, and cross-project noise patterns.

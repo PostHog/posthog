@@ -662,14 +662,28 @@ class UserSerializer(serializers.ModelSerializer):
             and is_email_available()
         ):
             new_email = validated_data["email"]
+            # Moving between two SSO-enforced domains of the same org is a domain migration, not an SSO bypass.
+            # SSO enforcement can only be set on a verified domain, so an enforced domain is always verified.
+            current_sso_enforced = OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email)
+            new_sso_enforced = OrganizationDomain.objects.get_sso_enforcement_for_email_address(new_email)
+            current_domain = OrganizationDomain.objects.get_verified_for_email_address(instance.email)
+            new_domain = OrganizationDomain.objects.get_verified_for_email_address(new_email)
+            is_same_org_migration = (
+                bool(current_sso_enforced)
+                and bool(new_sso_enforced)
+                and current_domain is not None
+                and new_domain is not None
+                and current_domain.organization_id == new_domain.organization_id
+            )
+
             # Block bypass: a user on an SSO-enforced domain can't move off of it.
-            if OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email):
+            if current_sso_enforced and not is_same_org_migration:
                 raise serializers.ValidationError(
                     "You can't change your email because SSO is enforced on your current email's domain.",
                     code="sso_enforced_current_email",
                 )
             # Block lockout: moving to an SSO-enforced domain blocks password reset and login.
-            if OrganizationDomain.objects.get_sso_enforcement_for_email_address(new_email):
+            if new_sso_enforced and not is_same_org_migration:
                 raise serializers.ValidationError(
                     "You can't change your email to a domain where SSO is enforced.",
                     code="sso_enforced_new_email",
