@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from posthog.schema import PropertyOperator
 
-from products.dashboards.backend.constants import WIDGET_DATE_FROM_VALUES_ORDERED
+from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT, WIDGET_DATE_FROM_VALUES_ORDERED
 
 WIDGET_DATE_FROM_VALUES = frozenset(WIDGET_DATE_FROM_VALUES_ORDERED)
 
@@ -23,9 +23,9 @@ class WidgetDateRange(BaseModel):
 class WidgetFilterEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    filterId: str
-    propertyName: str
-    optionId: str
+    filterId: str = Field(min_length=1)
+    propertyName: str = Field(min_length=1)
+    optionId: str = Field(min_length=1)
     operator: PropertyOperator
     value: str | list[str] | None = None
 
@@ -79,10 +79,10 @@ class WidgetListConfigBase(BaseModel):
         if not isinstance(value, dict):
             raise ValueError("dateRange must be an object.")
         date_from = value.get("date_from")
-        if date_from is not None and date_from not in WIDGET_DATE_FROM_VALUES:
+        if date_from is not None and (not isinstance(date_from, str) or date_from not in WIDGET_DATE_FROM_VALUES):
             allowed = ", ".join(sorted(WIDGET_DATE_FROM_VALUES))
             raise ValueError(f"dateRange.date_from must be one of: {allowed}.")
         return WidgetDateRange(date_from=date_from)
 
 
-WidgetLimit = Annotated[int, Field(ge=1, le=25)]
+WidgetLimit = Annotated[int, Field(ge=1, le=MAX_WIDGET_RESULT_LIMIT)]

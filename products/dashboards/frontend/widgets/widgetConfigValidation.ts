@@ -3,11 +3,7 @@ import { z, type ZodError, type ZodType } from 'zod'
 
 import { FilterLogicalOperator, PropertyFilterType, type UniversalFiltersGroup } from '~/types'
 
-import {
-    widgetFilterEntrySchema,
-    type StoredWidgetFilter,
-    type WidgetFilterConfigRecord,
-} from '../generated/widget-configs.zod'
+import { type WidgetFilterConfigRecord } from '../generated/widget-configs.zod'
 
 /** Converts persisted widget `config.widgetFilters` into a HogQL/universal filter group. */
 export function buildFilterGroupFromWidgetFilters(
@@ -60,19 +56,4 @@ export type WidgetListFormInput = {
     orderBy: string
     dateRange: { date_from?: string | null } | null
     filterTestAccounts: boolean | null
-}
-
-export type WidgetListFormInputWithWidgetFilters = WidgetListFormInput & {
-    widgetFilters: Record<string, StoredWidgetFilter>
-}
-
-/** Validated `widgetFilters` patch for widget config builders (omit key when empty). */
-export function widgetFiltersPatchFromForm(widgetFilters: Record<string, StoredWidgetFilter>): {
-    widgetFilters?: Record<string, StoredWidgetFilter>
-} {
-    const widgetFiltersParsed = widgetFilterEntrySchema.array().safeParse(Object.values(widgetFilters))
-    if (!widgetFiltersParsed.success || Object.keys(widgetFilters).length === 0) {
-        return {}
-    }
-    return { widgetFilters }
 }

@@ -425,8 +425,11 @@ export const PropertyOperatorApi = {
 } as const
 
 export interface WidgetFilterEntryApi {
+    /** @minLength 1 */
     filterId: string
+    /** @minLength 1 */
     propertyName: string
+    /** @minLength 1 */
     optionId: string
     operator: PropertyOperatorApi
     value?: string | string[] | null

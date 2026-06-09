@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from drf_spectacular.drainage import warn as spectacular_warn
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from pydantic import BaseModel
 from rest_framework import serializers
@@ -110,7 +111,18 @@ def inject_widget_spec_pydantic_components(
             if component_name in injected_names:
                 continue
             injected_names.add(component_name)
-            schemas[component_name] = _fix_pydantic_schema_for_openapi(component_schema)
+            fixed_schema = _fix_pydantic_schema_for_openapi(component_schema)
+            existing = schemas.get(component_name)
+            if existing is not None and existing != fixed_schema:
+                # e.g. PropertyOperator is also emitted by the /query Pydantic schema path and is
+                # referenced by many unrelated components — never silently rewrite a divergent copy.
+                # spectacular_warn flows into GENERATOR_STATS, so --fail-on-warn breaks the build.
+                spectacular_warn(
+                    f"Widget spec injection would overwrite component {component_name!r} with a different "
+                    "schema. Rename the Pydantic model or reconcile the definitions."
+                )
+                continue
+            schemas[component_name] = fixed_schema
 
     # PolymorphicProxySerializer shells for per-type config have no DRF fields, so spectacular
     # emits oneOf: []. Orval 8.14+ turns that into an invalid empty TS union.

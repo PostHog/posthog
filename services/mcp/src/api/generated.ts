@@ -3848,8 +3848,11 @@ export namespace Schemas {
     }
 
     export interface WidgetFilterEntry {
+      /** @minLength 1 */
       filterId: string;
+      /** @minLength 1 */
       propertyName: string;
+      /** @minLength 1 */
       optionId: string;
       operator: PropertyOperator;
       value?: string | string[] | null;

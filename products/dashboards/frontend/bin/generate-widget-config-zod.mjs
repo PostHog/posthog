@@ -276,6 +276,15 @@ async function main() {
     const orvalSchemasDir = await runOrvalOnCatalogSlice(catalogSlice)
     const copiedSchemas = copyOrvalSchemaFiles(orvalSchemasDir, transitiveComponentNames)
 
+    // The barrel imports and aliases below assume every config model and the filter entry were
+    // copied — a missing Orval file would otherwise produce a barrel referencing undefined symbols.
+    const copiedNames = new Set(copiedSchemas.map((entry) => entry.componentName))
+    const missingRequired = [...configModelNames, WIDGET_FILTER_ENTRY_MODEL].filter((name) => !copiedNames.has(name))
+    if (missingRequired.length > 0) {
+        console.error(`Orval did not emit schema files for required components: ${missingRequired.join(', ')}`)
+        process.exit(1)
+    }
+
     const outputFile = path.join(dashboardsGeneratedDir, 'widget-configs.zod.ts')
     fs.mkdirSync(dashboardsGeneratedDir, { recursive: true })
 

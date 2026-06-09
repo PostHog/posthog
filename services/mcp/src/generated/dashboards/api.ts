@@ -120,6 +120,7 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitMax =
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneOrderByDefault = `occurrences`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneOrderDirectionDefault = `DESC`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneStatusDefault = `active`
+
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitDefault = 10
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitMax = 25
 
@@ -189,9 +190,9 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                 zod.record(
                                                     zod.string(),
                                                     zod.object({
-                                                        filterId: zod.string(),
-                                                        propertyName: zod.string(),
-                                                        optionId: zod.string(),
+                                                        filterId: zod.string().min(1),
+                                                        propertyName: zod.string().min(1),
+                                                        optionId: zod.string().min(1),
                                                         operator: zod.enum([
                                                             'exact',
                                                             'is_not',
@@ -310,9 +311,9 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                 zod.record(
                                                     zod.string(),
                                                     zod.object({
-                                                        filterId: zod.string(),
-                                                        propertyName: zod.string(),
-                                                        optionId: zod.string(),
+                                                        filterId: zod.string().min(1),
+                                                        propertyName: zod.string().min(1),
+                                                        optionId: zod.string().min(1),
                                                         operator: zod.enum([
                                                             'exact',
                                                             'is_not',
@@ -823,9 +824,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         zod.record(
                                             zod.string(),
                                             zod.object({
-                                                filterId: zod.string(),
-                                                propertyName: zod.string(),
-                                                optionId: zod.string(),
+                                                filterId: zod.string().min(1),
+                                                propertyName: zod.string().min(1),
+                                                optionId: zod.string().min(1),
                                                 operator: zod.enum([
                                                     'exact',
                                                     'is_not',
@@ -982,9 +983,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         zod.record(
                                             zod.string(),
                                             zod.object({
-                                                filterId: zod.string(),
-                                                propertyName: zod.string(),
-                                                optionId: zod.string(),
+                                                filterId: zod.string().min(1),
+                                                propertyName: zod.string().min(1),
+                                                optionId: zod.string().min(1),
                                                 operator: zod.enum([
                                                     'exact',
                                                     'is_not',

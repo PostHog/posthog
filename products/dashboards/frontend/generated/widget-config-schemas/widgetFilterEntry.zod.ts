@@ -9,9 +9,9 @@ import { z as zod } from 'zod'
 import { PropertyOperator } from './propertyOperator.zod'
 
 export const WidgetFilterEntry = /* @__PURE__ */ zod.object({
-    filterId: zod.string(),
-    propertyName: zod.string(),
-    optionId: zod.string(),
+    filterId: zod.string().min(1),
+    propertyName: zod.string().min(1),
+    optionId: zod.string().min(1),
     operator: PropertyOperator,
     value: zod.union([zod.string(), zod.array(zod.string()), zod.null()]).optional(),
 })

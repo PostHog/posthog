@@ -24,6 +24,10 @@ def _camelize(s: str) -> str:
 
 
 def _iter_prop_containers(schema: Any, component_name: str | None = None) -> Any:
+    """Walk OpenAPI component schemas yielding (component_name, properties) pairs.
+
+    Copied from the nested function inside drf_spectacular.hooks.postprocess_schema_enums.
+    """
     if not component_name:
         for comp_name, comp_schema in schema.items():
             if spectacular_settings.COMPONENT_SPLIT_PATCH:
@@ -102,6 +106,11 @@ def find_unresolved_enum_collisions(schemas: dict[str, Any]) -> list[EnumCollisi
                 continue
             auto_name = f"{_camelize(prop_name)}{prop_hash[:3].capitalize()}{enum_suffix}"
             values = hash_values[prop_hash]
+            # Even ChoiceField gets x-spec-enum-id, but if the field was built from a
+            # plain list (`choices=["A", "B"]`) DRF expands it to (value, value) pairs
+            # — same hash as the inline-list override path. The model-class-path
+            # override is only required when labels differ from values (typical
+            # `TextChoices` with explicit labels).
             inline_override_hash = list_hash([(v, v) for v in values if v not in ("", None)])
             inline_override_matches = inline_override_hash == prop_hash
             collisions.append(
