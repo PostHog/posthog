@@ -15,14 +15,16 @@ import pyarrow as pa
 import pytest_asyncio
 from temporalio.testing import ActivityEnvironment
 
+from posthog.models.scoping import team_scope
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
-from products.batch_exports.backend.service import (
-    BackfillDetails,
-    BatchExportModel,
-    afetch_last_completed_run_records_completed,
+from products.batch_exports.backend.models.batch_export import (
+    BatchExport,
+    BatchExportDestination,
+    BatchExportOnDemand,
+    BatchExportRun,
 )
+from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, afetch_last_run_records_completed
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     DataIntervalEndInFutureError,
@@ -589,10 +591,9 @@ async def test_insert_into_stage_activity_for_persons_model(
     assert_exported_rows_match_persons_to_export(records_exported, new_persons_to_export)
 
 
-_FETCHER_PATH = (
-    "products.batch_exports.backend.temporal.pipeline.internal_stage.afetch_last_completed_run_records_completed"
-)
+_FETCHER_PATH = "products.batch_exports.backend.temporal.pipeline.internal_stage.afetch_last_run_records_completed"
 _INTERVAL_END = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
+_INTERVAL_START = _INTERVAL_END - dt.timedelta(hours=1)
 
 
 @pytest.mark.parametrize(
@@ -608,6 +609,7 @@ _INTERVAL_END = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
         (10_000_000_000, 1_000_000, 1, 50, 10, 50),  # huge -> max
         (5_000_000, 1_000_000, 10, 50, 10, 10),  # ceil(5) below min floor -> min
         (100, 1_000_000, 5, 3, 10, 5),  # max < min misconfig -> guarded, clamps to min
+        (5_000_000, 0, 1, 50, 10, 50),  # target of 0 misconfig -> guarded (no ZeroDivisionError), clamps to max
     ],
 )
 async def test_compute_num_partitions(estimate_rows, target, min_partitions, max_partitions, static_default, expected):
@@ -620,7 +622,9 @@ async def test_compute_num_partitions(estimate_rows, target, min_partitions, max
         ),
         patch(_FETCHER_PATH, new=AsyncMock(return_value=estimate_rows)),
     ):
-        result = await compute_num_partitions(batch_export_id=str(uuid.uuid4()), data_interval_end=_INTERVAL_END)
+        result = await compute_num_partitions(
+            batch_export_id=str(uuid.uuid4()), data_interval_start=_INTERVAL_START, data_interval_end=_INTERVAL_END
+        )
     assert result == expected
 
 
@@ -629,8 +633,23 @@ async def test_compute_num_partitions_db_error_falls_back_to_static_default():
         override_settings(BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=10),
         patch(_FETCHER_PATH, new=AsyncMock(side_effect=Exception("db unavailable"))),
     ):
-        result = await compute_num_partitions(batch_export_id=str(uuid.uuid4()), data_interval_end=_INTERVAL_END)
+        result = await compute_num_partitions(
+            batch_export_id=str(uuid.uuid4()), data_interval_start=_INTERVAL_START, data_interval_end=_INTERVAL_END
+        )
     assert result == 10
+
+
+async def test_compute_num_partitions_without_interval_start_falls_back_to_static_default():
+    """An unbounded interval (no start) gives no frequency to match, so we don't risk an estimate."""
+    with (
+        override_settings(BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=10),
+        patch(_FETCHER_PATH, new=AsyncMock(return_value=5_000_000)) as mock_fetch,
+    ):
+        result = await compute_num_partitions(
+            batch_export_id=str(uuid.uuid4()), data_interval_start=None, data_interval_end=_INTERVAL_END
+        )
+    assert result == 10
+    mock_fetch.assert_not_called()
 
 
 async def test_compute_num_partitions_fetches_estimate_relative_to_interval():
@@ -642,13 +661,19 @@ async def test_compute_num_partitions_fetches_estimate_relative_to_interval():
         ),
         patch(_FETCHER_PATH, new=AsyncMock(return_value=4_500_000)) as mock_fetch,
     ):
-        result = await compute_num_partitions(batch_export_id=str(uuid.uuid4()), data_interval_end=_INTERVAL_END)
+        result = await compute_num_partitions(
+            batch_export_id=str(uuid.uuid4()), data_interval_start=_INTERVAL_START, data_interval_end=_INTERVAL_END
+        )
     assert result == 5  # ceil(4_500_000 / 1_000_000)
-    # The estimate is fetched relative to the interval being processed.
-    assert mock_fetch.call_args.kwargs["before_or_at_interval_end"] == _INTERVAL_END
+    # The estimate is fetched relative to the interval being processed, and only from runs of the same
+    # frequency (interval duration) within the lookback window.
+    kwargs = mock_fetch.call_args.kwargs
+    assert kwargs["before_or_at_interval_end"] == _INTERVAL_END
+    assert kwargs["matching_interval_duration"] == _INTERVAL_END - _INTERVAL_START
+    assert kwargs["not_older_than"] < _INTERVAL_END
 
 
-async def _acreate_batch_export_for_test(team_id: int) -> BatchExport:
+async def _acreate_batch_export_for_test(team_id: int, interval: str = "hour") -> BatchExport:
     """Create a minimal BatchExport via the ORM (no Temporal schedule) for FK-backed run rows."""
     destination = await BatchExportDestination.objects.acreate(
         type="S3",
@@ -658,12 +683,12 @@ async def _acreate_batch_export_for_test(team_id: int) -> BatchExport:
         team_id=team_id,
         name="test-dynamic-partitions",
         destination=destination,
-        interval="hour",
+        interval=interval,
         model="events",
     )
 
 
-async def test_afetch_last_completed_run_records_completed(ateam):
+async def test_afetch_last_run_records_completed(ateam):
     batch_export = await _acreate_batch_export_for_test(ateam.pk)
     base = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
 
@@ -700,17 +725,62 @@ async def test_afetch_last_completed_run_records_completed(ateam):
         records_completed=None,
     )
 
-    assert await afetch_last_completed_run_records_completed(batch_export.id) == 250
+    assert (
+        await afetch_last_run_records_completed(
+            batch_export.id, matching_interval_duration=batch_export.interval_time_delta
+        )
+        == 250
+    )
 
 
-async def test_afetch_last_completed_run_records_completed_no_runs(ateam):
+async def test_afetch_last_run_records_completed_no_runs(ateam):
     batch_export = await _acreate_batch_export_for_test(ateam.pk)
-    assert await afetch_last_completed_run_records_completed(batch_export.id) is None
+    assert (
+        await afetch_last_run_records_completed(
+            batch_export.id, matching_interval_duration=batch_export.interval_time_delta
+        )
+        is None
+    )
 
 
-async def test_afetch_last_completed_run_records_completed_relative_to_interval(ateam):
+async def test_afetch_last_run_records_completed_for_on_demand_export(ateam):
+    destination = await BatchExportDestination.objects.acreate(
+        type="S3", config={"bucket_name": "test-bucket", "region": "us-east-1", "prefix": "test"}
+    )
+    with team_scope(team_id=ateam.pk, canonical=True):
+        on_demand = await BatchExportOnDemand.objects.acreate(team_id=ateam.pk, destination=destination, model="events")
+    base = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
+    await BatchExportRun.objects.acreate(
+        batch_export_on_demand_id=on_demand.id,
+        data_interval_start=base,
+        data_interval_end=base + dt.timedelta(hours=1),
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed=321,
+    )
+
+    assert (
+        await afetch_last_run_records_completed(on_demand.id, matching_interval_duration=dt.timedelta(hours=1)) == 321
+    )
+
+
+async def test_afetch_last_run_records_completed_none_duration_skips_frequency_check(ateam):
+    """Passing None opts out of the frequency check: the latest run is returned whatever its interval."""
+    batch_export = await _acreate_batch_export_for_test(ateam.pk)
+    base = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
+    await BatchExportRun.objects.acreate(
+        batch_export_id=batch_export.id,
+        data_interval_start=base,
+        data_interval_end=base + dt.timedelta(days=1),
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed=100,
+    )
+
+    assert await afetch_last_run_records_completed(batch_export.id, matching_interval_duration=None) == 100
+
+
+async def test_afetch_last_run_records_completed_relative_to_interval(ateam):
     """The estimate is taken from the interval next to the one being processed, not the globally latest run."""
-    batch_export = await _acreate_batch_export_for_test(ateam.pk)
+    batch_export = await _acreate_batch_export_for_test(ateam.pk, interval="day")
     base = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
 
     # A small historical interval (e.g. an old backfill day).
@@ -732,13 +802,86 @@ async def test_afetch_last_completed_run_records_completed_relative_to_interval(
 
     # Processing an interval just after the historical one -> sized off the small neighbour, not today's run.
     assert (
-        await afetch_last_completed_run_records_completed(
-            batch_export.id, before_or_at_interval_end=base + dt.timedelta(days=2)
+        await afetch_last_run_records_completed(
+            batch_export.id,
+            matching_interval_duration=batch_export.interval_time_delta,
+            before_or_at_interval_end=base + dt.timedelta(days=2),
         )
         == 100
     )
     # Without the bound we'd pick the globally latest (much larger) run.
-    assert await afetch_last_completed_run_records_completed(batch_export.id) == 10_000_000
+    assert (
+        await afetch_last_run_records_completed(
+            batch_export.id, matching_interval_duration=batch_export.interval_time_delta
+        )
+        == 10_000_000
+    )
+
+
+async def test_afetch_last_run_records_completed_matching_interval_duration(ateam):
+    """Only the latest run is considered; if its interval differs from the requested duration -> None."""
+    batch_export = await _acreate_batch_export_for_test(ateam.pk)
+    base = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
+
+    # An older daily run (1-day interval).
+    await BatchExportRun.objects.acreate(
+        batch_export_id=batch_export.id,
+        data_interval_start=base,
+        data_interval_end=base + dt.timedelta(days=1),
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed=9000,
+    )
+    # The most recent run is hourly (e.g. the export's frequency just changed to hourly).
+    await BatchExportRun.objects.acreate(
+        batch_export_id=batch_export.id,
+        data_interval_start=base + dt.timedelta(days=30),
+        data_interval_end=base + dt.timedelta(days=30, hours=1),
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed=50,
+    )
+
+    # Current interval matches the export's (hourly) -> latest run matches -> use it.
+    assert (
+        await afetch_last_run_records_completed(
+            batch_export.id, matching_interval_duration=batch_export.interval_time_delta
+        )
+        == 50
+    )
+    # Current interval is daily -> latest run (hourly) doesn't match -> None, even though an older daily
+    # run exists: we don't search past the latest run; the next daily run will re-adjust.
+    assert (
+        await afetch_last_run_records_completed(batch_export.id, matching_interval_duration=dt.timedelta(days=1))
+        is None
+    )
+
+
+async def test_afetch_last_run_records_completed_ignores_runs_older_than(ateam):
+    batch_export = await _acreate_batch_export_for_test(ateam.pk)
+    base = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
+    await BatchExportRun.objects.acreate(
+        batch_export_id=batch_export.id,
+        data_interval_start=base,
+        data_interval_end=base + dt.timedelta(hours=1),
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed=100,
+    )
+
+    assert (
+        await afetch_last_run_records_completed(
+            batch_export.id,
+            matching_interval_duration=batch_export.interval_time_delta,
+            not_older_than=base - dt.timedelta(days=1),
+        )
+        == 100
+    )
+    assert (
+        await afetch_last_run_records_completed(
+            batch_export.id,
+            matching_interval_duration=batch_export.interval_time_delta,
+            not_older_than=base + dt.timedelta(days=1),
+        )
+        is None
+    )
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)

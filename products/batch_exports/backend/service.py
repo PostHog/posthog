@@ -6,6 +6,7 @@ from dataclasses import Field, asdict, dataclass, fields
 from uuid import UUID
 
 from django.conf import settings
+from django.db.models import Q
 
 import structlog
 import temporalio
@@ -1289,27 +1290,55 @@ async def aupdate_records_total_count(
     return rows_updated
 
 
-async def afetch_last_completed_run_records_completed(
-    batch_export_id: UUID, before_or_at_interval_end: dt.datetime | None = None
+async def afetch_last_run_records_completed(
+    parent_id: UUID,
+    *,
+    matching_interval_duration: dt.timedelta | None,
+    before_or_at_interval_end: dt.datetime | None = None,
+    not_older_than: dt.datetime | None = None,
 ) -> int | None:
-    """Async fetch the records_completed of the most recent COMPLETED run for a batch export.
+    """Async fetch the `records_completed` of the most recent completed run for a batch export.
 
-    Currently used as a rough estimate to pick how many staging files to write. The estimate is taken
-    relative to the interval being processed: when `before_or_at_interval_end` is given we only consider
-    runs whose `data_interval_end` is at or before it, to improve accuracy for backfill runs.
+    Used as a rough estimate to pick how many staging files to write. A run belongs to exactly one of
+    a `BatchExport` (scheduled) or a `BatchExportOnDemand`, and their ids are globally unique UUIDs, so
+    we match `parent_id` against either parent.
 
-    Returns None when no such completed run with a recorded count exists (e.g. the first ever run).
+    The `before_or_at_interval_end` and `not_older_than` filters are relative to the interval being
+    processed (which improves accuracy for backfills):
+    - `before_or_at_interval_end`: only runs whose `data_interval_end` is at or before it.
+    - `not_older_than`: only runs whose `data_interval_end` is at or after it, to ignore stale runs from
+      a long-paused export.
+
+    `matching_interval_duration` is the current interval's length. We look only at the single most
+    recent run and return its count only if that run's own interval length matches; if the export's
+    frequency changed, the latest run isn't comparable, so we return None and let the next run (which
+    will have a same-frequency predecessor) re-adjust.
+
+    Returns None when no usable run exists (e.g. the first ever run, or a frequency change).
     """
     queryset = BatchExportRun.objects.filter(
-        batch_export_id=batch_export_id,
+        Q(batch_export_id=parent_id) | Q(batch_export_on_demand_id=parent_id),
         status=BatchExportRun.Status.COMPLETED,
         records_completed__isnull=False,
     )
     if before_or_at_interval_end is not None:
         queryset = queryset.filter(data_interval_end__lte=before_or_at_interval_end)
+    if not_older_than is not None:
+        queryset = queryset.filter(data_interval_end__gte=not_older_than)
 
-    run = await queryset.order_by("-data_interval_end").values("records_completed").afirst()
-    return run["records_completed"] if run else None
+    run = (
+        await queryset.order_by("-data_interval_end")
+        .values("records_completed", "data_interval_start", "data_interval_end")
+        .afirst()
+    )
+    if run is None:
+        return None
+    if matching_interval_duration is not None:
+        start = run["data_interval_start"]
+        last_interval_duration = run["data_interval_end"] - start if start is not None else None
+        if last_interval_duration != matching_interval_duration:
+            return None
+    return run["records_completed"]
 
 
 async def afetch_batch_export_runs_in_range(
