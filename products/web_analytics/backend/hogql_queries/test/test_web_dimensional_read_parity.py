@@ -17,6 +17,8 @@ from posthog.test.base import _create_event, _create_person, flush_persons_and_e
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
@@ -162,26 +164,25 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         assert builder.use_dimensional_tables(), "enrolled team with READY data should route to dimensional"
         assert builder.stats_table == WEB_STATS_DIMENSIONAL_READ_TABLE
 
-    def test_device_breakdown_dimensional_matches_v2(self):
+    @parameterized.expand(
+        [
+            # No filter — Desktop: user_a (2 views) + user_c (1 view) = 2 visitors / 3 views; Mobile: user_b = 1 / 1.
+            ("device_breakdown", None, {"Desktop": (2.0, 3.0), "Mobile": (1.0, 1.0)}),
+            # Host + device cross-section the fixed-dimension tables uniquely serve: blog.example.com / user_c is
+            # excluded, leaving only the two app.example.com sessions.
+            (
+                "host_and_device_filter",
+                [EventPropertyFilter(key="$host", value="app.example.com", operator=PropertyOperator.EXACT)],
+                {"Desktop": (1.0, 2.0), "Mobile": (1.0, 1.0)},
+            ),
+        ]
+    )
+    def test_dimensional_matches_v2(self, _name, properties, expected_counts):
         with override_settings(WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS=[]):
-            v2 = self._run(WebStatsBreakdown.DEVICE_TYPE)
+            v2 = self._run(WebStatsBreakdown.DEVICE_TYPE, properties=properties)
         with override_settings(WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
-            self._assert_routes_to_dimensional(WebStatsBreakdown.DEVICE_TYPE)
-            dimensional = self._run(WebStatsBreakdown.DEVICE_TYPE)
+            self._assert_routes_to_dimensional(WebStatsBreakdown.DEVICE_TYPE, properties=properties)
+            dimensional = self._run(WebStatsBreakdown.DEVICE_TYPE, properties=properties)
 
-        assert dimensional == v2, f"device breakdown mismatch\nv2={v2}\ndimensional={dimensional}"
-        # Desktop: user_a (2 views) + user_c (1 view) = 2 visitors / 3 views; Mobile: user_b = 1 / 1.
-        assert self._counts(dimensional) == {"Desktop": (2.0, 3.0), "Mobile": (1.0, 1.0)}
-
-    def test_host_and_device_filter_dimensional_matches_v2(self):
-        # The multi-dimension cross-section the fixed-dimension tables uniquely serve.
-        host_filter = [EventPropertyFilter(key="$host", value="app.example.com", operator=PropertyOperator.EXACT)]
-        with override_settings(WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS=[]):
-            v2 = self._run(WebStatsBreakdown.DEVICE_TYPE, properties=host_filter)
-        with override_settings(WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
-            self._assert_routes_to_dimensional(WebStatsBreakdown.DEVICE_TYPE, properties=host_filter)
-            dimensional = self._run(WebStatsBreakdown.DEVICE_TYPE, properties=host_filter)
-
-        assert dimensional == v2, f"host+device breakdown mismatch\nv2={v2}\ndimensional={dimensional}"
-        # blog.example.com / user_c is excluded; only the two app.example.com sessions remain.
-        assert self._counts(dimensional) == {"Desktop": (1.0, 2.0), "Mobile": (1.0, 1.0)}
+        assert dimensional == v2, f"{_name} mismatch\nv2={v2}\ndimensional={dimensional}"
+        assert self._counts(dimensional) == expected_counts

@@ -268,9 +268,11 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     # Web analytics pre-aggregated tables (internal use only)
     "web_pre_aggregated_stats": TableNode(name="web_pre_aggregated_stats", table=WebPreAggregatedStatsTable()),
     "web_pre_aggregated_bounces": TableNode(name="web_pre_aggregated_bounces", table=WebPreAggregatedBouncesTable()),
-    # Dimensional precompute tables: v2-successor read tables sharing v2's column
-    # layout and single-identifier access pattern (the web-analytics builder
-    # qualifies columns as `table.col`, which only resolves in the root namespace).
+    # Justified exceptions to the "do not add" rule: the dimensional precompute
+    # tables are the v2 tables' read successors and must live in the root namespace
+    # for the same reason v2 does — the web-analytics query builder qualifies columns
+    # as `table.col` (single-identifier), which only resolves at the root. Namespacing
+    # them under `posthog.` would require reworking that shared builder.
     "web_stats_dimensional_preaggregated": TableNode(
         name="web_stats_dimensional_preaggregated", table=WebStatsDimensionalPreAggregatedTable()
     ),
