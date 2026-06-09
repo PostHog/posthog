@@ -176,6 +176,21 @@ class TestContextBlob(APIBaseTest):
         assert "`export created` properties (use properties.<name>): format" in blob
 
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    @patch(f"{_SG}._top_event_names", return_value=["$pageview"])
+    def test_injects_property_schema_for_prompt_matched_top_event(
+        self, _mock_top: object, _mock_groups: object
+    ) -> None:
+        EventDefinition.objects.create(team=self.team, name="$pageview", last_seen_at=datetime.now(tz=UTC))
+        EventProperty.objects.create(team=self.team, event="$pageview", property="$browser")
+
+        blob = build_context_blob(self.team, window_days=7, prompt="show pageview breakdown by browser")
+
+        # $pageview is already under "Top events", so it's not repeated in the matched-names line...
+        assert "Events matching your request" not in blob
+        # ...but its property schema must still be surfaced (otherwise the planner can't see $browser).
+        assert "`$pageview` properties (use properties.<name>): $browser" in blob
+
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
     @patch(f"{_SG}._top_event_names", return_value=[])
     def test_omits_relevant_section_without_a_prompt(self, _mock_top: object, _mock_groups: object) -> None:
         EventDefinition.objects.create(team=self.team, name="export created", last_seen_at=datetime.now(tz=UTC))

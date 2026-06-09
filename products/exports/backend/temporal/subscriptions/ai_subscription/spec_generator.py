@@ -259,23 +259,27 @@ def build_context_blob(team: Team, window_days: int, prompt: str = "") -> str:
     relevant_raw = _prompt_relevant_event_names(team, prompt, RELEVANT_EVENTS_LIMIT) if prompt else []
     if relevant_raw:
         props_by_event = _event_property_names(team, relevant_raw, EVENT_PROPERTIES_PER_EVENT_LIMIT)
-        seen_clean = set(event_names)
-        relevant_pairs: list[tuple[str, str]] = []
+        top_set = set(event_names)
+        seen: set[str] = set()
+        matched: list[tuple[str, str]] = []  # (raw, clean), deduped on the sanitized name
         for raw in relevant_raw:
             clean = sanitize_user_text(raw, EVENT_NAME_MAX_LENGTH)
-            if clean and clean not in seen_clean:
-                seen_clean.add(clean)
-                relevant_pairs.append((raw, clean))
-        if relevant_pairs:
-            lines.append("- Events matching your request: " + ", ".join(clean for _, clean in relevant_pairs))
-            for raw, clean in relevant_pairs:
-                clean_props = [
-                    p
-                    for p in (sanitize_user_text(pr, EVENT_NAME_MAX_LENGTH) for pr in props_by_event.get(raw, []))
-                    if p
-                ]
-                if clean_props:
-                    lines.append(f"  - `{clean}` properties (use properties.<name>): " + ", ".join(clean_props))
+            if clean and clean not in seen:
+                seen.add(clean)
+                matched.append((raw, clean))
+        # Name only the matches not already shown under "Top events" (avoid repeating them)...
+        new_names = [clean for _, clean in matched if clean not in top_set]
+        if new_names:
+            lines.append("- Events matching your request: " + ", ".join(new_names))
+        # ...but inject the property schema for EVERY match, including high-volume events already in
+        # "Top events" — that line lists names only, so without this the planner still can't see their
+        # properties (e.g. $browser on a matched $pageview).
+        for raw, clean in matched:
+            clean_props = [
+                p for p in (sanitize_user_text(pr, EVENT_NAME_MAX_LENGTH) for pr in props_by_event.get(raw, [])) if p
+            ]
+            if clean_props:
+                lines.append(f"  - `{clean}` properties (use properties.<name>): " + ", ".join(clean_props))
 
     no_data_events = _no_data_event_names(team, window_days, NO_DATA_EVENT_NAMES_LIMIT)
     if no_data_events:
