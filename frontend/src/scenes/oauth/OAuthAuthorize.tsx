@@ -410,6 +410,11 @@ export const OAuthAuthorize = (): JSX.Element => {
                                                     checked={row.granted}
                                                     onChange={() => toggleDeniedScope(row.key)}
                                                     label={row.description}
+                                                    disabledReason={
+                                                        row.required
+                                                            ? `Required by ${oauthApplication.name}`
+                                                            : undefined
+                                                    }
                                                 />
                                             ))}
                                         </div>

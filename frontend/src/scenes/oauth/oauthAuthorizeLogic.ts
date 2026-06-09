@@ -33,6 +33,10 @@ const toReadOnlyScope = (scope: string): string => (scope.endsWith(':write') ? `
 
 const WILDCARD_READ_DESCRIPTION = 'Read access to all PostHog data'
 
+// Placeholder until applications can declare required vs optional scopes: required
+// scope objects render locked on the consent screen and can't be denied.
+const REQUIRED_SCOPE_OBJECTS: ReadonlySet<string> = new Set()
+
 // `*` grants read+write to everything; its read-only form is every object's read scope.
 const wildcardReadScopes = (): string[] => API_SCOPES.map(({ key }) => `${key}:read`)
 
@@ -225,7 +229,11 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             [] as string[],
             {
                 toggleDeniedScope: (state, { scopeObject }) =>
-                    state.includes(scopeObject) ? state.filter((s) => s !== scopeObject) : [...state, scopeObject],
+                    REQUIRED_SCOPE_OBJECTS.has(scopeObject)
+                        ? state
+                        : state.includes(scopeObject)
+                          ? state.filter((s) => s !== scopeObject)
+                          : [...state, scopeObject],
                 setScopes: () => [],
             },
         ],
@@ -442,7 +450,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 scopes: string[],
                 deniedScopeObjects: string[],
                 readOnlyMode: boolean
-            ): { key: string; description: string; granted: boolean }[] => {
+            ): { key: string; description: string; granted: boolean; required: boolean }[] => {
                 const denied = new Set(deniedScopeObjects)
                 return getMinimumEquivalentScopes(scopes)
                     .filter((scope) => scope.includes(':') || scope === '*')
@@ -454,6 +462,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                                     ? WILDCARD_READ_DESCRIPTION
                                     : (getScopeDescription('*') ?? '*'),
                                 granted: !denied.has('*'),
+                                required: REQUIRED_SCOPE_OBJECTS.has('*'),
                             }
                         }
                         const effective = readOnlyMode ? toReadOnlyScope(scope) : scope
@@ -461,6 +470,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                             key: scopeObjectKey(scope),
                             description: getScopeDescription(effective) ?? effective,
                             granted: !denied.has(scopeObjectKey(scope)),
+                            required: REQUIRED_SCOPE_OBJECTS.has(scopeObjectKey(scope)),
                         }
                     })
             },
