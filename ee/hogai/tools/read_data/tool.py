@@ -32,6 +32,7 @@ from products.ai_observability.backend.text_repr.formatters.trace_formatter impo
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
+from products.business_knowledge.backend.constants import BK_DRILLDOWN_DEFAULT_RADIUS, BK_DRILLDOWN_MAX_RADIUS
 from products.business_knowledge.backend.logic import get_document_window, has_ready_sources
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.posthog_ai.backend.models.assistant import AgentArtifact
@@ -199,7 +200,12 @@ class ReadBusinessKnowledgeDocument(BaseModel):
     kind: Literal["business_knowledge_document"] = "business_knowledge_document"
     document_id: str = Field(description="The document ID from a previous business knowledge search result handle.")
     around_ordinal: int = Field(description="The chunk ordinal to center the window around.")
-    radius: int = Field(default=5, ge=0, le=15, description="Number of chunks before and after the center to include.")
+    radius: int = Field(
+        default=BK_DRILLDOWN_DEFAULT_RADIUS,
+        ge=0,
+        le=BK_DRILLDOWN_MAX_RADIUS,
+        description="Number of chunks before and after the center to include.",
+    )
 
 
 ReadDataQuery = (

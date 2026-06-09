@@ -705,8 +705,8 @@ class TestCastAssistantQuery(unittest.TestCase):
 class TestStripBkDrilldownHandles(unittest.TestCase):
     @parameterized.expand(
         [
-            ("backtick_wrapped", "See `[bk-doc=abc123 #5]` for details", "See  for details"),
-            ("bare_handle", "Info [bk-doc=uuid-here #0] more", "Info  more"),
+            ("backtick_wrapped", "See `[bk-doc=abc123 #5]` for details", "See for details"),
+            ("bare_handle", "Info [bk-doc=uuid-here #0] more", "Info more"),
             ("multiple_handles", "`[bk-doc=a #1]` and `[bk-doc=b #2]`", " and "),
             ("no_handles", "Clean text without handles", "Clean text without handles"),
         ]

@@ -62,7 +62,8 @@ BK_DRILLDOWN_HANDLE_RE = re.compile(r"`?\[bk-doc=[^\]]*\]`?")
 
 def strip_bk_drilldown_handles(text: str) -> str:
     """Remove BK drill-down handles from text. No-op when absent."""
-    return BK_DRILLDOWN_HANDLE_RE.sub("", text)
+    result = BK_DRILLDOWN_HANDLE_RE.sub("", text)
+    return re.sub(r"  +", " ", result)
 
 
 def remove_line_breaks(line: str) -> str:
