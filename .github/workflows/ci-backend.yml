@@ -595,17 +595,21 @@ jobs:
                   MATRIX_GROUP: ${{ matrix.group }}
                   PYTEST_ADDOPTS: >-
                       --reuse-db
-                      --timeout=180 --timeout-method=signal
+                      --timeout=120 --timeout-method=thread
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations --durations-path ../../.test_durations' || '' }}
               run: |
                   # DIAGNOSTIC (do not merge): the batch-exports teardown hang is intermittent
                   # (~1 in 7 runs), so loop its ~2-min non-temporal suite to make one CI run very
-                  # likely to catch it. The per-test signal timeout (env above) dumps the blocked
-                  # worker's stack when it fires. Other matrix groups run unchanged.
+                  # likely to catch it. A first run with --timeout-method=signal did NOT fire: the
+                  # hang is wedged in a native C call (gRPC/libpq) that never returns to the Python
+                  # interpreter, so SIGALRM can't run. --timeout-method=thread uses a watchdog
+                  # thread (blocking C calls release the GIL, so it runs), dumps every thread's
+                  # stack, then os._exit()s — which kills the iteration but prints the stack first.
+                  # That's why thread is right for diagnosis (and wrong for a permanent guardrail).
                   if [[ "$MATRIX_GROUP" == *batch-exports* ]]; then
                       echo "DIAGNOSTIC: warm-up pass (generous timeout) so a cold-cache migration in DB setup can't trip the timed loop"
-                      PYTEST_ADDOPTS="--reuse-db --timeout=900 --timeout-method=signal" \
+                      PYTEST_ADDOPTS="--reuse-db --timeout=900 --timeout-method=thread" \
                           pnpm turbo run backend:test --filter=@posthog/products-batch-exports --concurrency=1 --output-logs=full --force --log-order=stream || echo "DIAGNOSTIC warm-up exited non-zero (possible hang dump above)"
                       deadline=$(( $(date +%s) + 1200 ))
                       iter=0
