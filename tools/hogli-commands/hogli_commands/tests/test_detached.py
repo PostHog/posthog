@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import subprocess
 from typing import Any
 
 import pytest
 
 from click.testing import CliRunner
 from hogli.cli import cli
+from hogli.manifest import REPO_ROOT
 
 runner = CliRunner()
 
@@ -72,35 +74,65 @@ def test_wait_forwards_args_and_preserves_exit_code(monkeypatch: pytest.MonkeyPa
     assert captured["kwargs"]["preserve_exit_code"] is True
 
 
-def test_stop_forwards_timeout_and_preserves_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, Any] = {}
+def _patch_stop(monkeypatch: pytest.MonkeyPatch, returncode: int) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Stub out the phrocs subprocess and the post-stop sweep for stop/down tests.
 
-    def fake_run(command, **kwargs) -> None:
+    Returns (captured_run, sweep_calls): the args passed to subprocess.run and the
+    kwargs each sweep invocation received.
+    """
+    captured: dict[str, Any] = {}
+    sweep_calls: dict[str, Any] = {}
+
+    def fake_run(command, **kwargs) -> subprocess.CompletedProcess:
         captured["command"] = command
         captured["kwargs"] = kwargs
-        raise SystemExit(2)
+        return subprocess.CompletedProcess(command, returncode)
 
-    monkeypatch.setattr("hogli.command_types._run", fake_run)
+    def fake_sweep(**kwargs) -> int:
+        sweep_calls.update(kwargs)
+        sweep_calls["called"] = True
+        return 0
+
+    monkeypatch.setattr("shutil.which", lambda name: "phrocs")
+    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr("hogli_commands.doctor.sweep_orphaned_processes", fake_sweep)
+    return captured, sweep_calls
+
+
+def test_stop_forwards_timeout_and_preserves_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured, sweep_calls = _patch_stop(monkeypatch, returncode=2)
 
     result = runner.invoke(cli, ["stop", "--timeout", "42"])
 
     assert result.exit_code == 2
     assert captured["command"] == ["phrocs", "stop", "--timeout", "42"]
-    assert captured["kwargs"]["preserve_exit_code"] is True
+    assert captured["kwargs"]["cwd"] == REPO_ROOT
+    assert sweep_calls == {"assume_yes": False, "called": True}
 
 
 def test_down_forwards_timeout_and_preserves_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, Any] = {}
-
-    def fake_run(command, **kwargs) -> None:
-        captured["command"] = command
-        captured["kwargs"] = kwargs
-        raise SystemExit(2)
-
-    monkeypatch.setattr("hogli.command_types._run", fake_run)
+    captured, sweep_calls = _patch_stop(monkeypatch, returncode=2)
 
     result = runner.invoke(cli, ["down", "--timeout", "42"])
 
     assert result.exit_code == 2
     assert captured["command"] == ["phrocs", "stop", "--timeout", "42"]
-    assert captured["kwargs"]["preserve_exit_code"] is True
+    assert sweep_calls == {"assume_yes": False, "called": True}
+
+
+def test_stop_yes_flag_auto_confirms_sweep(monkeypatch: pytest.MonkeyPatch) -> None:
+    _captured, sweep_calls = _patch_stop(monkeypatch, returncode=0)
+
+    result = runner.invoke(cli, ["stop", "--yes"])
+
+    assert result.exit_code == 0
+    assert sweep_calls == {"assume_yes": True, "called": True}
+
+
+def test_stop_no_sweep_skips_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    _captured, sweep_calls = _patch_stop(monkeypatch, returncode=0)
+
+    result = runner.invoke(cli, ["stop", "--no-sweep"])
+
+    assert result.exit_code == 0
+    assert sweep_calls == {}
