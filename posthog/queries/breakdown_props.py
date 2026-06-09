@@ -8,8 +8,6 @@ from posthog.hogql.hogql import HogQLContext
 
 from posthog.constants import BREAKDOWN_TYPES, MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, NOT_IN_COHORT_ID
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.util import format_filter_query
 from posthog.models.entity import Entity
 from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.filter import Filter
@@ -31,6 +29,9 @@ from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.trends.sql import HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL, TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.queries.util import PersonPropertiesMode, alias_poe_mode_for_legacy
 from posthog.session_recordings.queries.session_query import SessionQuery
+
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import format_filter_query
 
 
 def get_breakdown_prop_values(

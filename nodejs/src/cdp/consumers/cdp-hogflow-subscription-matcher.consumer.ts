@@ -264,6 +264,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // ANY/ANY would match a job whose team and distinct_id came from two different
         // events in the batch (a cross-team false-positive candidate). The function_id
         // filter further scopes to flows the matcher can act on.
+        //
+        // We deliberately do NOT filter by queue_name: a parked wait can sit on a queue
+        // other than 'hogflow'. When a step (e.g. email) routes the invocation to a
+        // dedicated queue, the following wait parks on that queue, so a queue_name='hogflow'
+        // filter would silently miss it. function_id already scopes to hogflow jobs, and
+        // waking the job (scheduled = NOW()) lets whichever worker owns that queue resume it.
         const stopTimer = histogramHogflowMatcherFindParkedJobs.startTimer()
         let result
         try {
@@ -271,7 +277,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 `SELECT id, team_id, function_id, action_id, distinct_id, person_id
              FROM cyclotron_jobs
              WHERE status = 'available'
-               AND queue_name = 'hogflow'
                AND scheduled > NOW()
                AND function_id = ANY($5::uuid[])
                AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
@@ -279,7 +284,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
              SELECT id, team_id, function_id, action_id, distinct_id, person_id
              FROM cyclotron_jobs
              WHERE status = 'available'
-               AND queue_name = 'hogflow'
                AND scheduled > NOW()
                AND function_id = ANY($5::uuid[])
                AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,

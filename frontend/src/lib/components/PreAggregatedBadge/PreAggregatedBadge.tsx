@@ -1,11 +1,20 @@
+import clsx from 'clsx'
+
 import { IconBolt, IconDatabaseBolt } from '@posthog/icons'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export type PreAggregatedBadgeVariant = 'preagg' | 'precomputed'
+export type PreAggregatedBadgePosition = 'top-right' | 'bottom-right'
 
 interface PreAggregatedBadgeProps {
     variant?: PreAggregatedBadgeVariant
+    position?: PreAggregatedBadgePosition
+}
+
+const POSITION_CLASS: Record<PreAggregatedBadgePosition, string> = {
+    'top-right': 'top-2 right-2',
+    'bottom-right': 'bottom-2 right-2',
 }
 
 const VARIANT_CONFIG: Record<
@@ -24,11 +33,14 @@ const VARIANT_CONFIG: Record<
     },
 }
 
-export function PreAggregatedBadge({ variant = 'preagg' }: PreAggregatedBadgeProps = {}): JSX.Element {
+export function PreAggregatedBadge({
+    variant = 'preagg',
+    position = 'top-right',
+}: PreAggregatedBadgeProps = {}): JSX.Element {
     const { tooltip, iconClassName, Icon } = VARIANT_CONFIG[variant]
     return (
         <Tooltip title={tooltip}>
-            <div className="absolute top-2 right-2 z-10">
+            <div className={clsx('absolute z-10', POSITION_CLASS[position])}>
                 <Icon className={iconClassName} />
             </div>
         </Tooltip>
