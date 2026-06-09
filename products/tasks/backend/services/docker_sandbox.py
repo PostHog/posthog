@@ -58,7 +58,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
 PI_IMAGE_NAME = "posthog-sandbox-pi"
+STREAMLIT_IMAGE_NAME = "posthog-sandbox-streamlit"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
+# Streamlit sandboxes expose their auth proxy (not the agent-server) on this port; the
+# host-published port maps to it so connect_info can reach the app across processes.
+STREAMLIT_AUTH_PROXY_PORT = 8080
 
 
 class DockerSandbox(SandboxBase):
@@ -233,6 +237,15 @@ class DockerSandbox(SandboxBase):
             DockerSandbox._build_image_if_needed(NOTEBOOK_IMAGE_NAME, dockerfile_path)
             return NOTEBOOK_IMAGE_NAME
 
+        # Streamlit ships its own standalone image (FROM python:3.11-slim with a `streamlit`
+        # user + auth proxy), so it doesn't build on top of the base image like PI does.
+        if template == SandboxTemplate.STREAMLIT_BASE:
+            dockerfile_path = os.path.join(
+                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-streamlit"
+            )
+            DockerSandbox._build_image_if_needed(STREAMLIT_IMAGE_NAME, dockerfile_path)
+            return STREAMLIT_IMAGE_NAME
+
         dockerfile_path = os.path.join(
             settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
         )
@@ -306,7 +319,13 @@ class DockerSandbox(SandboxBase):
                         env_args.extend(["-e", f"{key}={value}"])
 
             host_port = DockerSandbox._find_available_port()
-            port_args = ["-p", f"{host_port}:{AGENT_SERVER_PORT}"]
+            # Streamlit sandboxes are reached via their auth proxy (8080); everything else
+            # via the agent-server. Ports must be published at `docker run` time — the proxy
+            # boots later inside the container, so we publish 8080 up front regardless.
+            container_port = (
+                STREAMLIT_AUTH_PROXY_PORT if config.template == SandboxTemplate.STREAMLIT_BASE else AGENT_SERVER_PORT
+            )
+            port_args = ["-p", f"{host_port}:{container_port}"]
 
             mount_map = parse_sandbox_repo_mount_map()
             volume_args: list[str] = []
@@ -381,6 +400,24 @@ class DockerSandbox(SandboxBase):
             )
 
     @staticmethod
+    def _recover_published_host_port(container_id: str) -> int | None:
+        """Read the host port a container publishes, via `docker port`.
+
+        Output lines look like `8080/tcp -> 0.0.0.0:49153`; we return the first
+        host port found so a freshly-reconstructed sandbox can build its URL.
+        """
+        try:
+            result = DockerSandbox._run(["docker", "port", container_id])
+        except subprocess.CalledProcessError:
+            return None
+        for line in result.stdout.splitlines():
+            _, _, mapping = line.partition("->")
+            host_port = mapping.strip().rsplit(":", 1)[-1]
+            if host_port.isdigit():
+                return int(host_port)
+        return None
+
+    @staticmethod
     def get_by_id(sandbox_id: str) -> DockerSandbox:
         if sandbox_id in DockerSandbox._registry:
             return DockerSandbox._registry[sandbox_id]
@@ -392,7 +429,10 @@ class DockerSandbox(SandboxBase):
             )
             full_id = result.stdout.strip()
             config = SandboxConfig(name=f"sandbox-{sandbox_id}")
-            return DockerSandbox(container_id=full_id, config=config)
+            # Recover the published host port so connect_info (which runs in a different
+            # process than create()) can build the connect URL.
+            host_port = DockerSandbox._recover_published_host_port(full_id)
+            return DockerSandbox(container_id=full_id, config=config, host_port=host_port)
 
         except subprocess.CalledProcessError as e:
             raise SandboxNotFoundError(
