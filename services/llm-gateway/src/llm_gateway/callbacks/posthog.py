@@ -21,6 +21,16 @@ from llm_gateway.request_context import (
 
 logger = structlog.get_logger(__name__)
 
+# Keys automatically injected by LiteLLM into `metadata` that should not be captured
+# as event properties to avoid payload bloat or credential leakage.
+_LITELLM_INTERNAL_METADATA_KEYS = frozenset({
+    "usage_object",
+    "model_group",
+    "endpoint",
+    "user_api_key",
+    "user_api_key_hash",
+})
+
 
 def _replace_binary_content(data: Any) -> Any:
     """
