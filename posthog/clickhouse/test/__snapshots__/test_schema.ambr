@@ -6265,6 +6265,41 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_web_goals_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_web_goals_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      -- Hourly UTC bucket. Reads filter by [window_start_utc, window_end_utc).
+      time_window_start DateTime64(6, 'UTC'),
+  
+      -- Django Action.id of the action this row aggregates. The action expression
+      -- itself is in the INSERT AST (cache-key shaped), not stored here.
+      action_id Int64,
+  
+      -- Total match count (sum across sessions in the hour) and unique converting
+      -- persons (HLL-estimated). The runner reads top-5 actions only; this table
+      -- stores exactly that set per the precompute scope.
+      count_state AggregateFunction(sum, Int64),
+      unique_persons_state AggregateFunction(uniq, UUID),
+  
+      -- ReplacingMergeTree version column: latest INSERT wins on duplicate ORDER BY keys.
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- Sub-day precision so the framework can attach TTLs like 15 min for "today".
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.web_goals_preaggregated', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, action_id, time_window_start)
+  TTL toDateTime(expires_at)
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_web_overview_preaggregated]
   '''
   
@@ -6420,6 +6455,36 @@
       lane,
       labels
   FROM kafka_tophog
+  
+  '''
+# ---
+# name: test_create_table_query[web_goals_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS web_goals_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      -- Hourly UTC bucket. Reads filter by [window_start_utc, window_end_utc).
+      time_window_start DateTime64(6, 'UTC'),
+  
+      -- Django Action.id of the action this row aggregates. The action expression
+      -- itself is in the INSERT AST (cache-key shaped), not stored here.
+      action_id Int64,
+  
+      -- Total match count (sum across sessions in the hour) and unique converting
+      -- persons (HLL-estimated). The runner reads top-5 actions only; this table
+      -- stores exactly that set per the precompute scope.
+      count_state AggregateFunction(sum, Int64),
+      unique_persons_state AggregateFunction(uniq, UUID),
+  
+      -- ReplacingMergeTree version column: latest INSERT wins on duplicate ORDER BY keys.
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- Sub-day precision so the framework can attach TTLs like 15 min for "today".
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_web_goals_preaggregated', sipHash64(job_id))
   
   '''
 # ---
@@ -9774,6 +9839,41 @@
   ORDER BY (pipeline, lane, metric, timestamp, key)
   
   SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_web_goals_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_web_goals_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      -- Hourly UTC bucket. Reads filter by [window_start_utc, window_end_utc).
+      time_window_start DateTime64(6, 'UTC'),
+  
+      -- Django Action.id of the action this row aggregates. The action expression
+      -- itself is in the INSERT AST (cache-key shaped), not stored here.
+      action_id Int64,
+  
+      -- Total match count (sum across sessions in the hour) and unique converting
+      -- persons (HLL-estimated). The runner reads top-5 actions only; this table
+      -- stores exactly that set per the precompute scope.
+      count_state AggregateFunction(sum, Int64),
+      unique_persons_state AggregateFunction(uniq, UUID),
+  
+      -- ReplacingMergeTree version column: latest INSERT wins on duplicate ORDER BY keys.
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- Sub-day precision so the framework can attach TTLs like 15 min for "today".
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.web_goals_preaggregated', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, action_id, time_window_start)
+  TTL toDateTime(expires_at)
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
   '''
 # ---
