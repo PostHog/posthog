@@ -147,6 +147,27 @@ export const logsBytesDroppedByRuleCounter = new Counter({
     labelNames: ['team_id'],
 })
 
+/**
+ * Pro-rate a message's billable uncompressed bytes by the fraction of its content that drop
+ * rules removed. Billing is on the per-message header (whole-batch wire size), but drops are
+ * decided per row (content bytes), so we scale the header down by the dropped content fraction
+ * to bill only what survived.
+ *
+ * This is an approximation: the shared envelope (resource/scope/serialization framing) is spread
+ * across rows by content weight rather than kept as a fixed residual, so a batch with a large
+ * shared resource that is mostly dropped is credited slightly too much. It only ever credits
+ * (never over-charges) and is within ~1% for typical multi-row batches; the error grows only for
+ * small, resource-heavy, heavily-dropped batches. Returns 0 when we can't measure (no header or
+ * no per-row bytes), i.e. no credit rather than a wrong one.
+ */
+export function billingByteReductionForDrops(headerBytes: number, bytesDropped: number, bytesTotal: number): number {
+    if (headerBytes <= 0 || bytesDropped <= 0 || bytesTotal <= 0) {
+        return 0
+    }
+    const droppedFraction = Math.min(1, bytesDropped / bytesTotal)
+    return Math.round(headerBytes * droppedFraction)
+}
+
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
     // Billing identity for quota enforcement and usage metering; overridden by subclasses (e.g. traces).
@@ -236,6 +257,8 @@ export class LogsIngestionConsumer {
               recordsDropped: number
               recordsDroppedByRuleId: Map<string, number>
               bytesDroppedByRuleId: Map<string, number>
+              bytesDropped: number
+              bytesTotal: number
           }
         | {
               outcome: 'sampling_all_dropped'
@@ -243,6 +266,8 @@ export class LogsIngestionConsumer {
               recordsDropped: number
               recordsDroppedByRuleId: Map<string, number>
               bytesDroppedByRuleId: Map<string, number>
+              bytesDropped: number
+              bytesTotal: number
           }
     > {
         const samplingCache = this.deps.samplingRulesCache
@@ -285,6 +310,8 @@ export class LogsIngestionConsumer {
                     recordsDropped: sampled.recordsDropped,
                     recordsDroppedByRuleId: sampled.recordsDroppedByRuleId,
                     bytesDroppedByRuleId: sampled.bytesDroppedByRuleId,
+                    bytesDropped: sampled.bytesDropped,
+                    bytesTotal: sampled.bytesTotal,
                 }
             }
             return {
@@ -294,9 +321,12 @@ export class LogsIngestionConsumer {
                 recordsDropped: sampled.recordsDropped,
                 recordsDroppedByRuleId: sampled.recordsDroppedByRuleId,
                 bytesDroppedByRuleId: sampled.bytesDroppedByRuleId,
+                bytesDropped: sampled.bytesDropped,
+                bytesTotal: sampled.bytesTotal,
             }
         }
 
+        // Passthrough (sampling disabled / no rules): nothing dropped, so nothing to credit.
         const res = await processLogMessageBuffer(message.message.value!, logsSettings)
         return {
             outcome: 'produce',
@@ -305,6 +335,8 @@ export class LogsIngestionConsumer {
             recordsDropped: 0,
             recordsDroppedByRuleId: new Map(),
             bytesDroppedByRuleId: new Map(),
+            bytesDropped: 0,
+            bytesTotal: 0,
         }
     }
 
@@ -506,6 +538,24 @@ export class LogsIngestionConsumer {
                             },
                             async () => this.resolveLogMessageBufferWithOptionalSampling(message, logsSettings)
                         )
+
+                        // Drop rules removed rows from this message — credit billing by the dropped
+                        // content fraction. `bytesReceived` stays gross (what was sent); `bytesAllowed`
+                        // (→ bytes_ingested) and `recordsAllowed` reflect only what survived the drops.
+                        const billingRow = usageStats.get(message.teamId)
+                        if (billingRow) {
+                            billingRow.bytesAllowed = Math.max(
+                                0,
+                                billingRow.bytesAllowed -
+                                    billingByteReductionForDrops(
+                                        message.bytesUncompressed,
+                                        resolved.bytesDropped,
+                                        resolved.bytesTotal
+                                    )
+                            )
+                            billingRow.recordsAllowed = Math.max(0, billingRow.recordsAllowed - resolved.recordsDropped)
+                        }
+
                         if (resolved.outcome === 'sampling_all_dropped') {
                             logMessageDroppedCounter.inc(
                                 { reason: 'sampling_all_dropped', team_id: message.teamId.toString() },

@@ -68,6 +68,8 @@ export type ProcessBufferWithSamplingResult = {
     bytesDropped: number
     /** Sum of per-row `bytes_uncompressed` for dropped lines, attributed to the first matching rule UUID. */
     bytesDroppedByRuleId: Map<string, number>
+    /** Sum of per-row `bytes_uncompressed` across ALL decoded rows (kept + dropped); 0 when rows lack the field. Used to pro-rate billing by the dropped fraction. */
+    bytesTotal: number
     /** When true, the caller must not produce this message to downstream Kafka (all lines sampled out). */
     allDropped: boolean
 }
@@ -102,6 +104,7 @@ export class LogsSamplingService {
         const recordsDroppedByRuleId = new Map<string, number>()
         let bytesDropped = 0
         const bytesDroppedByRuleId = new Map<string, number>()
+        const bytesTotal = records.reduce((sum, r) => sum + recordBytes(r), 0)
 
         const useRate = Boolean(ruleSet.hasRateLimitRules && teamId != null)
 
@@ -179,6 +182,7 @@ export class LogsSamplingService {
                 recordsDroppedByRuleId,
                 bytesDropped,
                 bytesDroppedByRuleId,
+                bytesTotal,
                 allDropped: true,
             }
         }
@@ -190,6 +194,7 @@ export class LogsSamplingService {
             recordsDroppedByRuleId,
             bytesDropped,
             bytesDroppedByRuleId,
+            bytesTotal,
             allDropped: false,
         }
     }

@@ -168,6 +168,8 @@ describe('LogsSamplingService', () => {
         expect(result.recordsDroppedByRuleId.get('rl-kb')).toBe(1)
         expect(result.bytesDropped).toBe(500)
         expect(result.bytesDroppedByRuleId.get('rl-kb')).toBe(500)
+        // Sum of all rows' per-row bytes (300+400+500) — used to pro-rate billing by the dropped fraction.
+        expect(result.bytesTotal).toBe(1200)
 
         const [, , kept] = await decodeLogRecords(result.value)
         expect(kept).toHaveLength(2)
@@ -208,6 +210,8 @@ describe('LogsSamplingService', () => {
         expect(result.recordsDropped).toBe(1)
         expect(result.bytesDropped).toBe(1000)
         expect(result.bytesDroppedByRuleId.get('rl-kb')).toBe(1000)
+        // null row contributes 0; total = 200 + 0 + 1000.
+        expect(result.bytesTotal).toBe(1200)
 
         const [, , kept] = await decodeLogRecords(result.value)
         expect(kept).toHaveLength(2)
