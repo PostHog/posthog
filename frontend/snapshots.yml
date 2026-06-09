@@ -864,6 +864,18 @@ snapshots:
         hash: v1.k794b7964.a5da914f6486b76afc43a8e1a7f29e3560e11b087748b6008a6677ae23e24168.szD53pfqHAVvxPL4w5UZg37otd9XNTyYPMcs7loV19Y
     components-html-elements-display--without-central-highlight-display--light:
         hash: v1.k794b7964.59d5a2262840ed80fa8f3cbc52e4135d71d4ea9c2d1fcb67f65a59ed2a86de58.dEvHx0f5nsPkujMiMiesufA4GuGubJh2oO2YKA4rrB8
+    components-insighttooltip--columns--dark:
+        hash: v1.k794b7964.2215e84b73ee4c85063be5cacf6a491c38051bfa6932408f1ecf5d6eb44d635b.llKueCRASM-Mf2hFS1I-rH6osr1LVSByf_RdwkUjMw4
+    components-insighttooltip--columns--light:
+        hash: v1.k794b7964.acca413c07eadd423b88a452f1d76a4f5d3ee51ea3a3af77e8b0b3c3dd785107.nBEt7UaKeQBhQVogW76yT9tmUiJNJUdmzccDAIZsSRw
+    components-insighttooltip--default--dark:
+        hash: v1.k794b7964.9885c31ba3ab13abe50a40f01112da6ef02b81b4e95dc2e1788a4709371df47d.ID9KwWTWMc6uuMPuS6Hz0780AbiKtssta5eVHXAYE_M
+    components-insighttooltip--default--light:
+        hash: v1.k794b7964.0c4021b0a9799847dfb04ce548acd4ed90bf5b490fc332d98acb700eb575e8a4.h-VRBbK2nOime0jzvIpuLkeCWS9v49E8IXZr3F1WmJ4
+    components-insighttooltip--long-names--dark:
+        hash: v1.k794b7964.5d75a9153e54f6fc45c587bd03f519b0dbc5aa871db38a3c9e90c9f84943ca9a.M9DnH_RO9dcVSO5RLT_tKejP8FdTiKKoKmCHVq3eeV4
+    components-insighttooltip--long-names--light:
+        hash: v1.k794b7964.a3cbff5e9d93637e541ee21344030f75fc32adb6edd2a363f7553ffb8d8fc407.VzgJ4zJ-yb9ZtDGxqQQZGPlH8D7diG9ufmZiyFOKwP4
     components-integrations-slack--slack-integration--dark:
         hash: v1.k794b7964.b9ee8adc2251177b325e3775fe7fd391540c3dba77c06d9da9db33ec80eddf81.0Jsmo2XKYiKkfSVMN4GzeK-ePRjh4q_l60Ez2M90L58
     components-integrations-slack--slack-integration--light:
@@ -5783,9 +5795,9 @@ snapshots:
     scenes-app-settings-authentication-domains--one-unverified-domain--light:
         hash: v1.k794b7964.f2136f46f5946ffdd00316ec9f195c08ccae540ab2e2f0022a22631ef6d20ff6.nUefq9IWQvO8EuUAwIcjmRcN9dqhOXqr_Pi83bQ8gDk
     scenes-app-settings-environment--settings-environment-access-control--dark:
-        hash: v1.k794b7964.8e7139903f0757d1a146e0fdecb609897adab5e44759388e6519071de71fb3da.fn33v4OSYyLwpEedq8dy4MBX5S-X6dvnqUodLsegFyY
+        hash: v1.k794b7964.8eb727ffc92903b8783e6b9d9ead9665c4c051d5a250747e320f12cd56cbc283.s0HuvGumzXMgZkSkaKB3VXe8Qoj95m3fEIYGgdNpvdA
     scenes-app-settings-environment--settings-environment-access-control--light:
-        hash: v1.k794b7964.20b3ba9ad4c71ab66d2416cab2e3315d249c054b762cfa39f6c4869aead1dc1e.ICoy0vmj9nEkTU-gn1v-51B3gJK7Tc7_DFUJlZaDrbs
+        hash: v1.k794b7964.b7c88c1ee291902a35dcc2099e0f45124ba38b454d4e81a506d7e16af837c64e.gIBdXCQwFKxIMPz_5QHIbvM72jx10TdYve9NE3cfPMs
     scenes-app-settings-environment--settings-environment-autocapture--dark:
         hash: v1.k794b7964.9f86feacf66829a02d5c14b62d237c3abe5e96cc13f88dd9e1d32397c30d2112.i48i7eB2z6UfXa3VwFKDH0SjzebQXoZPcfON8C_SoCg
     scenes-app-settings-environment--settings-environment-autocapture--light:

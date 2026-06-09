@@ -836,15 +836,15 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
 
 /**
  * Validate CDC prerequisites for an existing source using its stored credentials.
-
-The detail=False ``check_cdc_prerequisites`` action is for the creation wizard,
-where the client still holds the raw connection config (incl. password) in the
-form. On the Configuration page the source already exists and secret fields are
-stripped from API responses — so the client can't supply them. This reads the
-stored (encrypted) credentials from the DB via the adapter instead.
-
-Body params: ``cdc_management_mode`` (``"posthog"`` | ``"self_managed"``),
-``cdc_slot_name`` (optional), ``cdc_publication_name`` (optional).
+ *
+ * The detail=False ``check_cdc_prerequisites`` action is for the creation wizard,
+ * where the client still holds the raw connection config (incl. password) in the
+ * form. On the Configuration page the source already exists and secret fields are
+ * stripped from API responses — so the client can't supply them. This reads the
+ * stored (encrypted) credentials from the DB via the adapter instead.
+ *
+ * Body params: ``cdc_management_mode`` (``"posthog"`` | ``"self_managed"``),
+ * ``cdc_slot_name`` (optional), ``cdc_publication_name`` (optional).
  */
 export const externalDataSourcesCheckCdcPrerequisitesForSourceCreateBodyPrefixMax = 100
 
@@ -926,13 +926,13 @@ export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
 
 /**
  * Disable CDC on an existing source.
-
-Cancels any running CDC extraction workflow, deletes the extraction schedule,
-delegates engine-side teardown to the source's adapter (drops slot/publication
-for Postgres; equivalent for other engines), clears ``cdc_*`` keys from
-``job_inputs``, soft-deletes companion CDC tables, and sets all CDC schemas to
-``sync_type=None``, ``should_sync=False`` so the user must pick a new sync
-strategy before they resume.
+ *
+ * Cancels any running CDC extraction workflow, deletes the extraction schedule,
+ * delegates engine-side teardown to the source's adapter (drops slot/publication
+ * for Postgres; equivalent for other engines), clears ``cdc_*`` keys from
+ * ``job_inputs``, soft-deletes companion CDC tables, and sets all CDC schemas to
+ * ``sync_type=None``, ``should_sync=False`` so the user must pick a new sync
+ * strategy before they resume.
  */
 export const externalDataSourcesDisableCdcCreateBodyPrefixMax = 100
 
@@ -959,17 +959,17 @@ export const ExternalDataSourcesDisableCdcCreateBody = /* @__PURE__ */ zod
 
 /**
  * Enable CDC on an existing source.
-
-Provisions engine-side CDC resources via the source's adapter, writes the CDC
-config into ``source.job_inputs``, and ensures the CDC extraction schedule
-exists. Re-runs prereq checks server-side so we never trust a stale
-client-side check.
-
-Body params: ``cdc_management_mode`` (``"posthog"`` | ``"self_managed"``),
-plus engine-specific identifier hints (e.g. ``cdc_slot_name``,
-``cdc_publication_name`` for Postgres). Universal tuning fields:
-``cdc_auto_drop_slot`` (optional bool), ``cdc_lag_warning_threshold_mb``
-(optional int), ``cdc_lag_critical_threshold_mb`` (optional int).
+ *
+ * Provisions engine-side CDC resources via the source's adapter, writes the CDC
+ * config into ``source.job_inputs``, and ensures the CDC extraction schedule
+ * exists. Re-runs prereq checks server-side so we never trust a stale
+ * client-side check.
+ *
+ * Body params: ``cdc_management_mode`` (``"posthog"`` | ``"self_managed"``),
+ * plus engine-specific identifier hints (e.g. ``cdc_slot_name``,
+ * ``cdc_publication_name`` for Postgres). Universal tuning fields:
+ * ``cdc_auto_drop_slot`` (optional bool), ``cdc_lag_warning_threshold_mb``
+ * (optional int), ``cdc_lag_critical_threshold_mb`` (optional int).
  */
 export const externalDataSourcesEnableCdcCreateBodyPrefixMax = 100
 
@@ -1077,11 +1077,11 @@ export const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody = /* @__
 
 /**
  * Update CDC tuning fields without enabling/disabling.
-
-Lets users edit ``cdc_auto_drop_slot``, ``cdc_lag_warning_threshold_mb``, and
-``cdc_lag_critical_threshold_mb`` independently. These fields are universal
-across engines. Engine-specific identifiers (slot name, management mode, …)
-are immutable post-enable — switching them requires disable + enable.
+ *
+ * Lets users edit ``cdc_auto_drop_slot``, ``cdc_lag_warning_threshold_mb``, and
+ * ``cdc_lag_critical_threshold_mb`` independently. These fields are universal
+ * across engines. Engine-specific identifiers (slot name, management mode, …)
+ * are immutable post-enable — switching them requires disable + enable.
  */
 export const externalDataSourcesUpdateCdcSettingsCreateBodyPrefixMax = 100
 
@@ -1547,10 +1547,10 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
 
 /**
  * Return the ancestors of this saved query.
-
-By default, we return the immediate parents. The `level` parameter can be used to
-look further back into the ancestor tree. If `level` overshoots (i.e. points to only
-ancestors beyond the root), we return an empty list.
+ *
+ * By default, we return the immediate parents. The `level` parameter can be used to
+ * look further back into the ancestor tree. If `level` overshoots (i.e. points to only
+ * ancestors beyond the root), we return an empty list.
  */
 export const warehouseSavedQueriesAncestorsCreateBodyNameMax = 128
 
@@ -1637,10 +1637,10 @@ export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
 
 /**
  * Return the descendants of this saved query.
-
-By default, we return the immediate children. The `level` parameter can be used to
-look further ahead into the descendants tree. If `level` overshoots (i.e. points to only
-descendants further than a leaf), we return an empty list.
+ *
+ * By default, we return the immediate children. The `level` parameter can be used to
+ * look further ahead into the descendants tree. If `level` overshoots (i.e. points to only
+ * descendants further than a leaf), we return an empty list.
  */
 export const warehouseSavedQueriesDescendantsCreateBodyNameMax = 128
 
@@ -1727,7 +1727,7 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
 
 /**
  * Undo materialization, revert back to the original view.
-(i.e. delete the materialized table and the schedule)
+ * (i.e. delete the materialized table and the schedule)
  */
 export const warehouseSavedQueriesRevertMaterializationCreateBodyNameMax = 128
 
@@ -1816,9 +1816,9 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
 
 /**
  * Resume paused materialization schedules for multiple matviews.
-
-Accepts a list of view IDs in the request body: {"view_ids": ["id1", "id2", ...]}
-This endpoint is idempotent - calling it on already running or non-existent schedules is safe.
+ *
+ * Accepts a list of view IDs in the request body: {"view_ids": ["id1", "id2", ...]}
+ * This endpoint is idempotent - calling it on already running or non-existent schedules is safe.
  */
 export const warehouseSavedQueriesResumeSchedulesCreateBodyNameMax = 128
 
