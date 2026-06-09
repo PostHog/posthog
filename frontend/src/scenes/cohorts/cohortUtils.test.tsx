@@ -44,4 +44,24 @@ describe('validateGroup', () => {
 
         expect(errors.id).toContain("'Did not complete event'")
     })
+
+    it('joins multiple negated criteria with a pluralized message', () => {
+        const group = groupWithNegatedCriteria([
+            {
+                type: BehavioralFilterKey.Behavioral,
+                value: 'legacy_unknown_type' as BehavioralEventType,
+                negation: true,
+            },
+            {
+                type: BehavioralFilterKey.Behavioral,
+                value: BehavioralEventType.PerformEvent,
+                negation: true,
+            },
+        ])
+
+        const errors = validateGroup(group)
+
+        // Exercises the `.join(', ')` and the `are` (vs `is a`) pluralization in the changed expression.
+        expect(errors.id).toContain("'legacy_unknown_type', 'Did not complete event' are negative cohort criteria")
+    })
 })
