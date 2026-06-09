@@ -118,8 +118,10 @@ def prepare_ast_for_printing(
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
-    # Load property-level access control restrictions before type resolution so that
-    # FieldType.get_child() can block access to restricted properties during resolution.
+    # Load property-level access control restrictions onto the context. They are enforced only on the ClickHouse path —
+    # the printer wraps the JSON blob in JSONDropKeys, and the physical pass declines backing columns (and reads a
+    # restricted property as NULL). The warehouse (Postgres / DuckDB) dialects only compile external data-warehouse
+    # sources, which carry no restrictable event/person properties, so they need no enforcement here.
     if context.team_id is not None and context.restricted_properties is None:
         with context.timings.measure("load_restricted_properties"):
             context.restricted_properties = get_restricted_properties_for_team(
