@@ -1,6 +1,7 @@
 import json
 import base64
 import hashlib
+from typing import cast
 from urllib.parse import urlencode
 
 import pytest
@@ -21,6 +22,7 @@ from posthog.api.oauth.cimd import (
     CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
     CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT,
     CIMDFetchError,
+    CIMDMetadataDocument,
     CIMDValidationError,
     _fetch_lock_key,
     _resolve_scopes,
@@ -1096,7 +1098,8 @@ class TestResolveScopes(SimpleTestCase):
     def test_absent_or_malformed_field_returns_none(self) -> None:
         self.assertIsNone(_resolve_scopes({}))
         self.assertIsNone(_resolve_scopes({"com.posthog": {}}))
-        self.assertIsNone(_resolve_scopes({"com.posthog": {"scopes": "not-a-list"}}))
+        # Malformed partner JSON: a non-list scopes value hits the runtime guard and returns None.
+        self.assertIsNone(_resolve_scopes(cast(CIMDMetadataDocument, {"com.posthog": {"scopes": "not-a-list"}})))
 
     def test_explicit_empty_list_is_use_default(self) -> None:
         # Distinct from all-stripped: an explicitly empty array is the legitimate "use default" signal.
