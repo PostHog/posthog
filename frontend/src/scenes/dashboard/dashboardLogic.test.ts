@@ -27,6 +27,7 @@ import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/
 import { HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
+    DashboardMode,
     DashboardPlacement,
     DashboardTile,
     DashboardType,
@@ -465,6 +466,131 @@ describe('dashboardLogic', () => {
 
             const restoredTileLayouts = logic.values.dashboard?.tiles.find((t) => t.id === firstTile.id)?.layouts
             expect(restoredTileLayouts).toEqual(originalLayouts)
+        })
+
+        describe('layoutEditMode', () => {
+            it('enters edit mode without layout editing when filters change', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        dashboardMode: DashboardMode.Edit,
+                        layoutEditMode: false,
+                    })
+            })
+
+            it('enables layout editing for explicit layout edit sources', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        dashboardMode: DashboardMode.Edit,
+                        layoutEditMode: true,
+                    })
+            })
+
+            it('clears layout editing when exiting edit mode', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        dashboardMode: null,
+                        layoutEditMode: false,
+                    })
+            })
+
+            it('reports filter changes separately from layout edit mode entry', async () => {
+                const reportFiltersChanged = jest.spyOn(eventUsageLogic.actions, 'reportDashboardFiltersChanged')
+                const reportLayoutEditEntered = jest.spyOn(
+                    eventUsageLogic.actions,
+                    'reportDashboardLayoutEditModeEntered'
+                )
+                const reportModeToggled = jest.spyOn(eventUsageLogic.actions, 'reportDashboardModeToggled')
+
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                }).toFinishAllListeners()
+
+                expect(reportLayoutEditEntered).not.toHaveBeenCalled()
+                expect(reportModeToggled).not.toHaveBeenCalled()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDates('-7d', null)
+                }).toFinishAllListeners()
+
+                expect(reportFiltersChanged).toHaveBeenCalledWith(
+                    expect.objectContaining({ id: 5 }),
+                    'date',
+                    expect.objectContaining({ date_from: '-7d', date_to: null })
+                )
+
+                reportFiltersChanged.mockClear()
+                reportLayoutEditEntered.mockClear()
+                reportModeToggled.mockClear()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                }).toFinishAllListeners()
+
+                expect(reportLayoutEditEntered).toHaveBeenCalledWith(
+                    expect.objectContaining({ id: 5 }),
+                    DashboardEventSource.SceneCommonButtons,
+                    1
+                )
+                expect(reportModeToggled).toHaveBeenCalledWith(
+                    expect.objectContaining({ id: 5 }),
+                    DashboardMode.Edit,
+                    DashboardEventSource.SceneCommonButtons,
+                    1,
+                    true
+                )
+                expect(reportFiltersChanged).not.toHaveBeenCalled()
+
+                reportFiltersChanged.mockRestore()
+                reportLayoutEditEntered.mockRestore()
+                reportModeToggled.mockRestore()
+            })
+
+            it('discarding filter edit restores url state from before edit', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDates('-14d', null)
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                })
+                    .toDispatchActions(['restoreUrlStateAtEditModeEntry'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        dashboardMode: null,
+                        urlSearchParamsAtEditModeEntry: null,
+                        intermittentFilters: {
+                            date_from: undefined,
+                            date_to: undefined,
+                            properties: undefined,
+                            breakdown_filter: undefined,
+                            explicitDate: undefined,
+                        },
+                    })
+            })
         })
 
         describe('hasUnsavedLayoutChanges selector', () => {

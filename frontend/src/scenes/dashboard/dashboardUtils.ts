@@ -8,6 +8,7 @@ import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
@@ -436,4 +437,15 @@ export function combineDashboardFilters(...filters: DashboardFilter[]): Dashboar
         })
         return combined
     }, {} as DashboardFilter)
+}
+
+const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([
+    DashboardEventSource.SceneCommonButtons,
+    DashboardEventSource.CardEdgeHover,
+    DashboardEventSource.CardDragHandle,
+    DashboardEventSource.DashboardsList,
+])
+
+export function isLayoutEditEventSource(source: DashboardEventSource): boolean {
+    return LAYOUT_EDIT_EVENT_SOURCES.has(source)
 }

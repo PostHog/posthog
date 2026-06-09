@@ -38,7 +38,7 @@ export function DashboardItems(): JSX.Element {
         dashboard,
         tiles,
         layouts,
-        dashboardMode,
+        layoutEditMode,
         placement,
         isRefreshingQueued,
         isRefreshing,
@@ -105,8 +105,8 @@ export function DashboardItems(): JSX.Element {
         }
     }, [])
     const className = clsx({
-        'dashboard-view-mode': dashboardMode !== DashboardMode.Edit,
-        'dashboard-edit-mode': dashboardMode === DashboardMode.Edit,
+        'dashboard-view-mode': !layoutEditMode,
+        'dashboard-edit-mode': layoutEditMode,
     })
 
     const { width, containerRef, mounted } = useContainerWidth()
@@ -149,18 +149,17 @@ export function DashboardItems(): JSX.Element {
     ].includes(placement)
 
     const canEnterEditModeFromEdge =
-        !!dashboard && canEditDashboard && dashboardMode !== DashboardMode.Edit && !isMobileView && isEditablePlacement
+        !!dashboard && canEditDashboard && !layoutEditMode && !isMobileView && isEditablePlacement
 
-    const isLayoutZoomToggled = dashboardMode === DashboardMode.Edit && layoutZoom !== 1
+    const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
 
-    const effectiveZoom = dashboardMode === DashboardMode.Edit ? layoutZoom : 1
+    const effectiveZoom = layoutEditMode ? layoutZoom : 1
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
     const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
     const margin = useMemo(() => BASE_MARGIN.map((m) => m * spacingFactor) as [number, number], [spacingFactor])
 
-    const showResizeHandles =
-        dashboardMode === DashboardMode.Edit && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
-    const showEditingControls = isEditablePlacement || dashboardMode === DashboardMode.Edit
+    const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
+    const showEditingControls = isEditablePlacement || layoutEditMode
     const showDetailsControls =
         placement !== DashboardPlacement.Export &&
         placement !== DashboardPlacement.Public &&
@@ -168,20 +167,20 @@ export function DashboardItems(): JSX.Element {
 
     const dragConfig = useMemo(
         () => ({
-            enabled: dashboardMode === DashboardMode.Edit && !isMobileView,
+            enabled: layoutEditMode && !isMobileView,
             handle: '.CardMeta,.TextCard__body,.ButtonTileCard__body,.WidgetCard__header,.drag-handle',
             cancel: 'a,table,button,input,.Popover',
             bounded: true,
         }),
-        [dashboardMode, isMobileView]
+        [layoutEditMode, isMobileView]
     )
 
     const resizeConfig = useMemo(
         () => ({
-            enabled: dashboardMode === DashboardMode.Edit && !isMobileView && !isLayoutZoomToggled,
+            enabled: layoutEditMode && !isMobileView && !isLayoutZoomToggled,
             handles: ['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw'] as const,
         }),
-        [dashboardMode, isMobileView, isLayoutZoomToggled]
+        [layoutEditMode, isMobileView, isLayoutZoomToggled]
     )
 
     const onEnterEditModeFromEdge = useMemo(
@@ -234,11 +233,11 @@ export function DashboardItems(): JSX.Element {
 
     const handleLayoutChange = useCallback(
         (_: unknown, newLayouts: Partial<Record<DashboardLayoutSize, Layout>>) => {
-            if (dashboardMode === DashboardMode.Edit) {
+            if (layoutEditMode) {
                 updateLayouts(newLayouts)
             }
         },
-        [dashboardMode, updateLayouts]
+        [layoutEditMode, updateLayouts]
     )
 
     const handleWidthChange = useCallback(
@@ -328,7 +327,7 @@ export function DashboardItems(): JSX.Element {
 
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
-            {dashboardMode === DashboardMode.Edit && isMobileView && (
+            {layoutEditMode && isMobileView && (
                 <LemonBanner type="warning" className="mb-4">
                     Layout editing is disabled on smaller screens. Please zoom out or use a larger screen to move or
                     resize tiles.
@@ -336,7 +335,7 @@ export function DashboardItems(): JSX.Element {
             )}
             {mounted && (
                 <div className="relative">
-                    {dashboardMode === DashboardMode.Edit && !isMobileView && (
+                    {layoutEditMode && !isMobileView && (
                         <GridBackground
                             width={gridWidth}
                             cols={BREAKPOINT_COLUMN_COUNTS.sm}
