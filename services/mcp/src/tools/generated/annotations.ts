@@ -105,12 +105,8 @@ const annotationsList = (): ToolBase<
 })
 
 const AnnotationsPartialUpdateSchema = AnnotationsPartialUpdateParams.omit({ project_id: true }).extend(
-    AnnotationsPartialUpdateBody.omit({
-        creation_type: true,
-        dashboard_item: true,
-        dashboard_id: true,
-        deleted: true,
-    }).shape
+    AnnotationsPartialUpdateBody.omit({ creation_type: true, dashboard_item: true, dashboard_id: true, deleted: true })
+        .shape
 )
 
 const annotationsPartialUpdate = (): ToolBase<typeof AnnotationsPartialUpdateSchema, Schemas.Annotation> => ({
