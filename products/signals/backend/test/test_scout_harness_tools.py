@@ -467,7 +467,11 @@ async def aorganization_emit():
     org = await database_sync_to_async(Organization.objects.create)(
         name="signals-scout-emit", is_ai_data_processing_approved=True
     )
-    return org
+    # These async tests commit (no transaction rollback across the worker thread), so
+    # delete explicitly — otherwise every run leaks an org/team with an enabled
+    # SignalScoutConfig into the reused test DB, breaking cross-team scans elsewhere.
+    yield org
+    await database_sync_to_async(org.delete)()
 
 
 @pytest_asyncio.fixture

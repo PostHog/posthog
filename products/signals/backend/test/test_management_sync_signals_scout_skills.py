@@ -68,6 +68,11 @@ class TestSyncSignalsScoutSkillsCommand(BaseTest):
         # Two teams; only one has enabled config.
         from posthog.models import Team
 
+        # `--all-enabled` scans configs across all teams, so residue committed by async
+        # tests (which bypass transaction rollback) in a --reuse-db database would leak in.
+        # Clear it here; this delete rolls back with the test transaction.
+        SignalScoutConfig.objects.unscoped().all().delete()
+
         other_team = Team.objects.create(organization=self.organization, name="OtherTeam")
         SignalScoutConfig.objects.create(team=self.team, enabled=True)
         SignalScoutConfig.objects.create(team=other_team, enabled=False)
