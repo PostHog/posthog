@@ -1,16 +1,23 @@
 import datetime
 
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import override_settings
 
 from dateutil import parser
+from parameterized import parameterized
 
-from posthog.schema import ActionsNode, DateRange, EventsNode, IntervalType
+from posthog.schema import ActionsNode, DataWarehouseNode, DateRange, EventsNode, IntervalType
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
+from posthog.hogql_queries.utils.timestamp_utils import (
+    EARLIEST_EVENT_TIMESTAMP,
+    _coerce_to_datetime,
+    format_label_date,
+    get_earliest_timestamp_from_series,
+)
 from posthog.models.team import WeekStartDay
 
 from products.actions.backend.models.action import Action
@@ -339,3 +346,55 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         # should still return the earliest timestamp from the first query
         cached_earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
         self.assertEqual(cached_earliest_timestamp, earliest_timestamp)
+
+    @parameterized.expand(
+        [
+            ("datetime", datetime.datetime(2023, 5, 1, 12, 30, 0), datetime.datetime(2023, 5, 1, 12, 30, 0)),
+            ("date", datetime.date(2023, 5, 1), datetime.datetime(2023, 5, 1, 0, 0, 0)),
+            ("string", "2023-05-01 12:30:00", datetime.datetime(2023, 5, 1, 12, 30, 0)),
+            ("date_string", "2023-05-01", datetime.datetime(2023, 5, 1, 0, 0, 0)),
+            ("none", None, EARLIEST_EVENT_TIMESTAMP),
+            ("unsupported", 12345, EARLIEST_EVENT_TIMESTAMP),
+        ]
+    )
+    def test_coerce_to_datetime(self, _name, value, expected):
+        self.assertEqual(_coerce_to_datetime(value), expected)
+
+    @parameterized.expand(
+        [
+            ("string_timestamp", "2022-03-15 08:00:00", datetime.datetime(2022, 3, 15, 8, 0, 0)),
+            ("date_only_string", "2022-03-15", datetime.datetime(2022, 3, 15, 0, 0, 0)),
+            ("date_object", datetime.date(2022, 3, 15), datetime.datetime(2022, 3, 15, 0, 0, 0)),
+        ]
+    )
+    def test_data_warehouse_all_time_resolves_string_timestamp(self, _name, raw_value, expected):
+        # Data warehouse tables can return a non-datetime min(timestamp); it must be
+        # coerced before reaching QueryDateRange, which calls .strftime() and compares with <.
+        node = DataWarehouseNode(
+            id="dw_table",
+            table_name="dw_table",
+            id_field="id",
+            distinct_id_field="distinct_id",
+            timestamp_field="ts",
+        )
+
+        with patch("posthog.hogql_queries.utils.timestamp_utils.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = [[raw_value]]
+
+            earliest_timestamp = get_earliest_timestamp_from_series(self.team, [node])
+
+        self.assertIsInstance(earliest_timestamp, datetime.datetime)
+        self.assertEqual(earliest_timestamp, expected)
+
+        query_date_range = QueryDateRange(
+            team=self.team,
+            date_range=DateRange(date_from="all"),
+            interval=IntervalType.DAY,
+            now=parser.isoparse("2025-06-21T00:00:00.000Z"),
+            earliest_timestamp_fallback=earliest_timestamp,
+        )
+
+        # These previously raised AttributeError / TypeError when date_from="all"
+        # resolved to a str instead of a datetime.
+        self.assertEqual(query_date_range.date_from(), expected)
+        self.assertEqual(query_date_range.date_from_str, expected.strftime("%Y-%m-%d %H:%M:%S"))

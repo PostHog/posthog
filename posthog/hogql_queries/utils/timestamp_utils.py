@@ -1,10 +1,11 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
-from typing import Union
+from typing import Any, Union
 
 from django.conf import settings
 from django.core.cache import cache
 
+from dateutil.parser import parse as parse_datetime
 from dateutil.relativedelta import MO, SU, relativedelta
 
 from posthog.schema import (
@@ -124,6 +125,23 @@ def _get_earliest_timestamp_cache_key(
         raise ValueError(f"Unsupported node type: {type(node)}")
 
 
+def _coerce_to_datetime(value: Any) -> datetime:
+    """Normalize a min(timestamp) result to a ``datetime``.
+
+    Data warehouse tables may declare their timestamp field as a String or Date
+    column, so the query can return a ``str`` or ``date`` instead of a ``datetime``.
+    Leaving those unconverted breaks downstream date math (``.strftime()`` and
+    ``<`` comparisons), so we resolve them to a concrete ``datetime`` here.
+    """
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day)
+    if isinstance(value, str):
+        return parse_datetime(value)
+    return EARLIEST_EVENT_TIMESTAMP
+
+
 def _get_earliest_timestamp_from_node(
     team: Team,
     node: Union[EventsNode, ActionsNode, DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode],
@@ -151,8 +169,8 @@ def _get_earliest_timestamp_from_node(
 
     earliest_timestamp = EARLIEST_EVENT_TIMESTAMP
     result = execute_hogql_query(query=query, team=team)
-    if result and len(result.results) > 0 and len(result.results[0]) > 0:
-        earliest_timestamp = result.results[0][0]
+    if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
+        earliest_timestamp = _coerce_to_datetime(result.results[0][0])
 
     cache.set(cache_key, earliest_timestamp, timeout=EARLIEST_TIMESTAMP_CACHE_TTL)
     return earliest_timestamp
