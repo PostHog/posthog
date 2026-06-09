@@ -48,7 +48,7 @@ from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, StringJSONDatabaseField
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
-from posthog.hogql.printer.clickhouse import COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
+from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import CloningVisitor
@@ -61,11 +61,8 @@ from posthog.models.property import PropertyName, TableColumn
 MAT_COL_NULL_SENTINELS = ["", "null"]
 
 # The comparison rewrites must not intercept the $ai_* bloom-filter columns: the printer's visit_compare_operation forces
-# `not_nullable=True` for them (`COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING`, imported above so the two stay in sync).
-
-# Properties whose materialized columns are read without the nullIf sentinel wrapping, so the bare column stays eligible
-# for skip indexes (the printer applies the same special case when it renders these directly).
-AI_PROPERTIES_WITHOUT_NULLIF = {"$ai_trace_id", "$ai_session_id", "$ai_is_error"}
+# `not_nullable=True` for them (`COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING`, imported above so the two stay in sync). The
+# value-read side skips the same columns' nullIf scrubbing via `AI_BLOOM_FILTER_PROPERTIES` (the property-name form).
 
 _RANGE_OP_TO_CH_NAME: dict[ast.CompareOperationOp, str] = {
     ast.CompareOperationOp.Lt: "less",
@@ -313,7 +310,7 @@ def _materialized_head_expr(
         return None
 
     # Nullable columns (dmat, nullable mat) and the index-friendly $ai single-key columns are read bare.
-    if source.is_nullable or (is_single and first_key in AI_PROPERTIES_WITHOUT_NULLIF):
+    if source.is_nullable or (is_single and first_key in AI_BLOOM_FILTER_PROPERTIES):
         return column_field
 
     # Non-nullable materialized column: scrub the '' / 'null' string sentinels back to NULL.

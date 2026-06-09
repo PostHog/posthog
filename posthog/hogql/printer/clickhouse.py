@@ -44,14 +44,14 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
     )
 
 
-# We skip nullIf/ifNull wrapping for these columns, to improve performance and help skip index usage
+# The $ai_* properties whose materialized columns carry bloom-filter skip indexes. We read them bare — no nullIf/ifNull
+# wrapping — so the index stays usable. Canonical set; the ClickHouse physical pass imports it to make the same call.
+AI_BLOOM_FILTER_PROPERTIES = {"$ai_trace_id", "$ai_session_id", "$ai_is_error"}
+
+# Both the property name and its `mat_` column spelling, so visit_compare_operation can match either side of a comparison.
 COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
-    "mat_$ai_trace_id",
-    "mat_$ai_session_id",
-    "mat_$ai_is_error",
-    "$ai_trace_id",
-    "$ai_session_id",
-    "$ai_is_error",
+    *AI_BLOOM_FILTER_PROPERTIES,
+    *(f"mat_{prop}" for prop in AI_BLOOM_FILTER_PROPERTIES),
 }
 
 
