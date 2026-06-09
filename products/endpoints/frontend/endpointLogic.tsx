@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -21,14 +21,8 @@ import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLog
 
 export type CodeExampleTab = 'terminal' | 'python' | 'nodejs'
 
-export interface EndpointLogicProps {
-    tabId: string
-}
-
 export const endpointLogic = kea<endpointLogicType>([
     path(['products', 'endpoints', 'frontend', 'endpointLogic']),
-    props({} as EndpointLogicProps),
-    key((props) => props.tabId),
     connect(() => ({
         actions: [
             endpointsLogic,

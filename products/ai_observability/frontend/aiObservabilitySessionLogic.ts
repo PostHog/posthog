@@ -1,7 +1,6 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
+import { router, urlToAction } from 'kea-router'
 
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { urls } from 'scenes/urls'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -37,17 +36,14 @@ export function getDataNodeLogicProps({
     return dataNodeLogicProps
 }
 
-export interface AIObservabilitySessionLogicProps {
-    tabId?: string
-}
+export type AIObservabilitySessionLogicProps = Record<string, never>
 
 export const aiObservabilitySessionLogic = kea<aiObservabilitySessionLogicType>([
     path(['scenes', 'ai-observability', 'aiObservabilitySessionLogic']),
     props({} as AIObservabilitySessionLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
-    connect((props: AIObservabilitySessionLogicProps) => ({
-        values: [aiObservabilitySharedLogic({ tabId: props.tabId }), ['dateFilter']],
+    connect(() => ({
+        values: [aiObservabilitySharedLogic, ['dateFilter']],
     })),
 
     actions({
@@ -136,7 +132,7 @@ export const aiObservabilitySessionLogic = kea<aiObservabilitySessionLogicType>(
         ],
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.aiObservabilitySession(':id')]: ({ id }, { timestamp, date_from, date_to }) => {
             actions.setSessionId(id ?? '')
             if (timestamp) {

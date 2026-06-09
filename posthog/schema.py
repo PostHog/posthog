@@ -808,6 +808,7 @@ class AssistantTool(StrEnum):
     MARKETING_SUGGEST_CONVERSION_GOALS = "marketing_suggest_conversion_goals"
     MARKETING_SUGGEST_UTM_MAPPINGS = "marketing_suggest_utm_mappings"
     SUMMARIZE_REPLAY_VISION_SUMMARIES = "summarize_replay_vision_summaries"
+    DRAFT_REPLAY_VISION_SCANNER_PROMPT = "draft_replay_vision_scanner_prompt"
 
 
 class AssistantToolCall(BaseModel):
@@ -964,6 +965,8 @@ class BillingUsageResponseBreakdownType(StrEnum):
 class BingAdsDefaultSources(StrEnum):
     BING = "bing"
     MICROSOFT = "microsoft"
+    MSADS = "msads"
+    BING_VIDEO = "bing_video"
 
 
 class BingAdsTableExclusions(StrEnum):
@@ -1140,18 +1143,6 @@ class ConversationsTicketSignalExtra(BaseModel):
     priority: str | None = None
     status: str
     ticket_number: float
-
-
-class ConversationsTicketSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: ConversationsTicketSignalExtra
-    source_id: str
-    source_product: Literal["conversations"] = "conversations"
-    source_type: Literal["ticket"] = "ticket"
-    weight: float
 
 
 class CoreEventCategory(StrEnum):
@@ -1669,18 +1660,6 @@ class EndpointExecutionFailedSignalExtra(BaseModel):
     saved_query_id: str | None = None
 
 
-class EndpointExecutionFailedSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: EndpointExecutionFailedSignalExtra
-    source_id: str
-    source_product: Literal["endpoints"] = "endpoints"
-    source_type: Literal["endpoint_execution_failed"] = "endpoint_execution_failed"
-    weight: float
-
-
 class EndpointLastExecutionTimesRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1867,18 +1846,6 @@ class SourceType(StrEnum):
     ISSUE_SPIKING = "issue_spiking"
 
 
-class ErrorTrackingSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: ErrorTrackingSignalExtra
-    source_id: str
-    source_product: Literal["error_tracking"] = "error_tracking"
-    source_type: SourceType
-    weight: float
-
-
 class EventDefinition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1965,6 +1932,11 @@ class MultipleVariantHandling(StrEnum):
 
 class Kind(StrEnum):
     EVENTS_NODE = "EventsNode"
+    ACTIONS_NODE = "ActionsNode"
+
+
+class Kind1(StrEnum):
+    EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
     ACTIONS_NODE = "ActionsNode"
 
 
@@ -2394,7 +2366,7 @@ class FileSystemIconType(StrEnum):
     SETTINGS = "settings"
     HEALTH = "health"
     INBOX = "inbox"
-    SDK_DOCTOR = "sdk_doctor"
+    SDK_HEALTH = "sdk_health"
     PIPELINE_STATUS = "pipeline_status"
     LLM_EVALUATIONS = "llm_evaluations"
     LLM_TAGS = "llm_tags"
@@ -2530,18 +2502,6 @@ class GithubIssueSignalExtra(BaseModel):
     number: float
     state: str
     updated_at: str
-
-
-class GithubIssueSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: GithubIssueSignalExtra
-    source_id: str
-    source_product: Literal["github"] = "github"
-    source_type: Literal["issue"] = "issue"
-    weight: float
 
 
 class Position(StrEnum):
@@ -2898,18 +2858,6 @@ class LinearIssueSignalExtra(BaseModel):
     url: str
 
 
-class LinearIssueSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: LinearIssueSignalExtra
-    source_id: str
-    source_product: Literal["linear"] = "linear"
-    source_type: Literal["issue"] = "issue"
-    weight: float
-
-
 class LinkedinAdsDefaultSources(StrEnum):
     LINKEDIN = "linkedin"
     LI = "li"
@@ -2946,30 +2894,6 @@ class LlmEvalSignalExtra(BaseModel):
     target_event_id: str | None = None
     target_event_type: str | None = None
     trace_id: str
-
-
-class LlmEvaluationReportSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: LlmEvalReportSignalExtra
-    source_id: str
-    source_product: Literal["llm_analytics"] = "llm_analytics"
-    source_type: Literal["evaluation_report"] = "evaluation_report"
-    weight: float
-
-
-class LlmEvaluationSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: LlmEvalSignalExtra
-    source_id: str
-    source_product: Literal["llm_analytics"] = "llm_analytics"
-    source_type: Literal["evaluation"] = "evaluation"
-    weight: float
 
 
 class LoadingBlock(BaseModel):
@@ -3048,18 +2972,6 @@ class LogsAlertStateChangeSignalExtra(BaseModel):
     threshold_operator: ThresholdOperator
     url: str
     window_minutes: float
-
-
-class LogsAlertStateChangeSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: LogsAlertStateChangeSignalExtra
-    source_id: str
-    source_product: Literal["logs"] = "logs"
-    source_type: Literal["alert_state_change"] = "alert_state_change"
-    weight: float
 
 
 class LogsOrderBy(StrEnum):
@@ -3271,7 +3183,7 @@ class MarketingIntegrationConfig6(BaseModel):
     adsetStatsTableName: Literal["ad_group_performance_report"] = "ad_group_performance_report"
     adsetTableName: Literal["ad_group_performance_report"] = "ad_group_performance_report"
     campaignTableName: Literal["campaigns"] = "campaigns"
-    defaultSources: list[str] = Field(..., max_length=2, min_length=2)
+    defaultSources: list[str] = Field(..., max_length=4, min_length=4)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
     primarySource: Literal["bing"] = "bing"
@@ -3876,18 +3788,6 @@ class PgAnalyzeIssueSignalExtra(BaseModel):
     server_name: str | None = None
     severity: str | None = None
     synced_at: str
-
-
-class PgAnalyzeIssueSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: PgAnalyzeIssueSignalExtra
-    source_id: str
-    source_product: Literal["pganalyze"] = "pganalyze"
-    source_type: Literal["issue"] = "issue"
-    weight: float
 
 
 class PinterestAdsDefaultSources(StrEnum):
@@ -4564,18 +4464,6 @@ class SessionProblemSignalExtra(BaseModel):
     start_time: str
 
 
-class SessionProblemSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: SessionProblemSignalExtra
-    source_id: str
-    source_product: Literal["session_replay"] = "session_replay"
-    source_type: Literal["session_problem"] = "session_problem"
-    weight: float
-
-
 class SessionPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4693,6 +4581,46 @@ class SharingConfigurationSettings(BaseModel):
     whitelabel: bool | None = None
 
 
+class SignalExtraBase(BaseModel):
+    pass
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
+class Priority(StrEnum):
+    P0 = "P0"
+    P1 = "P1"
+    P2 = "P2"
+    P3 = "P3"
+    P4 = "P4"
+
+
+class SignalRemediation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    agent: str = Field(
+        ...,
+        description=(
+            "Agent-facing guidance: how to investigate (which MCP tools to call) and,"
+            " where the fix lives in the user's codebase, how to apply it. The research"
+            " agent treats this as authoritative — it still investigates and produces"
+            " findings, but follows this instead of starting cold."
+        ),
+    )
+    human: str = Field(
+        ...,
+        description=(
+            "Human-facing fix steps (PostHog UI / alert destinations). Surfaced in the report for the reader."
+        ),
+    )
+    priority: Priority | None = Field(
+        default=None,
+        description=("Suggested report priority; advisory, the research agent may override."),
+    )
+
+
 class SignalReviewerUserInfo(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4787,6 +4715,14 @@ class SignalsScoutSignalExtra(BaseModel):
     severity: Severity | None = None
     skill_name: str
     skill_version: float
+    task_run_id: str = Field(
+        ...,
+        description=(
+            "The `tasks.TaskRun` id the scout span ran inside. Join key into the"
+            " `signals_scouts_runs` LLM-analytics view, which is keyed on `task_run_id`"
+            " (the `scout_run_id` bridge row is not)."
+        ),
+    )
     time_range: TimeRange | None = Field(default=None, description="Optional time window the finding refers to.")
 
 
@@ -4796,6 +4732,7 @@ class SignalsScoutSignalInput(BaseModel):
     )
     description: str
     extra: SignalsScoutSignalExtra
+    remediation: SignalRemediation | None = None
     source_id: str
     source_product: Literal["signals_scout"] = "signals_scout"
     source_type: Literal["cross_source_issue"] = "cross_source_issue"
@@ -4967,6 +4904,10 @@ class SubagentUpdateEvent(BaseModel):
     content: AssistantToolCall
     id: str
     tool_call_id: str
+
+
+class SubscriptionAIPromptMaxLength(RootModel[Literal[4000]]):
+    root: Literal[4000] = Field(4000, description="Maximum length, in characters, of an AI subscription prompt.")
 
 
 class SubscriptionDropoffMode(StrEnum):
@@ -5501,6 +5442,7 @@ class ZendeskTicketSignalInput(BaseModel):
     )
     description: str
     extra: ZendeskTicketSignalExtra
+    remediation: SignalRemediation | None = None
     source_id: str
     source_product: Literal["zendesk"] = "zendesk"
     source_type: Literal["ticket"] = "ticket"
@@ -6847,6 +6789,19 @@ class CohortPropertyFilter(BaseModel):
     value: int
 
 
+class ConversationsTicketSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: ConversationsTicketSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["conversations"] = "conversations"
+    source_type: Literal["ticket"] = "ticket"
+    weight: float
+
+
 class CustomChannelCondition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6992,6 +6947,19 @@ class EmbeddingDistance(BaseModel):
     result: EmbeddingRecord
 
 
+class EndpointExecutionFailedSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: EndpointExecutionFailedSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["endpoints"] = "endpoints"
+    source_type: Literal["endpoint_execution_failed"] = "endpoint_execution_failed"
+    weight: float
+
+
 class EndpointsUsageOverviewItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7057,6 +7025,19 @@ class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):
         ...,
         description=("Client-stamped monotonic version (`Date.now()` ms at mutation success)."),
     )
+
+
+class ErrorTrackingSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: ErrorTrackingSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["error_tracking"] = "error_tracking"
+    source_type: SourceType
+    weight: float
 
 
 class EventMetadataPropertyFilter(BaseModel):
@@ -7182,8 +7163,17 @@ class ExperimentApiExposureConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    event: str = Field(..., description="Custom exposure event name.")
-    kind: Literal["ExperimentEventExposureConfig"] = "ExperimentEventExposureConfig"
+    event: str | None = Field(
+        default=None,
+        description=("Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."),
+    )
+    id: int | None = Field(default=None, description="Action ID. Required when kind is 'ActionsNode'.")
+    kind: Kind1 | None = Field(
+        default=None,
+        description=(
+            "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
+        ),
+    )
     properties: list[EventPropertyFilter] = Field(
         ...,
         description="Event property filters. Pass an empty array if no filters needed.",
@@ -7545,6 +7535,19 @@ class FunnelsFilterLegacy(BaseModel):
     layout: FunnelLayout | None = None
 
 
+class GithubIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: GithubIssueSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["github"] = "github"
+    source_type: Literal["issue"] = "issue"
+    weight: float
+
+
 class GroupPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7754,6 +7757,45 @@ class LifecycleFilterLegacy(BaseModel):
     toggledLifecycles: list[LifecycleToggle] | None = None
 
 
+class LinearIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LinearIssueSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["linear"] = "linear"
+    source_type: Literal["issue"] = "issue"
+    weight: float
+
+
+class LlmEvaluationReportSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LlmEvalReportSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["llm_analytics"] = "llm_analytics"
+    source_type: Literal["evaluation_report"] = "evaluation_report"
+    weight: float
+
+
+class LlmEvaluationSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LlmEvalSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["llm_analytics"] = "llm_analytics"
+    source_type: Literal["evaluation"] = "evaluation"
+    weight: float
+
+
 class LogEntryPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7795,6 +7837,19 @@ class LogPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: LogPropertyFilterType
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class LogsAlertStateChangeSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LogsAlertStateChangeSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["logs"] = "logs"
+    source_type: Literal["alert_state_change"] = "alert_state_change"
+    weight: float
 
 
 class MarketingAnalyticsItem(BaseModel):
@@ -8016,6 +8071,19 @@ class PersonPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["person"] = Field(default="person", description="Person properties")
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class PgAnalyzeIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: PgAnalyzeIssueSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["pganalyze"] = "pganalyze"
+    source_type: Literal["issue"] = "issue"
+    weight: float
 
 
 class PlanningStep(BaseModel):
@@ -8807,6 +8875,19 @@ class SessionBatchEventsQueryResponse(BaseModel):
     )
 
 
+class SessionProblemSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: SessionProblemSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["session_replay"] = "session_replay"
+    source_type: Literal["session_problem"] = "session_problem"
+    weight: float
+
+
 class SessionRecordingType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8978,6 +9059,19 @@ class SignalInput(
         | SignalsScoutSignalInput
         | LogsAlertStateChangeSignalInput
     )
+
+
+class SignalInputBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: SignalExtraBase
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: str
+    source_type: str
+    weight: float
 
 
 class SourceFieldFileUploadConfig(BaseModel):
@@ -22716,10 +22810,19 @@ class AccountsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    accountExecutive: str | int | None = None
-    accountOwner: str | int | None = None
+    accountExecutive: list[int] | None = Field(
+        default=None,
+        description=("Match accounts whose account executive is any of these user ids (OR semantics)."),
+    )
+    accountOwner: list[int] | None = Field(
+        default=None,
+        description=("Match accounts whose account owner is any of these user ids (OR semantics)."),
+    )
     allRolesUnassigned: bool | None = None
-    csm: str | int | None = None
+    csm: list[int] | None = Field(
+        default=None,
+        description="Match accounts whose CSM is any of these user ids (OR semantics).",
+    )
     filterExpression: str | None = Field(
         default=None,
         description=(

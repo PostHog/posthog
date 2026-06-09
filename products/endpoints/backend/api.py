@@ -398,6 +398,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
         "openapi_spec",
         "materialization_preview",
         "materialization_status",
+        "get_endpoints_last_execution_times",
     ]
     scope_object_write_actions: list[str] = [
         "create",

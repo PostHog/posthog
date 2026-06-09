@@ -3,10 +3,11 @@ name: signals-scout-general
 description: >
   General Signals scout for PostHog projects. Cross-product explorer that scans a
   team's project and emits findings into the Signals inbox. Sibling specialists
-  (signals-scout-llm-analytics, -logs, -error-tracking, -revenue-analytics, -surveys,
-  -observability-gaps, -csp-violations) cover individual product surfaces; this
+  (signals-scout-ai-observability, -logs, -error-tracking, -revenue-analytics, -surveys,
+  -observability-gaps, -csp-violations, -anomaly-detection) cover individual product
+  surfaces; this
   scout looks for cross-product correlations and explores what specialists don't
-  cover. Each scout runs on its own schedule (default daily), so general fires
+  cover. Each scout runs on its own schedule (default hourly), so general fires
   independently of the specialists over time.
 compatibility: >
   Runs as the PostHog Signals scout in a Claude sandbox with PostHog MCP scopes: signal_scout:read + signal_scout_internal:write (for
@@ -44,17 +45,17 @@ already covered. Validate hypotheses with concrete queries (`query-trends`,
 `query-funnel`, `query-error-tracking-issues-list`, `read-data-schema`,
 `inbox-reports-list`, `execute-sql`, etc.) before emitting.
 
-If a sibling specialist already covers a surface in depth (LLM analytics, logs,
-error tracking, revenue, surveys, observability gaps, CSP), leave the deep dive
-to it on a future tick. Spend your time on **cross-product correlations** or on
-**surfaces no specialist covers**.
+If a sibling specialist already covers a surface in depth (AI observability, logs,
+error tracking, revenue, surveys, observability gaps, CSP, or dashboard/insight
+anomalies), leave the deep dive to it on a future tick. Spend your time on
+**cross-product correlations** or on **surfaces no specialist covers**.
 
 ## Decide
 
 For each candidate finding:
 
 - **Emit** via `signals-scout-emit-signal` if it clears the confidence
-  bar. The emit contract — schema, weight/confidence rubrics, severity, dedupe
+  bar. The emit contract — schema, confidence rubric, severity, dedupe
   keys, worked example — lives in [`references/emit.md`](references/emit.md).
 - **Remember** via `signals-scout-scratchpad-remember` if it's below the bar but
   worth carrying forward, or to record what you ruled out and why.

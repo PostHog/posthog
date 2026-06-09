@@ -205,3 +205,17 @@ export function computeBarTrackRect(
           }
         : { x: bar.x, y: valueMin, width: bar.width, height: valueSize, corners: bar.corners, dataIndex: bar.dataIndex }
 }
+
+/** Pixel center of a band along the band axis — the anchor for band-level tooltips and grid ticks. */
+export function bandCenter(scales: BarScaleSet, label: string): number | undefined {
+    const start = scales.band(label)
+    return start == null ? undefined : start + scales.band.bandwidth() / 2
+}
+
+/** Center of a specific series's bar within a band. Used by overlays (e.g. annotations)
+ *  to anchor on the current-period bar in compare-against-previous grouped layouts.
+ *  Returns undefined when the layout isn't grouped or the series isn't in the group scale. */
+export function groupedBarCenter(scales: BarScaleSet, label: string, seriesKey: string): number | undefined {
+    const slot = groupedBandSlot(scales, label, seriesKey)
+    return slot && slot.x + slot.width / 2
+}
