@@ -93,21 +93,25 @@ describe('DashboardEditBar', () => {
         })
     }
 
-    it('renders the filter and breakdown controls for editors', () => {
-        setupMocks(true)
-        render(<DashboardEditBar />)
+    it.each([
+        { canEditDashboard: true, expectEditControls: true },
+        { canEditDashboard: false, expectEditControls: false },
+    ])(
+        'shows the date filter always and gates filter/breakdown controls on canEditDashboard=$canEditDashboard',
+        ({ canEditDashboard, expectEditControls }) => {
+            setupMocks(canEditDashboard)
+            render(<DashboardEditBar />)
 
-        expect(screen.getByTestId('date-filter')).toBeInTheDocument()
-        expect(screen.getByTestId('property-filters')).toBeInTheDocument()
-        expect(screen.getByTestId('breakdown-filter')).toBeInTheDocument()
-    })
+            // The date filter only previews via URL params, so viewers keep it.
+            expect(screen.getByTestId('date-filter')).toBeInTheDocument()
 
-    it('hides the filter and breakdown controls for viewers but keeps the date filter', () => {
-        setupMocks(false)
-        render(<DashboardEditBar />)
-
-        expect(screen.getByTestId('date-filter')).toBeInTheDocument()
-        expect(screen.queryByTestId('property-filters')).not.toBeInTheDocument()
-        expect(screen.queryByTestId('breakdown-filter')).not.toBeInTheDocument()
-    })
+            if (expectEditControls) {
+                expect(screen.getByTestId('property-filters')).toBeInTheDocument()
+                expect(screen.getByTestId('breakdown-filter')).toBeInTheDocument()
+            } else {
+                expect(screen.queryByTestId('property-filters')).not.toBeInTheDocument()
+                expect(screen.queryByTestId('breakdown-filter')).not.toBeInTheDocument()
+            }
+        }
+    )
 })
