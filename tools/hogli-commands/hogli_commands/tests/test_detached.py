@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+import click
 from click.testing import CliRunner
 from hogli.cli import cli
 from hogli.manifest import REPO_ROOT
@@ -136,3 +137,18 @@ def test_stop_no_sweep_skips_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert result.exit_code == 0
     assert sweep_calls == {}
+
+
+def test_stop_sweep_failure_does_not_mask_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    # stop already succeeded; a failing/aborted cleanup sweep must still surface
+    # phrocs' own exit code rather than the swept exception.
+    _patch_stop(monkeypatch, returncode=2)
+
+    def boom(**kwargs) -> int:
+        raise click.Abort()
+
+    monkeypatch.setattr("hogli_commands.doctor.sweep_orphaned_processes", boom)
+
+    result = runner.invoke(cli, ["stop"])
+
+    assert result.exit_code == 2

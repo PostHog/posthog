@@ -380,7 +380,14 @@ def _stop_dev_stack(timeout: int, yes: bool, no_sweep: bool) -> None:
     if not no_sweep:
         # Safety net: phrocs now reaps escaped descendants itself, but processes
         # orphaned by an earlier unclean shutdown still linger — clean those too.
-        sweep_orphaned_processes(assume_yes=yes)
+        # The sweep is best-effort: stop already succeeded, so never let it mask
+        # phrocs' exit code (e.g. Ctrl+C at the confirm prompt, or a sweep bug).
+        try:
+            sweep_orphaned_processes(assume_yes=yes)
+        except click.Abort:
+            click.echo("Cleanup skipped — run `hogli doctor:zombies` later to remove leftovers.")
+        except Exception as exc:
+            click.echo(f"Cleanup sweep failed: {exc}", err=True)
 
     raise SystemExit(result.returncode)
 
