@@ -14,8 +14,9 @@ compatibility: >
   signal_scout_internal:write for scratchpad-remember/forget and emit-signal). Assumes the signals-scout MCP family is available (project-profile-get, runs-list,
   scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal), the analytics + LLM
   tools (query-llm-traces-list, query-llm-trace, execute-sql, get-llm-total-costs-for-project,
-  llma-evaluation-list, llma-evaluation-summary-create, llma-tagger-list,
-  llma-score-definition-list, llma-clustering-job-list, llma-prompt-list, read-data-schema),
+  llma-evaluation-list, llma-evaluation-get, llma-evaluation-test-hog,
+  llma-evaluation-summary-create, llma-tagger-list, llma-score-definition-list,
+  llma-clustering-job-list, llma-prompt-list, llma-prompt-get, read-data-schema),
   and the bundled deep-dive skills (exploring-llm-costs / -traces / -evaluations / -clusters,
   querying-posthog-data).
 metadata:

@@ -10,21 +10,12 @@ For each lens below: the **signal** (the change that's worth a finding), the
 **dimensions** to slice by to localize it, the **deep-dive skill** to read for the exact
 queries, and the **discipline** (what's noise here).
 
-## Two cross-cutting habits
+## Before you start
 
-- **Discover the team's dimensions — don't guess them.** Beyond the built-ins
-  (`$ai_model`, `$ai_provider`, `ai_product`, `distinct_id`, `$ai_span_name`,
-  `$ai_http_status`, `$ai_tools_called`), teams attach custom properties (`feature`,
-  `tenant_id`, `workflow_name`, `environment`). Use `read-data-schema`
-  (`event_properties` / `event_property_values` on `$ai_generation`) to find which exist,
-  and remember the ones that produce interesting splits as
-  `pattern:llm_analytics:dimensions` so future runs slice by them directly instead of
-  rediscovering them.
-- **Trend → spike → localize → sample.** Look at the metric over a trend window (is the
-  newest _complete_ bucket off the team's own baseline?), confirm it's a real move and not
-  diurnal/weekly seasonality, slice by a dimension to localize which model / user /
-  product / tool drove it, then pull one or two representative traces via `query-llm-trace`
-  as evidence. A finding with no localized cause and no sample is rarely worth emitting.
+The two cross-cutting habits every lens leans on — **discover the team's dimensions**
+(don't guess them) and **trend → spike → localize → sample** — live in `SKILL.md`, the
+always-read surface, so they aren't restated here to avoid drift. The per-lens detail below
+assumes them.
 
 ## Quick-probe HogQL gotchas
 
