@@ -554,14 +554,14 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (values.allRolesUnassigned) {
                     actions.setAllRolesUnassigned(false)
                 }
-                if (values.csmFilter !== null) {
-                    actions.setCsmFilter(null)
+                if (values.csmFilter.length > 0) {
+                    actions.setCsmFilter([])
                 }
-                if (values.accountExecutiveFilter !== null) {
-                    actions.setAccountExecutiveFilter(null)
+                if (values.accountExecutiveFilter.length > 0) {
+                    actions.setAccountExecutiveFilter([])
                 }
-                if (values.accountOwnerFilter !== null) {
-                    actions.setAccountOwnerFilter(null)
+                if (values.accountOwnerFilter.length > 0) {
+                    actions.setAccountOwnerFilter([])
                 }
                 const term = externalId || name
                 if (term) {
