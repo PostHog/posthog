@@ -975,11 +975,13 @@ class Lambda(Expr):
 @dataclass(kw_only=True, slots=True)
 class Constant(Expr):
     value: Any
-    # Unset (None) by default, like `type`: a ClickHouse-printer rendering hint, not part of the logical AST, so the
-    # "skip None" AST serializers (Hog compilers, `pretty_dataclasses` snapshots) leave it out. Set to True only for the
-    # fixed sentinels the ClickHouse physical passes emit (the nullIf ''/'null' scrub literals and the quote-trim regex),
-    # so the lowered SQL matches the printer's hand-built inline strings.
-    inline: bool | None = None
+    # Internal ClickHouse-printer hint, not part of the logical AST. Set True only by the physical pass, only for its
+    # fixed scrubbing sentinels (the nullIf ''/'null' literals, the quote-trim regex, the 'true'/'false' the property
+    # group stores booleans as), to render them inline instead of as a bound parameter — matching the inline string the
+    # `json_extract_trim_quotes` helper emits. The printer enforces a fixed allowlist (`INLINE_SENTINEL_LITERALS`), so it
+    # can never inline arbitrary text. Unset (None) by default, like `type`, so the "skip None" AST serializers (Hog
+    # compilers, `pretty_dataclasses` snapshots) leave it out.
+    inline_sentinel: bool | None = None
 
 
 # Allowlist for `Keyword.name`; the SQL printer interpolates it verbatim (CH returns `name` directly, Postgres uppercases). Restricted to the Postgres-family time pseudo-functions from `resolver.POSTGRES_KEYWORD_TYPES` — a broader `str.isidentifier()` check would still admit arbitrary Python identifiers and let them emit as unquoted ClickHouse tokens.

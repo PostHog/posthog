@@ -54,6 +54,12 @@ COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
     *(f"mat_{prop}" for prop in AI_BLOOM_FILTER_PROPERTIES),
 }
 
+# The only string literals a `Constant(inline_sentinel=True)` is allowed to render inline (escaped, unparameterized): the
+# fixed scrubbing markers the physical pass emits — the nullIf ''/'null' sentinels, the quote-trim regex, and the
+# 'true'/'false' the property-group map stores booleans as. The printer refuses to inline anything else, so the flag can
+# never be turned into an unparameterized read of arbitrary (e.g. user-supplied) text.
+INLINE_SENTINEL_LITERALS = frozenset({"", "null", "true", "false", '^"|"$'})
+
 
 class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
@@ -349,9 +355,12 @@ class ClickHousePrinter(BasePrinter):
         return f"ifNull({op}, 0)"
 
     def visit_constant(self, node: ast.Constant):
-        # Opt-in inline rendering for known-safe literal strings (the fixed sentinels the physical passes emit), so the
-        # lowered SQL matches the printer's hand-built inline strings instead of a parameter placeholder.
-        if node.inline and isinstance(node.value, str):
+        # Opt-in inline rendering for the fixed scrubbing sentinels the physical pass emits, so its AST-built scrub renders
+        # identically to the `json_extract_trim_quotes` helper's inline string. Gated to a fixed allowlist: the flag is set
+        # only internally, so a value outside it is a bug — refuse to inline it rather than emit unparameterized text.
+        if node.inline_sentinel and isinstance(node.value, str):
+            if node.value not in INLINE_SENTINEL_LITERALS:
+                raise ImpossibleASTError(f"inline_sentinel set on a non-sentinel constant: {node.value!r}")
             return self._print_escaped_string(node.value)
         if (
             node.value is None

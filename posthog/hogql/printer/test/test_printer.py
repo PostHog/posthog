@@ -2595,6 +2595,21 @@ class TestPrinter(BaseTest):
         self.assertIn("mat_foo", sql)
         self.assertNotIn("JSONExtractRaw(events.properties", sql)
 
+    def _print_constant(self, node: ast.Constant) -> str:
+        return print_prepared_ast(
+            node, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "clickhouse", stack=[]
+        )
+
+    def test_inline_sentinel_renders_allowlisted_literal_inline(self):
+        # An allowlisted scrubbing sentinel renders inline (escaped), not as a bound parameter.
+        self.assertEqual(self._print_constant(ast.Constant(value="null", inline_sentinel=True)), "'null'")
+
+    def test_inline_sentinel_rejects_non_allowlisted_literal(self):
+        # The flag is internal-only; setting it on anything outside the sentinel allowlist is a bug, so the printer
+        # refuses to inline it rather than emit unparameterized text.
+        with self.assertRaises(ImpossibleASTError):
+            self._print_constant(ast.Constant(value="evil'; DROP", inline_sentinel=True))
+
     def test_field_nullable_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
         context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore

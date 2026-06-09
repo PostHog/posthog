@@ -177,12 +177,13 @@ def _blob_field_type_of(node: ast.JSONFieldAccess) -> ast.FieldType | None:
 
 
 def _sentinel(value: str) -> ast.Constant:
-    """A fixed scrubbing constant ('' / 'null' / the quote-trim regex), printed inline rather than as a parameter.
+    """A fixed scrubbing constant ('' / 'null' / the quote-trim regex / 'true' / 'false'), rendered inline not parameterized.
 
-    These are fixed, known-safe literals; `inline=True` makes the printer emit them inline (escaped), so the SQL matches
-    what the old printer hand-built. They don't affect skip-index eligibility (that depends on the column being bare).
+    `inline_sentinel` makes the printer emit the value inline (escaped), so this AST-built scrub renders identically to the
+    `json_extract_trim_quotes` helper's inline string. The printer only honors it for the fixed `INLINE_SENTINEL_LITERALS`
+    set. Inlining doesn't affect skip-index eligibility (that depends on the column being bare).
     """
-    return ast.Constant(value=value, inline=True)
+    return ast.Constant(value=value, inline_sentinel=True)
 
 
 def _json_extract_trim_quotes_expr(field_expr: ast.Expr, keys: list[str | int]) -> ast.Expr:
