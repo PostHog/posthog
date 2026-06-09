@@ -104,10 +104,13 @@ export async function createRedisClient(
         .on('error', (error) => {
             errorCounter++
             if (errorCounter > REDIS_ERROR_COUNTER_LIMIT) {
-                // Only capture once we give up: with maxRetriesPerRequest: -1 a single
-                // transient blip re-emits 'error' on every reconnect attempt, so capturing
-                // each one floods error tracking. The give-up case is the genuine incident.
-                captureException(error)
+                if (errorCounter === REDIS_ERROR_COUNTER_LIMIT + 1) {
+                    // Capture exactly once, the first time we give up: with
+                    // maxRetriesPerRequest: -1 'error' keeps firing on every reconnect
+                    // attempt (including throughout the graceful-kill window), so capturing
+                    // each one floods error tracking. The give-up case is the genuine incident.
+                    captureException(error)
+                }
                 logger.error(
                     '😡',
                     `${connectionId}Redis error encountered! host: ${redisHost} Enough of this, I quit!`,
