@@ -76,6 +76,14 @@ class PropertyGroupManager:
                 if group_definition.contains(property_key):
                     yield group_definition.get_column_name(source_column, group_name)
 
+    def get_group_columns_to_source_columns(self, table: TableName) -> dict[str, PropertySourceColumnName]:
+        """Map each of the table's property group column names to the source column its keys come from."""
+        return {
+            group_definition.get_column_name(source_column, group_name): source_column
+            for source_column, column_groups in self.__groups.get(table, {}).items()
+            for group_name, group_definition in column_groups.items()
+        }
+
     def get_create_table_pieces(self, table: TableName) -> Iterable[str]:
         """
         Returns an iterable of SQL DDL chunks that can be used to define all property groups for the provided table as

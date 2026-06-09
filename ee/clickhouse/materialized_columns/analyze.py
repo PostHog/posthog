@@ -5,6 +5,7 @@ from typing import Optional
 import structlog
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.property_groups import property_groups
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.settings import CLICKHOUSE_CLUSTER
 
@@ -26,7 +27,14 @@ Suggestion = tuple[TableWithProperties, TableColumn, PropertyName]
 logger = structlog.get_logger(__name__)
 
 
-def _analyze(since_hours_ago: int, min_query_time: int, team_id: Optional[int] = None) -> list[Suggestion]:
+def _analyze(
+    since_hours_ago: int,
+    min_query_time: int,
+    team_id: Optional[int] = None,
+    *,
+    min_bytes_read: int = 20 * 1000 * 1000 * 1000,
+    min_read_rows: int = 5_000_000,
+) -> list[Suggestion]:
     "Finds columns that should be materialized"
 
     raw_queries = sync_execute(
@@ -37,8 +45,8 @@ WITH
         159, -- TIMEOUT EXCEEDED
         160, -- TOO SLOW (estimated query execution time)
     ) as exception_codes,
-    20 * 1000 * 1000 * 1000 as min_bytes_read,
-    5000000 as min_read_rows
+    {min_bytes_read} as min_bytes_read,
+    {min_read_rows} as min_read_rows
 SELECT
     arrayJoin(
         extractAll(query, 'JSONExtract[a-zA-Z0-9]*?\\((?:[a-zA-Z0-9\\`_-]+\\.)?(.*?), .*?\\)')
@@ -80,10 +88,89 @@ LIMIT 100 -- Make sure we don't add 100s of columns in one run
             min_query_time=min_query_time,
             team_id_filter=f"and JSONExtractInt(log_comment, 'team_id') = {team_id}" if team_id else "",
             cluster=CLICKHOUSE_CLUSTER,
+            min_bytes_read=min_bytes_read,
+            min_read_rows=min_read_rows,
         ),
     )
 
-    return [("events", table_column, property_name) for (table_column, property_name) in raw_queries]
+    suggestions = [("events", table_column, property_name) for (table_column, property_name) in raw_queries]
+
+    # With property groups enabled, the printer reads unmaterialized properties through map columns
+    # (e.g. properties_group_custom['foo']) instead of JSONExtract, so those reads never match the regex
+    # above even when a dedicated materialized column would cut the scan by orders of magnitude. Run the
+    # same gating over property group map accesses and translate each group column back to its source
+    # column. Group columns are restricted to a known alternation so unrelated map accesses never match.
+    group_columns_to_source = property_groups.get_group_columns_to_source_columns("events")
+    if group_columns_to_source:
+        group_column_alternation = "|".join(sorted(group_columns_to_source))
+        group_column_prefilter = " OR ".join(
+            f"query LIKE '%{group_column}[%'" for group_column in sorted(group_columns_to_source)
+        )
+        raw_group_queries = sync_execute(
+            """
+WITH
+    {min_query_time} as slow_query_minimum,
+    (
+        159, -- TIMEOUT EXCEEDED
+        160, -- TOO SLOW (estimated query execution time)
+    ) as exception_codes,
+    {min_bytes_read} as min_bytes_read,
+    {min_read_rows} as min_read_rows
+SELECT
+    group_access[1] as column,
+    group_access[2] as prop_to_materialize
+FROM
+    (
+        SELECT
+            arrayJoin(
+                extractAllGroups(query, '({group_column_alternation})\\[\\'([a-zA-Z0-9_\\-\\.\\$\\/\\ ]*?)\\'\\]')
+            ) as group_access,
+            exception_code,
+            query_duration_ms
+        FROM
+            clusterAllReplicas({cluster}, system, query_log)
+        WHERE
+            query_start_time > now() - toIntervalHour({since})
+            and ({group_column_prefilter})
+            and type > 1
+            and is_initial_query
+            and JSONExtractString(log_comment, 'access_method') != 'personal_api_key' -- API requests failing is less painful than queries in the interface
+            and JSONExtractString(log_comment, 'kind') != 'celery'
+            and JSONExtractInt(log_comment, 'team_id') != 0
+            and query not like '%person_distinct_id2%' -- Old style person properties that are joined, no need to optimize those queries
+            and read_bytes > min_bytes_read
+            and (exception_code IN exception_codes OR query_duration_ms > slow_query_minimum)
+            and read_rows > min_read_rows
+            {team_id_filter}
+    )
+GROUP BY
+    1, 2
+HAVING
+    countIf(exception_code IN exception_codes) > 0 OR countIf(query_duration_ms > slow_query_minimum) > 9
+ORDER BY
+    countIf(exception_code IN exception_codes) DESC,
+    countIf(query_duration_ms > slow_query_minimum) DESC
+LIMIT 100 -- Make sure we don't add 100s of columns in one run
+            """.format(
+                since=since_hours_ago,
+                min_query_time=min_query_time,
+                team_id_filter=f"and JSONExtractInt(log_comment, 'team_id') = {team_id}" if team_id else "",
+                cluster=CLICKHOUSE_CLUSTER,
+                group_column_alternation=group_column_alternation,
+                group_column_prefilter=group_column_prefilter,
+                min_bytes_read=min_bytes_read,
+                min_read_rows=min_read_rows,
+            ),
+        )
+
+        seen = set(suggestions)
+        for group_column, property_name in raw_group_queries:
+            suggestion = ("events", group_columns_to_source[group_column], property_name)
+            if suggestion not in seen:
+                seen.add(suggestion)
+                suggestions.append(suggestion)
+
+    return suggestions
 
 
 def materialize_properties_task(
