@@ -103,9 +103,9 @@ function MetricCardCell({
             aria-pressed={clickable ? !!item.selected : undefined}
         >
             {usedLazyPrecompute ? (
-                <PreAggregatedBadge variant="precomputed" />
+                <PreAggregatedBadge variant="precomputed" position="bottom-right" />
             ) : usedPreAggregatedTables ? (
-                <PreAggregatedBadge variant="preagg" />
+                <PreAggregatedBadge variant="preagg" position="bottom-right" />
             ) : null}
             <MetricCard
                 title={<MetricCardTitle label={labelFromKey(item.key)} item={item} />}
