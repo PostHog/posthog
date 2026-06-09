@@ -224,6 +224,32 @@ class TestQuotaGrants(_VisionQuotaTestCase):
             assert snapshot.remaining == 1
 
 
+class TestReplayQuotaGrantAdmin(_VisionQuotaTestCase):
+    def test_initial_form_renders(self) -> None:
+        # Regression: `expires_at` initial must be a datetime, not a str. The admin's
+        # SplitDateTimeWidget.decompress runs `to_current_timezone` → `is_aware` →
+        # `value.utcoffset()`, which AttributeErrors on a str and 500s the add page in prod.
+        # We render the form directly instead of GETting /admin/...add/ because the admin
+        # URLs are gated on ADMIN_PORTAL_ENABLED, which defaults False in product test env.
+        from django.contrib import admin as django_admin
+        from django.test import RequestFactory
+
+        from products.replay_vision.backend.admin import ReplayQuotaGrantAdmin
+
+        self.user.is_staff = True
+        self.user.save()
+        request = RequestFactory().get("/admin/replay_vision/replayquotagrant/add/")
+        request.user = self.user
+
+        grant_admin = ReplayQuotaGrantAdmin(ReplayQuotaGrant, django_admin.site)
+        form_class = grant_admin.get_form(request)
+        form = form_class(initial=grant_admin.get_changeform_initial_data(request))
+        # `as_p()` triggers widget render, which is where the bug fires.
+        html = form.as_p()
+        assert 'name="expires_at_0"' in html
+        assert 'name="granted_by"' in html
+
+
 class TestVisionQuotaEndpoint(_VisionQuotaTestCase):
     @property
     def quota_url(self) -> str:
