@@ -40,7 +40,7 @@
 <!-- Fill this section if an agent co-authored or authored this PR. Remove it for fully human-authored PRs. -->
 
 <!-- Autonomy — keep one of the two options on the line below:
-     - "Human-driven (agent-assisted)" when a person directed the work; also assign that person as the PR assignee (the DRI).
+     - "Human-driven (agent-assisted)" when a person directed the work — assign that person as the PR assignee (the DRI).
      - "Fully autonomous" when no human drove it; leave the PR unassigned for the owning team to triage. -->
 **Autonomy:** Human-driven (agent-assisted) — or — Fully autonomous
 
@@ -53,7 +53,7 @@
 -->
 <!-- Rules for agent-authored PRs:
      - All PRs must be attributable to a human author, even if agent-assisted.
-     - Assign the human who directed the work as the PR assignee (the DRI) whenever there is one. For fully autonomous PRs with no human driver, leave it unassigned and set Autonomy to "Fully autonomous".
+     - If a human directed this work, assign them as the PR assignee (the DRI) — actually set the assignee, don't just name them here. Leave a PR unassigned only when it is fully autonomous with no human driver (set Autonomy to "Fully autonomous").
      - Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.
      - Agent-authored PRs always require human review — do not self-merge or auto-approve.
      - Do NOT claim manual testing you haven't done.
