@@ -11,6 +11,21 @@ For the raw queue of features still _waiting_ for a plan, see
 [`_TODO.md`](_TODO.md). Every bullet there now has a corresponding
 plan; this file is the order we'd build them in.
 
+## Fully shipped — moved to [`shipped/`](shipped/)
+
+Plans whose core design has fully landed as code now live in
+[`plans/shipped/`](shipped/) as rationale-of-record. They keep their
+inline roadmap entries below for context:
+
+- [`session-restart-and-state-machine.md`](shipped/session-restart-and-state-machine.md) (A.3)
+- [`cron-trigger-scheduler.md`](shipped/cron-trigger-scheduler.md) (C.5)
+- [`typed-bundle-authoring-api.md`](shipped/typed-bundle-authoring-api.md) (authoring infra)
+- [`approvals-ui.md`](shipped/approvals-ui.md) (console half of B.2 v1)
+- [`container-builds.md`](shipped/container-builds.md) (infra)
+
+Many other plans are **partially shipped** (v0 landed, later versions
+open) and stay here with `v0 ✅`-style annotations.
+
 ## Layers
 
 We group the plans into five layers, roughly:
@@ -96,7 +111,7 @@ spec shape it introduces.
 - No new state, no new columns, no compaction, no runner rehydrate
   for v0. Those land later if real usage demands it.
 
-- [`session-restart-and-state-machine.md`](session-restart-and-state-machine.md)
+- [`session-restart-and-state-machine.md`](shipped/session-restart-and-state-machine.md)
   — **Ben** — the load-bearing state machine
   `queued → running → completed → closed` (plus `cancelled`,
   `failed`) every trigger and resume path consumes. **v0 ✅ shipped:**
@@ -133,9 +148,10 @@ the call before dispatch; `agent_tool_approval_request` table with
 canonical-args idempotency; janitor `/approvals/*` HTTP surface;
 Django proxy via janitor_client (team-admin auth); non-blocking
 session — model receives a synthetic queued tool_result and continues.
-v1 adds the session-detail approvals tab + team-level inbox UI,
-notification fan-out, and richer approver scopes (depends on B.1's
-principal model).
+v1 adds notification fan-out and richer approver scopes (depends on
+B.1's principal model). The **console approvals UI** half of v1 — fleet
+inbox, per-agent tab, detail/decision drawer, count badges — has
+already shipped; see [`shipped/approvals-ui.md`](shipped/approvals-ui.md).
 
 **Cross-cut with C.2 — gating MCP tools is unresolved.** The v0
 dispatcher only gates entries in `spec.tools`; MCP tools materialise
@@ -244,12 +260,15 @@ from ClickHouse on resume / display (TODO B8). Depends on **A** for
 the source-of-truth contract (conversation JSONB is canonical for
 live state; ClickHouse is the audit log for display).
 
-### C.5 [`cron-trigger-scheduler.md`](cron-trigger-scheduler.md) — **Danilo** (after A)
+### C.5 [`cron-trigger-scheduler.md`](shipped/cron-trigger-scheduler.md) — **Danilo** — ✅ shipped
 
 Wakes `cron`-trigger agents from the janitor. Small platform piece
-sitting under C because it's a capability extension; depends on **A**
-for the `external_key_reuse` policy that lets recurring firings
-coalesce into one long-running session. Required for **D.2** v3.
+sitting under C because it's a capability extension; coalesces
+recurring firings into one long-running session via `external_key`.
+**v0 (the whole thing) ✅ shipped** — `cronTick()` alongside the
+janitor sweep, catch-up modes, `idempotency_key` dedup, manual-fire
+endpoint, e2e coverage. Only §10 v1 polish remains. Required for
+**D.2** v3.
 
 ### C.6 [`revision-routing.md`](revision-routing.md)
 
@@ -471,16 +490,17 @@ Assuming no parallelism, a reasonable order:
    `repo-write`, then `repo-pr`. Each tier expands trust and depends
    on the prior layers' enforcement.
 7. **C.2 / C.3 / C.4 / C.5** — runtime MCPs, skill templates,
-   resumable conversations, cron scheduler. Independent; ship in
-   parallel based on demand. **C.5** is a small janitor extension and
-   is the cheapest of the four.
-   _C.6 revision-routing v0 ✅ shipped (local-dev suffix), v1
-   partially shipped; C.7 streaming-and-reasoning v0a ✅ shipped
-   (reasoning knob), stream surface pending._
+   resumable conversations, cron scheduler. Independent; shipped in
+   parallel based on demand. _C.2 runtime-mcps ✅ shipped; C.3
+   skill-templates v0 ✅ shipped; C.5 cron-trigger-scheduler ✅
+   shipped; C.4 resumable-conversations still next-epoch. C.6
+   revision-routing v0 ✅ shipped (local-dev suffix), v1 partially
+   shipped; C.8 streaming-and-reasoning v0a/v0b/v1 ✅ shipped, v2
+   delta-filtering pending._
 8. **D.1** — agent authoring flow. Test-run + judge infrastructure.
 9. **D.2 §11 v1+** — the rest of self-healing. Manual introspection
    first, then replay-and-grade once D.1's test infrastructure
-   exists, then cron-driven runs once **C.5** lands.
+   exists, then cron-driven runs (C.5 cron now shipped).
 10. **E.1** — agent console website. Read-mostly v0 (overview,
     bundle, revisions, sessions) ships on top of **A** + **C.streaming**
     - **C.routing** alone — does not strictly require **D.1** to land
@@ -501,6 +521,24 @@ Small, known loose ends — captured here so they're not lost. Each is a deliber
 
 - **Modal sandbox e2e is gated on an explicit `SANDBOX_HOST_IMAGE`** alongside `MODAL_TOKEN_*`. Default tag is `ghcr.io/posthog/posthog-agent-sandbox-host:master`, which lags any in-flight branch — without the explicit gate, every local `pnpm test` with Modal creds surfaces "image build failed" red. Fix path: resolve the tag from `state.yaml` per branch, or pin a known-stable digest. (`services/agent-shared/src/sandbox/sandbox-modal.test.ts`)
 - **`S3JsonlTabularStore` ETag canary skipped on SeaweedFS.** SeaweedFS's S3 API doesn't honour `If-Match` strictly enough for the racing-append assertion to converge — its read-after-write window lets a retry write against a stale ETag and SeaweedFS accepts it. Real S3 still runs the canary in CI. Fix path: switch the optimistic-concurrency primitive (sidecar lock / per-row file), or upgrade SeaweedFS if a newer release tightens If-Match. (`services/agent-shared/src/memory/s3-tabular-store.test.ts`)
+
+## Newer plans not yet placed in the layer map
+
+Designed since the layer map above was drawn; not yet sequenced into a
+workstream. All are console/observability/infra surfaces that sit
+above or beside **E.1**:
+
+- [`sessions-world-map.md`](sessions-world-map.md) — fleet world-map
+  view of session origins in the console. **Not built** (needs a
+  session `origin` column + GeoIP + a janitor breakdown endpoint).
+  This is the concrete shape of the "agent fleet view" gap noted below.
+- [`session-failure-observability.md`](session-failure-observability.md)
+  — surface why a session failed (failure reason + scrubbed log tail +
+  detail banner). **Not built.** Owner: dylan.
+- [`public-subdomain-routing.md`](public-subdomain-routing.md) — the
+  ops/infra sequencing companion to **C.6** revision-routing
+  (Terraform / wildcard cert / DNS live in `posthog-cloud-infra`).
+  Routing-layer code is ready; infra apply is the remaining step.
 
 ## What's _not_ in scope here
 

@@ -414,24 +414,21 @@ calling it from the concierge ("here's a test run id, grade it
 against rubric R"). The judge could itself be a deployed agent,
 which is the nicest dogfooding.
 
-### 8.10 Multi-mode auth on a single revision
+### 8.10 Multi-mode auth on a single revision — ✅ shipped
 
-**Status:** today's `spec.auth.mode` is a single enum
-(`public` | `pat` | `posthog_internal` | `shared_secret`).
+**Status:** ✅ shipped. `spec.auth.modes` is now an array of
+`AuthModeSchema` discriminated variants
+([`spec.ts`](../../../services/agent-shared/src/spec/spec.ts) —
+`AuthConfigSchema.modes`), accepting `public` / `pat` / `oauth` /
+`jwt` / `shared_secret` / `posthog_internal` in any combination on a
+single revision; the ingress verifier tries each in order, first match
+wins. The concierge fixture already declares
+`["oauth", "pat", "posthog_internal"]`.
 
-**Why it matters:** the concierge needs to serve console
-(`posthog_internal`), IDE (`oauth`), and scripts (`pat`) at the
-same time — without a multi-mode shape, one revision can serve
-only one surface and we'd need multiple deployments.
-
-**What's needed:**
-
-- `spec.auth.modes: string[]` (or `spec.auth: AuthModeSchema | AuthModeSchema[]`).
-- New `oauth` mode + `oauth` config (`{ provider, scopes[] }`).
-- The ingress trigger handler discriminates by request shape
-  (Bearer token type / presence of MCP OAuth headers).
-- `oauth-proxy` mints MCP-OAuth-shaped tokens; the runner
-  validates against the same provider.
+This closes what was the blocking gap here. The remaining concierge
+dependencies are the **runtime-MCP per-tool approval gating** and the
+`session_principal` approver scope (see §8.2 + `_TODO.md`'s "MCP tool
+approval gating" entry), not auth modes.
 
 ### 8.11 MCP-tool-level approval policies
 

@@ -72,17 +72,18 @@ file (and out of this list) once the design lands.
       lever — wasted tokens add up fast on long-running chat agents
       with idle UIs.
 
-- [ ] **Cron trigger scheduler** (Dylan — picking up after runtime-mcps
-      PR 7) — see
-      [`cron-trigger-scheduler.md`](cron-trigger-scheduler.md).
-      Janitor runs `cronTick()` alongside its sweep; catch-up modes
-      (`all` / `most_recent` / `skip`) bound the outage-recovery blast
-      radius; `agent_cron_firing` table dedups across replicas; firings
-      coalesce into long-running sessions via `external_key_reuse`.
-      Plan was checked off prematurely — the most recent commit on the
-      plan file is `078ce5bb89 wip — cron plan, auth refresh, hogli
-  ai-gateway slot`; no `cronTick` or `agent_cron_firing` exist in
-      the codebase yet.
+- [x] ~~**Cron trigger scheduler**~~ — ✅ shipped; see
+      [`cron-trigger-scheduler.md`](shipped/cron-trigger-scheduler.md).
+      Janitor runs `cronTick()`
+      ([`cron-tick.ts`](../../../services/agent-janitor/src/cron-tick.ts))
+      alongside its sweep; catch-up modes (`all` / `most_recent` /
+      `skip`) bound the outage-recovery blast radius; firings coalesce
+      into long-running sessions via `external_key`. Dedup is via the
+      session `idempotency_key` partial unique index
+      ([`1780346228100_agent_session_idempotency_key.sql`](../../../services/agent-migrations/migrations/1780346228100_agent_session_idempotency_key.sql))
+      — the `agent_cron_firing` table the earlier draft imagined was
+      never needed. e2e coverage in
+      [`cron-trigger.test.ts`](../../../services/agent-tests/src/cases/cron-trigger.test.ts).
 
 - [x] ~~**Streaming deltas + unified reasoning knob**~~ — see
       [`streaming-and-reasoning.md`](streaming-and-reasoning.md).
@@ -249,17 +250,16 @@ message, session_id? })` tool, sessions exposed as MCP
       refuses non-live invokes without it. Draft's own
       `spec.auth.mode` is unchanged — this is a layer above it.
 
-- [ ] **Bundle manifest schema** — **superseded** by
-      [`typed-bundle-authoring-api.md`](typed-bundle-authoring-api.md).
-      Original idea (spec-derived path allowlist on a generic file
-      API) is moot when the file API itself goes away — see
-      [`bundle-manifest-schema.md`](bundle-manifest-schema.md) for
-      the archived design. Keep the bullet here as a back-reference
-      until the typed API ships and we archive both entries
-      together.
+- [x] ~~**Bundle manifest schema**~~ — **superseded** by
+      [`typed-bundle-authoring-api.md`](shipped/typed-bundle-authoring-api.md)
+      (now shipped). Original idea (spec-derived path allowlist on a
+      generic file API) is moot now the file API has gone away — see
+      [`bundle-manifest-schema.md`](bundle-manifest-schema.md) for the
+      archived design.
 
-- [ ] **Typed bundle authoring API + full janitor e2e suite** — see
-      [`typed-bundle-authoring-api.md`](typed-bundle-authoring-api.md).
+- [x] ~~**Typed bundle authoring API + full janitor e2e suite**~~ — ✅
+      shipped; see
+      [`typed-bundle-authoring-api.md`](shipped/typed-bundle-authoring-api.md).
       Replace the generic `/file?path=X` bundle store with typed
       resource endpoints (`/agent_md`, `/skills/:id`, `/tools/:id`,
       `/bundle` for GET+PUT). `spec.skills[]` / `spec.tools[]`

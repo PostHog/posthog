@@ -1,33 +1,39 @@
 # Agent platform: container build + deploy plan
 
+**Status:** ✅ shipped. The multi-service [`services/agents/Dockerfile`](../../../../services/agents/Dockerfile)
+and the Next.js [`services/agent-console/Dockerfile`](../../../../services/agent-console/Dockerfile)
+both exist, and CI builds/pushes on master + PRs
+(`.github/workflows/ci-agents.yml`, `ci-agent-console.yml`,
+`ci-agent-container.yml`).
+
 ## Context
 
 The agent platform now has three production Node services that have stayed
 local-only:
 
-- [services/agent-ingress/](../../../services/agent-ingress/) — HTTP entry (chat, webhook, slack, MCP) → enqueues sessions
-- [services/agent-runner/](../../../services/agent-runner/) — queue worker that drives sessions through pi-ai + tools
-- [services/agent-janitor/](../../../services/agent-janitor/) — authoring HTTP proxy + queue sweep timer
+- [services/agent-ingress/](../../../../services/agent-ingress/) — HTTP entry (chat, webhook, slack, MCP) → enqueues sessions
+- [services/agent-runner/](../../../../services/agent-runner/) — queue worker that drives sessions through pi-ai + tools
+- [services/agent-janitor/](../../../../services/agent-janitor/) — authoring HTTP proxy + queue sweep timer
 
 …a migration runner that owns the `AGENT_DB_URL` schema:
 
-- [services/agent-migrations/](../../../services/agent-migrations/) — SQL-only [node-pg-migrate](https://github.com/salsita/node-pg-migrate) runner + the migrations themselves. Run as a one-shot Job (chart hook / init container) before each rollout. Equivalent to the rust `sqlx-migrate` image.
+- [services/agent-migrations/](../../../../services/agent-migrations/) — SQL-only [node-pg-migrate](https://github.com/salsita/node-pg-migrate) runner + the migrations themselves. Run as a one-shot Job (chart hook / init container) before each rollout. Equivalent to the rust `sqlx-migrate` image.
 
 …plus a UI service:
 
-- [services/agent-console/](../../../services/agent-console/) — Next.js authoring console
+- [services/agent-console/](../../../../services/agent-console/) — Next.js authoring console
 
-The deploy runbook ([docs/agent-platform/docs/deploy-runbook.md](../docs/deploy-runbook.md))
+The deploy runbook ([docs/agent-platform/docs/deploy-runbook.md](../../docs/deploy-runbook.md))
 already specifies env vars per service, but there is no Dockerfile or CI
 workflow producing images. Right now the only agent Dockerfile in tree is
-[services/agent-sandbox-host/Dockerfile](../../../services/agent-sandbox-host/Dockerfile)
+[services/agent-sandbox-host/Dockerfile](../../../../services/agent-sandbox-host/Dockerfile)
 (a tiny Alpine sidecar with no build step).
 
 Goal: get these services built and pushed on every master commit and PR,
 and trigger a charts deploy on master, using the same conventions as
-[Dockerfile.node](../../../Dockerfile.node) /
-[ci-nodejs-container.yml](../../../.github/workflows/ci-nodejs-container.yml)
-and the rust pattern in [.github/rust-images.yml](../../../.github/rust-images.yml).
+[Dockerfile.node](../../../../Dockerfile.node) /
+[ci-nodejs-container.yml](../../../../.github/workflows/ci-nodejs-container.yml)
+and the rust pattern in [.github/rust-images.yml](../../../../.github/rust-images.yml).
 
 The three runtime services + the migration runner share Node 24, ESM,
 tsx, pg, and (for the services) agent-shared. Their entrypoints are
@@ -42,7 +48,7 @@ structurally different (Next.js, Node 20+).
    bundles (`ingress.mjs`, `runner.mjs`, `janitor.mjs`, `migrate.mjs`)
    plus the migration SQL files. `CMD` selects which service runs in each
    replica or one-shot job. Modelled on
-   [services/mcp/Dockerfile](../../../services/mcp/Dockerfile). Folding
+   [services/mcp/Dockerfile](../../../../services/mcp/Dockerfile). Folding
    the migrator in is deliberate: it guarantees `migrate.mjs` and the
    services that read the schema ship as the same SHA, so a rollout is
    "run the migrate Job at SHA X, then roll the services at SHA X."
@@ -61,7 +67,7 @@ new — empty other than the Dockerfile, a tiny package.json, the build
 script, and a short README explaining the multi-service image). Build
 context is the repo root so pnpm can resolve the workspace.
 
-Structure (mirrors [services/mcp/Dockerfile](../../../services/mcp/Dockerfile)):
+Structure (mirrors [services/mcp/Dockerfile](../../../../services/mcp/Dockerfile)):
 
 - `ARG NODE_VERSION=24.13.0` pinned from `.nvmrc`
 - **Build stage**
@@ -80,7 +86,7 @@ Structure (mirrors [services/mcp/Dockerfile](../../../services/mcp/Dockerfile)):
   - Copy sources for the same six packages
   - Bundle each service entrypoint to a self-contained ESM file via
     esbuild (same approach as
-    [services/mcp/scripts/build-hono.ts](../../../services/mcp/scripts/build-hono.ts)).
+    [services/mcp/scripts/build-hono.ts](../../../../services/mcp/scripts/build-hono.ts)).
     Add `services/agents/scripts/build.ts` that takes a service name and
     emits `dist/<service>.mjs`. Run it four times in the build stage —
     once per entrypoint (ingress, runner, janitor, migrate).
@@ -101,7 +107,7 @@ Structure (mirrors [services/mcp/Dockerfile](../../../services/mcp/Dockerfile)):
   - `EXPOSE 8080 8082` so the same image can serve either HTTP service.
 
 **Migrations layout detail.**
-[services/agent-migrations/src/lib.ts](../../../services/agent-migrations/src/lib.ts)
+[services/agent-migrations/src/lib.ts](../../../../services/agent-migrations/src/lib.ts)
 resolves the migrations directory as
 `resolve(dirname(import.meta.url), '../migrations')`. After bundling, the
 final `migrate.mjs` lives at `/code/dist/migrate.mjs` so the runtime
@@ -137,12 +143,12 @@ This image is **only** the console UI. Storybook is dev-time only.
 ### 3. `services/agent-sandbox-host/Dockerfile` — unchanged
 
 Already correct
-([services/agent-sandbox-host/Dockerfile](../../../services/agent-sandbox-host/Dockerfile)).
+([services/agent-sandbox-host/Dockerfile](../../../../services/agent-sandbox-host/Dockerfile)).
 Just needs CI wiring.
 
 ### 4. `.dockerignore` updates
 
-Edit root [.dockerignore](../../../.dockerignore) — it's allowlist-style,
+Edit root [.dockerignore](../../../../.dockerignore) — it's allowlist-style,
 so the new paths must be explicitly let through:
 
 ```text
@@ -166,7 +172,7 @@ services/agent-tests
 ### 5. CI workflow — `.github/workflows/ci-agent-container.yml`
 
 Single workflow with a matrix over the three images. Modelled on
-[ci-nodejs-container.yml](../../../.github/workflows/ci-nodejs-container.yml)
+[ci-nodejs-container.yml](../../../../.github/workflows/ci-nodejs-container.yml)
 but with a small matrix instead of a single image — closer to the rust
 shape, lighter than splitting into 3 workflow files.
 
@@ -206,12 +212,12 @@ Jobs:
   - `depot/setup-action`, `docker/setup-buildx-action`,
     `docker/setup-qemu-action`
   - Use the shared
-    [./.github/actions/docker-meta](../../../.github/actions/docker-meta/action.yml)
+    [./.github/actions/docker-meta](../../../../.github/actions/docker-meta/action.yml)
     composite for login (GHCR + ECR) and tag generation. Each image gets
     its own Depot project ID — the workflow ships with
     `REPLACE_WITH_DEPOT_PROJECT_ID` placeholders that must be filled in
     once the three Depot projects are created (same as
-    [.github/rust-images.yml](../../../.github/rust-images.yml)). The
+    [.github/rust-images.yml](../../../../.github/rust-images.yml)). The
     workflow will fail at the depot build step until they're set.
   - `depot/build-push-action` with
     `platforms: linux/arm64,linux/amd64`, `push: true`, `COMMIT_HASH`
@@ -247,14 +253,14 @@ Jobs:
   other side picks up the new SHA and runs `node dist/migrate.mjs up`
   before the service Deployments roll. Equivalent to how
   `sqlx-migrate` is shipped in
-  [rust-docker-build.yml](../../../.github/workflows/rust-docker-build.yml).
+  [rust-docker-build.yml](../../../../.github/workflows/rust-docker-build.yml).
   Each dispatches to `PostHog/charts` via
   `peter-evans/repository-dispatch` with the standard `commit_state_update`
   payload, using the deployer GitHub App (same step structure as the
   rust deploy job).
 
 Optional follow-up: a smoke-test workflow analogous to
-[rust-smoke-test-build.yml](../../../.github/workflows/rust-smoke-test-build.yml)
+[rust-smoke-test-build.yml](../../../../.github/workflows/rust-smoke-test-build.yml)
 that builds without pushing on PRs that don't change
 `services/agent-*/**`. Not in scope for v1.
 
@@ -276,7 +282,7 @@ deploys, [PostHog/charts](https://github.com/PostHog/charts) needs:
 - A separate `agent-console` release.
 - An `agent-sandbox-host` release if the runner-side prod sandbox
   pattern requires it. Per
-  [deploy-runbook.md](../docs/deploy-runbook.md), ingress/runner/janitor
+  [deploy-runbook.md](../../docs/deploy-runbook.md), ingress/runner/janitor
   are deployable today; prod sandbox topology may use Modal — confirm
   before wiring this release.
 
@@ -297,11 +303,11 @@ New:
 
 Edited:
 
-- [.dockerignore](../../../.dockerignore) — allowlist new service paths,
+- [.dockerignore](../../../../.dockerignore) — allowlist new service paths,
   ignore `dist/`, `node_modules/`, `agent-tests/`, `.next/`
 - `services/agent-console/next.config.*` — add `output: 'standalone'`
   if missing
-- [docs/agent-platform/docs/deploy-runbook.md](../docs/deploy-runbook.md)
+- [docs/agent-platform/docs/deploy-runbook.md](../../docs/deploy-runbook.md)
   — add a "Container images" section linking image refs and noting the
   per-service command
 
@@ -327,7 +333,7 @@ docker build -f services/agent-console/Dockerfile -t posthog-agent-console:dev .
 docker run --rm -p 3040:3040 posthog-agent-console:dev
 ```
 
-E2E smoke (matches [deploy-runbook.md](../docs/deploy-runbook.md) §1–§5):
+E2E smoke (matches [deploy-runbook.md](../../docs/deploy-runbook.md) §1–§5):
 
 - `curl $INGRESS/healthz` → 200
 - `curl $JANITOR/healthz` → 200

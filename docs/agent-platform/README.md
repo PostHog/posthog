@@ -4,12 +4,19 @@ This tree splits **what exists** from **what's planned**:
 
 ```text
 docs/agent-platform/
-├── docs/    — implemented; references for operating + extending the platform today
-└── plans/   — designs / open questions; nothing has been built yet, or only partially
+├── docs/            — implemented; references for operating + extending the platform today
+└── plans/           — designs / open questions; mostly partially built (each plan's status
+    │                  header + _ROADMAP.md track exactly how much landed)
+    └── shipped/     — plans whose core design has fully landed as code; kept as rationale-of-record
 ```
 
-Move a file from `plans/` to `docs/` when the design lands as code (and prune
-the "open questions" section once they're answered by the implementation).
+Most plans are now **partially shipped** — a v0 slice has landed and later
+versions remain open. The per-plan status header and
+[`plans/_ROADMAP.md`](plans/_ROADMAP.md) are the source of truth for what's
+done. When a plan's core design has fully landed, move it into
+[`plans/shipped/`](plans/shipped/) (and prune its "open questions" once the
+implementation answers them). The operating references in `docs/` capture the
+running-system shape independently of any one plan.
 
 ## docs/ (what exists)
 
@@ -26,11 +33,16 @@ shape (services, DBs, sandbox lifecycle); a `database-schema.md` with every
 table + which DB owns it; the canonical `authoring-skill.md` once the templates
 layer lands._
 
-## plans/ (what we'd need to build)
+## plans/ (designs — many partially built)
 
 Start with [`_ROADMAP.md`](plans/_ROADMAP.md) for the sequenced view across
-all plans and the shared cross-cuts between them. [`_TODO.md`](plans/_TODO.md)
-is the queue of features waiting for a plan.
+all plans, the per-plan rollout status (`v0 ✅` etc.), and the shared
+cross-cuts between them. [`_TODO.md`](plans/_TODO.md) is the queue of features
+waiting for a plan; [`plans/shipped/`](plans/shipped/) holds the ones that have
+fully landed.
+
+The descriptions below are the original framing of each plan; consult the
+roadmap or each plan's status header for how much has since shipped.
 
 - [`agent-authoring-flow.md`](plans/agent-authoring-flow.md) — speculative
   end-to-end design for an MCP-driven authoring AI: discovery → spec → secrets

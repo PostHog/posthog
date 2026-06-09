@@ -21,7 +21,7 @@ Three forces pushing on the system prompt right now:
    make sense in the context of the platform's state machine — the kind
    of guidance that belongs in a framework preamble, not in every
    author's `agent.md`. See
-   [`session-restart-and-state-machine.md`](session-restart-and-state-machine.md).
+   [`session-restart-and-state-machine.md`](shipped/session-restart-and-state-machine.md).
 2. **The approval-gated tools change taught models a new pattern**:
    receive a synthetic queued `tool_result`, surface the link, wait. We
    currently lean on `agent.md` to teach the agent to recognise it, but
