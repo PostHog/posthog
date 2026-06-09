@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown, IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
 
-import { MemberSelect } from 'lib/components/MemberSelect'
+import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 
 import { tagsModel } from '~/models/tagsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -142,15 +142,35 @@ function RolePicker({
     onChange: (value: RoleFilterValue) => void
     dataAttr: string
 }): JSX.Element {
+    const buttonLabel =
+        value.length === 0 ? `Any ${label}` : value.length === 1 ? `1 ${label}` : `${value.length} ${label}s`
     return (
-        <div data-attr={dataAttr}>
-            <MemberSelect
-                size="small"
-                type="secondary"
-                defaultLabel={`Any ${label}`}
-                value={value}
-                onChange={(user) => onChange(user ? user.id : null)}
-            />
+        <div className="flex gap-1 items-center" data-attr={dataAttr}>
+            <LemonDropdown
+                closeOnClickInside={false}
+                overlay={
+                    <div className="p-2 min-w-64">
+                        <MemberSelectMultiple
+                            idKey="id"
+                            value={value}
+                            onChange={(users) => onChange(users.map((user) => user.id))}
+                        />
+                    </div>
+                }
+            >
+                <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                    {buttonLabel}
+                </LemonButton>
+            </LemonDropdown>
+            {value.length > 0 && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconX />}
+                    onClick={() => onChange([])}
+                    tooltip={`Clear ${label} filter`}
+                />
+            )}
         </div>
     )
 }

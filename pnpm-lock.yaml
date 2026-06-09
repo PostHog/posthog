@@ -2471,6 +2471,9 @@ importers:
       '@testing-library/dom':
         specifier: '*'
         version: 9.3.4
+      '@testing-library/react':
+        specifier: '*'
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@testing-library/user-event':
         specifier: '*'
         version: 14.6.1(@testing-library/dom@9.3.4)
@@ -3156,6 +3159,9 @@ importers:
 
   products/mcp_analytics:
     dependencies:
+      '@posthog/quill-charts':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/charts
       '@storybook/react':
         specifier: 'catalog:'
         version: 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)
