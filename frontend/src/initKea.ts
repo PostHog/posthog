@@ -33,6 +33,17 @@ const ERROR_FILTER_ALLOW_LIST = [
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
 ]
 
+/*
+Error codes for expected control-flow 403s that are already handled elsewhere
+(2FA setup/verification opens the setup modal via apiStatusLogic; reauth is prompted).
+We suppress both the toast and the error tracking capture for these.
+*/
+const HANDLED_CONTROL_FLOW_CODES = [
+    'two_factor_setup_required',
+    'two_factor_verification_required',
+    'sensitive_action_required_reauth',
+]
+
 interface InitKeaProps {
     state?: Record<string, any>
     routerHistory?: any
@@ -115,14 +126,11 @@ export function initKea({
                     !(isLoadAction && error.status === 403) // 403 access denied is handled by sceneLogic gates
                 ) {
                     let errorMessage = error.detail || error.statusText
-                    const isTwoFactorError =
-                        error.code === 'two_factor_setup_required' || error.code === 'two_factor_verification_required'
-                    const isSensitiveActionError = error.code === 'sensitive_action_required_reauth'
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
                     }
-                    if (isTwoFactorError || isSensitiveActionError) {
+                    if (HANDLED_CONTROL_FLOW_CODES.includes(error.code)) {
                         errorMessage = null
                     }
                     if (errorMessage) {
@@ -132,7 +140,10 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                posthog.captureException(error)
+                // Skip reporting expected, already-handled control-flow 403s to error tracking.
+                if (!HANDLED_CONTROL_FLOW_CODES.includes(error?.code)) {
+                    posthog.captureException(error)
+                }
             },
         }),
         subscriptionsPlugin,
