@@ -106,8 +106,11 @@ def sync_partitions_on_replicas(
     context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str
 ) -> None:
     context.log.info(f"Syncing replicas for {target_table} on all hosts")
+    # LIGHTWEIGHT waits only for replicated fetches of already-inserted parts, which is all the subsequent
+    # REPLACE PARTITION needs: it clones the staging parts as they are, merged or not. A plain SYNC REPLICA
+    # would also wait for the background merges scheduled by the staging bulk insert.
     cluster.map_hosts_by_roles(
-        lambda client: client.execute(f"SYSTEM SYNC REPLICA {target_table}"),
+        lambda client: client.execute(f"SYSTEM SYNC REPLICA {target_table} LIGHTWEIGHT"),
         node_roles=[NodeRole.DATA],
     ).result()
 

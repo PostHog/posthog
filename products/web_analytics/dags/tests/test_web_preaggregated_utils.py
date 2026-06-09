@@ -10,7 +10,11 @@ from products.web_analytics.dags.web_preaggregated import (
     web_pre_aggregate_historical_schedule,
     web_pre_aggregate_job,
 )
-from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs, recreate_staging_table
+from products.web_analytics.dags.web_preaggregated_utils import (
+    check_for_concurrent_runs,
+    recreate_staging_table,
+    sync_partitions_on_replicas,
+)
 
 
 class TestWebPreaggregatedUtils:
@@ -190,3 +194,16 @@ class TestWebPreaggregatedUtils:
         recreate_staging_table(context, cluster, "my_test_staging_table", mock_sql_func)
 
         context.log.info.assert_called_once_with("Recreating staging table my_test_staging_table")
+
+    def test_sync_partitions_on_replicas_uses_lightweight_sync(self):
+        context = Mock()
+        cluster = Mock()
+
+        sync_partitions_on_replicas(context, cluster, "test_staging")
+
+        cluster.map_hosts_by_roles.assert_called_once()
+        lambda_func = cluster.map_hosts_by_roles.call_args[0][0]
+        mock_client = Mock()
+        lambda_func(mock_client)
+        mock_client.execute.assert_called_once_with("SYSTEM SYNC REPLICA test_staging LIGHTWEIGHT")
+        cluster.map_hosts_by_roles.return_value.result.assert_called_once()
