@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from posthog.schema import ProductItemCategory
 
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.models.file_system.user_product_list import (
     UserProductList,
     get_product_paths_with_data,
@@ -483,6 +483,14 @@ class TestUserProductList(BaseTest):
         EventDefinition.objects.create(team=self.team, name="$pageview", last_seen_at=None)
 
         assert get_product_paths_with_data(self.team) == []
+
+    def test_get_product_paths_with_data_is_project_scoped(self):
+        # Event definitions are de-duplicated per project, so the row can live under a sibling
+        # team. Querying any team in the project should still find it.
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project, name="Sibling")
+        EventDefinition.objects.create(team=sibling_team, name="$pageview", last_seen_at=timezone.now())
+
+        assert get_product_paths_with_data(self.team) == ["Web analytics"]
 
     def test_sync_from_product_data_seeds_product_with_recent_data(self):
         user = self._make_user()

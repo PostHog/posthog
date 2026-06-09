@@ -63,9 +63,12 @@ def get_product_paths_with_data(team: "Team", since_days: int = PRODUCT_DATA_REC
         return []
 
     cutoff = timezone.now() - timedelta(days=since_days)
+    # Event definitions are de-duplicated per project (coalesce(project_id, team_id), name),
+    # so a row lives under whichever team first ingested the event. Scope by project to catch
+    # sibling teams in the same project, matching ProductIntent.has_activated_* checks.
     recently_seen_events = set(
         EventDefinition.objects.filter(
-            team=team,
+            team__project_id=team.project_id,
             name__in=list(PRODUCT_DATA_EVENT_SIGNALS.values()),
             last_seen_at__gte=cutoff,
         ).values_list("name", flat=True)
