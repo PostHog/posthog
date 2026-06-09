@@ -12599,7 +12599,7 @@ export namespace Schemas {
          * @nullable
          */
       widget_type: string | null;
-      /** Live widget query result payload. */
+      /** Live widget query result payload. List widgets return results (array), limit (configured page size), hasMore (boolean), totalCount (matching rows for current filters), totalCountCapped (true when totalCount hit the widget max and more may exist), and optional offset/nextOffset. error_tracking_list results are issue summaries; session_replay_list results are recording metadata. */
       result: unknown;
       /**
          * Error message when the widget could not be run.
