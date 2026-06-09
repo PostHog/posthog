@@ -34,14 +34,38 @@ class SESProvider:
             region_name=settings.SES_REGION,
         )
 
+    def _tenant_name_for_team(self, team_id: int) -> str:
+        return f"team-{team_id}"
+
+    def _identity_arn(self, domain: str) -> str:
+        return f"arn:aws:ses:{settings.SES_REGION}:{self.sts_client.get_caller_identity()['Account']}:identity/{domain}"
+
+    def _list_identity_tenants(self, domain: str) -> set[str]:
+        try:
+            resp = self.ses_v2_client.list_resource_tenants(ResourceArn=self._identity_arn(domain))
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "NotFoundException":
+                return set()
+            raise
+        return {t.get("TenantName") for t in resp.get("Tenants", []) if t.get("TenantName")}
+
     def create_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int):
+        expected_tenant = self._tenant_name_for_team(team_id)
+        foreign_tenants = self._list_identity_tenants(domain) - {expected_tenant}
+        if foreign_tenants:
+            raise exceptions.ValidationError(
+                "This domain is already associated with another team in SES. "
+                "Please contact support if you believe this is a mistake."
+            )
+
         # NOTE: For sesv1, domain Identity creation is done through verification
         self.verify_email_domain(domain, mail_from_subdomain, team_id)
 
         # Create a tenant for the domain if not exists
-        tenant_name = f"team-{team_id}"
         try:
-            self.ses_v2_client.create_tenant(TenantName=tenant_name, Tags=[{"Key": "team_id", "Value": str(team_id)}])
+            self.ses_v2_client.create_tenant(
+                TenantName=expected_tenant, Tags=[{"Key": "team_id", "Value": str(team_id)}]
+            )
         except ClientError as e:
             if e.response["Error"]["Code"] != "AlreadyExistsException":
                 raise
@@ -49,8 +73,8 @@ class SESProvider:
         # Associate the new domain identity with the tenant
         try:
             self.ses_v2_client.create_tenant_resource_association(
-                TenantName=tenant_name,
-                ResourceArn=f"arn:aws:ses:{settings.SES_REGION}:{self.sts_client.get_caller_identity()['Account']}:identity/{domain}",
+                TenantName=expected_tenant,
+                ResourceArn=self._identity_arn(domain),
             )
         except ClientError as e:
             if e.response["Error"]["Code"] != "AlreadyExistsException":
@@ -215,6 +239,14 @@ class SESProvider:
             overall = "failed"
         else:
             overall = "pending"
+
+        # Bind verification to the requesting team's SES tenant. SES identity
+        # attributes are account-global; only report success when this team's
+        # tenant is associated with the identity.
+        if overall == "success":
+            expected_tenant = self._tenant_name_for_team(team_id)
+            if expected_tenant not in self._list_identity_tenants(domain):
+                overall = "pending"
 
         # Upgrade per-record statuses if SES reports success
         # - Domain verification TXT is considered verified when VerificationStatus == Success

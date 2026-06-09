@@ -630,6 +630,16 @@ class IntegrationViewSet(
                 stripe_integration.clear_posthog_secrets()
             except Exception as e:
                 capture_exception(e)
+        elif instance.kind == "email" and instance.config.get("provider") == "ses":
+            domain = instance.config.get("domain")
+            if (
+                domain
+                and not Integration.objects.filter(kind="email", config__domain=domain).exclude(pk=instance.pk).exists()
+            ):
+                try:
+                    EmailIntegration(instance).ses_provider.delete_identity(domain)
+                except Exception as e:
+                    capture_exception(e)
 
         super().perform_destroy(instance)
 
