@@ -2698,34 +2698,6 @@
         },
         "feature_flag": "heatmaps-mcp"
     },
-    "hog-flows-logs-retrieve": {
-        "description": "Retrieve execution logs for a specific workflow by ID. Returns log entries with timestamp, level (DEBUG, LOG, INFO, WARN, ERROR), and message. Use to debug why a workflow is failing or not producing expected results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.",
-        "category": "Workflows",
-        "feature": "workflows",
-        "summary": "Get workflow logs",
-        "title": "Get workflow logs",
-        "required_scopes": ["hog_flow:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "hog-flows-metrics-retrieve": {
-        "description": "Retrieve execution metrics for a specific workflow by ID. Returns time-series data showing success and failure counts over a configurable interval (hour, day, or week). Use to understand workflow health, identify failure spikes, and monitor execution reliability. Supports breakdown by metric kind (success/failure) or name, and time range filtering.",
-        "category": "Workflows",
-        "feature": "workflows",
-        "summary": "Get workflow metrics",
-        "title": "Get workflow metrics",
-        "required_scopes": ["hog_flow:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "inbox-reports-list": {
         "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), and suggested_reviewers (PostHog user UUIDs). Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
         "category": "Signals",
@@ -5061,6 +5033,20 @@
             "readOnlyHint": true
         }
     },
+    "signals-scout-runs-emissions-list": {
+        "description": "Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, and the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal. Use this to see *what* a run actually surfaced, not just how many (`emitted_count`) or which ids (`emitted_finding_ids`). Strictly team-scoped — a run UUID belonging to another team returns 404.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List a scout run's emitted findings",
+        "title": "List a scout run's emitted findings",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "signals-scout-runs-list": {
         "description": "Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. Each row carries `emitted_count` (how many findings the run surfaced to the inbox) and `emitted_finding_ids`. Pass `emitted=true` to return only runs that emitted at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive substring match on the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results capped at 100.",
         "category": "Signals",
@@ -5866,7 +5852,7 @@
         "feature_flag": "user-interviews"
     },
     "user-interview-topics-send-invites": {
-        "description": "Generate (if not yet created) and email a personalized public interview link to every targeted interviewee on a user interview topic whose identifier is an email address. The email includes a friendly greeting and a button linking to the public voice-interview page. Distinct-ID-only interviewees are skipped and surfaced in the response. Use this once a topic is finalized; safe to call repeatedly — invites are deduplicated per share via the messaging system's idempotency record, and a token rotation produces a fresh send key.",
+        "description": "Generate (if not yet created) and email a personalized public interview link to every targeted interviewee on a user interview topic whose identifier is an email address. The email includes a friendly greeting and a button linking to the public voice-interview page. Distinct-ID-only interviewees are skipped and surfaced in the response. Use this once a topic is finalized; safe to call repeatedly — invites are deduplicated per share via the messaging system's idempotency record, and a token rotation produces a fresh send key. Email delivery is intentionally capped at 500 recipients per send (and rate-limited per team). For larger audiences, don't loop this — use user-interview-topics-generate-links (or the links CSV export) to get one public link per interviewee and mail-merge them through your own email tooling instead.",
         "category": "User interview topics",
         "feature": "user_interviews",
         "summary": "Email interview invites to every targeted interviewee",
@@ -6470,6 +6456,34 @@
             "readOnlyHint": true
         }
     },
+    "workflows-get-invocation": {
+        "description": "Get a single workflow invocation by invocation_id, including invocation_globals — the raw triggering payload (event/person/groups) that the run executed against. Use after workflows-list-invocations to inspect exactly what input produced a failure.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get workflow invocation",
+        "title": "Get workflow invocation",
+        "required_scopes": ["hog_flow:read", "person:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflows-global-stats": {
+        "description": "At-a-glance health across ALL workflows in one call: per-workflow succeeded/failed counts over a window (after/before, default last 7 days), sorted most-failing first. Start here when debugging — find which workflows are failing, then drill into those with workflows-list-invocations (who it failed for) → workflows-get-invocation (the triggering payload) → workflows-logs (the failing step). Avoids scanning every workflow one at a time. For a single workflow's time-series, use workflows-stats.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Workflow stats overview",
+        "title": "Workflow stats overview",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "workflows-list": {
         "description": "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, and timestamps.",
         "category": "Workflows",
@@ -6485,7 +6499,7 @@
         }
     },
     "workflows-list-batch-jobs": {
-        "description": "List past batch runs for a workflow (both one-off broadcasts and schedule-triggered runs). Each entry shows the audience filters and variable overrides the run used, plus when it was created. The status field is not tracked — use workflows-logs / workflows-metrics for the outcome of a run.",
+        "description": "List past batch runs for a workflow (both one-off broadcasts and schedule-triggered runs). Each entry shows the audience filters and variable overrides the run used, plus when it was created. The status field is not tracked — use workflows-logs / workflows-stats for the outcome of a run.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "List workflow batch runs",
@@ -6498,13 +6512,55 @@
             "readOnlyHint": true
         }
     },
-    "workflows-run": {
+    "workflows-list-invocations": {
+        "description": "List a workflow's individual invocations (one execution per person/event), each collapsed to its final outcome — status, error_kind/error_message, distinct_id, person_id, timings. This is the per-recipient failure view: filter status=failed to see who it failed for and why. Filter by distinct_id and time range. Distinct from workflows-list-batch-jobs (the dispatch ledger, which has no per-person outcome) — drill from a failed invocation into workflows-logs for the step-by-step trace.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "List workflow invocations",
+        "title": "List workflow invocations",
+        "required_scopes": ["hog_flow:read", "person:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflows-logs": {
+        "description": "Retrieve execution logs for a specific workflow by ID. Returns log entries with timestamp, level (DEBUG, LOG, INFO, WARN, ERROR), and message. Use to debug why a workflow is failing or not producing expected results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get workflow logs",
+        "title": "Get workflow logs",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflows-stats": {
+        "description": "Execution stats for a single workflow by ID: time-series success/failure counts over a configurable interval (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability trends. For an at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports breakdown by metric kind (success/failure) or name, and time range filtering.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get workflow stats",
+        "title": "Get workflow stats",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflows-test-run": {
         "description": "Test-invoke a saved workflow. Pass test event data via globals (typically {event, person, groups}). Async actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side effects. Optional current_action_id starts from a specific node. Returns the execution trace.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Test-run workflow",
         "title": "Test-run workflow",
-        "required_scopes": ["hog_flow:write"],
+        "required_scopes": ["hog_flow:write", "group:read"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
@@ -6513,7 +6569,7 @@
         }
     },
     "workflows-update": {
-        "description": "Update a workflow by ID. Draft only — active workflows are read-only via MCP for now (editing risks breaking already-scheduled runs); create a new draft for changes instead. Status changes go through workflows-enable / workflows-disable / workflows-archive. A batch audience is config.filters.properties — person-property conditions and/or cohort references. Prefer person properties or a dynamic (filter-based) cohort, which re-evaluate, over a static frozen-list cohort; behavioral (event-based) cohorts are rejected.",
+        "description": "Update a workflow by ID. Draft only — active workflows are read-only via MCP for now (editing risks breaking already-scheduled runs); create a new draft for changes instead. Status changes go through workflows-enable / workflows-archive. A batch audience is config.filters.properties — person-property conditions and/or cohort references. Prefer person properties or a dynamic (filter-based) cohort, which re-evaluate, over a static frozen-list cohort; behavioral (event-based) cohorts are rejected.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",
