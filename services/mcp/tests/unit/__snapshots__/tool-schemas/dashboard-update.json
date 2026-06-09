@@ -194,6 +194,7 @@
                                                         "additionalProperties": {
                                                             "properties": {
                                                                 "filterId": {
+                                                                    "minLength": 1,
                                                                     "type": "string"
                                                                 },
                                                                 "operator": {
@@ -236,9 +237,11 @@
                                                                     "type": "string"
                                                                 },
                                                                 "optionId": {
+                                                                    "minLength": 1,
                                                                     "type": "string"
                                                                 },
                                                                 "propertyName": {
+                                                                    "minLength": 1,
                                                                     "type": "string"
                                                                 },
                                                                 "value": {
@@ -354,6 +357,7 @@
                                                         "additionalProperties": {
                                                             "properties": {
                                                                 "filterId": {
+                                                                    "minLength": 1,
                                                                     "type": "string"
                                                                 },
                                                                 "operator": {
@@ -396,9 +400,11 @@
                                                                     "type": "string"
                                                                 },
                                                                 "optionId": {
+                                                                    "minLength": 1,
                                                                     "type": "string"
                                                                 },
                                                                 "propertyName": {
+                                                                    "minLength": 1,
                                                                     "type": "string"
                                                                 },
                                                                 "value": {
