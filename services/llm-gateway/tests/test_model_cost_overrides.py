@@ -55,16 +55,18 @@ class TestApplyModelCostOverrides:
 class TestOverrideSurfacesThroughRefresh:
     @pytest.fixture(autouse=True)
     def restore_litellm_globals(self) -> Iterator[None]:
-        snapshot = (
-            litellm.model_cost,
-            litellm.anthropic_models.copy(),
-        )
+        model_cost_snapshot = litellm.model_cost
+        # add_known_models mutates one provider set per provider in the cost map,
+        # so snapshot every set in litellm's namespace rather than just anthropic's.
+        set_snapshots = {name: value.copy() for name, value in vars(litellm).items() if isinstance(value, set)}
         try:
             yield
         finally:
-            litellm.model_cost, anthropic = snapshot
-            litellm.anthropic_models.clear()
-            litellm.anthropic_models.update(anthropic)
+            litellm.model_cost = model_cost_snapshot
+            for name, snapshot in set_snapshots.items():
+                provider_set = getattr(litellm, name)
+                provider_set.clear()
+                provider_set.update(snapshot)
 
     @pytest.fixture(autouse=True)
     def reset_singletons(self) -> Iterator[None]:
