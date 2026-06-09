@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import type { BarChartConfig, Series } from '../../core/types'
+import type { BarChartConfig, BarFillStyle, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import { Stage, useReactiveTheme } from '../../story-helpers'
@@ -249,4 +249,47 @@ export const CustomCornerRadius: Story = {
             </Stage>
         )
     },
+}
+
+const BREAKDOWN_LABELS = ['/login', 'Other', '/projects', '/surveys', '/dashboard', '/insights', '/persons', '/events']
+const BREAKDOWN_DATA = [9200, 8400, 6100, 5200, 4300, 3600, 2800, 2100]
+
+function FillStyleColumn({ title, fillStyle }: { title: string; fillStyle: BarFillStyle }): JSX.Element {
+    const theme = useReactiveTheme()
+    // One series with a value per category — per-bar colors echo a breakdown chart.
+    const series: Series[] = [
+        {
+            key: 'pages',
+            label: 'Pageviews',
+            color: theme.colors[0],
+            data: BREAKDOWN_DATA,
+            bars: BREAKDOWN_DATA.map((_, i) => ({ color: theme.colors[i % theme.colors.length] })),
+        },
+    ]
+    const config: BarChartConfig = {
+        barLayout: 'grouped',
+        showGrid: true,
+        axisOrientation: 'horizontal',
+        bars: { cornerRadius: 4, fillStyle },
+    }
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span className="text-xs font-semibold text-muted-foreground">{title}</span>
+            <Stage width={340} height={360}>
+                <BarChart series={series} labels={BREAKDOWN_LABELS} config={config} theme={theme} />
+            </Stage>
+        </div>
+    )
+}
+
+export const FillStyles: Story = {
+    render: () => (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+            <FillStyleColumn title="flat (current)" fillStyle="flat" />
+            <FillStyleColumn title="gradient" fillStyle="gradient" />
+            <FillStyleColumn title="gloss" fillStyle="gloss" />
+        </div>
+    ),
 }

@@ -11,18 +11,45 @@ class _RequiredSettings(typing.Protocol):
     """Protocol for required settings."""
 
     TEMPORAL_SECRET_KEY: str | bytes
-    TEMPORAL_FALLBACK_KEYS: collections.abc.Iterable[str | bytes]
+    TEMPORAL_FALLBACK_SECRET_KEYS: collections.abc.Iterable[str | bytes]
     TEST: bool
     DEBUG: bool
 
 
-def _prepare_key(key: str | bytes) -> bytes:
+def _load_as_bytes(raw: str | bytes, /, check_length: bool = True) -> bytes:
+    if isinstance(raw, bytes):
+        loaded = raw
+
+    else:
+        prefix, sep, secret = raw.partition(":")
+
+        if sep and prefix == "hex":
+            loaded = bytes.fromhex(secret)
+
+        elif sep and prefix == "base64-urlsafe":
+            loaded = base64.urlsafe_b64decode(secret)
+
+        elif sep and prefix == "base64":
+            loaded = base64.b64decode(secret, validate=True)
+
+        else:
+            # Legacy format, kept for backwards compatibility
+            # TODO: Remove this branch & raise after rotating secrets
+            loaded = raw.encode()
+
+    # TODO: Also, make the check exact after removing legacy format
+    if check_length and len(loaded) < 32:
+        raise ValueError(f"Expected at least 32 bytes, got '{len(loaded)}'")
+
+    return loaded
+
+
+def _prepare_key(key: bytes) -> bytes:
     """Prepare an encryption key by padding or truncating it, and encoding it.
 
     We require a URL-safe, base64 encoded, 32 byte key.
     """
-    key_bytes = key.encode() if isinstance(key, str) else key
-    resized_key = _resize_key(key_bytes)
+    resized_key = _resize_key(key)
     encoded_key = base64.urlsafe_b64encode(resized_key)
     return encoded_key
 
@@ -71,15 +98,15 @@ class EncryptionCodec(PayloadCodec):
             ValueError: If a key with less than 32 bytes is used in non-TEST non-DEBUG
                 environments.
         """
-        if not settings.TEST and not settings.DEBUG:
-            if any(
-                len(key.encode() if isinstance(key, str) else key) < 32
-                for key in (settings.TEMPORAL_SECRET_KEY, *settings.TEMPORAL_FALLBACK_KEYS)
-            ):
-                raise ValueError("Keys must be at least 32 bytes")
-
-        main_key = _prepare_key(settings.TEMPORAL_SECRET_KEY)
-        fallback_keys = map(_prepare_key, settings.TEMPORAL_FALLBACK_KEYS)
+        should_check_length = not settings.TEST and not settings.DEBUG
+        main_key = _prepare_key(_load_as_bytes(settings.TEMPORAL_SECRET_KEY, check_length=should_check_length))
+        fallback_keys = map(
+            _prepare_key,
+            (
+                _load_as_bytes(secret, check_length=should_check_length)
+                for secret in settings.TEMPORAL_FALLBACK_SECRET_KEYS
+            ),
+        )
 
         return cls(main_key, fallback_keys)
 

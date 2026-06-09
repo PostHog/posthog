@@ -2,10 +2,9 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
-from requests import HTTPError
 from rest_framework import status
 
-from posthog.api.capture import capture_batch_internal, capture_internal
+from posthog.api.capture_dispatch import CaptureRoutedError, capture_batch_internal_routed, capture_internal_routed
 from posthog.api.csp import process_csp_report
 from posthog.api.utils import get_token
 from posthog.exceptions import generate_exception_response
@@ -60,14 +59,12 @@ def get_csp_event(request):
             token = ""
 
         if isinstance(csp_report, list):
-            futures = capture_batch_internal(
+            result = capture_batch_internal_routed(
                 events=csp_report, event_source="get_csp_report", token=token, process_person_profile=False
             )
-            for future in futures:
-                result = future.result()
-                result.raise_for_status()
+            result.raise_for_status()
         else:
-            resp = capture_internal(
+            result = capture_internal_routed(
                 token=token,
                 event_name=csp_report.get("event", ""),
                 event_source="get_csp_report",
@@ -76,13 +73,13 @@ def get_csp_event(request):
                 properties=csp_report.get("properties", {}),
                 process_person_profile=False,
             )
-            resp.raise_for_status()
+            result.raise_for_status()
 
         return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
-    except HTTPError as hte:
-        capture_exception(hte, {"capture-http": "csp_report", "ph-team-token": token})
-        logger.exception("csp_report_capture_http_error", exc_info=hte)
+    except CaptureRoutedError as cre:
+        capture_exception(cre, {"capture-http": "csp_report", "ph-team-token": token})
+        logger.exception("csp_report_capture_http_error", exc_info=cre)
         return cors_response(
             request,
             generate_exception_response(
@@ -90,7 +87,7 @@ def get_csp_event(request):
                 f"Failed to submit CSP report",
                 code="capture_http_error",
                 type="capture_http_error",
-                status_code=hte.response.status_code,
+                status_code=cre.status_code or status.HTTP_502_BAD_GATEWAY,
             ),
         )
     except Exception as e:

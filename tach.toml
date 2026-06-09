@@ -34,6 +34,7 @@ utility = true
 [[modules]]
 path = "ee"
 depends_on = [
+    "products.cohorts",
     "posthog",
     "products.actions",
     "products.alerts",
@@ -63,6 +64,7 @@ layer = "modules"
 [[modules]]
 path = "posthog"
 depends_on = [
+    "products.cohorts",
     "ee",
     "products.access_control",
     "products.analytics_platform",
@@ -88,6 +90,7 @@ depends_on = [
     "products.live_debugger",
     "products.ai_observability",
     "products.logs",
+    "products.managed_migrations",
     "products.marketing_analytics",
     "products.mcp_store",
     "products.messaging",
@@ -97,6 +100,7 @@ depends_on = [
     "products.posthog_ai",
     "products.product_analytics",
     "products.product_tours",
+    "products.replay",
     "products.replay_vision",
     "products.revenue_analytics",
     "products.signals",
@@ -119,6 +123,7 @@ layer = "modules"
 [[modules]]
 path = "products.actions"
 depends_on = [
+    "products.cohorts",
     "posthog",
     "products.cdp",
     "products.experiments",
@@ -156,10 +161,20 @@ layer = "modules"
 [[modules]]
 path = "products.cdp"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.actions",
     "products.batch_exports",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.cohorts"
+depends_on = [
+    "products.actions",
+    "ee",
+    "posthog",
 ]
 layer = "modules"
 
@@ -253,6 +268,7 @@ layer = "modules"
 [[modules]]
 path = "products.error_tracking"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.cdp",
@@ -270,6 +286,7 @@ layer = "modules"
 [[modules]]
 path = "products.experiments"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.actions",
@@ -288,6 +305,7 @@ layer = "modules"
 [[modules]]
 path = "products.feature_flags"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.dashboards",
@@ -324,6 +342,7 @@ layer = "modules"
 [[modules]]
 path = "products.ai_observability"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.dashboards",
@@ -352,7 +371,10 @@ layer = "modules"
 
 [[modules]]
 path = "products.managed_migrations"
-depends_on = []
+depends_on = [
+    "posthog",
+    "products.batch_exports",
+]
 layer = "modules"
 
 [[modules]]
@@ -440,6 +462,7 @@ layer = "modules"
 [[modules]]
 path = "products.product_analytics"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.actions",
@@ -489,6 +512,7 @@ layer = "modules"
 [[modules]]
 path = "products.signals"
 depends_on = [
+    "products.cohorts",
     "posthog",
     "products.actions",
     "products.ai_observability",
@@ -514,12 +538,14 @@ depends_on = [
     "posthog",
     "products.dashboards",
     "products.product_analytics",
+    "products.signals",
 ]
 layer = "modules"
 
 [[modules]]
 path = "products.surveys"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.actions",
@@ -602,6 +628,7 @@ layer = "modules"
 [[modules]]
 path = "products.web_analytics"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.actions",
@@ -612,6 +639,7 @@ layer = "modules"
 [[modules]]
 path = "products.workflows"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.actions",
@@ -639,6 +667,21 @@ from = [
 expose = [
     "backend\\.presentation\\.experiments.*",
     "backend\\.presentation\\.saved_metrics.*",
+]
+from = [
+    "products.experiments",
+]
+
+# Temporal worker registration lives in posthog/management/commands/start_temporal_worker.py, which imports
+# ACTIVITIES and WORKFLOWS from each product's backend.temporal package. Eight peer products do the same
+# thing, but experiments is the first isolated product to register a workflow, so the canonical interface
+# doesn't cover it yet. Narrowly expose just the registration symbols rather than widening every isolated
+# product's surface.
+
+[[interfaces]]
+expose = [
+    "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.WORKFLOWS",
 ]
 from = [
     "products.experiments",

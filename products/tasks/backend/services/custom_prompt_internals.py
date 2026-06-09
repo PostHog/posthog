@@ -29,6 +29,12 @@ OutputFn = Callable[[str], object] | None
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
+# After this many seconds of silence carrying the null-cost usage_update fingerprint, accept
+# the last message instead of polling to MAX_POLL_SECONDS and failing a run that completed.
+# Set to the relay's continuous-silence ceiling (relay_sandbox_events.py: MAX_RECONNECT_ATTEMPTS
+# * SSE_READ_TIMEOUT_SECONDS = 5 * 300) so we never cut off a turn the relay still treats as
+# active; past that the relay has given up and the run is terminal. Keep in sync if those change.
+STALE_TURN_SALVAGE_SECONDS = 1500
 
 # Notification method the sandbox agent emits on a terminal failure. The agent
 # classifies upstream failures (rate limits, stream/connection drops, provider
@@ -199,6 +205,23 @@ async def poll_for_turn(
                 total_lines=total_lines,
                 printed_lines=printed_lines,
             )
+        # Salvage only the dropped-finalization case: we have the agent's final message, the
+        # log tail is the null-cost usage_update fingerprint, and it's been silent long enough
+        # to be conclusive. Requiring the tail (not just any cached text) keeps a mid-turn
+        # tool/model gap from being cut off early. See STALE_TURN_SALVAGE_SECONDS.
+        if (
+            latest_assistant_text is not None
+            and stale_seconds >= STALE_TURN_SALVAGE_SECONDS
+            and _ended_on_pending_finalization(full_log)
+        ):
+            logger.warning(
+                "custom_prompt - poll_for_turn: end_turn missing but turn-accounting tail present "
+                "and log stale for %ds — salvaging last message, run=%s total_lines=%d",
+                stale_seconds,
+                task_run.id,
+                total_lines,
+            )
+            return latest_assistant_text, full_log, total_lines, printed_lines
         # Keep the cursor monotonic — S3 eventual-consistency can briefly return
         # fewer lines than the prior poll; without the clamp we'd re-parse old lines.
         skip_lines = max(skip_lines, total_lines)
@@ -446,6 +469,34 @@ def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | 
     if agent_finished and latest_text is None:
         return False, None, log_content, total_lines, True
     return agent_finished, latest_text, log_content, total_lines, False
+
+
+def _ended_on_pending_finalization(full_log: str | None) -> bool:
+    """True when the log's last notification is a usage_update carrying an explicit null cost —
+    the sandbox ran turn accounting but the closing end_turn was dropped. The cost key must be
+    present and null: older usage_update lines omit it entirely and are not this fingerprint.
+    Any other trailing notification (an end_turn/result, a `_posthog/error`, a mid-turn update)
+    is decisive that this is not the dropped-finalization case, so we don't salvage and let the
+    normal completion / terminal-status drain handle it."""
+    if not full_log:
+        return False
+    for line in reversed(full_log.strip().split("\n")):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            notification = json.loads(line).get("notification")
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(notification, dict):
+            continue
+        params = notification.get("params")
+        update = params.get("update") if isinstance(params, dict) else None
+        if not isinstance(update, dict):
+            # The last notification is a result/error/other — not a turn sitting on accounting.
+            return False
+        return update.get("sessionUpdate") == "usage_update" and "cost" in update and update["cost"] is None
+    return False
 
 
 def _extract_text(update: dict) -> str | None:

@@ -4,6 +4,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -233,26 +234,104 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["attr"], "scanner_config")
 
-    def test_patch_scanner_type_validates_against_existing_config(self) -> None:
-        # Existing monitor scanner has {"prompt": "..."}; switching to classifier without tags must 400.
-        scanner = self._create_scanner()
-        resp = self.client.patch(
-            f"{self.scanners_url}{scanner.id}/",
-            data={"scanner_type": ScannerType.CLASSIFIER},
+    @parameterized.expand(
+        [
+            (
+                "classifier_empty_tags",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": []},
+                "Tag vocabulary must have at least one tag.",
+            ),
+            (
+                "classifier_missing_tags",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p"},
+                "Tag vocabulary must have at least one tag.",
+            ),
+            (
+                "classifier_blank_tag",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": ["bug", "   "]},
+                "Tags can't be blank.",
+            ),
+            (
+                "classifier_duplicate_tags",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": ["Bug", "bug"]},
+                "Tags must be unique.",
+            ),
+            (
+                "monitor_missing_prompt",
+                ScannerType.MONITOR,
+                {},
+                "Prompt is required.",
+            ),
+            (
+                "monitor_explicit_null_prompt",
+                ScannerType.MONITOR,
+                {"prompt": None},
+                "Prompt is required.",
+            ),
+            (
+                "scorer_inverted_scale",
+                ScannerType.SCORER,
+                {"prompt": "p", "scale": {"min": 10, "max": 0}},
+                "Scale max must be greater than min.",
+            ),
+            (
+                "scorer_missing_scale",
+                ScannerType.SCORER,
+                {"prompt": "p"},
+                "Scale is required.",
+            ),
+            (
+                "not_a_dict",
+                ScannerType.MONITOR,
+                "just a string",
+                "Scanner configuration must be a JSON object.",
+            ),
+        ]
+    )
+    def test_validation_returns_specific_message_per_invalid_config(
+        self, label: str, scanner_type: ScannerType, scanner_config: Any, expected_detail: str
+    ) -> None:
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": f"invalid-{label}",
+                "scanner_type": scanner_type,
+                "scanner_config": scanner_config,
+                "model": ScannerModel.GEMINI_3_FLASH,
+            },
             format="json",
         )
         self.assertEqual(resp.status_code, 400, resp.json())
-        self.assertEqual(resp.json()["attr"], "scanner_config")
+        body = resp.json()
+        detail = body.get("detail", "")
+        self.assertNotIn("validation error for", detail)
+        self.assertNotIn("errors.pydantic.dev", detail)
+        self.assertNotIn("input_value=", detail)
+        self.assertEqual(detail, expected_detail)
 
-    def test_patch_can_change_scanner_type_with_matching_config(self) -> None:
+    def test_patch_rejects_scanner_type_change(self) -> None:
         scanner = self._create_scanner()
         resp = self.client.patch(
             f"{self.scanners_url}{scanner.id}/",
             data={"scanner_type": ScannerType.CLASSIFIER, "scanner_config": {"prompt": "p", "tags": ["x"]}},
             format="json",
         )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "scanner_type")
+        self.assertIn("fixed after creation", resp.json()["detail"])
+
+    def test_patch_accepts_same_scanner_type(self) -> None:
+        scanner = self._create_scanner()
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"scanner_type": scanner.scanner_type, "scanner_config": {"prompt": "still a monitor"}},
+            format="json",
+        )
         self.assertEqual(resp.status_code, 200, resp.json())
-        self.assertEqual(resp.json()["scanner_type"], ScannerType.CLASSIFIER)
 
     def test_create_accepts_valid_query(self) -> None:
         resp = self.client.post(
@@ -542,6 +621,21 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(self.observations_url(str(self.scanner.id)))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()["results"]), 2)
+
+    @override_settings(SERVER_GATEWAY_INTERFACE="ASGI")
+    @patch("products.replay_vision.backend.api.observations.stream_observation_progress")
+    def test_progress_endpoint_accepts_event_stream_accept_header(self, mock_stream: MagicMock) -> None:
+        # The SSE client sends `Accept: text/event-stream`; without ServerSentEventRenderer on the action,
+        # DRF content negotiation rejects it with 406 before the view runs, so no progress ever reaches the
+        # page and it falls back to polling. Guard that the negotiated stream stays reachable.
+        mock_stream.return_value = iter(["event: observation-complete\ndata: {}\n\n"])
+        obs = self._create_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+        url = f"/api/projects/{self.team.id}/vision/observations/{obs.id}/progress/"
+        resp = self.client.get(url, HTTP_ACCEPT="text/event-stream")
+        # A 406 here would mean content negotiation rejected the SSE Accept header before the view ran.
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["content-type"], "text/event-stream")
+        mock_stream.assert_called_once()
 
     def test_malformed_scanner_id_returns_404(self) -> None:
         resp = self.client.get(self.observations_url("not-a-uuid"))

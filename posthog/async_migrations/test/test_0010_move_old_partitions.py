@@ -28,7 +28,7 @@ class Test0010MoveOldPartitions(AsyncMigrationBaseTest):
                 }[name],
             ),
         ):
-            migration._get_partitions_to_move()
+            migration._get_partitions_to_move()  # type: ignore[attr-defined]
 
         mock_sync_execute.assert_called_once()
         call = mock_sync_execute.call_args
