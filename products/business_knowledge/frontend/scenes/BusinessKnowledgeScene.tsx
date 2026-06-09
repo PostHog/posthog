@@ -11,13 +11,14 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import type { RefreshIntervalOption } from '../api'
 import { CreateKnowledgeSourceModal } from '../components/CreateKnowledgeSourceModal'
 import { EditKnowledgeSourceModal } from '../components/EditKnowledgeSourceModal'
 import { RefreshStatusCell } from '../components/RefreshStatusCell'
 import { StatusTag } from '../components/StatusTag'
 import { KnowledgeSource, businessKnowledgeLogic } from './businessKnowledgeLogic'
 
-const REFRESH_INTERVAL_OPTIONS = [
+const REFRESH_INTERVAL_OPTIONS: RefreshIntervalOption[] = [
     { value: 'manual', label: 'Manual only' },
     { value: '1h', label: 'Every hour' },
     { value: '6h', label: 'Every 6 hours' },

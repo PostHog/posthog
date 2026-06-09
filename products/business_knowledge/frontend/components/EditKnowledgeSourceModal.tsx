@@ -8,10 +8,9 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
+import type { RefreshIntervalOption } from '../api'
 import { businessKnowledgeLogic } from '../scenes/businessKnowledgeLogic'
 import { CrawlConfigFields } from './CrawlConfigFields'
-
-type RefreshIntervalOption = { value: string; label: string }
 
 export function EditKnowledgeSourceModal({
     refreshIntervalOptions,

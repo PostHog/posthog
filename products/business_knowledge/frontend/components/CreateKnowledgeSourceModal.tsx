@@ -9,11 +9,10 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
+import type { RefreshIntervalOption } from '../api'
 import { CreateTab, businessKnowledgeLogic } from '../scenes/businessKnowledgeLogic'
 import { CrawlConfigFields } from './CrawlConfigFields'
 import { CrawlModeHelp } from './CrawlModeHelp'
-
-type RefreshIntervalOption = { value: string; label: string }
 
 export function CreateKnowledgeSourceModal({
     refreshIntervalOptions,
