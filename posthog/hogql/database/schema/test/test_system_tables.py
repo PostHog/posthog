@@ -12,9 +12,8 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Cohort, Group, GroupTypeMapping, GroupUsageMetric, Organization, Tag, Team
+from posthog.models import Group, GroupTypeMapping, GroupUsageMetric, Organization, Tag, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.project import Project
 from posthog.models.scoping import team_scope
 
@@ -27,6 +26,8 @@ from products.annotations.backend.models.annotation import Annotation
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
 from products.business_knowledge.backend.models.constants import SourceStatus, SourceType
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models import Ticket
 from products.customer_analytics.backend.models.account import Account
 from products.dashboards.backend.models.dashboard import Dashboard

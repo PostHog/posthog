@@ -30,6 +30,8 @@ unrelated cases don't drag the rollup down.
 
 from __future__ import annotations
 
+import re
+
 from braintrust import Score
 from braintrust_core.score import Scorer
 
@@ -43,9 +45,16 @@ __all__ = [
     "RanPythonPostProcessing",
     "RecoveredToCorrectTool",
     "RetrievedSchemaPath",
+    "SurfacedGeneratedAppUrl",
     "UsedJsonOutputFormat",
     "VerifiedEventBeforeQuery",
 ]
+
+# URLs stop at whitespace and the delimiters that wrap them in Markdown/JSON/TOON, so the captured
+# string is the bare link — robust to `[text](url)`, `"url"`, JSON-escaped `\"url\"`, trailing
+# punctuation, etc. The backslash exclusion matters: tool results arrive JSON-escaped, so without it
+# the capture keeps a trailing `\` and never substring-matches the (unescaped) final message.
+_URL_RE = re.compile(r"https?://[^\s\"'`)\]<>\\]+")
 
 
 def _read_tool(expected: dict | None, scorer_name: str) -> str | None:
@@ -637,6 +646,71 @@ class UsedJsonOutputFormat(Scorer):
                 "tool": target,
                 "total_calls": len(relevant),
                 "formats_seen": sorted({call.requested_output_format or "default" for call in relevant}),
+            },
+        )
+
+
+class SurfacedGeneratedAppUrl(Scorer):
+    """Binary: did the agent surface a url returned by ``generate-app-url`` verbatim?
+
+    Opt-in via presence of ``expected = {"surfaced_generated_app_url": {}}``.
+
+    The fix for hand-built 404 links is to resolve entity links through the
+    ``generate-app-url`` tool and surface the ``url`` it returns verbatim,
+    rather than guessing slugs (a person UUID lives at ``/persons/<uuid>``,
+    not ``/person/...``) or retyping ids. This scorer finds every successful
+    ``generate-app-url`` call, pulls the url out of its result, and checks the
+    final assistant message contains at least one of them.
+
+    Score 1.0 if a generated url was surfaced, 0.0 if the tool ran but its url
+    was dropped or rewritten, ``None`` if the tool was never called (that gap
+    is caught by ``CalledTargetTool``).
+    """
+
+    TOOL = "generate-app-url"
+
+    def _name(self) -> str:
+        return "surfaced_generated_app_url"
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
+        if _read_spec(expected, self._name()) is None:
+            return Score(name=self._name(), score=None, metadata={"reason": f"No {self._name()} key on case"})
+
+        parser = _build_parser(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        urls: set[str] = set()
+        for call in parser.get_tool_calls(self.TOOL):
+            if call.is_error:
+                continue
+            urls.update(_URL_RE.findall(call.output or ""))
+        if not urls:
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": f"'{self.TOOL}' was never called successfully or returned no url"},
+            )
+
+        last_message = (output or {}).get("last_message") or ""
+        if not isinstance(last_message, str):
+            last_message = str(last_message)
+
+        surfaced = sorted(url for url in urls if url in last_message)
+        if surfaced:
+            return Score(name=self._name(), score=1.0, metadata={"surfaced": surfaced})
+        return Score(
+            name=self._name(),
+            score=0.0,
+            metadata={
+                "reason": "generate-app-url returned a url but it was not surfaced verbatim in the answer",
+                "tool_urls": sorted(urls),
             },
         )
 
