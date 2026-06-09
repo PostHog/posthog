@@ -14,6 +14,9 @@ ui_apps:
     workflow-list:
         type: list
         detail_tool: workflows-get
+    email-template:
+        type: detail
+        view_prop: template
 tools:
     hog-flow-templates-create:
         operation: hog_flow_templates_create
@@ -122,6 +125,7 @@ tools:
             edit it in the visual editor. 'instructions' may include one URL to pull branding and copy from. Output is
             AI-generated (Liquid personalization + an Unlayer design); review before sending. Use the returned template
             in a workflow's function_email action.
+        ui_app: email-template
     workflows-get:
         operation: hog_flows_retrieve
         enabled: true

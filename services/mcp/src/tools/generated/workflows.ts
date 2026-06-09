@@ -77,29 +77,30 @@ const WorkflowsGenerateEmailTemplateSchema = MaxToolsCreateMessageTemplateCreate
 const workflowsGenerateEmailTemplate = (): ToolBase<
     typeof WorkflowsGenerateEmailTemplateSchema,
     WithPostHogUrl<Schemas.MessageTemplate>
-> => ({
-    name: 'workflows-generate-email-template',
-    schema: WorkflowsGenerateEmailTemplateSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsGenerateEmailTemplateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.instructions !== undefined) {
-            body['instructions'] = params.instructions
-        }
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.message_category !== undefined) {
-            body['message_category'] = params.message_category
-        }
-        const result = await context.api.request<Schemas.MessageTemplate>({
-            method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/max_tools/create_message_template/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/workflows/library/templates/${result.id}`)
-    },
-})
+> =>
+    withUiApp('email-template', {
+        name: 'workflows-generate-email-template',
+        schema: WorkflowsGenerateEmailTemplateSchema,
+        handler: async (context: Context, params: z.infer<typeof WorkflowsGenerateEmailTemplateSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.instructions !== undefined) {
+                body['instructions'] = params.instructions
+            }
+            if (params.name !== undefined) {
+                body['name'] = params.name
+            }
+            if (params.message_category !== undefined) {
+                body['message_category'] = params.message_category
+            }
+            const result = await context.api.request<Schemas.MessageTemplate>({
+                method: 'POST',
+                path: `/api/environments/${encodeURIComponent(String(projectId))}/max_tools/create_message_template/`,
+                body,
+            })
+            return await withPostHogUrl(context, result, `/workflows/library/templates/${result.id}`)
+        },
+    })
 
 const WorkflowsGetSchema = HogFlowsRetrieveParams.omit({ project_id: true })
 
