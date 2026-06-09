@@ -934,59 +934,51 @@ class TestCustomSourceFanoutValidation(SimpleTestCase):
         with self.assertRaises(ManifestValidationError):
             validate_manifest(manifest)
 
-    def test_cycle_error_message_is_readable(self):
-        # str(graphlib.CycleError) is its raw args tuple — the user-facing
-        # message must render the cycle, not the tuple repr.
+    @parameterized.expand(
+        [
+            # str(graphlib.CycleError) is its raw args tuple — the user-facing
+            # message must render the cycle, not the tuple repr.
+            ("cycle", _break_cycle, ["dependency cycle"]),
+            # The nesting cap must name the offending resources.
+            ("nested_child", _add_nested_child, ["'answers'", "'responses'", "one level of nesting"]),
+        ]
+    )
+    def test_rejection_message_is_readable(self, _name, break_manifest, expected_fragments):
         manifest = _fanout_manifest()
-        _break_cycle(manifest)
+        break_manifest(manifest)
         with self.assertRaises(ManifestValidationError) as ctx:
             validate_manifest(manifest)
         message = str(ctx.exception)
-        assert "dependency cycle" in message
         assert not message.startswith("(")
-
-    def test_nested_child_error_message_names_the_resources(self):
-        manifest = _fanout_manifest()
-        _add_nested_child(manifest)
-        with self.assertRaises(ManifestValidationError) as ctx:
-            validate_manifest(manifest)
-        message = str(ctx.exception)
-        assert "'answers'" in message
-        assert "'responses'" in message
-        assert "one level of nesting" in message
-
-    def test_validate_credentials_rejects_broken_graph(self):
-        # Graph errors must block create/update — that's where they're fixable.
-        manifest = _fanout_manifest()
-        _break_unknown_parent(manifest)
-        source = CustomSource()
-        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
-        ok, err = source.validate_credentials(config, team_id=999)
-        assert ok is False
-        assert err is not None and "nonexistent" in err
+        for fragment in expected_fragments:
+            assert fragment in message
 
     @parameterized.expand(
         [
+            # Default strictness: graph errors block create and manifest edits —
+            # that's where they're fixable.
+            ("candidate_manifest_rejected", {}, False),
             # The update serializer disables the graph check when the manifest
             # itself wasn't edited (e.g. rotating the auth token) ...
-            ("manifest_unchanged_on_update", {"validate_graph": False}),
+            ("manifest_unchanged_on_update", {"validate_graph": False}, True),
             # ... and schema-scoped read checks (the schema API's
             # incremental_fields action) only ever run against stored config.
-            ("schema_scoped_read_check", {"schema_name": "forms"}),
+            # Both tolerant paths degrade to probing every resource, the
+            # pre-fan-out behavior.
+            ("schema_scoped_read_check", {"schema_name": "forms"}, True),
         ]
     )
     @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_validate_credentials_tolerates_stored_broken_graph(self, _name, kwargs, mock_session):
-        # A stored manifest that predates a graph rule must not lock its source
-        # out of unrelated operations; these paths degrade to probing every
-        # resource, the pre-fan-out behavior.
+    def test_validate_credentials_graph_strictness(self, _name, kwargs, expected_ok, mock_session):
         mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
         manifest = _fanout_manifest()
         _break_unknown_parent(manifest)
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
         ok, err = source.validate_credentials(config, team_id=999, **kwargs)
-        assert ok, err
+        assert ok is expected_ok, err
+        if not expected_ok:
+            assert err is not None and "nonexistent" in err
 
 
 class TestFanoutChain(SimpleTestCase):
