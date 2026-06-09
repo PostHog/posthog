@@ -135,3 +135,10 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         }
     ],
 }
+
+SYSTEM_MODSTAMP_INCREMENTAL_FIELD: IncrementalField = {
+    "label": "SystemModstamp",
+    "type": IncrementalFieldType.DateTime,
+    "field": "SystemModstamp",
+    "field_type": IncrementalFieldType.DateTime,
+}

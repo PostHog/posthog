@@ -9,6 +9,7 @@ from requests import Request, Session
 from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.salesforce import (
     SalesforceEndpointPaginator,
     SalesforceResumeConfig,
+    list_custom_object_definitions,
     salesforce_source,
 )
 
@@ -20,6 +21,23 @@ def _mock_response(records: list[dict[str, Any]]) -> mock.MagicMock:
     response = mock.MagicMock()
     response.json.return_value = {"records": records}
     return response
+
+
+def _mock_sobjects_response(sobjects: list[dict[str, Any]]) -> mock.MagicMock:
+    response = mock.MagicMock()
+    response.json.return_value = {"sobjects": sobjects}
+    return response
+
+
+def _make_session(responses: list[mock.MagicMock]) -> mock.MagicMock:
+    session = mock.MagicMock()
+    session.__enter__.return_value = session
+    session.__exit__.return_value = False
+    session.send.side_effect = responses
+    # prepare_request returns its argument unchanged so the paginator's url updates
+    # propagate to the next send() call.
+    session.prepare_request.side_effect = lambda r: r
+    return session
 
 
 def _mock_empty_response() -> mock.MagicMock:
@@ -222,6 +240,38 @@ class TestSalesforceEndpointPaginator:
             }
         else:
             assert request.params == {"q": "initial"}
+
+
+class TestSalesforceCustomObjectDefinitions:
+    @pytest.mark.parametrize(
+        "expected_defs,expected_call_count",
+        [
+            pytest.param(
+                [
+                    {
+                        "name": "Employee__c",
+                        "label": "Employee",
+                        "labelPlural": "Employees",
+                        "queryable": True,
+                        "custom": True,
+                    }
+                ],
+                1,
+                id="one_sobject",
+            ),
+        ],
+    )
+    @mock.patch("posthog.temporal.data_imports.sources.salesforce.salesforce.rest_api_resources")
+    def test_returns_definitions(
+        self, mock_rest: mock.MagicMock, expected_defs: list[dict[str, Any]], expected_call_count: int
+    ) -> None:
+        session = _make_session([_mock_sobjects_response(expected_defs)])
+        mock_rest.return_value = session
+
+        defs = list_custom_object_definitions(INSTANCE_URL, "token", endpoint="/services/data/v61.0/sobjects")
+
+        assert defs == expected_defs
+        assert session.send.call_count == expected_call_count
 
 
 class TestSalesforceSourceResumeWiring:

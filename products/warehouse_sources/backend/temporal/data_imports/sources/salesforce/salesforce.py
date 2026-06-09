@@ -5,14 +5,12 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
-    RESTAPIConfig,
-    rest_api_resource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth import SalesforceAuth
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.salesforce.auth import SalesforceAuth
 
 
 @dataclasses.dataclass
@@ -560,3 +558,29 @@ def salesforce_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+
+
+def list_custom_object_definitions(
+    instance_url: str,
+    access_token: str,
+    endpoint: str,
+    # team_id: int,
+    # job_id: str,
+    # db_incremental_field_last_value: Optional[Any],
+    # resumable_source_manager: ResumableSourceManager[SalesforceResumeConfig],
+    # should_use_incremental_field: bool = False,
+) -> list[dict[str, Any]]:
+    bearer_token = f"Bearer {access_token}"
+
+    request = Request(
+        "get",
+        url=f"{instance_url}{endpoint}",
+        params={"limit": 100},
+        headers={"Authorization": bearer_token},
+    )
+
+    with make_tracked_session() as session:
+        prepared = session.prepare_request(request)
+        response = session.send(prepared)
+        response.raise_for_status()
+        return [o for o in response.json().get("sobjects", []) if o.get("custom") and o.get("queryable")]

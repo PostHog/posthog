@@ -7,31 +7,30 @@ from posthog.schema import (
     SourceFieldOauthConfig,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
+from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
+from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.generated_configs import SalesforceSourceConfig
+from posthog.temporal.data_imports.sources.salesforce.auth import SalesforceAuth, salesforce_refresh_access_token
+from posthog.temporal.data_imports.sources.salesforce.salesforce import (
+    SalesforceResumeConfig,
+    list_custom_object_definitions,
+    salesforce_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SalesforceSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth import (
-    salesforce_refresh_access_token,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.salesforce import (
-    SalesforceResumeConfig,
-    salesforce_source,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.settings import (
+from posthog.temporal.data_imports.sources.salesforce.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SYSTEM_MODSTAMP_INCREMENTAL_FIELD,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
@@ -87,6 +86,41 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
             )
             for endpoint in ENDPOINTS
         ]
+
+        if names is None or any(name.endswith("__c") for name in names):
+            try:
+                integration = self.get_oauth_integration(config.salesforce_integration_id, team_id)
+                auth = SalesforceAuth(
+                    refresh_token=integration.refresh_token,
+                    access_token=integration.access_token,
+                    instance_url=integration.config.get("instance_url"),
+                )
+
+                definitions = list_custom_object_definitions(
+                    instance_url=integration.config.get("instance_url"),
+                    access_token=auth.token,
+                    endpoint="/services/data/v61.0/sobjects",
+                )
+            except Exception as e:
+                capture_exception(e)
+                definitions = []
+
+            for definition in definitions:
+                machine_name = definition.get("name")
+                if not machine_name:
+                    continue
+                if machine_name in schemas:
+                    continue
+                schemas.append(
+                    SourceSchema(
+                        name=machine_name,
+                        label=definition.get("label") or machine_name,
+                        supports_incremental=True,
+                        supports_append=True,
+                        incremental_fields=[SYSTEM_MODSTAMP_INCREMENTAL_FIELD],
+                    )
+                )
+
         if names:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
