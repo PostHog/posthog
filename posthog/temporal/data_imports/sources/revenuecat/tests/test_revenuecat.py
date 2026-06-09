@@ -107,6 +107,34 @@ class TestValidateCredentials:
         assert error is not None
         assert expected_substring.lower() in error.lower()
 
+    @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
+    def test_skips_project_check_when_id_normalizes_to_empty(self, mock_session):
+        # A whitespace-only id is truthy as a raw string but empty once trimmed,
+        # so it must not trigger a `GET /projects/` with an empty path segment.
+        mock_session.return_value.get.return_value = _ok_json_response({"items": []})
+
+        success, error = api_client.validate_credentials("sk_test", project_id="   ")
+
+        assert success is True
+        assert error is None
+        assert mock_session.return_value.get.call_count == 1
+
+    @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
+    def test_tolerates_invalid_json_on_projects_list(self, mock_session):
+        # If `GET /projects` returns a 200 with an unparseable body, we should
+        # still run the per-project check rather than crashing on `.json()`.
+        bad_list = _ok_json_response({"items": []})
+        bad_list.json.side_effect = requests.exceptions.JSONDecodeError("boom", "", 0)
+        mock_session.return_value.get.side_effect = [
+            bad_list,
+            _ok_json_response({"id": "proj_test"}),
+        ]
+
+        success, error = api_client.validate_credentials("sk_test", project_id="proj_test")
+
+        assert success is True
+        assert error is None
+
 
 class TestIterateListEndpoint:
     @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")

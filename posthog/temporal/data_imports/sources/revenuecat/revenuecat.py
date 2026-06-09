@@ -166,11 +166,14 @@ def validate_credentials(api_key: str, project_id: str | None) -> tuple[bool, st
     except requests.RequestException as e:
         return False, f"Could not reach RevenueCat: {e}"
 
-    if not project_id:
+    normalized_project_id = _normalize_project_id(project_id)
+    if not normalized_project_id:
         return True, None
 
-    accessible_ids = _accessible_project_ids(response.json() or {})
-    normalized_project_id = _normalize_project_id(project_id)
+    try:
+        accessible_ids = _accessible_project_ids(response.json() or {})
+    except (ValueError, requests.exceptions.JSONDecodeError):
+        accessible_ids = []
 
     try:
         response = session.get(
