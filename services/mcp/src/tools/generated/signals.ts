@@ -401,15 +401,15 @@ const signalsScoutProjectProfileGet = (): ToolBase<
     },
 })
 
-const SignalsScoutRunsEmissionsSchema = SignalsScoutRunsEmissionsParams.omit({ project_id: true })
+const SignalsScoutRunsEmissionsListSchema = SignalsScoutRunsEmissionsParams.omit({ project_id: true })
 
-const signalsScoutRunsEmissions = (): ToolBase<
-    typeof SignalsScoutRunsEmissionsSchema,
+const signalsScoutRunsEmissionsList = (): ToolBase<
+    typeof SignalsScoutRunsEmissionsListSchema,
     WithPostHogUrl<Schemas.SignalScoutEmission[]>
 > => ({
-    name: 'signals-scout-runs-emissions',
-    schema: SignalsScoutRunsEmissionsSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsScoutRunsEmissionsSchema>) => {
+    name: 'signals-scout-runs-emissions-list',
+    schema: SignalsScoutRunsEmissionsListSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutRunsEmissionsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SignalScoutEmission[]>({
             method: 'GET',
@@ -546,7 +546,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'signals-scout-config-update': signalsScoutConfigUpdate,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
     'signals-scout-project-profile-get': signalsScoutProjectProfileGet,
-    'signals-scout-runs-emissions': signalsScoutRunsEmissions,
+    'signals-scout-runs-emissions-list': signalsScoutRunsEmissionsList,
     'signals-scout-runs-list': signalsScoutRunsList,
     'signals-scout-runs-retrieve': signalsScoutRunsRetrieve,
     'signals-scout-scratchpad-forget': signalsScoutScratchpadForget,

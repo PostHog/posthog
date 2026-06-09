@@ -85,7 +85,7 @@ class SignalScoutRunDetailSerializer(SignalScoutRunSummarySerializer):
 
 class SignalScoutEmissionSerializer(serializers.ModelSerializer):
     """One finding a scout run emitted to the inbox — the persisted, queryable record of
-    *what* the run surfaced, returned by `signals-scout-runs-emissions`. The emitted text
+    *what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
     lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
     back into the underlying signal store."""
 
@@ -100,12 +100,17 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
         help_text="The emitted finding prose — the signal's `description` as surfaced to the inbox.",
     )
     weight = serializers.FloatField(
+        min_value=0.0,
+        max_value=1.0,
         help_text="Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.",
     )
     confidence = serializers.FloatField(
+        min_value=0.0,
+        max_value=1.0,
         help_text="Agent's confidence the finding is real in [0, 1].",
     )
-    severity = serializers.CharField(
+    severity = serializers.ChoiceField(
+        choices=[(s.value, s.value) for s in Severity],
         allow_null=True,
         help_text="Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.",
     )

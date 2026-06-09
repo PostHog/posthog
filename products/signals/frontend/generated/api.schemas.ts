@@ -835,8 +835,25 @@ export interface SignalScoutRunDetailApi {
 }
 
 /**
+ * * `P0` - P0
+ * `P1` - P1
+ * `P2` - P2
+ * `P3` - P3
+ * `P4` - P4
+ */
+export type AutonomyPriorityEnumApi = (typeof AutonomyPriorityEnumApi)[keyof typeof AutonomyPriorityEnumApi]
+
+export const AutonomyPriorityEnumApi = {
+    P0: 'P0',
+    P1: 'P1',
+    P2: 'P2',
+    P3: 'P3',
+    P4: 'P4',
+} as const
+
+/**
  * One finding a scout run emitted to the inbox — the persisted, queryable record of
-*what* the run surfaced, returned by `signals-scout-runs-emissions`. The emitted text
+*what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
 lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
 back into the underlying signal store.
  */
@@ -848,15 +865,26 @@ export interface SignalScoutEmissionApi {
     finding_id: string
     /** The emitted finding prose — the signal's `description` as surfaced to the inbox. */
     description: string
-    /** Agent's weight for the signal in [0, 1]. Drives ranking in the inbox. */
-    weight: number
-    /** Agent's confidence the finding is real in [0, 1]. */
-    confidence: number
     /**
-     * Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.
-     * @nullable
+     * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
+     * @minimum 0
+     * @maximum 1
      */
-    severity: string | null
+    weight: number
+    /**
+     * Agent's confidence the finding is real in [0, 1].
+     * @minimum 0
+     * @maximum 1
+     */
+    confidence: number
+    /** Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.
+
+  * `P0` - P0
+  * `P1` - P1
+  * `P2` - P2
+  * `P3` - P3
+  * `P4` - P4 */
+    severity: AutonomyPriorityEnumApi | null
     /** Deterministic `run:<run_id>:finding:<finding_id>` — the join key into the underlying signal store. */
     source_id: string
     /** ISO-8601 timestamp the finding was emitted. */
@@ -877,23 +905,6 @@ export interface EvidenceEntryApi {
      */
     entity_id?: string | null
 }
-
-/**
- * * `P0` - P0
- * `P1` - P1
- * `P2` - P2
- * `P3` - P3
- * `P4` - P4
- */
-export type AutonomyPriorityEnumApi = (typeof AutonomyPriorityEnumApi)[keyof typeof AutonomyPriorityEnumApi]
-
-export const AutonomyPriorityEnumApi = {
-    P0: 'P0',
-    P1: 'P1',
-    P2: 'P2',
-    P3: 'P3',
-    P4: 'P4',
-} as const
 
 export interface TimeRangeApi {
     /** ISO-8601 inclusive lower bound for the finding's window. */
