@@ -222,6 +222,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
         self._selected_repo: str | None = None
         self._repo_selection_resolved = False
+        self._authorship_resolved = False
 
     @workflow.signal
     async def repo_selected(self, repository: str) -> None:
@@ -235,10 +236,48 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             self._repo_selection_resolved = True
             self._selected_repo = None
 
+    @workflow.signal
+    async def authorship_confirmed(self) -> None:
+        self._authorship_resolved = True
+
     @staticmethod
     def parse_inputs(inputs: list[str]) -> PostHogCodeSlackMentionWorkflowInputs:
         loaded = json.loads(inputs[0])
         return PostHogCodeSlackMentionWorkflowInputs(**loaded)
+
+    async def _resolve_authorship(
+        self,
+        inputs: "PostHogCodeSlackMentionWorkflowInputs",
+        channel: str,
+        thread_ts: str,
+        slack_user_id: str,
+        user_id: int,
+    ) -> bool:
+        """Return True if the workflow must stop (blocked or timed out); False to proceed."""
+        status = await _execute_posthog_code_activity(
+            resolve_posthog_code_authorship_activity,
+            inputs,
+            channel,
+            thread_ts,
+            slack_user_id,
+            user_id,
+            workflow.info().workflow_id,
+        )
+        if status == "proceed":
+            return False
+        if status == "awaiting_confirmation":
+            try:
+                await workflow.wait_condition(
+                    lambda: self._authorship_resolved,
+                    timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
+                )
+            except TimeoutError:
+                await _execute_posthog_code_activity(
+                    post_posthog_code_authorship_timeout_activity, inputs, channel, thread_ts
+                )
+                return True
+            return False
+        return True
 
     @workflow.run
     async def run(self, inputs: PostHogCodeSlackMentionWorkflowInputs) -> None:
@@ -398,8 +437,12 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                             )
                             return
                         repository = self._selected_repo
-            if repository and await _gate_on_personal_github(inputs, channel, thread_ts, user_id):
-                return
+            if repository:
+                if workflow.patched("posthog-code-authorship-confirm-2026-06"):
+                    if await self._resolve_authorship(inputs, channel, thread_ts, slack_user_id, user_id):
+                        return
+                elif await _gate_on_personal_github(inputs, channel, thread_ts, user_id):
+                    return
             await _execute_posthog_code_activity(
                 create_posthog_code_task_for_repo_activity,
                 inputs,
@@ -582,7 +625,7 @@ def cascade_posthog_code_repository_activity(
         )
         return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="legacy_no_user_id")
 
-    from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
+    from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names, bot_prs_enabled
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -592,12 +635,12 @@ def cascade_posthog_code_repository_activity(
     all_repos = _get_full_repo_names(integration, user_id=user_id)
 
     if not all_repos:
-        # A connected team install with no personal install is recoverable via the gate prompt;
-        # a team with no install at all is genuinely no-op.
+        # With bot PRs off, a team install means a missing personal install is recoverable via the
+        # gate prompt; with bot PRs on, team repos are already folded into all_repos, so empty is no-op.
         team_has_github = Integration.objects.filter(
             team=integration.team, kind=Integration.IntegrationKind.GITHUB
         ).exists()
-        if team_has_github:
+        if team_has_github and not bot_prs_enabled(integration.team):
             return PostHogCodeRepoCascadeOutcome(mode="needs_user_github", repository=None, reason="no_user_repos")
         return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="no_repos")
 
@@ -845,48 +888,16 @@ def post_posthog_code_repo_picker_activity(
     )
 
 
-@activity.defn
-@close_db_connections
-def block_posthog_code_task_if_no_personal_github_activity(
-    inputs: PostHogCodeSlackMentionWorkflowInputs,
+def _post_connect_personal_github_prompt(
+    slack: SlackIntegration,
+    *,
     channel: str,
     thread_ts: str,
+    settings_url: str,
     user_id: int,
-) -> bool:
-    """Gate a repo-bound coding-agent task on the mentioner having a personal GitHub.
-
-    Returns True (and posts an in-thread Slack block with a "Connect GitHub" button)
-    when the user has no `UserIntegration` of kind=github; the caller must then skip
-    `create_posthog_code_task_for_repo_activity`. Returns False to let the task proceed.
-
-    The team-level GitHub App can still author commits, but PRs would land under the
-    PostHog app identity instead of the user's. Rather than degrading silently, hold
-    the task and surface the one-click path to the personal integration setup.
-    """
-    from django.conf import settings
-
-    import structlog
-
-    from posthog.models.integration import Integration, SlackIntegration
-    from posthog.models.user_integration import UserIntegration
-
-    log = structlog.get_logger(__name__)
-
-    has_personal_github = UserIntegration.objects.filter(
-        user_id=user_id,
-        kind=UserIntegration.IntegrationKind.GITHUB,
-    ).exists()
-    if has_personal_github:
-        return False
-
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
-    slack = SlackIntegration(integration)
-
-    settings_url = f"{settings.SITE_URL}/project/{integration.team_id}/settings/user-personal-integrations"
+    team_id: int,
+) -> None:
+    """Post the single-button "Connect GitHub" prompt for a task held on a missing personal GitHub install."""
     text = (
         "I can't start this task yet — you haven't connected your personal GitHub. "
         "Connect it so I can open the pull request as you, then mention me again."
@@ -910,14 +921,178 @@ def block_posthog_code_task_if_no_personal_github_activity(
             },
         ],
     )
-    log.info(
+    logger.info(
         "posthog_code_task_blocked_no_personal_github",
         user_id=user_id,
-        team_id=integration.team_id,
+        team_id=team_id,
         channel=channel,
         thread_ts=thread_ts,
     )
+
+
+@activity.defn
+@close_db_connections
+def block_posthog_code_task_if_no_personal_github_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    channel: str,
+    thread_ts: str,
+    user_id: int,
+) -> bool:
+    """Gate a repo-bound coding-agent task on the mentioner having a personal GitHub.
+
+    Returns True (and posts an in-thread Slack block with a "Connect GitHub" button)
+    when the user has no `UserIntegration` of kind=github; the caller must then skip
+    `create_posthog_code_task_for_repo_activity`. Returns False to let the task proceed.
+
+    The team-level GitHub App can still author commits, but PRs would land under the
+    PostHog app identity instead of the user's. Rather than degrading silently, hold
+    the task and surface the one-click path to the personal integration setup.
+    """
+    from django.conf import settings
+
+    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.user_integration import UserIntegration
+
+    has_personal_github = UserIntegration.objects.filter(
+        user_id=user_id,
+        kind=UserIntegration.IntegrationKind.GITHUB,
+    ).exists()
+    if has_personal_github:
+        return False
+
+    integration = Integration.objects.select_related("team", "team__organization").get(
+        id=inputs.integration_id,
+        kind="slack",
+        integration_id=inputs.slack_team_id,
+    )
+    slack = SlackIntegration(integration)
+    settings_url = f"{settings.SITE_URL}/project/{integration.team_id}/settings/user-personal-integrations"
+    _post_connect_personal_github_prompt(
+        slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        settings_url=settings_url,
+        user_id=user_id,
+        team_id=integration.team_id,
+    )
     return True
+
+
+@activity.defn
+@close_db_connections
+def resolve_posthog_code_authorship_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    user_id: int,
+    workflow_id: str,
+) -> str:
+    """Gate PR authorship for a repo-bound task: returns "proceed", "awaiting_confirmation", or "blocked"."""
+    from django.conf import settings
+
+    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.user_integration import UserIntegration
+
+    from products.slack_app.backend.api import bot_prs_enabled
+
+    if UserIntegration.objects.filter(
+        user_id=user_id,
+        kind=UserIntegration.IntegrationKind.GITHUB,
+    ).exists():
+        return "proceed"
+
+    integration = Integration.objects.select_related("team", "team__organization").get(
+        id=inputs.integration_id,
+        kind="slack",
+        integration_id=inputs.slack_team_id,
+    )
+    team = integration.team
+    slack = SlackIntegration(integration)
+    settings_url = f"{settings.SITE_URL}/project/{integration.team_id}/settings/user-personal-integrations"
+    team_has_github = Integration.objects.filter(team=team, kind=Integration.IntegrationKind.GITHUB).exists()
+
+    if bot_prs_enabled(team) and team_has_github:
+        text = (
+            "You have no personal integration setup yet. The PR will be authored by the PostHog bot.\n"
+            "To change this, set up a personal integration."
+        )
+        slack.client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text=text,
+            blocks=[
+                {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "action_id": "posthog_code_continue_as_bot",
+                            "text": {"type": "plain_text", "text": "Continue as PostHog", "emoji": True},
+                            "value": json.dumps(
+                                {
+                                    "workflow_id": workflow_id,
+                                    "integration_id": integration.id,
+                                    "mentioning_slack_user_id": slack_user_id,
+                                }
+                            ),
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Connect GitHub", "emoji": True},
+                            "url": settings_url,
+                            "style": "primary",
+                        },
+                    ],
+                },
+            ],
+            metadata={"event_type": "posthog_code_authorship", "event_payload": {"workflow_id": workflow_id}},
+        )
+        logger.info(
+            "posthog_code_authorship_confirmation_posted",
+            user_id=user_id,
+            team_id=integration.team_id,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        return "awaiting_confirmation"
+
+    _post_connect_personal_github_prompt(
+        slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        settings_url=settings_url,
+        user_id=user_id,
+        team_id=integration.team_id,
+    )
+    return "blocked"
+
+
+@activity.defn
+@close_db_connections
+def post_posthog_code_authorship_timeout_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
+) -> None:
+    # Skip the expired message if another workflow already created a task for this thread.
+    if SlackThreadTaskMapping.objects.filter(
+        integration_id=inputs.integration_id,
+        channel=channel,
+        thread_ts=thread_ts,
+    ).exists():
+        return
+
+    integration = Integration.objects.select_related("team", "team__organization").get(
+        id=inputs.integration_id,
+        kind="slack",
+        integration_id=inputs.slack_team_id,
+    )
+    slack = SlackIntegration(integration)
+    slack.client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        text="I didn't hear back, so I haven't started the task. Mention PostHog again to retry.",
+    )
 
 
 @activity.defn
