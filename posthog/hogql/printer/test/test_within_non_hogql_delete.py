@@ -1,23 +1,20 @@
-"""Execution test for the ``within_non_hogql_query`` lightweight-DELETE-mutation path.
+"""Tests the ``within_non_hogql_query`` lightweight-DELETE-mutation path.
 
-This is the genuinely missing test coverage. ``compile_hogql_predicate`` (the data-deletion entry point)
-compiles a HogQL property predicate into a ClickHouse fragment with ``within_non_hogql_query=True``, which the deletion
-DAG splices into a lightweight ``DELETE FROM sharded_events WHERE …`` mutation. That path is high-volume in
-production. The dags tests (``posthog/dags/tests/test_data_deletion_requests.py``) already run the full
-``compile_hogql_predicate`` → delete flow, but only over an *unmaterialized* property — none exercise the part this test is
-actually about: a predicate that references a **materialized column**, which the lightweight-delete expression analyzer
-requires to be **unqualified** (it rejects ``sharded_events.mat_$browser`` even when the column exists on every replica).
+Data deletion compiles a HogQL property predicate into a ClickHouse fragment via ``compile_hogql_predicate`` (which sets
+``within_non_hogql_query=True``), and the deletion DAG splices that fragment into a lightweight
+``DELETE FROM sharded_events WHERE …`` mutation. The catch: a ClickHouse lightweight-delete expression analyzer rejects
+table-qualified column references, so when the predicate hits a materialized column the fragment must read it
+**unqualified** — ``mat_$browser``, never ``sharded_events.mat_$browser`` — even though the column exists on every
+replica. The DAG tests (``posthog/dags/tests/test_data_deletion_requests.py``) cover the delete flow only over an
+unmaterialized property, so the materialized-column case is tested here.
 
-This file pins that. It:
+This file checks two things:
 
-1. Compiles ``properties.$browser = 'Chrome'`` via ``compile_hogql_predicate`` with ``$browser`` materialized and
-   asserts the fragment is unqualified (no ``events.`` / ``sharded_events.`` prefix on the mat column) and uses only
-   mutation-safe scalar functions.
-2. Runs a real lightweight DELETE against the test ``sharded_events`` table using that compiled fragment (mirroring the
-   production ``LightweightDeleteMutationRunner`` statement and settings), then asserts the matching rows are gone and
-   the non-matching / other-team rows survive.
-
-It characterizes correct MASTER behavior and adds no production code.
+1. ``compile_hogql_predicate`` over ``properties.$browser = 'Chrome'`` with ``$browser`` materialized produces an
+   unqualified fragment (no ``events.`` / ``sharded_events.`` prefix on the mat column) using only mutation-safe scalar
+   functions.
+2. A real lightweight DELETE built from that fragment (mirroring the production ``LightweightDeleteMutationRunner``
+   statement and settings) removes the matching rows and leaves the non-matching and other-team rows in place.
 """
 
 import re

@@ -75,12 +75,11 @@ class LogicalPropertyLowering(CloningVisitor):
         keys: list[str | int] = [str(chain[0])]
         keys.extend(link if isinstance(link, int) else str(link) for link in chain[1:])
 
-        # The node's type is its *value* type — the JSON-extract result, a nullable String — not the original
-        # `PropertyType`. Keeping the `PropertyType` would still mean "this is a property", which would send a lowered
-        # comparison operand back into the property-handling path we just bypassed. Everything a later pass needs (table,
-        # field, property name) is already on `expr` (the blob `Field`, whose `.type` is the source `FieldType`) and
-        # `keys`. The nullable String also keeps the printer's `ifNull(...)` wrapping the same as before, since both it
-        # and the old `PropertyType` count as nullable.
+        # The node's type is its *value* type — the JSON-extract result, a nullable String — not a `PropertyType`. A
+        # `PropertyType` here would still mean "this is a property" and send a lowered comparison operand back into the
+        # property-handling path we just bypassed. Everything a later pass needs (table, field, property name) is already
+        # on `expr` (the blob `Field`, whose `.type` is the source `FieldType`) and `keys`. The type must be nullable so
+        # the printer keeps wrapping the read in `ifNull(...)`; a JSON read can always miss the key.
         return ast.JSONFieldAccess(
             expr=ast.Field(chain=[base_field_type.name], type=base_field_type),
             keys=keys,
