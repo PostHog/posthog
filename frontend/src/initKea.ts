@@ -106,6 +106,17 @@ export function initKea({
                 // get a toast with the read-only `detail` as the message. The
                 // `posthog.captureException` event is dropped by the central
                 // `before_send` filter in `selfReadOnlyModeLogic`.
+                // These auth errors are handled gracefully by apiStatusLogic (it opens the
+                // 2FA setup modal or prompts re-authentication), so we don't toast, log, or
+                // report them as exceptions — doing so just pollutes error tracking with noise.
+                const isHandledAuthError =
+                    error?.code === 'two_factor_setup_required' ||
+                    error?.code === 'two_factor_verification_required' ||
+                    error?.code === 'sensitive_action_required_reauth'
+                if (isHandledAuthError) {
+                    return
+                }
+
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
                 if (
@@ -115,15 +126,9 @@ export function initKea({
                     !(isLoadAction && error.status === 403) // 403 access denied is handled by sceneLogic gates
                 ) {
                     let errorMessage = error.detail || error.statusText
-                    const isTwoFactorError =
-                        error.code === 'two_factor_setup_required' || error.code === 'two_factor_verification_required'
-                    const isSensitiveActionError = error.code === 'sensitive_action_required_reauth'
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
-                    }
-                    if (isTwoFactorError || isSensitiveActionError) {
-                        errorMessage = null
                     }
                     if (errorMessage) {
                         lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`)
