@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import { IconExternal, IconLogomark } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 
 import { useInterval } from 'lib/hooks/useInterval'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -21,7 +22,7 @@ interface BadgeAgent {
 
 const POSTHOG_CODE_URL = 'https://posthog.com/code'
 const POSTHOG_SLACK_URL = 'https://posthog.com/slack'
-const POSTHOG_CODE_LOGO = <IconLogomark className="size-4 shrink-0" />
+const POSTHOG_CODE_LOGO = <IconLogomark className="size-4 shrink-0 text-white" />
 const POSTHOG_SLACK_LOGO = <IconSlack className="size-4 shrink-0" />
 
 // Show PostHog Code + Slack more often to increase engagement
@@ -29,19 +30,24 @@ const POSTHOG_SLACK_LOGO = <IconSlack className="size-4 shrink-0" />
 const AGENTS: BadgeAgent[] = [
     { name: 'PostHog Code', logo: POSTHOG_CODE_LOGO, url: POSTHOG_CODE_URL },
     { name: 'PostHog Code', logo: POSTHOG_CODE_LOGO, url: POSTHOG_CODE_URL },
+    { name: 'Slack', logo: POSTHOG_SLACK_LOGO, url: POSTHOG_SLACK_URL },
     { name: 'Claude', logo: claudeLogo },
     { name: 'Cursor', logo: cursorLogo, logoClassName: 'dark:invert' },
     { name: 'PostHog Code', logo: POSTHOG_CODE_LOGO, url: POSTHOG_CODE_URL },
     { name: 'PostHog Code', logo: POSTHOG_CODE_LOGO, url: POSTHOG_CODE_URL },
+    { name: 'Slack', logo: POSTHOG_SLACK_LOGO, url: POSTHOG_SLACK_URL },
     { name: 'Codex', logo: openaiLogo },
     { name: 'Gemini', logo: geminiLogo },
+    { name: 'PostHog Code', logo: POSTHOG_CODE_LOGO, url: POSTHOG_CODE_URL },
+    { name: 'PostHog Code', logo: POSTHOG_CODE_LOGO, url: POSTHOG_CODE_URL },
     { name: 'Slack', logo: POSTHOG_SLACK_LOGO, url: POSTHOG_SLACK_URL },
-    { name: 'Slack', logo: POSTHOG_SLACK_LOGO, url: POSTHOG_SLACK_URL },
+    { name: 'ChatGPT', logo: openaiLogo },
+    { name: 'Claude Code', logo: claudeLogo },
 ]
 
 const ROTATE_INTERVAL_MS = 3000
 
-export function AgentBadgeRotator({ className }: { className?: string }): JSX.Element {
+export function AgentBadgeRotator(): JSX.Element {
     // Pin to "PostHog Code" inside Storybook so visual snapshots don't flake on rotation.
     const isStorybook = inStorybook() || inStorybookTestRunner()
 
@@ -56,33 +62,30 @@ export function AgentBadgeRotator({ className }: { className?: string }): JSX.El
     }, ROTATE_INTERVAL_MS)
 
     const agent = AGENTS[index]
+
+    const wrapperClassname = 'inline-flex items-center gap-1'
     const textClassname = cn('font-semibold rainbow-text-fading', {
         'rainbow-text-animating': !isStorybook,
     })
 
     return (
-        <span
-            className={cn('inline-flex items-center gap-1 relative align-text-bottom mb-[-2px]', className)}
-            aria-live="polite"
-        >
-            <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
+        <div className="inline-flex items-center relative align-text-bottom mb-[-2px]" aria-live="polite">
             {agent.url ? (
-                /* oxlint-disable-next-line forbid-elements */
-                <a
-                    href={agent.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    key={agent.name}
-                    className="inline-flex items-center gap-1"
-                >
-                    <span className={textClassname}>{agent.name}</span>
+                <Link to={agent.url} target="_blank" className={wrapperClassname}>
+                    <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
+                    <span key={agent.name} className={textClassname}>
+                        {agent.name}
+                    </span>
                     <IconExternal className="size-3 text-muted" />
-                </a>
+                </Link>
             ) : (
-                <span key={agent.name} className={textClassname}>
-                    {agent.name}
+                <span className={wrapperClassname}>
+                    <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
+                    <span key={agent.name} className={textClassname}>
+                        {agent.name}
+                    </span>
                 </span>
             )}
-        </span>
+        </div>
     )
 }
