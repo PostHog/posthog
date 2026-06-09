@@ -1,9 +1,7 @@
-from collections.abc import (
-    Iterable as _Iterable,
-    Mapping as _Mapping,
-)
 from typing import (
     ClassVar as _ClassVar,
+    Iterable as _Iterable,
+    Mapping as _Mapping,
     Optional as _Optional,
     Union as _Union,
 )

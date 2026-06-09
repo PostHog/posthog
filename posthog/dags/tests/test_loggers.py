@@ -15,7 +15,6 @@ LOCATION_MODULES = [
     "billing",
     "clickhouse",
     "data_stack",
-    "error_tracking",
     "growth",
     "ingestion",
     "logs",

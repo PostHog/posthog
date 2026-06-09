@@ -59,11 +59,12 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
     if validation_error:
         raise ValueError(f"Invalid sandbox URL: {validation_error}")
 
+    task_run = await TaskRunModel.objects.select_related("task__created_by").aget(id=input.run_id)
+
     stream_key = get_task_run_stream_key(input.run_id)
-    redis_stream = TaskRunRedisStream(stream_key)
+    redis_stream = TaskRunRedisStream(stream_key, task_run.created_at)
     await redis_stream.initialize()
 
-    task_run = await TaskRunModel.objects.select_related("task__created_by").aget(id=input.run_id)
     created_by = task_run.task.created_by
     connection_token = create_sandbox_connection_token(
         task_run=task_run,

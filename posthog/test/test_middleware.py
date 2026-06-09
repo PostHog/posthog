@@ -790,6 +790,11 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
                 "external_data_schemas/00000000-0000-0000-0000-000000000000/incremental_fields/",
                 {},
             ),
+            (
+                "exports",
+                "exports/",
+                {"export_format": "video/mp4", "export_context": {"session_recording_id": "test-session"}},
+            ),
         ]
     )
     def test_read_only_impersonation_allows_allowlisted_post(self, _name, path_suffix, body):
