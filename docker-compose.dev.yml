@@ -495,6 +495,7 @@ services:
                     clickhouse_person_distinct_id \
                     clickhouse_app_metrics2 \
                     log_entries \
+                    clickhouse_property_values \
                     clickhouse_tophog"
                 for topic in $$TOPICS; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
