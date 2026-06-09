@@ -23,6 +23,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.models.utils import UUIDT
 
 from products.logs.backend.logs_query_runner import LogsQueryRunner
 
@@ -1007,3 +1008,111 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         }
         response = self._make_logs_api_request(query_params)
         self.assertGreater(len(response["results"]), 0)
+
+
+class TestNumericDistinctIdLinking(ClickhouseTestMixin, APIBaseTest):
+    """End-to-end reproduction of the Circleback bug: logs whose person-pivot attribute
+    holds a numeric-looking string (e.g. a customer's own user PK `69339`) must link to
+    that person, and exact matching must not collide across zero-padded / float-equal
+    variants (`"7"` vs `"007"`). Inserts real rows and queries through the API so the
+    `__str` vs `__float` map routing is exercised against stored data, not just asserted
+    on generated SQL."""
+
+    def _insert_logs(self, rows: list[dict]) -> None:
+        full = [
+            {
+                "uuid": str(UUIDT()),
+                "team_id": self.team.id,
+                "body": "",
+                "severity_text": "info",
+                "severity_number": 9,
+                "service_name": "web",
+                "resource_attributes": {},
+                **row,
+            }
+            for row in rows
+        ]
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in full))
+
+    def _query_pivot(self, values: list[str], key: str = "posthogDistinctId") -> list[dict]:
+        query_params = {
+            "dateRange": {"date_from": "2026-01-01T09:00:00Z", "date_to": "2026-01-01T11:00:00Z"},
+            "limit": 50,
+            "filterGroup": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [{"key": key, "value": values, "operator": "exact", "type": "log_attribute"}],
+                    }
+                ],
+            },
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/logs/query", data={"query": query_params})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return response.json()["results"]
+
+    def test_all_numeric_distinct_id_links(self):
+        """A person whose only distinct_id is the numeric string `69339` (no anonymous UUID
+        to mask the routing) still matches their logs. Pre-fix this routed to `__float` and
+        silently missed."""
+        self._insert_logs(
+            [
+                {
+                    "timestamp": "2026-01-01 10:00:00.000000",
+                    "body": "numeric-user-log",
+                    "attributes_map_str": {"posthogDistinctId__str": "69339"},
+                }
+            ]
+        )
+        results = self._query_pivot(["69339"])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["body"], "numeric-user-log")
+
+    def test_zero_padded_and_float_equal_values_do_not_collide(self):
+        """`"7"`, `"007"`, and `"7.0"` all coerce to the float 7.0 — under `__float` an exact
+        filter for one would wrongly return all three (cross-person log leakage). Under `__str`
+        each is an exact, distinct string."""
+        self._insert_logs(
+            [
+                {
+                    "timestamp": "2026-01-01 10:00:00.000000",
+                    "body": "user-7",
+                    "attributes_map_str": {"posthogDistinctId__str": "7"},
+                },
+                {
+                    "timestamp": "2026-01-01 10:00:01.000000",
+                    "body": "user-007",
+                    "attributes_map_str": {"posthogDistinctId__str": "007"},
+                },
+                {
+                    "timestamp": "2026-01-01 10:00:02.000000",
+                    "body": "user-7-dot-0",
+                    "attributes_map_str": {"posthogDistinctId__str": "7.0"},
+                },
+            ]
+        )
+        bodies = {r["body"] for r in self._query_pivot(["7"])}
+        self.assertEqual(bodies, {"user-7"}, f"exact match for '7' leaked other people's logs: {bodies}")
+
+    def test_large_numeric_distinct_id_keeps_precision(self):
+        """A numeric distinct_id beyond float64 integer precision (> 2^53) must match exactly.
+        Under `__float` it would round and collide/mismatch; under `__str` it's exact."""
+        big = "9007199254740993"  # 2^53 + 1, not representable exactly as float64
+        neighbor = "9007199254740992"  # 2^53, the value `big` rounds to
+        self._insert_logs(
+            [
+                {
+                    "timestamp": "2026-01-01 10:00:00.000000",
+                    "body": "big-id",
+                    "attributes_map_str": {"posthogDistinctId__str": big},
+                },
+                {
+                    "timestamp": "2026-01-01 10:00:01.000000",
+                    "body": "neighbor-id",
+                    "attributes_map_str": {"posthogDistinctId__str": neighbor},
+                },
+            ]
+        )
+        bodies = {r["body"] for r in self._query_pivot([big])}
+        self.assertEqual(bodies, {"big-id"}, f"large numeric id lost precision / collided: {bodies}")

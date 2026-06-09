@@ -184,7 +184,7 @@ def _get_property_type(value) -> str:
 # map (string comparison would order `"100" < "99"` lexicographically). Every other operator is
 # equality / substring / regex identity matching and MUST use `__str` — see the comment in
 # `LogsFilterBuilder.__init__` for why routing equality to `__float` is a correctness bug.
-_NUMERIC_COMPARISON_OPERATORS = frozenset(
+_NUMERIC_COMPARISON_OPERATORS: frozenset[PropertyOperator] = frozenset(
     {
         PropertyOperator.GT,
         PropertyOperator.GTE,
