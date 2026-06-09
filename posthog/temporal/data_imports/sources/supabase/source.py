@@ -4,7 +4,12 @@ from typing import Optional
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
+    SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchGroupConfig,
 )
 
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -12,6 +17,15 @@ from posthog.temporal.data_imports.sources.generated_configs import PostgresSour
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
+
+_SourceField = (
+    SourceFieldInputConfig
+    | SourceFieldSwitchGroupConfig
+    | SourceFieldSelectConfig
+    | SourceFieldOauthConfig
+    | SourceFieldFileUploadConfig
+    | SourceFieldSSHTunnelConfig
+)
 
 # Supabase's direct connection host (`db.<ref>.supabase.co`) is IPv6-only and so is
 # unreachable from PostHog's IPv4 egress — by far the biggest cause of Supabase
@@ -35,23 +49,22 @@ class SupabaseSource(PostgresSource):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SUPABASE
 
+    @staticmethod
+    def _adjust_field(field: _SourceField) -> _SourceField:
+        if isinstance(field, SourceFieldInputConfig) and field.name == "schema":
+            return field.model_copy(update={"required": True, "label": "Schema", "caption": None})
+        if isinstance(field, SourceFieldInputConfig) and field.name == "host":
+            return field.model_copy(
+                update={
+                    "placeholder": "aws-0-us-east-1.pooler.supabase.com",
+                    "caption": _SUPABASE_POOLER_HOST_CAPTION,
+                }
+            )
+        return field
+
     @property
     def get_source_config(self) -> SourceConfig:
-        fields = []
-        for field in super().get_source_config.fields:
-            if isinstance(field, SourceFieldInputConfig) and field.name == "schema":
-                fields.append(field.model_copy(update={"required": True, "label": "Schema", "caption": None}))
-            elif isinstance(field, SourceFieldInputConfig) and field.name == "host":
-                fields.append(
-                    field.model_copy(
-                        update={
-                            "placeholder": "aws-0-us-east-1.pooler.supabase.com",
-                            "caption": _SUPABASE_POOLER_HOST_CAPTION,
-                        }
-                    )
-                )
-            else:
-                fields.append(field)
+        fields = [self._adjust_field(field) for field in super().get_source_config.fields]
 
         return SourceConfig(
             name=SchemaExternalDataSourceType.SUPABASE,
