@@ -1,40 +1,43 @@
 # Plan — approvals UI in agent-console
 
-**Status:** drafting. **Owner:** ben.
+**Status:** ✅ shipped. **Owner:** ben.
 
 Backend for approval-gated tools shipped in v0 (see
-[approval-gated-tools.md](approval-gated-tools.md) §10).
-Frontend is empty.
-This plan ships the console UI on top of the existing janitor + Django surface.
+[approval-gated-tools.md](../approval-gated-tools.md) §10).
+The console UI on top of the existing janitor + Django surface has now
+landed: fleet-wide [`ApprovalsList.tsx`](../../../../services/agent-console/src/components/ApprovalsList.tsx),
+per-agent `Approvals.tsx` screen, [`ApprovalDetail.tsx`](../../../../services/agent-console/src/components/ApprovalDetail.tsx)
+drawer with the edit/decision flow, sidebar + tab count badges, and the
+session-detail cross-link.
 
 ## 1. Context (don't re-derive)
 
 Already on disk:
 
 - Runtime store: `agent_tool_approval_request` table,
-  [PgApprovalStore.listByTeam / listByApplication / listBySession](../../../services/agent-shared/src/persistence/pg-approval-store.ts).
+  [PgApprovalStore.listByTeam / listByApplication / listBySession](../../../../services/agent-shared/src/persistence/pg-approval-store.ts).
 - Janitor HTTP: `GET /approvals?application_id=…`,
   `GET /approvals/:id`, `POST /approvals/:id/decide` in
-  [server.ts:529-644](../../../services/agent-janitor/src/server.ts).
+  [server.ts:529-644](../../../../services/agent-janitor/src/server.ts).
 - Django proxy: `agent_applications_approvals_{list,retrieve,decide}` in
-  [api.py:1343-1466](../../../products/agent_platform/backend/api.py),
+  [api.py:1343-1466](../../../../products/agent_platform/backend/api.py),
   team-admin gated.
 - Generated FE types: `AgentApprovalRequest`, `DecideApprovalRequest` etc.
-  in [products/agent_platform/frontend/generated/api.schemas.ts](../../../products/agent_platform/frontend/generated/api.schemas.ts).
+  in [products/agent_platform/frontend/generated/api.schemas.ts](../../../../products/agent_platform/frontend/generated/api.schemas.ts).
 - e2e backend coverage:
-  [services/agent-tests/src/cases/approval-gated.test.ts](../../../services/agent-tests/src/cases/approval-gated.test.ts).
+  [services/agent-tests/src/cases/approval-gated.test.ts](../../../../services/agent-tests/src/cases/approval-gated.test.ts).
 - Existing fleet shell: `/agent_fleet/stats/` + `/agent_fleet/live_sessions/`
-  in [api.py:2560](../../../products/agent_platform/backend/api.py),
-  consumed by [agent-console/src/lib/apiClient.ts:getFleetStats](../../../services/agent-console/src/lib/apiClient.ts).
+  in [api.py:2560](../../../../products/agent_platform/backend/api.py),
+  consumed by [agent-console/src/lib/apiClient.ts:getFleetStats](../../../../services/agent-console/src/lib/apiClient.ts).
 
 Console gaps:
 
 - `getFleetStats` hardcodes `approvalsPendingCount: 0`
-  ([apiClient.ts:744-751](../../../services/agent-console/src/lib/apiClient.ts)).
+  ([apiClient.ts:744-751](../../../../services/agent-console/src/lib/apiClient.ts)).
 - No fleet-wide approvals list endpoint (only per-app exists).
 - No screen / route / detail surface in the console.
 - `awaiting_approval` SessionState dot in
-  [runnerReducer.ts:177-178](../../../services/agent-console/src/lib/runnerReducer.ts)
+  [runnerReducer.ts:177-178](../../../../services/agent-console/src/lib/runnerReducer.ts)
   - SessionsList / LiveNowPanel / AgentOverview is **misleading** —
     the runner doesn't park on approval gates per the plan. Clean up alongside.
 
@@ -72,7 +75,7 @@ Console gaps:
 
 ### 3.1 Janitor — fleet-wide list
 
-[services/agent-janitor/src/server.ts](../../../services/agent-janitor/src/server.ts):
+[services/agent-janitor/src/server.ts](../../../../services/agent-janitor/src/server.ts):
 
 - Extend `ListApprovalsQuerySchema` to accept `team_id` **or**
   `application_id` (one required, mutually exclusive).
@@ -87,8 +90,8 @@ Console gaps:
 
 Cheaper than a second round-trip from the fleet-stats endpoint.
 
-[services/agent-shared/src/persistence/queue.ts](../../../services/agent-shared/src/persistence/queue.ts) +
-[pg-queue.ts](../../../services/agent-shared/src/persistence/pg-queue.ts):
+[services/agent-shared/src/persistence/queue.ts](../../../../services/agent-shared/src/persistence/queue.ts) +
+[pg-queue.ts](../../../../services/agent-shared/src/persistence/pg-queue.ts):
 
 - Don't touch `AggregateStats` (queue concern).
 - Instead extend the janitor's `/sessions/stats` (or `/fleet/stats`,
@@ -100,7 +103,7 @@ Cheaper than a second round-trip from the fleet-stats endpoint.
 
 ### 3.3 Django proxy
 
-[products/agent_platform/backend/api.py](../../../products/agent_platform/backend/api.py):
+[products/agent_platform/backend/api.py](../../../../products/agent_platform/backend/api.py):
 
 - New `AgentFleetViewSet.approvals` action:
   `GET /agent_fleet/approvals/?state=queued&agent_id=…&limit=…&offset=…`.
@@ -110,7 +113,7 @@ Cheaper than a second round-trip from the fleet-stats endpoint.
   application_id for cross-checking ownership).
 - `_AGENT_AGGREGATE_STATS` serializer gains `pendingApprovalsCount`
   field — schema annotation flows into generated types automatically.
-- [janitor_client.py](../../../products/agent_platform/backend/janitor_client.py):
+- [janitor_client.py](../../../../products/agent_platform/backend/janitor_client.py):
   add `list_approvals_for_team(team_id, state=…, agent_id=…, limit=…, offset=…)`.
 
 ### 3.4 Regen types
@@ -120,16 +123,16 @@ hogli build:openapi
 ```
 
 Will update both
-[frontend/generated/api.schemas.ts](../../../products/agent_platform/frontend/generated/api.schemas.ts)
+[frontend/generated/api.schemas.ts](../../../../products/agent_platform/frontend/generated/api.schemas.ts)
 and
-[services/agent-console/src/generated/agent-platform.api.schemas.ts](../../../services/agent-console/src/generated/agent-platform.api.schemas.ts)
+[services/agent-console/src/generated/agent-platform.api.schemas.ts](../../../../services/agent-console/src/generated/agent-platform.api.schemas.ts)
 (check both regenerate — the console pulls a separate snapshot).
 
 ## 4. Frontend — agent-console
 
 ### 4.1 Wire pendingApprovalsCount
 
-[services/agent-console/src/lib/apiClient.ts](../../../services/agent-console/src/lib/apiClient.ts) —
+[services/agent-console/src/lib/apiClient.ts](../../../../services/agent-console/src/lib/apiClient.ts) —
 in `getFleetStats`, replace the hardcoded `0` with the new field.
 Existing Overview / AgentsList tiles will light up automatically.
 
@@ -206,10 +209,10 @@ route page under `services/agent-console/src/app/approvals/page.tsx`:
 - Drawer-style detail uses
   `<Dialog>` / `<Sheet>` from Quill — pick whichever the existing
   surfaces use (SessionDetail's secret edit dialog is the precedent
-  via [SecretEditDialog.tsx](../../../services/agent-console/src/components/SecretEditDialog.tsx)).
+  via [SecretEditDialog.tsx](../../../../services/agent-console/src/components/SecretEditDialog.tsx)).
 
 Add to the sidebar:
-[AppShell.tsx](../../../services/agent-console/src/components/AppShell.tsx) —
+[AppShell.tsx](../../../../services/agent-console/src/components/AppShell.tsx) —
 new `<SidebarTooltip label="Approvals">` icon block between Agents and
 "Tools & skills".
 `CheckSquareIcon` from lucide is the natural pick.
@@ -219,7 +222,7 @@ Gate the sidebar item on `is_team_admin`.
 
 ### 4.5 Per-agent tab
 
-[AgentLayout.tsx](../../../services/agent-console/src/components/AgentLayout.tsx) —
+[AgentLayout.tsx](../../../../services/agent-console/src/components/AgentLayout.tsx) —
 extend `TABS` and `TAB_DEFS`:
 
 ```ts
@@ -238,39 +241,39 @@ for this agent (cheap — already filtered list response carries the count).
 
 ### 4.6 Cross-link from session detail
 
-[SessionLogs.tsx](../../../services/agent-console/src/components/SessionLogs.tsx) —
+[SessionLogs.tsx](../../../../services/agent-console/src/components/SessionLogs.tsx) —
 when a `tool_result` payload parses as
 `{ approval: { request_id, state: "queued", approval_url } }`,
 render the tool name with a "Pending approval" chip that opens the
 drawer directly (preload the row by `request_id` via the per-app
 retrieve endpoint).
 Same parse logic the harness uses in
-[approval-gated.test.ts:parseApprovalPayload](../../../services/agent-tests/src/cases/approval-gated.test.ts) —
+[approval-gated.test.ts:parseApprovalPayload](../../../../services/agent-tests/src/cases/approval-gated.test.ts) —
 factor that out into the runtime types package so it's shared.
 
 ### 4.7 Cleanup — misleading awaiting_approval state
 
 Last commit of the stack.
 
-- [runnerReducer.ts:177-178](../../../services/agent-console/src/lib/runnerReducer.ts) —
+- [runnerReducer.ts:177-178](../../../../services/agent-console/src/lib/runnerReducer.ts) —
   remove the `awaiting_approval` case; map the `waiting` event to
   `awaiting_user_input` (a new state) or fold into the existing
   `awaiting_client_tool` bucket if semantics line up.
   Verify by reading what triggers the `waiting` SSE event in
-  [services/agent-runner/src/loop/bus.ts](../../../services/agent-runner/src/loop/bus.ts) /
-  [agent-ingress/src/triggers/chat.ts](../../../services/agent-ingress/src/triggers/chat.ts).
+  [services/agent-shared/src/runtime/bus.ts](../../../../services/agent-shared/src/runtime/bus.ts) /
+  [agent-ingress/src/triggers/chat.ts](../../../../services/agent-ingress/src/triggers/chat.ts).
 - Remove the `awaiting_approval` branch from
-  [SessionsList.tsx:158-159](../../../services/agent-console/src/components/SessionsList.tsx),
-  [LiveNowPanel.tsx:130-131](../../../services/agent-console/src/components/LiveNowPanel.tsx),
-  [AgentOverview.tsx:286-287](../../../services/agent-console/src/components/AgentOverview.tsx).
+  [SessionsList.tsx:158-159](../../../../services/agent-console/src/components/SessionsList.tsx),
+  [LiveNowPanel.tsx:130-131](../../../../services/agent-console/src/components/LiveNowPanel.tsx),
+  [AgentOverview.tsx:286-287](../../../../services/agent-console/src/components/AgentOverview.tsx).
 - Remove `awaiting_approval` from `LIVE_STATES` in
-  [SessionsList.tsx:30](../../../services/agent-console/src/components/SessionsList.tsx).
+  [SessionsList.tsx:30](../../../../services/agent-console/src/components/SessionsList.tsx).
 
 ## 5. Test paths
 
 ### 5.1 Backend
 
-[services/agent-tests/src/cases/approval-gated.test.ts](../../../services/agent-tests/src/cases/approval-gated.test.ts)
+[services/agent-tests/src/cases/approval-gated.test.ts](../../../../services/agent-tests/src/cases/approval-gated.test.ts)
 already covers the runtime loop.
 Extend it (or sibling case) for the new wire shapes:
 
@@ -296,7 +299,7 @@ Steps to verify locally:
 
 1. `hogli start` + `pnpm --filter @posthog/agent-console dev`.
 2. Use the concierge agent OR the
-   [agent-tests/src/examples/agent-concierge](../../../services/agent-tests/src/examples/agent-concierge)
+   [agent-tests/src/examples/agent-concierge](../../../../services/agent-tests/src/examples/agent-concierge)
    fixture as a seed.
    Add a single gated tool to its `spec.json` —
    `requires_approval: true` on something cheap like

@@ -40,12 +40,13 @@ Cross-cutting status (refreshed against current code):
   Backend, MCP write tools, freeze-time resolution, frontend
   pages, concierge skill — see
   [`skill-templates.md`](skill-templates.md).
-- 📋 **Cron trigger** — schema slot exists in `TriggerSchema`,
-  janitor side (the scheduler that fires sessions on schedule)
-  is not implemented. Plan:
-  [`cron-trigger-scheduler.md`](cron-trigger-scheduler.md).
-  Every weekly / monthly app below assumes cron and is
-  currently blocked on this — but it's a small piece of work.
+- ✅ **Cron trigger** — shipped. The `cron` `TriggerSchema` variant
+  plus `cronTick()` in the janitor
+  ([`cron-tick.ts`](../../../services/agent-janitor/src/cron-tick.ts))
+  fire sessions on schedule, with catch-up modes and `idempotency_key`
+  dedup. Plan: [`cron-trigger-scheduler.md`](shipped/cron-trigger-scheduler.md).
+  Every weekly / monthly app below is now unblocked on the time-based
+  half.
 - ✅ **Bring-your-own HTTP services via `@posthog/http-request`** —
   generic GET/POST/PUT/PATCH/DELETE tool with `${SECRET_NAME}`
   substitution in url, headers, and body. The author drops a bearer
@@ -437,9 +438,9 @@ skills:
 
 **Platform prerequisites.**
 
-- [ ] 📋 Cron trigger — schema slot exists; scheduler not built.
+- [x] ✅ Cron trigger — shipped; `cronTick()` in the janitor fires on schedule.
       Plan:
-      [`cron-trigger-scheduler.md`](cron-trigger-scheduler.md).
+      [`cron-trigger-scheduler.md`](shipped/cron-trigger-scheduler.md).
 - [x] ✅ Slack post tool —
       [`slack.v1.ts`](../../../services/agent-tools/src/tools/slack.v1.ts).
 - [ ] 📋 Runtime MCP (the GitHub MCP server covers PR listing) —
@@ -488,7 +489,7 @@ reasoning: high # the dedup is the hard part
 
 **Platform prerequisites.**
 
-- [ ] 📋 Cron trigger.
+- [x] ✅ Cron trigger — shipped ([`cron-tick.ts`](../../../services/agent-janitor/src/cron-tick.ts)).
 - [ ] 📋 GitHub access via runtime MCP —
       [`runtime-mcps.md`](runtime-mcps.md).
 - [x] ✅ Slack read-channel — see Marketing agent.
@@ -537,7 +538,7 @@ skills:
 
 **Platform prerequisites.**
 
-- [ ] 📋 Cron trigger.
+- [x] ✅ Cron trigger — shipped ([`cron-tick.ts`](../../../services/agent-janitor/src/cron-tick.ts)).
 - [x] ✅ Webhook trigger.
 - [x] ✅ PostHog query tool.
 - [x] ✅ Web-fetch for competitor pages.
@@ -585,7 +586,7 @@ skills:
 
 **Platform prerequisites.**
 
-- [ ] 📋 Cron trigger.
+- [x] ✅ Cron trigger — shipped ([`cron-tick.ts`](../../../services/agent-janitor/src/cron-tick.ts)).
 - [x] ✅ Web-fetch.
 - [ ] ⚠️ **Inbound email trigger / per-agent mailbox** for
       newsletter subscription. **Gap.**
@@ -630,7 +631,7 @@ skills:
 
 **Platform prerequisites.**
 
-- [ ] 📋 Cron trigger.
+- [x] ✅ Cron trigger — shipped ([`cron-tick.ts`](../../../services/agent-janitor/src/cron-tick.ts)).
 - [x] ✅ Webhook trigger.
 - [x] ✅ Long-running sessions —
       [`long-running-sessions.md`](long-running-sessions.md);
@@ -734,7 +735,7 @@ skills:
 
 **Platform prerequisites.**
 
-- [ ] 📋 Cron trigger.
+- [x] ✅ Cron trigger — shipped ([`cron-tick.ts`](../../../services/agent-janitor/src/cron-tick.ts)).
 - [x] ✅ PostHog query tool.
 - [x] ✅ Sandboxed code execution / coding-agent target for
       "fix the missing instrumentation" —
@@ -784,7 +785,7 @@ skills:
 
 **Platform prerequisites.**
 
-- [ ] 📋 Cron trigger.
+- [x] ✅ Cron trigger — shipped ([`cron-tick.ts`](../../../services/agent-janitor/src/cron-tick.ts)).
 - [ ] 📋 GitHub + ticketing access via runtime MCP —
       [`runtime-mcps.md`](runtime-mcps.md).
 - [ ] ⚠️ Agent-to-agent invocation (see Growth review).
@@ -829,7 +830,7 @@ skills:
 
 **Platform prerequisites.**
 
-- [ ] 📋 Cron trigger.
+- [x] ✅ Cron trigger — shipped ([`cron-tick.ts`](../../../services/agent-janitor/src/cron-tick.ts)).
 - [ ] 📋 Runtime MCP — [`runtime-mcps.md`](runtime-mcps.md).
       Once wired, every external financial provider with an MCP
       server drops in.
@@ -871,7 +872,7 @@ skills:
 
 **Platform prerequisites.**
 
-- [ ] 📋 Cron trigger.
+- [x] ✅ Cron trigger — shipped ([`cron-tick.ts`](../../../services/agent-janitor/src/cron-tick.ts)).
 - [x] ✅ Sandboxed code execution for forecasting math —
       [`sandboxed-agent-inference.md`](sandboxed-agent-inference.md).
 - [ ] 📋 Runtime MCP for Warpstream + Grafana —
@@ -933,7 +934,7 @@ Highest-leverage next picks given the matrix:
 **What's shipped vs. what's left.** This branch closed the two
 biggest blocks on the matrix:
 
-- **Cron scheduler** ([`cron-trigger-scheduler.md`](cron-trigger-scheduler.md))
+- **Cron scheduler** ([`cron-trigger-scheduler.md`](shipped/cron-trigger-scheduler.md))
   ✅ shipped. Unblocked the time-based half of Marketing, Feature
   prioritization, Industry intel, Customer research, Growth
   review, Gap analysis, Financial reconciliation, Warpstream

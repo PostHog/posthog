@@ -1,15 +1,27 @@
 # Design — cron trigger scheduler
 
-**Status:** draft. **Owner:** ben.
+**Status:** ✅ shipped (v0 — the whole thing). **Owner:** ben.
 
-[`TriggerSchema`](../../../services/agent-shared/src/spec/spec.ts) already
-carries a `cron` variant with `schedule` + `timezone`. Nothing wakes
-those agents up, and the existing shape is too thin — it tells you
-_when_ but not _what to do_. This plan fixes both.
+v0 landed in full: `cronTick()` runs alongside the janitor sweep
+([`cron-tick.ts`](../../../../services/agent-janitor/src/cron-tick.ts)),
+the `idempotency_key` column + partial unique index
+([`1780346228100_agent_session_idempotency_key.sql`](../../../../services/agent-migrations/migrations/1780346228100_agent_session_idempotency_key.sql)),
+the job-shaped `cron` `TriggerSchema` variant, `POST /revisions/:id/cron/fire`,
+catch-up modes, placeholder expansion, and e2e coverage
+([`cron-trigger.test.ts`](../../../../services/agent-tests/src/cases/cron-trigger.test.ts)).
+Dedup is via the session `idempotency_key` — no `agent_cron_firing`
+table was ever needed. Only the §10 **v1 polish** items remain.
+
+Original plan text follows.
+
+[`TriggerSchema`](../../../../services/agent-shared/src/spec/spec.ts) already
+carried a `cron` variant with `schedule` + `timezone`. Nothing woke
+those agents up, and the existing shape was too thin — it told you
+_when_ but not _what to do_. This plan fixed both.
 
 ## 1. The shift: each cron entry is a job, not a ping
 
-The cron-shaped agents in [`_APP_IDEAS.md`](_APP_IDEAS.md) all share a
+The cron-shaped agents in [`_APP_IDEAS.md`](../_APP_IDEAS.md) all share a
 problem: a single agent has a lot of context (a digest agent knows how
 to read the warehouse, format prose, post to Slack) and is triggered
 in multiple shapes — chat ("redo last week's digest"), webhook
@@ -63,7 +75,7 @@ tools, finishes the turn.
 ## 2. What "fire" actually means
 
 A firing is a single call into the same
-[`enqueueOrResume()`](../../../services/agent-ingress/src/enqueue/enqueue.ts)
+[`enqueueOrResume()`](../../../../services/agent-ingress/src/enqueue/enqueue.ts)
 that chat, webhook, and Slack already use. It carries:
 
 - The application + the live revision id (cron only fires through the
@@ -93,7 +105,7 @@ Slack / chat / webhook today. The cron config has an optional
 Placeholders: `fired_at:iso`, `fired_at:date`, `fired_at:week`,
 `schedule`, `cron_name`. Expanded at firing time. **No new resume
 concept is invented** — the underlying mechanism is the existing
-`external_key` resume from [long-running-sessions.md](long-running-sessions.md) §4.
+`external_key` resume from [long-running-sessions.md](../long-running-sessions.md) §4.
 
 ## 4. The firing message
 
@@ -127,7 +139,7 @@ prompt: 'Produce the digest for the week ending {fired_at:date}.'
 ## 5. Where the scheduler runs
 
 **Janitor.** It already runs `sweepOnce` every 30s
-([`sweep.ts`](../../../services/agent-janitor/src/sweep.ts)), already
+([`sweep.ts`](../../../../services/agent-janitor/src/sweep.ts)), already
 holds the `PgRevisionStore`, already opens the two PG pools. Adding a
 `cronTick()` alongside the sweep is the smallest possible addition —
 no new deploy unit, no new shape to operate.
@@ -268,7 +280,7 @@ to 7 days at validation.
 ```
 
 Freeze-time validation in
-[`validate-spec.ts`](../../../services/agent-janitor/src/validate-spec.ts):
+[`validate-spec.ts`](../../../../services/agent-janitor/src/validate-spec.ts):
 
 - `name` matches `^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`
 - All `name`s across `triggers[]` are unique
@@ -289,7 +301,7 @@ and no-ops.
 
 **Runaway crons** (`schedule: '* * * * *'`). Goes through the same
 admission check as every other trigger
-([`rate-limiting-sessions.md`](rate-limiting-sessions.md) §5).
+([`rate-limiting-sessions.md`](../rate-limiting-sessions.md) §5).
 Recommended setup: `max_concurrent_sessions: 1` plus append-mode
 `external_key` so subsequent firings coalesce into `pending_inputs`
 rather than stacking sessions. Document in the registry-vendored
@@ -320,7 +332,7 @@ cron-firings table or endpoint.
 **v0** (the whole thing, since authoring depends on every piece):
 
 - `idempotency_key` column + partial unique index on `agent_session`
-  ([`services/agent-migrations/migrations/`](../../../services/agent-migrations/migrations/))
+  ([`services/agent-migrations/migrations/`](../../../../services/agent-migrations/migrations/))
 - `enqueueOrResume()` gains the `idempotencyKey` argument; webhook
   trigger wired to forward provider-supplied keys
 - `cron-parser` dep on `agent-janitor`
@@ -358,10 +370,10 @@ compose without modification.
 **What this unblocks:**
 
 - The time-based half of eight apps in
-  [`_APP_IDEAS.md`](_APP_IDEAS.md) (Marketing update, Feature
+  [`_APP_IDEAS.md`](../_APP_IDEAS.md) (Marketing update, Feature
   prioritization, Industry intelligence, Customer research, Growth
   review, Gap analysis, Financial reconciliation, Warpstream
-  forecasting) plus [`self-healing-agents.md`](self-healing-agents.md)
+  forecasting) plus [`self-healing-agents.md`](../self-healing-agents.md)
   v3. **The single largest unblock per the feasibility matrix.**
 - **Webhook double-delivery safety as a side effect.** The
   `idempotency_key` primitive lets the webhook trigger forward

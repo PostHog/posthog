@@ -1,6 +1,15 @@
 # Design — typed bundle authoring API (full replace of file-grain bundle writes)
 
-**Status:** draft. **Owner:** Ben. **Tracking:** [`_TODO.md`](_TODO.md).
+**Status:** ✅ shipped. **Owner:** Ben. **Tracking:** [`_TODO.md`](../_TODO.md).
+
+Typed resource endpoints, server-derived `spec.skills[]` / `spec.tools[]`
+at freeze, the static-AST tool shape check + esbuild compile
+([`compile-custom-tools.ts`](../../../../services/agent-janitor/src/compile-custom-tools.ts),
+[`typed-bundle.ts`](../../../../services/agent-janitor/src/api/typed-bundle.ts)),
+the one-shot migrator, and the comprehensive e2e suite
+([`typed-bundle-authoring.test.ts`](../../../../services/agent-tests/src/cases/typed-bundle-authoring.test.ts))
+all landed. Only the §11 open questions (per-tool monotonic versioning,
+frontmatter shape enforcement) remain as future work.
 
 ## 1. Problem
 
@@ -234,7 +243,7 @@ of support-conversation we no longer have:
 - **The `mode: replace | merge` flag on `/bundle`** — deleted. PUT-full vs
   per-resource is clearer.
 - **The hand-rolled "what files are allowed in a bundle" allowlist** (see
-  [`bundle-manifest-schema.md`](bundle-manifest-schema.md)) — moot. The only
+  [`bundle-manifest-schema.md`](../bundle-manifest-schema.md)) — moot. The only
   files in the bundle are the ones the typed endpoints write.
 - **About a third of the `authoring-new-agents` skill** — the file-shape and
   spec-shape worked examples become server-enforced and don't need to be in
@@ -303,8 +312,8 @@ Why this matters more in the typed-API world than the file-API world:
 
 The whole feature lives or dies on having comprehensive e2e tests against
 the janitor. Lives in
-[`services/agent-tests/`](../../services/agent-tests/) using the real-cluster
-harness ([`buildCluster()`](../../services/agent-tests/src/harness/cluster.ts)) —
+[`services/agent-tests/`](../../../../services/agent-tests/) using the real-cluster
+harness ([`buildCluster()`](../../../../services/agent-tests/src/harness/cluster.ts)) —
 real Postgres, real S3 (SeaweedFS), real janitor HTTP server, no fakes. New
 file: `services/agent-tests/src/cases/typed-bundle-authoring.test.ts`.
 
@@ -525,14 +534,14 @@ to gRPC — without re-litigating "does the typed API still work."
 
 ## 12. Coupled / superseded plans
 
-- [`bundle-manifest-schema.md`](bundle-manifest-schema.md) — **superseded.**
+- [`bundle-manifest-schema.md`](../bundle-manifest-schema.md) — **superseded.**
   The "allowed paths" allowlist is moot when the only paths are the ones
   the typed endpoints write. The plan document can be archived in the same
   PR that ships the typed API.
-- [`agent-authoring-flow.md`](agent-authoring-flow.md) — needs an update
+- [`agent-authoring-flow.md`](../agent-authoring-flow.md) — needs an update
   pass: the file-grain MCP calls (`agent-applications-revisions-file-update`)
   get replaced with the typed resource calls.
-- [`framework-system-prompt.md`](framework-system-prompt.md) — orthogonal
+- [`framework-system-prompt.md`](../framework-system-prompt.md) — orthogonal
   but worth re-checking: the framework system prompt currently talks about
   bundle paths; it can be tightened to talk about typed resources instead.
 

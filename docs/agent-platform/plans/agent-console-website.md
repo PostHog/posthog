@@ -1,11 +1,23 @@
 # Design — agent console website (read-mostly UI + agent-mediated editing)
 
-**Status:** draft. **Owner:** ben.
+**Status:** v0 ✅ shipped; later surfaces ongoing. **Owner:** ben.
 
-> The MCP gives the authoring AI a complete surface. Humans don't have
-> one yet — today the only way to inspect an agent (spec, bundle,
-> revisions, sessions, logs) is to either drive the MCP directly or
-> read JSON out of `psql`. This plan adds a standalone website that
+The standalone Next.js app at
+[`services/agent-console/`](../../../services/agent-console/), the
+reusable [`@posthog/agent-chat`](../../../packages/agent-chat/) dock
+package, PostHog OAuth login, the read surfaces (overview / sessions /
+revisions / config / logs / memory), and the **client-fulfilled tools**
+protocol (`kind: "client"` + `client.handles[]`, with `focus_*` /
+`toast` / `get_context` / `set_secret` handlers) have all landed. The
+approvals surface shipped too — see
+[`shipped/approvals-ui.md`](shipped/approvals-ui.md). Remaining work is
+incremental (e.g. the [`sessions-world-map.md`](sessions-world-map.md)
+fleet view and richer authoring affordances).
+
+> The MCP gives the authoring AI a complete surface. Humans didn't have
+> one — the only way to inspect an agent (spec, bundle, revisions,
+> sessions, logs) was to either drive the MCP directly or read JSON out
+> of `psql`. This plan adds a standalone website that
 > renders all of that, and folds the editing flow into a single chat
 > with a concierge agent rather than a wall of forms.
 

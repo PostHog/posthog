@@ -14,7 +14,7 @@ TTL is the only piece those downstream plans strictly need.
 
 > **Note on history.** An earlier draft of this plan was written against the
 > pre-cutover state machine that included a `waiting` state. That state was
-> removed when [`session-restart-and-state-machine.md`](session-restart-and-state-machine.md)
+> removed when [`session-restart-and-state-machine.md`](shipped/session-restart-and-state-machine.md)
 > shipped — `completed` is now the open-but-idle state.
 >
 > A subsequent draft introduced a `suspended` parked-cold state alongside

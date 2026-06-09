@@ -1,6 +1,6 @@
 # Design — session state machine + restart
 
-**Status:** shipped (v0). **Owner:** ben.
+**Status:** ✅ shipped (v0 — the contract is the whole deliverable). **Owner:** ben.
 
 This is the contract the platform now operates under for session lifecycle.
 Replaces the older `queued / running / waiting / completed / failed` state
@@ -50,7 +50,7 @@ ones spawn a fresh session.
 
 Three always-on meta tools the runner intercepts. The system prompt
 should teach the model which to reach for and when — see
-[`framework-system-prompt.md`](framework-system-prompt.md) §3.1.
+[`framework-system-prompt.md`](../framework-system-prompt.md) §3.1.
 
 ### `@posthog/meta-end-turn`
 
@@ -173,7 +173,7 @@ Shipped in one branch. Backwards-compat notes:
   `tool_result` and user messages into the session, no state-machine
   interaction. A session that's parked on an approval lands at
   `completed` (open); after the approval the runner picks it back up.
-- [`framework-system-prompt.md`](framework-system-prompt.md) — the new
+- [`framework-system-prompt.md`](../framework-system-prompt.md) — the new
   meta tools need explicit guidance about when to use each; that plan
   owns the preamble.
 - `long-running-sessions.md` — the `idleCompletedThresholdMs` sweep
