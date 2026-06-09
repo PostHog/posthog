@@ -36,16 +36,6 @@ ALL_ROLES = [
     NodeRole.SESSIONS,
     NodeRole.OPS,
 ]
-# Roles where query_log_archive is (or was) a no-data Distributed read table — safe to drop + recreate.
-# OPS is excluded: there query_log_archive is the populated data table, renamed aside below instead.
-DISTRIBUTED_READ_ROLES = [
-    NodeRole.DATA,
-    NodeRole.ENDPOINTS,
-    NodeRole.AUX,
-    NodeRole.AI_EVENTS,
-    NodeRole.SESSIONS,
-]
-
 QUERY_LOG_ARCHIVE_OLD_TABLE = "query_log_archive_old"  # renamed OPS data table, kept for manual backfill
 SHARDED_OLD_TABLE = "sharded_query_log_archive_old"  # renamed repo-history data table (state B)
 
@@ -80,8 +70,9 @@ operations = [
         QUERY_LOG_ARCHIVE_OPS_MV_SQL(view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=WRITABLE_QUERY_LOG_ARCHIVE_TABLE),
         node_roles=ALL_ROLES,
     ),
-    # ---------- F. Read Distributed query_log_archive -> ops.sharded, on every cluster ----------
-    # Non-OPS: existing no-data Distributed -> drop + recreate. OPS: already renamed aside in B, just create.
-    run_sql_with_exceptions(f"DROP TABLE IF EXISTS {QUERY_LOG_ARCHIVE_DATA_TABLE}", node_roles=DISTRIBUTED_READ_ROLES),
-    run_sql_with_exceptions(DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(), node_roles=ALL_ROLES),
+    # ---------- F. Read Distributed query_log_archive -> ops.sharded, on EVERY node ----------
+    # Created everywhere so query_log_archive is queryable from any node. Safe to drop on every node:
+    # the only place it is a populated data table is OPS, already renamed aside in B.
+    run_sql_with_exceptions(f"DROP TABLE IF EXISTS {QUERY_LOG_ARCHIVE_DATA_TABLE}", node_roles=[NodeRole.ALL]),
+    run_sql_with_exceptions(DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(), node_roles=[NodeRole.ALL]),
 ]
