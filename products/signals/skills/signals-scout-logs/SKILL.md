@@ -30,11 +30,13 @@ loud today; you have to ask.
 
 ## The stream is a firehose — never count it unfiltered
 
-On a busy project the log stream runs to hundreds of millions of lines/hour. So an
-**unfiltered, wide-window `logs-count` (e.g. 24h, all severities) times out with a
-500** — it is the most expensive call you can make, not a cheap pre-flight. **Always
-bound every count** by `severityLevels` and/or `serviceNames`, or keep the window
-≤ ~3h. `fatal`-only over 24h is cheap (often < 100 rows) and a great first probe.
+On a busy project the log stream runs to hundreds of millions of lines/hour, the bulk of
+it `info`/`warn`. So an **unfiltered `logs-count` times out with a 500 at _any_ window** —
+it 500s even over a few minutes, so it is never a safe pre-flight. **Always bound every
+count** by `severityLevels` and/or `serviceNames`. `fatal`-only over 24h is cheap (often
+< 100 rows) and a great first probe. For an _all-severity_ read (total volume / "is
+anything logging"), use **`logs-services-create`** — it's an aggregation that survives the
+firehose where a raw count 500s (read its `services` list, ignore the `sparkline`).
 
 **Date footgun:** relative units are `h` (hour) / `d` (day) / `m` (**month**) — there is
 **no minute unit**. `-30m` parses as 30 _months_ and silently returns a huge wrong count,
@@ -45,13 +47,15 @@ busiest services) so future runs skip rediscovery.
 
 ## Quick close-out: are logs even in use?
 
-If a **bounded** `logs-count` (`severityLevels=["error","fatal"]` over the last 1h, plus
-`severityLevels=["fatal"]` over 24h) returns zero, this team isn't using logs — don't
-read an unfiltered-count 500 as "no logs", that's the firehose, not silence. Write one
-scratchpad entry:
+Check with **`logs-services-create`** over a short window (e.g. `-15m`) — it's an
+all-severity aggregation that survives the firehose. **Zero services back = genuinely not
+using logs.** Do _not_ decide this from error/fatal counts alone: a team that logs only at
+`info`/`warn` (common — one line per request) would read as "no logs" and get permanently
+short-circuited. And don't read a `logs-count` 500 as "no logs" — that's the firehose, not
+silence. Write one scratchpad entry:
 
 - key: `not-in-use:logs:team{team_id}`
-- content: brief note ("checked at {timestamp}, bounded error+fatal counts ≈ 0")
+- content: brief note ("checked at {timestamp}, logs-services-create returned 0 services")
 
 Close out empty. Future logs runs will read this entry cold and short-circuit in
 seconds. Re-running with the same key idempotently refreshes the timestamp — the entry
@@ -72,14 +76,22 @@ Three cheap reads cold-start a run:
 - `signals-scout-runs-list` (last 7d) — what prior logs scouts found and ruled out.
 - **The cheap tripwire set** (runs in seconds, no firehose) — this is the
   is-anything-loud-today check, _not_ an unfiltered baseline diff:
-  1. `logs-count` `severityLevels=["fatal"]` over 24h (add a `searchTerm` to count a
-     specific crash signature) — fatal is rare, so this is cheap and catches crash loops.
-  2. `logs-count` `severityLevels=["error","fatal"]` over the last 1h vs the team's
-     error+fatal/hr baseline (from `pattern:` memory) — a severity-shift proxy.
-  3. `logs-alerts-list` — only a _new_ firing alert beyond known-noise ones is interesting.
+  1. `logs-services-create` over a short window (read the `services` list, ignore the
+     `sparkline`) — the **all-severity** volume + per-service share in one call. This is
+     what catches an `info`/`warn` flood (e.g. a stuck retry loop logging at `info`) that
+     the severity-filtered probes below would miss, and it names the hot service for
+     localization.
+  2. `logs-count` `severityLevels=["fatal"]` over 24h (add a `searchTerm` for a specific
+     crash signature) — fatal is rare, so this is cheap and catches crash loops.
+  3. `logs-count` `severityLevels=["error","fatal"]` over the last 1h vs the team's
+     error+fatal/hr baseline. **No baseline in memory yet (first run)? Derive one cheaply
+     before judging — error+fatal over the same clock hour 24h (or 7d) ago via explicit
+     ISO `date_from`/`date_to` — don't assume the current hour is normal.**
+  4. `logs-alerts-list` — only a _new_ firing alert beyond known-noise ones is interesting.
 
-  If all three are at baseline, close out empty. Only then localize a real spike with
-  `logs-count-ranges` (always severity- or service-filtered) and `query-logs`.
+  If all are at baseline, close out empty. To localize a spike, **scope `logs-count-ranges`
+  to the hot service** from step 1 — a severity-only range still buckets the whole stream
+  and can 500 — then `query-logs`.
 
 ### Explore
 
