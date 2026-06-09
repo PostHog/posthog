@@ -52,27 +52,23 @@ export function FloatingSuggestions(): JSX.Element | null {
     }, [height]) // oxlint-disable-line exhaustive-deps
 
     useOnMountEffect(() => {
-        ttEditor.on('update', handleUpdate)
-        ttEditor.on('selectionUpdate', handleUpdate)
-
-        const attachResizeObserver = (): void => {
+        const attachToDom = (): void => {
             const dom = getTiptapEditorDom(ttEditor)
             if (dom) {
                 setRef(dom)
             }
         }
 
-        // The view may not be mounted yet on mount (AI notebooks rebuild the editor); attach once ready.
-        if (ttEditor.isInitialized) {
-            attachResizeObserver()
-        } else {
-            ttEditor.on('create', attachResizeObserver)
-        }
+        ttEditor.on('update', handleUpdate)
+        ttEditor.on('selectionUpdate', handleUpdate)
+        // Re-point the observer whenever the view (re)mounts — AI notebooks rebuild the editor.
+        ttEditor.on('mount', attachToDom)
+        attachToDom() // 'mount' only fires on future (re)mounts, so attach now if the view is already up
 
         return () => {
             ttEditor.off('update', handleUpdate)
             ttEditor.off('selectionUpdate', handleUpdate)
-            ttEditor.off('create', attachResizeObserver)
+            ttEditor.off('mount', attachToDom)
         }
     })
 
