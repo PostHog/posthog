@@ -708,6 +708,77 @@ Activation improved today.`
         expect(result.mergedMarkdown).toContain('Activation improved today after launch.')
     })
 
+    it('merges independent local and remote edits inside the same text block', () => {
+        const baseMarkdown = `# Activation
+
+Activation improved today.`
+        const localMarkdown = `# Activation
+
+Activation improved today after launch.`
+        const remoteMarkdown = `# Activation
+
+Activation improved today. Remote editor added context.`
+
+        const result = mergeNotebookMarkdownChanges({ baseMarkdown, localMarkdown, remoteMarkdown })
+
+        expect(result.conflicts).toEqual([])
+        expect(result.mergedMarkdown).toEqual(`# Activation
+
+Activation improved today after launch. Remote editor added context.`)
+    })
+
+    it('keeps continued local typing when an earlier autosave echo returns for the same block', () => {
+        const baseMarkdown = `# Activation
+
+Initial`
+        const remoteMarkdown = `# Activation
+
+Initial draft`
+        const localMarkdown = `# Activation
+
+Initial draft with more local typing`
+
+        const result = mergeNotebookMarkdownChanges({ baseMarkdown, localMarkdown, remoteMarkdown })
+
+        expect(result.conflicts).toEqual([])
+        expect(result.mergedMarkdown).toEqual(localMarkdown)
+    })
+
+    it('keeps locally inserted blocks near their surrounding anchors when remote changes also arrive', () => {
+        const baseMarkdown = `# Activation
+
+First paragraph
+
+Last paragraph`
+        const localMarkdown = `# Activation
+
+First paragraph
+
+Local paragraph
+
+Last paragraph`
+        const remoteMarkdown = `# Activation
+
+First paragraph
+
+Remote paragraph
+
+Last paragraph`
+
+        const result = mergeNotebookMarkdownChanges({ baseMarkdown, localMarkdown, remoteMarkdown })
+
+        expect(result.conflicts).toEqual([])
+        expect(result.mergedMarkdown).toEqual(`# Activation
+
+First paragraph
+
+Local paragraph
+
+Remote paragraph
+
+Last paragraph`)
+    })
+
     it('keeps local text and reports conflicts when both sides edit the same block', () => {
         const baseMarkdown = 'Activation improved today.'
         const localMarkdown = 'Activation improved locally.'

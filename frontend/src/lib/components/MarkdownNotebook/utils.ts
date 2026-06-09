@@ -153,6 +153,10 @@ export function textSimilarity(left: string, right: string): number {
         return 0
     }
     if (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft)) {
+        const shorterLength = Math.min(normalizedLeft.length, normalizedRight.length)
+        if (shorterLength >= 4) {
+            return 0.6
+        }
         return (
             Math.min(normalizedLeft.length, normalizedRight.length) /
             Math.max(normalizedLeft.length, normalizedRight.length)

@@ -22,6 +22,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { mergeNotebookMarkdownChanges } from 'lib/components/MarkdownNotebook/collaboration'
 import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -72,6 +73,9 @@ import {
 import { updateContentHeading } from '../utils'
 import {
     appendMarkdownNotebookBlock,
+    buildMarkdownNotebookContent,
+    getMarkdownNotebookMarkdown,
+    getMarkdownNotebookNodeId,
     getMarkdownNotebookTextContent,
     getMarkdownNotebookTitle,
     isMarkdownNotebookContent,
@@ -544,6 +548,32 @@ export const notebookLogic = kea<notebookLogicType>([
                         return response
                     } catch (error: any) {
                         if (error.code === 'conflict') {
+                            const currentLocalContent = values.localContent
+                            const savedContent = values.notebook.content
+                            if (
+                                isMarkdownNotebookContent(savedContent) &&
+                                isMarkdownNotebookContent(currentLocalContent)
+                            ) {
+                                const freshNotebook = await api.notebooks.get(values.notebook.short_id, undefined, {})
+                                if (freshNotebook && isMarkdownNotebookContent(freshNotebook.content)) {
+                                    const mergeResult = mergeNotebookMarkdownChanges({
+                                        baseMarkdown: getMarkdownNotebookMarkdown(savedContent),
+                                        localMarkdown: getMarkdownNotebookMarkdown(currentLocalContent),
+                                        remoteMarkdown: getMarkdownNotebookMarkdown(freshNotebook.content),
+                                    })
+                                    actions.setLocalContent(
+                                        buildMarkdownNotebookContent(
+                                            mergeResult.mergedMarkdown,
+                                            getMarkdownNotebookNodeId(currentLocalContent)
+                                        ),
+                                        false,
+                                        true
+                                    )
+                                    refreshTreeItem('notebook', String(values.notebook.short_id))
+                                    return freshNotebook
+                                }
+                            }
+
                             actions.clearLocalContent()
                             actions.showConflictWarning()
                             return null

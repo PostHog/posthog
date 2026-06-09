@@ -179,6 +179,62 @@ describe('Notebook history revert flow', () => {
         expect(logic.values.collabEnabled).toBe(false)
     })
 
+    it('keeps a merged markdown draft after a stale save conflict', async () => {
+        const baseMarkdown = `# Markdown v2
+
+Base paragraph`
+        const localMarkdown = `# Markdown v2
+
+Base paragraph with local edit`
+        const remoteMarkdown = `# Markdown v2
+
+Remote paragraph
+
+Base paragraph`
+        const expectedMergedMarkdown = `# Markdown v2
+
+Remote paragraph
+
+Base paragraph with local edit`
+        const baseMarkdownNotebook = {
+            ...cachedNotebook,
+            content: buildMarkdownNotebookContent(baseMarkdown),
+            text_content: baseMarkdown,
+        }
+        const localContent = buildMarkdownNotebookContent(localMarkdown)
+        const remoteNotebook = {
+            ...baseMarkdownNotebook,
+            version: 2,
+            content: buildMarkdownNotebookContent(remoteMarkdown),
+            text_content: remoteMarkdown,
+        }
+
+        apiUpdateSpy.mockRejectedValueOnce({ code: 'conflict' })
+        jest.spyOn(api.notebooks, 'get').mockResolvedValueOnce(remoteNotebook)
+
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook: baseMarkdownNotebook })
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        logic.actions.setAutosavePaused(true)
+        logic.actions.setLocalContent(localContent)
+        logic.actions.saveNotebook({ content: localContent, title: 'Test' })
+
+        await expectLogic(logic).toDispatchActions(['saveNotebookSuccess']).toFinishAllListeners()
+
+        expect(apiUpdateSpy).toHaveBeenCalledWith(
+            SHORT_ID,
+            expect.objectContaining({
+                content: localContent,
+                version: 1,
+            })
+        )
+        expect(logic.values.notebook?.content).toEqual(remoteNotebook.content)
+        expect(logic.values.localContent).toEqual(buildMarkdownNotebookContent(expectedMergedMarkdown))
+        expect(logic.values.conflictWarningVisible).toBe(false)
+    })
+
     describe.each([
         {
             name: 'non-collab mode dispatches PATCH save with historical content',
