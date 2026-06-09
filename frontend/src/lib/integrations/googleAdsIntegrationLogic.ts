@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props } from 'kea'
+import { actions, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -44,4 +44,22 @@ export const googleAdsIntegrationLogic = kea<googleAdsIntegrationLogicType>([
             },
         ],
     })),
+    reducers({
+        googleAdsConversionActionsError: [
+            null as string | null,
+            {
+                loadGoogleAdsConversionActions: () => null,
+                loadGoogleAdsConversionActionsSuccess: () => null,
+                loadGoogleAdsConversionActionsFailure: (_, { error }) => error || 'Failed to load conversion actions',
+            },
+        ],
+        googleAdsAccessibleAccountsError: [
+            null as string | null,
+            {
+                loadGoogleAdsAccessibleAccounts: () => null,
+                loadGoogleAdsAccessibleAccountsSuccess: () => null,
+                loadGoogleAdsAccessibleAccountsFailure: (_, { error }) => error || 'Failed to load accessible accounts',
+            },
+        ],
+    }),
 ])

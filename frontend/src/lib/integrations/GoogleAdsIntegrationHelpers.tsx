@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
 
 import { GoogleAdsConversionActionType, IntegrationType } from '~/types'
 
@@ -54,9 +54,8 @@ export function GoogleAdsConversionActionPicker({
     integration,
     disabled,
 }: GoogleAdsPickerProps): JSX.Element {
-    const { googleAdsConversionActions, googleAdsConversionActionsLoading } = useValues(
-        googleAdsIntegrationLogic({ id: integration.id })
-    )
+    const { googleAdsConversionActions, googleAdsConversionActionsLoading, googleAdsConversionActionsError } =
+        useValues(googleAdsIntegrationLogic({ id: integration.id }))
     const { loadGoogleAdsConversionActions } = useActions(googleAdsIntegrationLogic({ id: integration.id }))
 
     const googleAdsConversionActionOptions = useMemo(
@@ -72,6 +71,25 @@ export function GoogleAdsConversionActionPicker({
 
     return (
         <>
+            {googleAdsConversionActionsError && (
+                <LemonBanner
+                    type="warning"
+                    className="mb-2"
+                    action={{
+                        children: 'Try again',
+                        onClick: () => {
+                            if (requiresFieldValue) {
+                                loadGoogleAdsConversionActions(
+                                    requiresFieldValue.split('/')[0],
+                                    requiresFieldValue.split('/')[1]
+                                )
+                            }
+                        },
+                    }}
+                >
+                    {googleAdsConversionActionsError}
+                </LemonBanner>
+            )}
             <LemonInputSelect
                 onChange={(val) => onChange?.(val[0] ?? null)}
                 value={value ? [value] : []}
@@ -108,9 +126,8 @@ export function GoogleAdsCustomerIdPicker({
     integration,
     disabled,
 }: GoogleAdsPickerProps): JSX.Element {
-    const { googleAdsAccessibleAccounts, googleAdsAccessibleAccountsLoading } = useValues(
-        googleAdsIntegrationLogic({ id: integration.id })
-    )
+    const { googleAdsAccessibleAccounts, googleAdsAccessibleAccountsLoading, googleAdsAccessibleAccountsError } =
+        useValues(googleAdsIntegrationLogic({ id: integration.id }))
     const { loadGoogleAdsAccessibleAccounts } = useActions(googleAdsIntegrationLogic({ id: integration.id }))
 
     const googleAdsAccountOptions = useMemo(
@@ -126,6 +143,18 @@ export function GoogleAdsCustomerIdPicker({
 
     return (
         <>
+            {googleAdsAccessibleAccountsError && (
+                <LemonBanner
+                    type="warning"
+                    className="mb-2"
+                    action={{
+                        children: 'Try again',
+                        onClick: () => loadGoogleAdsAccessibleAccounts(),
+                    }}
+                >
+                    {googleAdsAccessibleAccountsError}
+                </LemonBanner>
+            )}
             <LemonInputSelect
                 onChange={(val) => onChange?.(val[0] ?? null)}
                 value={value ? [value] : []}
