@@ -10,6 +10,8 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+import { copyInstructions } from '../../scripts/copy-instructions'
+
 const MCP_DIR = resolve(__dirname, '..', '..')
 const UI_APPS_DIR = resolve(MCP_DIR, 'public', 'ui-apps')
 
@@ -21,6 +23,9 @@ function uiAppsAlreadyBuilt(): boolean {
 }
 
 export async function setup(): Promise<void> {
+    // Ensure shared/ directory is populated (guidelines.md etc.)
+    copyInstructions()
+
     if (uiAppsAlreadyBuilt()) {
         return
     }
