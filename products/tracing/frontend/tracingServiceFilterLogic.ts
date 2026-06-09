@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, propsCh
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DateRange } from '~/queries/schema/schema-general'
@@ -34,11 +35,22 @@ export const tracingServiceFilterLogic = kea<tracingServiceFilterLogicType>([
             [] as string[],
             {
                 loadServiceNames: async () => {
-                    const response = await api.tracing.serviceNames({
-                        search: values.search,
-                        ...(logicProps.dateRange ? { dateRange: JSON.stringify(logicProps.dateRange) } : {}),
-                    })
-                    return (response.results ?? []).map((r: { name: string }) => r.name)
+                    try {
+                        const response = await api.tracing.serviceNames({
+                            search: values.search,
+                            ...(logicProps.dateRange ? { dateRange: JSON.stringify(logicProps.dateRange) } : {}),
+                        })
+                        return (response.results ?? []).map((r: { name: string }) => r.name)
+                    } catch (error) {
+                        // The service filter is advisory — when the tracing backend is unavailable
+                        // (e.g. the spans ClickHouse table isn't provisioned on this instance), the
+                        // values endpoint 500s. Degrade gracefully to an empty list rather than
+                        // letting kea-loaders surface the 500 as a handled exception on mount.
+                        if (error instanceof ApiError && error.status && error.status >= 500) {
+                            return []
+                        }
+                        throw error
+                    }
                 },
             },
         ],

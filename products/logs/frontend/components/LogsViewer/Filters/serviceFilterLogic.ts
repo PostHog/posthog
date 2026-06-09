@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DateRange } from '~/queries/schema/schema-general'
@@ -42,9 +43,20 @@ export const serviceFilterLogic = kea<serviceFilterLogicType>([
                         limit: 1000,
                         ...(logicProps.dateRange ? { dateRange: JSON.stringify(logicProps.dateRange) } : {}),
                     }).url
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.get(url)
-                    return ((response.results ?? []) as { name: string }[]).map((r) => r.name)
+                    try {
+                        // nosemgrep: prefer-codegen-api
+                        const response = await api.get(url)
+                        return ((response.results ?? []) as { name: string }[]).map((r) => r.name)
+                    } catch (error) {
+                        // The service filter is advisory — when the logs backend is unavailable
+                        // (e.g. the logs ClickHouse table isn't provisioned on this instance), the
+                        // values endpoint 500s. Degrade gracefully to an empty list rather than
+                        // letting kea-loaders surface the 500 as a handled exception on mount.
+                        if (error instanceof ApiError && error.status && error.status >= 500) {
+                            return []
+                        }
+                        throw error
+                    }
                 },
             },
         ],
