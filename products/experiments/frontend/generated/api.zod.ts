@@ -223,6 +223,29 @@ include the `results` array — at POST time the workflow has just been queued a
 results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
 progresses.
  */
+export const experimentsMetricsRecalculationCreateBodyTriggerDefault = `manual`
+
+export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
+    .object({
+        trigger: zod
+            .enum(['manual', 'experiment_launch', 'experiment_stop', 'experiment_update'])
+            .describe(
+                '\* `manual` - manual\n\* `experiment_launch` - experiment_launch\n\* `experiment_stop` - experiment_stop\n\* `experiment_update` - experiment_update'
+            )
+            .default(experimentsMetricsRecalculationCreateBodyTriggerDefault)
+            .describe(
+                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - manual\n\* `experiment_launch` - experiment_launch\n\* `experiment_stop` - experiment_stop\n\* `experiment_update` - experiment_update'
+            ),
+    })
+    .describe('Request body for triggering a metrics recalculation.')
+
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+
+This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+on serializer methods and converts them into proper HTTP 409 Conflict responses with
+change request details.
+ */
 export const ExperimentsRecalculateTimeseriesCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
