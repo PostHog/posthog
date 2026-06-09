@@ -47,17 +47,10 @@ def convert_team_conversion_goals_to_objects(
                     **_filter_to_model_fields(cleaned_goal_dict, ConversionGoalFilter1)
                 )
             elif kind == NodeKind.ACTIONS_NODE:
-                # ActionsNode doesn't allow 'event' field - remove it
-                if "event" in cleaned_goal_dict:
-                    del cleaned_goal_dict["event"]
                 converted_goal = ConversionGoalFilter2(
                     **_filter_to_model_fields(cleaned_goal_dict, ConversionGoalFilter2)
                 )
             elif kind == NodeKind.DATA_WAREHOUSE_NODE:
-                # DataWarehouseNode doesn't allow 'event' field - remove it
-                if "event" in cleaned_goal_dict:
-                    del cleaned_goal_dict["event"]
-
                 # ConversionGoalFilter3 expects both id_field and distinct_id_field
                 if "distinct_id_field" in cleaned_goal_dict and "id_field" not in cleaned_goal_dict:
                     cleaned_goal_dict["id_field"] = cleaned_goal_dict["distinct_id_field"]

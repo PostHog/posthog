@@ -43,6 +43,17 @@ DATA_WAREHOUSE_NODE_GOAL: dict[str, Any] = {
     "event": "ignored",
 }
 
+DATA_WAREHOUSE_NODE_GOAL_WITHOUT_ID_FIELD: dict[str, Any] = {
+    "kind": "DataWarehouseNode",
+    "conversion_goal_id": "goal-4",
+    "conversion_goal_name": "Purchased",
+    "id": "7",
+    "table_name": "stripe_charges",
+    "timestamp_field": "created_at",
+    "distinct_id_field": "customer_id",
+    "schema_map": {},
+}
+
 
 class TestConvertTeamConversionGoalsToObjects(BaseTest):
     @parameterized.expand(
@@ -50,6 +61,11 @@ class TestConvertTeamConversionGoalsToObjects(BaseTest):
             ("events_node_with_dw_fields", EVENTS_NODE_GOAL_WITH_DW_FIELDS, ConversionGoalFilter1),
             ("actions_node", ACTIONS_NODE_GOAL, ConversionGoalFilter2),
             ("data_warehouse_node", DATA_WAREHOUSE_NODE_GOAL, ConversionGoalFilter3),
+            (
+                "data_warehouse_node_without_id_field",
+                DATA_WAREHOUSE_NODE_GOAL_WITHOUT_ID_FIELD,
+                ConversionGoalFilter3,
+            ),
         ]
     )
     def test_converts_goal_to_expected_filter(self, _name, goal, expected_type):
@@ -58,6 +74,15 @@ class TestConvertTeamConversionGoalsToObjects(BaseTest):
         self.assertEqual(len(result), 1)
         self.assertIsInstance(result[0], expected_type)
         self.assertEqual(result[0].conversion_goal_id, goal["conversion_goal_id"])
+
+    def test_data_warehouse_node_derives_id_field_from_distinct_id_field(self):
+        result = convert_team_conversion_goals_to_objects([DATA_WAREHOUSE_NODE_GOAL_WITHOUT_ID_FIELD], self.team.pk)
+
+        self.assertEqual(len(result), 1)
+        goal = result[0]
+        self.assertIsInstance(goal, ConversionGoalFilter3)
+        self.assertEqual(goal.id_field, DATA_WAREHOUSE_NODE_GOAL_WITHOUT_ID_FIELD["distinct_id_field"])
+        self.assertEqual(goal.distinct_id_field, DATA_WAREHOUSE_NODE_GOAL_WITHOUT_ID_FIELD["distinct_id_field"])
 
     def test_events_node_drops_data_warehouse_fields(self):
         result = convert_team_conversion_goals_to_objects([EVENTS_NODE_GOAL_WITH_DW_FIELDS], self.team.pk)
