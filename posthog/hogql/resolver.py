@@ -201,12 +201,12 @@ def _unify_select_set_columns(
     if not select_types:
         return {}
 
-    first_columns = _select_type_columns(select_types[0])
+    branch_columns_per_select = [_select_type_columns(select_type) for select_type in select_types]
+    first_columns = branch_columns_per_select[0]
     columns: dict[str, ast.Type] = {}
     for index, (column_name, _) in enumerate(first_columns):
         branch_types: list[ast.ConstantType] = []
-        for select_type in select_types:
-            branch_columns = _select_type_columns(select_type)
+        for branch_columns in branch_columns_per_select:
             if index >= len(branch_columns):
                 branch_types.append(ast.UnknownType())
                 continue

@@ -1,6 +1,8 @@
 from datetime import date
 from typing import Optional, cast
 
+import pytest
+
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
@@ -107,6 +109,49 @@ class TestHogQLTypeSystem:
         assert least_common_supertype(
             [ast.BooleanType(nullable=False), ast.BooleanType(nullable=True)]
         ) == ast.BooleanType(nullable=True)
+
+    def test_least_common_supertype_map_tuple_and_unknown_helpers(self) -> None:
+        # Maps unify their value types and propagate nullability across branches.
+        assert least_common_supertype(
+            [
+                ast.MapType(
+                    key_type=ast.StringType(nullable=False),
+                    value_type=ast.IntegerType(nullable=False),
+                    nullable=False,
+                ),
+                ast.MapType(
+                    key_type=ast.StringType(nullable=False),
+                    value_type=ast.FloatType(nullable=False),
+                    nullable=True,
+                ),
+            ]
+        ) == ast.MapType(
+            key_type=ast.StringType(nullable=False),
+            value_type=ast.FloatType(nullable=False),
+            nullable=True,
+        )
+
+        # Tuples keep field names only when every branch agrees on them.
+        assert least_common_supertype(
+            [
+                ast.TupleType(item_types=[ast.IntegerType(nullable=False)], field_names=["a"], nullable=False),
+                ast.TupleType(item_types=[ast.FloatType(nullable=False)], field_names=["a"], nullable=False),
+            ]
+        ) == ast.TupleType(item_types=[ast.FloatType(nullable=False)], field_names=["a"], nullable=False)
+        assert least_common_supertype(
+            [
+                ast.TupleType(item_types=[ast.IntegerType(nullable=False)], field_names=["a"], nullable=False),
+                ast.TupleType(item_types=[ast.FloatType(nullable=False)], field_names=["b"], nullable=False),
+            ]
+        ) == ast.TupleType(item_types=[ast.FloatType(nullable=False)], field_names=[], nullable=False)
+
+        # No known branches collapses to UnknownType (empty input, or all-unknown input).
+        assert least_common_supertype([]) == ast.UnknownType()
+        assert least_common_supertype([ast.UnknownType(), ast.UnknownType()]) == ast.UnknownType()
+        # A single unknown branch is absorbed: the known type wins, only contributing nullability.
+        assert least_common_supertype([ast.UnknownType(), ast.IntegerType(nullable=False)]) == ast.IntegerType(
+            nullable=True
+        )
 
     def test_comparison_compatibility(self) -> None:
         assert (
@@ -632,6 +677,26 @@ class TestHogQLTypeSystem:
         assert selected_comparisons[0].index == 1
         assert selected_comparisons[0].matches is True
 
+        # A family mismatch and a nullability mismatch both surface as matches=False.
+        mismatched = compare_select_expression_types_with_type_names(
+            diagnostics.report,
+            ["String", "Nullable(Float64)", "String"],
+            dialect="clickhouse",
+        )
+        assert [comparison.matches for comparison in mismatched] == [False, False, True]
+        assert mismatched[0].family_matches is False
+        assert mismatched[0].nullability_matches is True
+        assert mismatched[1].family_matches is True
+        assert mismatched[1].nullability_matches is False
+
+        # The wrong number of ClickHouse type names is a hard error.
+        with pytest.raises(ValueError, match="Expected 3 ClickHouse type name"):
+            compare_select_expression_types_with_type_names(
+                diagnostics.report,
+                ["UInt8", "Float64"],
+                dialect="clickhouse",
+            )
+
     def test_type_diagnostics_treats_typed_string_functions_as_known(self) -> None:
         diagnostics = resolve_with_type_diagnostics(
             self._select(
@@ -851,3 +916,33 @@ class TestHogQLTypeSystem:
         alias = cast(ast.Alias, datetime_simplified.select[0])
 
         assert isinstance(alias.expr, ast.TypeCast)
+
+    def test_type_aware_simplification_leaves_unsafe_inputs_unchanged(self) -> None:
+        def _simplified_expr(query: str) -> ast.Expr:
+            resolved = cast(
+                ast.SelectQuery,
+                resolve_types(self._select(query), self.context, dialect="clickhouse"),
+            )
+            simplified = cast(
+                ast.SelectQuery,
+                simplify_redundant_type_operations(resolved, self.context, dialect="clickhouse"),
+            )
+            return cast(ast.Alias, simplified.select[0]).expr
+
+        # Literal casts that cannot be evaluated stay as calls rather than folding to a constant.
+        for query in (
+            "SELECT accurateCast('not-a-number', 'Int64') AS x",
+            "SELECT accurateCast('not-a-uuid', 'UUID') AS x",
+        ):
+            expr = _simplified_expr(query)
+            assert isinstance(expr, ast.Call)
+            assert expr.name.lower() == "accuratecast"
+
+        # A nullable input keeps its null-fallback / null-assertion wrapper.
+        if_null_expr = _simplified_expr("SELECT ifNull(nullIf(5, 3), 0) AS x")
+        assert isinstance(if_null_expr, ast.Call)
+        assert if_null_expr.name.lower() == "ifnull"
+
+        assume_not_null_expr = _simplified_expr("SELECT assumeNotNull(nullIf(5, 3)) AS x")
+        assert isinstance(assume_not_null_expr, ast.Call)
+        assert assume_not_null_expr.name.lower() == "assumenotnull"
