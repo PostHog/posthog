@@ -2,6 +2,7 @@ import uuid
 import random
 import asyncio
 import datetime as dt
+import functools
 
 import pytest
 
@@ -26,6 +27,7 @@ from posthog.temporal.tests.utils.events import generate_test_events_in_clickhou
 
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
+from products.batch_exports.backend.tests.teardown import arun_best_effort
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,
@@ -83,7 +85,7 @@ async def aorganization(db):
 
     yield org
 
-    await sync_to_async(org.delete)()
+    await arun_best_effort(org.delete, label="organization")
 
 
 @pytest_asyncio.fixture
@@ -92,8 +94,10 @@ async def ateam(aorganization):
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
 
     yield team
-    await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
-    await sync_to_async(team.delete)()
+    # delete_batch_exports() is the uncancellable personhog gRPC path that hangs
+    # teardown; bound it and the cascade delete so a wedge can't burn the shard.
+    await arun_best_effort(functools.partial(delete_batch_exports, team_ids=[team.pk]), label="delete_batch_exports")
+    await arun_best_effort(team.delete, label="team")
 
 
 @pytest_asyncio.fixture
@@ -102,8 +106,8 @@ async def another_ateam(aorganization):
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
 
     yield team
-    await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
-    await sync_to_async(team.delete)()
+    await arun_best_effort(functools.partial(delete_batch_exports, team_ids=[team.pk]), label="delete_batch_exports")
+    await arun_best_effort(team.delete, label="team")
 
 
 @pytest.fixture
