@@ -23,9 +23,9 @@ class TestAssessHeatmapTool(APIBaseTest):
             state=AssistantState(messages=[]),
         )
 
-    def _opt_in(self) -> None:
+    async def _opt_in(self) -> None:
         self.team.heatmaps_opt_in = True
-        self.team.save()
+        await self.team.asave()
 
     def test_declares_web_analytics_viewer_access(self):
         tool = self._create_tool()
@@ -44,7 +44,7 @@ class TestAssessHeatmapTool(APIBaseTest):
 
     @patch("products.web_analytics.backend.max_tools._execute")
     async def test_formats_full_report(self, mock_execute):
-        self._opt_in()
+        await self._opt_in()
         # Calls happen in this order: click coords, click fold, rageclick coords, scroll buckets, autocapture.
         mock_execute.side_effect = [
             _FakeResult([(False, 0.5, 220, 100), (False, 0.2, 80, 40)]),
@@ -78,7 +78,7 @@ class TestAssessHeatmapTool(APIBaseTest):
 
     @patch("products.web_analytics.backend.max_tools._execute")
     async def test_reports_no_interactions(self, mock_execute):
-        self._opt_in()
+        await self._opt_in()
         mock_execute.side_effect = [
             _FakeResult([]),  # clicks
             _FakeResult([(0, 0, None)]),  # fold (empty)
@@ -94,7 +94,7 @@ class TestAssessHeatmapTool(APIBaseTest):
 
     @patch("products.web_analytics.backend.max_tools._execute")
     async def test_no_rage_clicks_is_called_out_positively(self, mock_execute):
-        self._opt_in()
+        await self._opt_in()
         mock_execute.side_effect = [
             _FakeResult([(False, 0.5, 220, 100)]),  # clicks
             _FakeResult([(100, 10, 600)]),  # fold
