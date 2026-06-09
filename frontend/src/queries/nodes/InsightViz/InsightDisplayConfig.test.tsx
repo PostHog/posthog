@@ -102,6 +102,18 @@ describe('InsightDisplayConfig', () => {
         })
     })
 
+    describe('bar chart display options', () => {
+        it.each([ChartDisplayType.ActionsBar, ChartDisplayType.ActionsUnstackedBar])(
+            'hides the multiple Y-axes toggle on %s (bar charts keep series on a single axis)',
+            async (display) => {
+                setupAndRender(makeTrendsQuery(display))
+                await openOptionsMenu()
+
+                expect(getDisplaySectionItems()).not.toContain('Show multiple Y-axes')
+            }
+        )
+    })
+
     describe('line graph display options', () => {
         it('shows multiple options in the Display section', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
@@ -119,6 +131,20 @@ describe('InsightDisplayConfig', () => {
             await openOptionsMenu()
 
             expect(screen.getByText('Y-axis scale')).toBeInTheDocument()
+        })
+
+        it('shows the multiple Y-axes toggle on line charts', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
+            await openOptionsMenu()
+
+            expect(getDisplaySectionItems()).toContain('Show multiple Y-axes')
+        })
+
+        it('shows the multiple Y-axes toggle on the default (no display) line chart', async () => {
+            setupAndRender(makeTrendsQuery())
+            await openOptionsMenu()
+
+            expect(getDisplaySectionItems()).toContain('Show multiple Y-axes')
         })
 
         it('removes axis label option count after clearing a committed label', async () => {

@@ -132,12 +132,14 @@ export function InsightDisplayConfig(): JSX.Element {
         (!display || display === ChartDisplayType.ActionsLineGraph || display === ChartDisplayType.ActionsAreaGraph) &&
         !!interval &&
         (smoothingOptions[interval]?.length ?? 0) > 0
-    const showMultipleYAxesConfig = (isTrends || isStickiness) && !isNonTimeSeriesDisplay
-    const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay
-    const showAnnotationsConfig = (isTrends && !isNonTimeSeriesDisplay) || isTrendsFunnel
     const isLineDisplay = isDefaultTrendsLineDisplay(display, querySource) || displayMatches(display, LINE_DISPLAYS)
     const isBarDisplay = displayMatches(display, BAR_DISPLAYS)
     const isCumulativeLineDisplay = display === ChartDisplayType.ActionsLineGraphCumulative
+    // Multiple y-axes are only rendered for line/area displays (GraphType.Line); bar charts keep every
+    // series on the shared 'y' axis, so showing the toggle there would imply a feature that never activates.
+    const showMultipleYAxesConfig = (isTrends || isStickiness) && !isNonTimeSeriesDisplay && !isBarDisplay
+    const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay
+    const showAnnotationsConfig = (isTrends && !isNonTimeSeriesDisplay) || isTrendsFunnel
     const showAxisLabelsConfig =
         isTrends && (isLineDisplay || isBarDisplay) && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS]
     const isLineGraph = isLineDisplay && !isCumulativeLineDisplay
