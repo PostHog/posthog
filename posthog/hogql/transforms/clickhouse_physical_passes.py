@@ -9,16 +9,16 @@ It also rewrites comparisons over a backed property (`=`, `IN`, ranges, `LIKE`, 
 column. ClickHouse can use a skip index on a plain column, but not on a value buried inside a JSON extract or an
 `ifNull(...)`, so this is what keeps those queries fast.
 
-The old printer did all of this inline while building the SQL string; moving it here lets the printer stay mechanical —
-it just prints the node it is given. The goal is identical results and identical index usage, not identical SQL text, so
-verify by running the query and checking the skip-index `EXPLAIN`, never by diffing SQL.
+Doing this here keeps the printer mechanical — it just prints the node it is given. What matters is identical results and
+identical index usage, not identical SQL text, so verify by running the query and checking the skip-index `EXPLAIN`,
+never by diffing SQL.
 
 ClickHouse only: it runs after lowering (`prepare_ast_for_printing`) and emits ClickHouse-specific nodes, so it must
 never run for the warehouse (Postgres / DuckDB) dialects.
 
-One quirk is kept on purpose: an is-set check (`x IS NULL` / `x = NULL`) over a materialized property reads the column
-value, so it treats both an empty string and the literal text `"null"` as "not set" — exactly as the old code did. The
-more correct "does this key exist in the blob" behavior is a separate change.
+One quirk is deliberate: an is-set check (`x IS NULL` / `x = NULL`) over a materialized property reads the column value,
+so it treats both an empty string and the literal text `"null"` as "not set". This over-matches a true "does this key
+exist in the blob" test, but tightening it would change query results.
 """
 
 from dataclasses import dataclass
@@ -352,13 +352,6 @@ def _resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     return expr_type
 
 
-def _and_all(clauses: list[ast.Expr]) -> ast.Expr:
-    """`and(...)` over the clauses (single clause returned bare). The printer renders chained `AND`; result-equivalent."""
-    if len(clauses) == 1:
-        return clauses[0]
-    return _call("and", clauses)
-
-
 def _string_pattern_constant(expr: ast.Expr) -> ast.Constant | None:
     return expr if isinstance(expr, ast.Constant) and isinstance(expr.value, str) else None
 
@@ -367,57 +360,42 @@ def _string_pattern_constant(expr: ast.Expr) -> ast.Constant | None:
 class _OptimizableProperty:
     """A single-key property used in a comparison, paired with the physical column that backs it.
 
-    `field_type` is the blob column's type, `key` is the property name, and `source` is the backing column. The column
-    builders below read only these three.
+    `field_type` is the blob column's type, `key` is the property name, and `source` is the backing column. The methods
+    build the column expressions the comparison optimizers compare against.
     """
 
     field_type: ast.FieldType
     key: str
     source: MaterializedPropertySource
 
+    def bare_column(self) -> ast.Field:
+        """The backing column as a bare `Field`, typed non-nullable.
 
-def _group_map_field(prop: _OptimizableProperty) -> ast.Field:
-    """The property-group map column, typed non-nullable so the map read and `has()` print bare.
+        Non-nullable typing stops the printer from `ifNull`-wrapping the comparison — the wrapping that hides the column
+        from skip indexes. A genuinely Nullable column is guarded separately (see `is_not_null`). This doubles as the
+        map column for a property group, where a missing key reads as the '' default rather than SQL NULL.
+        """
+        field = _synthetic_column_field(self.field_type, self.source.column, is_nullable=False)
+        assert field is not None  # the source was resolved from this same field_type
+        return field
 
-    The map column never holds SQL NULL — a missing key gives the '' default. Typing the field non-nullable stops the
-    printer from `ifNull`-wrapping `equals(map[key], v)`, which would hide it from the values bloom-filter index.
-    """
-    field = _synthetic_column_field(prop.field_type, prop.source.column, is_nullable=False)
-    assert field is not None  # the source was resolved from this same field_type
-    return field
+    def is_not_null(self) -> ast.Call:
+        """`isNotNull(col)` over the nullable read of the column — guards a bare comparison against NULL rows."""
+        field = _synthetic_column_field(self.field_type, self.source.column, is_nullable=True)
+        assert field is not None
+        return _call("isNotNull", [field])
 
+    def group_has(self) -> ast.Call:
+        """`has(map_column, key)` — true when the property group contains the key (uses the keys bloom-filter index)."""
+        return _call("has", [self.bare_column(), _const(self.key)])
 
-def _group_has_expr(prop: _OptimizableProperty) -> ast.Call:
-    """`has(map_column, key)` — true when the property group contains the key (uses the keys bloom-filter index)."""
-    return _call("has", [_group_map_field(prop), _const(prop.key)])
+    def group_value(self) -> ast.ArrayAccess:
+        """`map_column[key]`, typed non-nullable String — the property's value from the group map.
 
-
-def _group_value_expr(prop: _OptimizableProperty) -> ast.ArrayAccess:
-    """`map_column[key]`, typed non-nullable String — the property's value from the group map.
-
-    A missing key gives the '' default, never SQL NULL. The explicit non-nullable type stops the printer from
-    `ifNull`-wrapping `equals(map[key], v)`, which would hide it from the values bloom-filter index.
-    """
-    return ast.ArrayAccess(array=_group_map_field(prop), property=_const(prop.key), type=ast.StringType(nullable=False))
-
-
-def _bare_mat_column(prop: _OptimizableProperty) -> ast.Field:
-    """The materialized column read bare (no nullIf scrubbing), typed non-nullable.
-
-    Typed non-nullable so the printer does NOT wrap the comparison in `ifNull(...)` — the wrapping that would hide the
-    column from skip indexes. The real column may be Nullable; the optimizer handles that itself, with an `isNotNull(col)`
-    guard or an `ifNull(...)` around the whole result.
-    """
-    field = _synthetic_column_field(prop.field_type, prop.source.column, is_nullable=False)
-    assert field is not None
-    return field
-
-
-def _is_not_null(prop: _OptimizableProperty) -> ast.Call:
-    """`isNotNull(col)` — the nullable read of the column, used to guard a bare comparison against NULL rows."""
-    field = _synthetic_column_field(prop.field_type, prop.source.column, is_nullable=True)
-    assert field is not None
-    return _call("isNotNull", [field])
+        A missing key reads as the '' default, never SQL NULL; the non-nullable type keeps `equals(map[key], v)` out of
+        an `ifNull` wrapper so the values bloom-filter index still applies.
+        """
+        return ast.ArrayAccess(array=self.bare_column(), property=_const(self.key), type=ast.StringType(nullable=False))
 
 
 class ClickHousePhysicalPasses(CloningVisitor):
@@ -627,7 +605,7 @@ class ClickHousePhysicalPasses(CloningVisitor):
             prop = self._property_group_property(node.args[0])
             if prop is None:
                 return None
-            has_expr = _group_has_expr(prop)
+            has_expr = prop.group_has()
             return _call("not", [has_expr]) if node.name == "isNull" else has_expr
 
         if node.name == "JSONHas" and len(node.args) == 2 and isinstance(node.args[1], ast.Constant):
@@ -643,13 +621,11 @@ class ClickHousePhysicalPasses(CloningVisitor):
             source = resolve_property_group_source(field_type, key, self.context)
             if source is None or source.kind != "property_group":
                 return None
-            return _group_has_expr(
-                _OptimizableProperty(
-                    field_type=field_type,
-                    key=key,
-                    source=source,
-                )
-            )
+            return _OptimizableProperty(
+                field_type=field_type,
+                key=key,
+                source=source,
+            ).group_has()
 
         return None
 
@@ -679,25 +655,25 @@ class ClickHousePhysicalPasses(CloningVisitor):
         if node.op == ast.CompareOperationOp.Eq:
             if value is None:
                 # `= NULL` means the key is absent: not(has(map, key)). Avoids reading the values subcolumn.
-                return _call("not", [_group_has_expr(prop)])
+                return _call("not", [prop.group_has()])
             if value is True:
                 # Booleans are stored as the strings 'true'/'false' in the group map; compare against those so the
                 # comparison stays index-eligible.
-                return _call("equals", [_group_value_expr(prop), _sentinel("true")])
+                return _call("equals", [prop.group_value(), _sentinel("true")])
             if value is False:
-                return _call("equals", [_group_value_expr(prop), _sentinel("false")])
+                return _call("equals", [prop.group_value(), _sentinel("false")])
             if isinstance(constant_expr.type, ast.StringType):
-                eq = _call("equals", [_group_value_expr(prop), _const(value)])
+                eq = _call("equals", [prop.group_value(), _const(value)])
                 if value == "":
                     # '' is also the map's default for an absent key, so also check the key is present.
-                    return _call("and", [_group_has_expr(prop), eq])
+                    return _call("and", [prop.group_has(), eq])
                 return eq
             return None
 
         # NotEq
         if value is None:
             # `!= NULL` means the key is present: has(map, key). Uses the keys index, skips the values subcolumn.
-            return _group_has_expr(prop)
+            return prop.group_has()
         return None
 
     def _optimize_property_group_in(self, node: ast.CompareOperation) -> ast.Expr | None:
@@ -711,9 +687,9 @@ class ClickHousePhysicalPasses(CloningVisitor):
             if value is None:
                 return None  # IN (NULL) is true if the key is absent OR the value is null — can't shortcut
             if value == "":
-                return _call("and", [_group_has_expr(prop), _call("equals", [_group_value_expr(prop), _const("")])])
+                return _call("and", [prop.group_has(), _call("equals", [prop.group_value(), _const("")])])
             if isinstance(node.right.type, ast.StringType):
-                return _call("equals", [_group_value_expr(prop), _const(value)])
+                return _call("equals", [prop.group_value(), _const(value)])
             return None
         if isinstance(node.right, (ast.Tuple, ast.Array)):
             return self._optimize_group_in_with_values(node.right.exprs, prop)
@@ -729,10 +705,10 @@ class ClickHousePhysicalPasses(CloningVisitor):
         if len(string_values) == 0:
             return _const(False)  # IN () is always false
         if len(string_values) == 1:
-            return _call("equals", [_group_value_expr(prop), _const(string_values[0])])
+            return _call("equals", [prop.group_value(), _const(string_values[0])])
         # ClickHouse's transform_null_in setting makes `in(map[key], ...)` skip the keys index; the has() guard restores it.
-        in_expr = _call("in", [_group_value_expr(prop), ast.Tuple(exprs=[_const(v) for v in string_values])])
-        return _call("and", [_group_has_expr(prop), in_expr])
+        in_expr = _call("in", [prop.group_value(), ast.Tuple(exprs=[_const(v) for v in string_values])])
+        return _call("and", [prop.group_has(), in_expr])
 
     # --- individually-materialized-column optimizers ---
 
@@ -754,12 +730,12 @@ class ClickHousePhysicalPasses(CloningVisitor):
         if self._is_ai_column(prop.source):
             return None  # the printer handles the $ai columns
 
-        column = _bare_mat_column(prop)
+        column = prop.bare_column()
         value = _const(constant_expr.value)
         if node.op == ast.CompareOperationOp.Eq:
             eq = _call("equals", [column, value])
             if prop.source.is_nullable:
-                return _call("and", [eq, _is_not_null(prop)])
+                return _call("and", [eq, prop.is_not_null()])
             return eq
         # NotEq
         neq = _call("notEquals", [column, value])
@@ -778,13 +754,13 @@ class ClickHousePhysicalPasses(CloningVisitor):
         if self._is_ai_column(prop.source):
             return None
 
-        cmp = _call(op_name, [_bare_mat_column(prop), _const(node.right.value)])
+        cmp = _call(op_name, [prop.bare_column(), _const(node.right.value)])
         if prop.source.is_nullable:
-            return _call("and", [cmp, _is_not_null(prop)])
+            return _call("and", [cmp, prop.is_not_null()])
         # Non-nullable: exclude the '' / 'null' sentinels inline so the bare comparison stays index-eligible.
         clauses: list[ast.Expr] = [cmp]
-        clauses.extend(_call("notEquals", [_bare_mat_column(prop), _sentinel(s)]) for s in MAT_COL_NULL_SENTINELS)
-        return _and_all(clauses)
+        clauses.extend(_call("notEquals", [prop.bare_column(), _sentinel(s)]) for s in MAT_COL_NULL_SENTINELS)
+        return _call("and", clauses)
 
     def _optimize_materialized_ilike(self, node: ast.CompareOperation) -> ast.Expr | None:
         if node.op not in (ast.CompareOperationOp.ILike, ast.CompareOperationOp.NotILike):
@@ -799,21 +775,21 @@ class ClickHousePhysicalPasses(CloningVisitor):
             if is_ilike:
                 if prop.source.has_ngram_lower_index:
                     # Match the ngram_lower index expression: like(lower(coalesce(col, '')), lower(pattern)).
-                    indexed = _lower(_coalesce_empty(_bare_mat_column(prop)))
-                    return _call("and", [_call("like", [indexed, _lower(_const(pattern.value))]), _is_not_null(prop)])
+                    indexed = _lower(_coalesce_empty(prop.bare_column()))
+                    return _call("and", [_call("like", [indexed, _lower(_const(pattern.value))]), prop.is_not_null()])
                 return _call(
-                    "and", [_call("ilike", [_bare_mat_column(prop), _const(pattern.value)]), _is_not_null(prop)]
+                    "and", [_call("ilike", [prop.bare_column(), _const(pattern.value)]), prop.is_not_null()]
                 )
-            return _call("ifNull", [_call("notILike", [_bare_mat_column(prop), _const(pattern.value)]), _const(True)])
+            return _call("ifNull", [_call("notILike", [prop.bare_column(), _const(pattern.value)]), _const(True)])
 
         # Non-nullable: bail if the pattern could match a stored sentinel.
         if any(ilike_matches(cast(str, pattern.value), s) for s in MAT_COL_NULL_SENTINELS):
             return None
         if is_ilike:
             if prop.source.has_ngram_lower_index:
-                return _call("like", [_lower(_bare_mat_column(prop)), _lower(_const(pattern.value))])
-            return _call("ilike", [_bare_mat_column(prop), _const(pattern.value)])
-        return _call("notILike", [_bare_mat_column(prop), _const(pattern.value)])
+                return _call("like", [_lower(prop.bare_column()), _lower(_const(pattern.value))])
+            return _call("ilike", [prop.bare_column(), _const(pattern.value)])
+        return _call("notILike", [prop.bare_column(), _const(pattern.value)])
 
     def _optimize_materialized_like(self, node: ast.CompareOperation) -> ast.Expr | None:
         if node.op not in (ast.CompareOperationOp.Like, ast.CompareOperationOp.NotLike):
@@ -827,15 +803,15 @@ class ClickHousePhysicalPasses(CloningVisitor):
         if prop.source.is_nullable:
             if is_like:
                 return _call(
-                    "and", [_call("like", [_bare_mat_column(prop), _const(pattern.value)]), _is_not_null(prop)]
+                    "and", [_call("like", [prop.bare_column(), _const(pattern.value)]), prop.is_not_null()]
                 )
-            return _call("ifNull", [_call("notLike", [_bare_mat_column(prop), _const(pattern.value)]), _const(True)])
+            return _call("ifNull", [_call("notLike", [prop.bare_column(), _const(pattern.value)]), _const(True)])
 
         if any(like_matches(cast(str, pattern.value), s) for s in MAT_COL_NULL_SENTINELS):
             return None
         if is_like:
-            return _call("like", [_bare_mat_column(prop), _const(pattern.value)])
-        return _call("notLike", [_bare_mat_column(prop), _const(pattern.value)])
+            return _call("like", [prop.bare_column(), _const(pattern.value)])
+        return _call("notLike", [prop.bare_column(), _const(pattern.value)])
 
     def _optimize_materialized_in(self, node: ast.CompareOperation) -> ast.Expr | None:
         if node.op not in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
@@ -852,18 +828,18 @@ class ClickHousePhysicalPasses(CloningVisitor):
             if node.op == ast.CompareOperationOp.In:
                 # ClickHouse's transform_null_in makes in() hard to index; flip to has([...], col) (safe: NULL already excluded).
                 array = ast.Array(exprs=[_const(v) for v in values])
-                return _call("and", [_call("has", [array, _bare_mat_column(prop)]), _is_not_null(prop)])
+                return _call("and", [_call("has", [array, prop.bare_column()]), prop.is_not_null()])
             tup = ast.Tuple(exprs=[_const(v) for v in values])
-            return _call("ifNull", [_call("notIn", [_bare_mat_column(prop), tup]), _const(True)])
+            return _call("ifNull", [_call("notIn", [prop.bare_column(), tup]), _const(True)])
 
         # non-nullable: bail if any value is a stored sentinel.
         if any(v in MAT_COL_NULL_SENTINELS for v in values):
             return None
         if node.op == ast.CompareOperationOp.In:
             array = ast.Array(exprs=[_const(v) for v in values])
-            return _call("has", [array, _bare_mat_column(prop)])
+            return _call("has", [array, prop.bare_column()])
         tup = ast.Tuple(exprs=[_const(v) for v in values])
-        return _call("notIn", [_bare_mat_column(prop), tup])
+        return _call("notIn", [prop.bare_column(), tup])
 
     def _optimize_materialized_lower_in(self, node: ast.CompareOperation) -> ast.Expr | None:
         if node.op not in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
@@ -887,9 +863,9 @@ class ClickHousePhysicalPasses(CloningVisitor):
             return None
 
         if prop.source.is_nullable:
-            indexed: ast.Expr = _lower(_coalesce_empty(_bare_mat_column(prop)))
+            indexed: ast.Expr = _lower(_coalesce_empty(prop.bare_column()))
         else:
-            indexed = _lower(_bare_mat_column(prop))
+            indexed = _lower(prop.bare_column())
 
         if node.op == ast.CompareOperationOp.In:
             return _call("has", [ast.Array(exprs=[_const(v) for v in values]), indexed])
