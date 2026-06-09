@@ -24,20 +24,61 @@ def _safe_value(value: Any) -> str:
 
 def build_results_summary(
     query_kind: str,
-    results: list[Any] | None,
+    results: list[Any] | dict[str, Any] | None,
     columns: list[str] | None = None,
 ) -> str:
     if not results:
         return "No results"
 
-    summarizer = _SUMMARIZERS.get(query_kind)
-    if summarizer is not None:
-        text = summarizer(results)
+    # Some query kinds return a dict rather than a list of rows — funnel time-to-convert /
+    # trends visualizations and certain SQL results. The per-kind summarizers and the generic
+    # fallback all assume a list and crash when handed a dict (`results[0]` / `results[:20]`).
+    # Guard once here so every summarizer downstream can trust a list, and a dict (or any other
+    # non-list shape) degrades to a usable fallback instead of failing the whole activity.
+    if isinstance(results, dict):
+        text = _summarize_dict_result(results)
+    elif not isinstance(results, list):
+        LOGGER.info(
+            "subscription_summary.unexpected_result_shape",
+            result_type=type(results).__name__,
+        )
+        text = _safe_value(results) or "No results data"
     else:
-        text = _summarize_generic(results, columns)
+        summarizer = _SUMMARIZERS.get(query_kind)
+        if summarizer is not None:
+            text = summarizer(results)
+        else:
+            text = _summarize_generic(results, columns)
     if len(text) > MAX_SUMMARY_LENGTH:
         text = text[:MAX_SUMMARY_LENGTH] + "\n... (truncated)"
     return text
+
+
+def _summarize_dict_result(results: dict[str, Any]) -> str:
+    """Fallback for query kinds whose `result` payload is a mapping rather than a list of rows.
+
+    Funnel time-to-convert results (`{"average_conversion_time", "bins"}`) and some SQL results
+    arrive as dicts. Summarize each top-level entry: scalars verbatim, sequences as a count plus
+    numeric range when the values are numbers, nested mappings by size. The point is a usable
+    summary for the LLM, not a faithful rendering of an arbitrary shape.
+    """
+    lines: list[str] = []
+    for key, val in results.items():
+        label = _safe_label(key, "field")
+        if isinstance(val, (list, tuple)):
+            numeric = [v for v in val if isinstance(v, (int, float)) and math.isfinite(v)]
+            if numeric:
+                lines.append(
+                    f"- {label}: {len(val)} values, min={_fmt(min(numeric))}, "
+                    f"max={_fmt(max(numeric))}, latest={_fmt(numeric[-1])}"
+                )
+            else:
+                lines.append(f"- {label}: {len(val)} items")
+        elif isinstance(val, dict):
+            lines.append(f"- {label}: {len(val)} fields")
+        else:
+            lines.append(f"- {label}={_safe_value(val)}")
+    return "\n".join(lines) if lines else "No results data"
 
 
 def _summarize_trends(results: list[dict[str, Any]]) -> str:
