@@ -1166,6 +1166,12 @@ def get_ready_job_ids(
     query_hash = compute_query_hash(query_info)
     existing = find_existing_jobs(team, query_hash, time_range_start, time_range_end)
     ready = filter_overlapping_jobs([j for j in existing if j.status == PreaggregationJob.Status.READY])
+    # Only return ids when READY jobs fully cover [start, end). Partial coverage
+    # (mid-backfill, or a day that expired/failed) would make a `job_id IN (ids)`
+    # read silently drop the uncovered windows — so return nothing, signalling the
+    # caller to fall back to its non-precomputed path instead of under-counting.
+    if find_missing_contiguous_windows(ready, time_range_start, time_range_end):
+        return []
     return [j.id for j in ready]
 
 

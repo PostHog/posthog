@@ -45,8 +45,11 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
 
 DATE_FROM = "2024-01-01"
 DATE_TO = "2024-01-02"
+# A `date_to` of "2024-01-02" resolves to end-of-day, so the query spans the 01-01 and
+# 01-02 daily windows. Precompute both so the read path's full-coverage gate is satisfied
+# (events only land on 01-01; the 01-02 window precomputes to an empty, still-READY job).
 WINDOW_START = datetime(2024, 1, 1, tzinfo=UTC)
-WINDOW_END = datetime(2024, 1, 2, tzinfo=UTC)
+WINDOW_END = datetime(2024, 1, 3, tzinfo=UTC)
 
 
 class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
@@ -186,3 +189,21 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
 
         assert dimensional == v2, f"{_name} mismatch\nv2={v2}\ndimensional={dimensional}"
         assert self._counts(dimensional) == expected_counts
+
+    def test_partial_coverage_falls_back_to_v2(self):
+        # Dimensional is precomputed for 2024-01-01 only (setUp). A window that also
+        # spans 2024-01-02 is only partially covered, so the runner must fall back to
+        # v2 rather than silently drop the uncovered day via the job_id filter.
+        runner = WebStatsTableQueryRunner(
+            team=self.team,
+            query=WebStatsTableQuery(
+                dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-03"),
+                properties=[],
+                breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
+                limit=100,
+            ),
+        )
+        builder = StatsTablePreAggregatedQueryBuilder(runner)
+        with override_settings(WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            assert not builder.use_dimensional_tables(), "partial coverage must not route to dimensional"
+            assert builder.stats_table == "web_pre_aggregated_stats"
