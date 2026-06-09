@@ -70,8 +70,10 @@ diagnosis, and stay open to a cause that is not listed here.
    already be materialized in prod, so no migration is needed (see the JSON-operations smell in
    [`SKILL.md`](../SKILL.md)). If the **source already uses `properties.X`** (or it's raw SQL that bypasses
    the printer) and prod still emits `JSONExtract`, the property genuinely isn't materialized — then the
-   fix is to materialize it (the migration layer in `SKILL.md` Step 5) or drop the property filter. Person
-   properties are the worst because the blobs are large.
+   fix is to materialize it (the migration layer in `SKILL.md` Step 5) or drop the property filter. This
+   applies to both event and person property blobs: reading either as raw JSON can be up to ~100x slower
+   than reading a directly materialized (`mat_*` / `dmat_*`) column, and ~10x slower than a property group
+   read.
 2. **Session joins.** Joining `raw_sessions` / `sharded_sessions` (for `$session_duration` etc.) adds a
    full sessions scan. Look for `raw_sessions` in the text.
 3. **High-cardinality breakdowns.** A `breakdown_value` on something like a URL or an ID explodes the
