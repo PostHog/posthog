@@ -154,21 +154,20 @@ async def test_workflow_waits_then_notifies_when_pr_opens():
 
 
 @pytest.mark.asyncio
-@override_settings(SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS=10, SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS=1)
-async def test_workflow_skips_when_task_terminal_without_pr():
-    recorder = _Recorder([WAIT, TERMINAL])
-    sent = await _run_workflow(recorder)
+@pytest.mark.parametrize(
+    "states,timeout_seconds",
+    [
+        ([WAIT, TERMINAL], 10),  # task reaches a terminal state without ever opening a PR
+        ([WAIT], 3),  # PR never opens, so the wait runs out the timeout
+    ],
+)
+async def test_workflow_skips_when_no_pr_is_produced(states, timeout_seconds):
+    recorder = _Recorder(states)
+    with override_settings(
+        SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS=timeout_seconds,
+        SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS=1,
+    ):
+        sent = await _run_workflow(recorder)
     assert sent == 0
-    assert recorder.state_calls == 2
-    assert recorder.dispatch_calls == 0
-
-
-@pytest.mark.asyncio
-@override_settings(SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS=3, SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS=1)
-async def test_workflow_skips_after_timeout_when_pr_never_opens():
-    recorder = _Recorder([WAIT])  # always WAIT
-    sent = await _run_workflow(recorder)
-    assert sent == 0
-    # initial fetch + one fetch per poll until elapsed reaches the timeout
-    assert recorder.state_calls >= 2
+    assert recorder.state_calls >= 2  # initial fetch + at least one poll before giving up
     assert recorder.dispatch_calls == 0
