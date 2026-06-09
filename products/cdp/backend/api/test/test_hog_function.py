@@ -1740,7 +1740,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         for name in function_names:
             HogFunction.objects.create(team=self.team, name=name, type="destination", hog="return event")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?search={search}")
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/", {"search": search})
         assert response.status_code == status.HTTP_200_OK
         result_names = [r["name"] for r in response.json()["results"]]
 
@@ -1777,7 +1777,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         a = HogFunction.objects.create(team=self.team, name="Alpha", type="destination", hog="return event")
         b = HogFunction.objects.create(team=self.team, name="Beta", type="destination", hog="return event")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?search={search}")
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/", {"search": search})
         assert response.status_code == status.HTTP_200_OK
         result_ids = {r["id"] for r in response.json()["results"]}
 
@@ -1853,7 +1853,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         HogFunction.objects.create(team=self.team, name="Totally unrelated", type="destination", hog="return event")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?search={search}")
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/", {"search": search})
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
 
@@ -1897,7 +1897,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/hog_functions/?search=alerts+ops@example.com&full=true"
+            f"/api/projects/{self.team.id}/hog_functions/",
+            {"search": "alerts+ops@example.com", "full": "true"},
         )
         assert response.status_code == status.HTTP_200_OK
         match_type_by_id = {r["id"]: r["search_match_type"] for r in response.json()["results"]}
