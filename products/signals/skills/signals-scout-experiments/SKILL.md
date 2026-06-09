@@ -247,12 +247,16 @@ not a fault (the control-arm `not-enough-metric-data` failure alone doesn't qual
 
 A running experiment should accrue exposures continuously. Read the per-variant
 `exposures.timeseries` off `experiment-results-get` (cumulative daily counts — a flat
-tail is the stall shape), or by SQL:
+tail is the stall shape), or by SQL. **Query the experiment's actual exposure event**:
+default experiments use `$feature_flag_called`, but if
+`exposure_criteria.exposure_event` is set, query that event name instead (filtering on
+`properties.$feature/<flag-key>` rather than `$feature_flag`) — running the default
+query against a custom-exposure experiment returns zero rows and fakes a stall:
 
 ```sql
 SELECT toDate(timestamp) AS day, count() AS exposures
 FROM events
-WHERE event = '$feature_flag_called'
+WHERE event = '$feature_flag_called'  -- or exposure_criteria.exposure_event
   AND properties.$feature_flag = '<flag-key>'
   AND timestamp >= toDateTime('<start_date>', 'UTC')
 GROUP BY day ORDER BY day
@@ -262,7 +266,11 @@ GROUP BY day ORDER BY day
   `$feature_flag_called` (bulk accessors like `getAllFlags()` don't), the flag is at 0%
   rollout or inactive, or a custom exposure event is missing its `$feature/<flag-key>`
   property. Check `experiment-get`'s flag state before emitting — a **paused** experiment
-  (flag deactivated, status "paused") legitimately has no fresh exposures.
+  (flag deactivated, status "paused") legitimately has no fresh exposures. And before
+  diagnosing a custom-exposure experiment as dormant, confirm with both signals: the
+  custom event by `$feature/<flag-key>` **and** `$feature_flag_called` for the flag — if
+  the flag is being called but the custom event never fires, the break is in the custom
+  event wiring, not the experiment.
 - **Healthy baseline then a cliff to ~zero** — the flag-reading call was removed from
   code, or an upstream deploy broke the path. Date the cliff; cross-check
   `activity-log-list` and `feature-flags-activity-retrieve` around it.
