@@ -59,7 +59,7 @@ _MAX_QUERY_FIX_RETRIES = 2
 _FIX_LLM_TIMEOUT_SECONDS = 30.0
 
 # Errors signalling "the query itself is wrong" — rewriting may help. Everything else (timeouts, infra
-# failures, generic exceptions) falls through to the "_Query failed_" placeholder without retrying,
+# failures, generic exceptions) falls through to the "_Query failed to run_" placeholder without retrying,
 # since a different SELECT won't fix a ClickHouse outage or a heartbeat timeout.
 _RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
     MaxToolRetryableError,
