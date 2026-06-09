@@ -100,6 +100,7 @@ URLs (nested under an application):
 export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
 
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigPromptMax = 4096
@@ -194,6 +195,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                     .boolean()
                                     .default(
                                         agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault
+                                    ),
+                                allow_workspace_participants: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault
                                     ),
                                 ack_reaction: zod.string().optional(),
                                 trusted_workspaces: zod.union([zod.array(zod.string()).min(1), zod.literal('*')]),
@@ -503,6 +509,7 @@ ready/live the spec is frozen — change requires a new revision.
 export const agentApplicationsRevisionsUpdateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
+export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
 
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemThreeConfigPromptMax = 4096
@@ -597,6 +604,11 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                                     .boolean()
                                     .default(
                                         agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault
+                                    ),
+                                allow_workspace_participants: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault
                                     ),
                                 ack_reaction: zod.string().optional(),
                                 trusted_workspaces: zod.union([zod.array(zod.string()).min(1), zod.literal('*')]),
@@ -929,6 +941,7 @@ URLs (nested under an application):
 export const agentApplicationsRevisionsPartialUpdateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigPromptMax = 4096
@@ -1023,6 +1036,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                     .boolean()
                                     .default(
                                         agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault
+                                    ),
+                                allow_workspace_participants: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault
                                     ),
                                 ack_reaction: zod.string().optional(),
                                 trusted_workspaces: zod.union([zod.array(zod.string()).min(1), zod.literal('*')]),

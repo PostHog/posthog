@@ -193,6 +193,7 @@ export type AgentRevisionApiSpecTriggersItem =
               channel_id?: string
               mention_only: boolean
               auto_resume_threads: boolean
+              allow_workspace_participants: boolean
               ack_reaction?: string
               trusted_workspaces: string[] | '*'
           }
@@ -441,6 +442,7 @@ export type PatchedAgentRevisionApiSpecTriggersItem =
               channel_id?: string
               mention_only: boolean
               auto_resume_threads: boolean
+              allow_workspace_participants: boolean
               ack_reaction?: string
               trusted_workspaces: string[] | '*'
           }

@@ -222,16 +222,17 @@ didn't actually freeze with the slack trigger).
 
 ## Tuning the slack trigger
 
-The slack trigger config has three optional fields beyond
+The slack trigger config has four optional fields beyond
 `channel_id` / `trusted_workspaces`. Defaults are back-compat ("react
-to anything the bot can see"); for most new agents the user actually
-wants the opt-in flags.
+to anything the bot can see", owner-only threads); for most new agents
+the user actually wants the opt-in flags.
 
-| Field                 | Type             | Default | What it does                                                                                                                                                                                                                                                                                                                         |
-| --------------------- | ---------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `mention_only`        | `boolean`        | `false` | When `true`, only `app_mention` events seed sessions. Plain `message` events (delivered because the bot subscribed to `message.channels`) are dropped at the trigger. Use when the agent should only react when someone explicitly @-mentions it.                                                                                    |
-| `auto_resume_threads` | `boolean`        | `false` | Relaxes `mention_only` for replies in threads the bot already owns. When a `message` event comes in with a `thread_ts` matching an existing session's `external_key`, the trigger accepts it. The seeded message carries `mention: false` so the model can judge whether it was addressed. No effect when `mention_only` is `false`. |
-| `ack_reaction`        | `string` (emoji) | unset   | Emoji name (no colons, e.g. `"eyes"` or `"thinking_face"`) the ingress posts as `reactions.add` against the inbound message immediately on accept — before the runner produces a turn. Fire-and-forget; failures (revoked token, slack 5xx, `already_reacted`) are silently swallowed.                                               |
+| Field                          | Type             | Default | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------ | ---------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mention_only`                 | `boolean`        | `false` | When `true`, only `app_mention` events seed sessions. Plain `message` events (delivered because the bot subscribed to `message.channels`) are dropped at the trigger. Use when the agent should only react when someone explicitly @-mentions it.                                                                                                                                                                                                                            |
+| `auto_resume_threads`          | `boolean`        | `false` | Relaxes `mention_only` for replies in threads the bot already owns. When a `message` event comes in with a `thread_ts` matching an existing session's `external_key`, the trigger accepts it. The seeded message carries `mention: false` so the model can judge whether it was addressed. No effect when `mention_only` is `false`.                                                                                                                                         |
+| `allow_workspace_participants` | `boolean`        | `false` | Who may advance an open thread. Every Slack session is owned by the user who opened it. Default (`false`): only that user can drive the thread — a reply from anyone else is parked as an elevation request and the bot posts an in-thread "only the starter can continue this" reply. `true`: any user in a `trusted_workspaces` workspace can post into the thread and advance the session (shared/team threads). The real sender is always recorded for audit either way. |
+| `ack_reaction`                 | `string` (emoji) | unset   | Emoji name (no colons, e.g. `"eyes"` or `"thinking_face"`) the ingress posts as `reactions.add` against the inbound message immediately on accept — before the runner produces a turn. Fire-and-forget; failures (revoked token, slack 5xx, `already_reacted`) are silently swallowed.                                                                                                                                                                                       |
 
 ### How to pick
 
@@ -257,11 +258,20 @@ Walk the user through the choice as a question, not a config dump:
 > reaction so the user sees you saw the message before you produce
 > a real response — useful when the first turn is slow.
 
+Then a separate, orthogonal question — **who** may drive a thread:
+
+> By default a thread belongs to whoever started it: only they can
+> continue it, and if a colleague replies I'll tell them (in-thread)
+> that only the starter can drive it. Want to open threads up so
+> anyone in the workspace can chime in and I'll respond to all of
+> them? That's `allow_workspace_participants: true`. Best for shared
+> "ask the bot" threads; leave it off for 1:1 assistant threads.
+
 ### Wiring it
 
-The three fields land on `spec.triggers[].config` for the slack
-trigger. Open the draft revision and patch the spec before freeze
-(or do it inline at trigger-creation time):
+The fields land on `spec.triggers[].config` for the slack trigger.
+Open the draft revision and patch the spec before freeze (or do it
+inline at trigger-creation time):
 
 ```json
 {
@@ -270,6 +280,7 @@ trigger. Open the draft revision and patch the spec before freeze
     "trusted_workspaces": ["T01ABC"],
     "mention_only": true,
     "auto_resume_threads": true,
+    "allow_workspace_participants": false,
     "ack_reaction": "eyes"
   }
 }
@@ -281,21 +292,51 @@ warn them once that the bot won't see thread replies unless they
 `auto_resume_threads` without `mention_only`, tell them it's a no-op
 (the gate it relaxes never fires).
 
+`allow_workspace_participants` is independent of the mention/thread
+knobs — it only changes who may advance an already-open thread, never
+which events arrive. Owner-only (default) is the fail-closed choice;
+flip it on only when the user explicitly wants a shared thread.
+
+## Letting the bot read the thread it's in
+
+A common ask: "if someone replies 'what does this alert mean?', the
+bot should be able to see the original alert message in the thread."
+That's not automatic — the seed the model receives carries the
+current message text plus the `[slack]` envelope (channel / ts /
+thread_ts), **not** the rest of the thread. To give the agent the
+surrounding context, add the read tool to its `spec.tools[]`:
+
+- **`@posthog/slack-read-thread`** — fetches the parent message + all
+  replies for a `thread_ts` (Slack `conversations.replies`). The
+  model already has `channel` + `thread_ts` from the seed envelope,
+  so it can call this directly to pull the alert / question it's
+  replying to.
+- **`@posthog/slack-read-channel`** — recent top-level messages in a
+  channel, for the rarer "what's been happening here" case.
+
+Both need `channels:history` + `groups:history` bot scopes (already
+in the scope list at step 1.3) and the bot to be a member of the
+channel. No new secret — they use the same `SLACK_BOT_TOKEN`. When a
+user describes a "read the thread to understand the question" flow,
+wire `@posthog/slack-read-thread` and confirm the history scopes are
+present.
+
 ## Common failure modes
 
-| Symptom (user sees)                                                     | Likely cause                                                                                                                                                             | Fix                                                                                                                                                                                                               |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| URL verification fails BEFORE promote                                   | Agent has no live revision yet — Slack's challenge POST hits a 404                                                                                                       | Don't paste the URL into Slack until promote returns `state=live`                                                                                                                                                 |
-| URL verification fails AFTER promote ("didn't respond")                 | Tunnel not running / wrong URL / agent-ingress crashed                                                                                                                   | Check `curl <events_url>` from terminal; restart `bin/agent-tunnel`                                                                                                                                               |
-| URL turns green but bot doesn't respond to mentions                     | Bot not invited to channel OR `app_mentions:read` scope missing OR `trusted_workspaces` wrong                                                                            | Invite bot, re-install app, fix `trusted_workspaces`                                                                                                                                                              |
-| `invalid_signature` 401 in ingress logs                                 | `SLACK_SIGNING_SECRET` value mismatch (wrong app, or copied with whitespace)                                                                                             | Rotate via punch-out with `mode: "rotate"`                                                                                                                                                                        |
-| `slack.chat.postMessage error: invalid_auth` in session                 | `SLACK_BOT_TOKEN` revoked or wrong (e.g. `xoxp-` user token vs `xoxb-` bot token)                                                                                        | Rotate via punch-out — confirm it's the Bot User OAuth Token, not the user token                                                                                                                                  |
-| `slack.chat.postMessage error: not_in_channel`                          | Bot not invited to the target channel                                                                                                                                    | `/invite @<bot>` in the channel                                                                                                                                                                                   |
-| Promote refuses with `missing required encrypted_env`                   | One of the two punch-outs got skipped or `user_cancelled`                                                                                                                | Run that specific `set_secret` again                                                                                                                                                                              |
-| Bot ignores thread replies after the first @-mention                    | `mention_only: true` set without `auto_resume_threads: true`                                                                                                             | Add `auto_resume_threads: true` to the slack trigger config OR drop `mention_only`                                                                                                                                |
-| Bot reacts to non-mention messages despite `mention_only`               | Slack event subscriptions include `message.channels` AND `auto_resume_threads: true` with the message landing in an owned thread                                         | Expected — `auto_resume_threads` accepts thread replies on owned sessions; the seed flags `mention: false` so the model can ignore                                                                                |
-| No `:eyes:` ack reaction lands in Slack                                 | `ack_reaction` unset, or `SLACK_BOT_TOKEN` missing `reactions:write` scope, or bot not in channel                                                                        | Add the scope + re-install; verify token; remember `ack_reaction` is fail-open so this never blocks ingestion                                                                                                     |
-| `ack_reaction_failed` with `slack_error: missing_scope` in ingress logs | Bot token lacks `reactions:write`. Slack issues scopes at install time — adding the scope to the app config later requires a re-install to mint a token that carries it. | OAuth & Permissions → add `reactions:write` to Bot Token Scopes → click the yellow "Reinstall to Workspace" banner → authorize. Same `xoxb-...` token now carries the scope; no PostHog-side re-punch-out needed. |
+| Symptom (user sees)                                                                  | Likely cause                                                                                                                                                             | Fix                                                                                                                                                                                                               |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| URL verification fails BEFORE promote                                                | Agent has no live revision yet — Slack's challenge POST hits a 404                                                                                                       | Don't paste the URL into Slack until promote returns `state=live`                                                                                                                                                 |
+| URL verification fails AFTER promote ("didn't respond")                              | Tunnel not running / wrong URL / agent-ingress crashed                                                                                                                   | Check `curl <events_url>` from terminal; restart `bin/agent-tunnel`                                                                                                                                               |
+| URL turns green but bot doesn't respond to mentions                                  | Bot not invited to channel OR `app_mentions:read` scope missing OR `trusted_workspaces` wrong                                                                            | Invite bot, re-install app, fix `trusted_workspaces`                                                                                                                                                              |
+| `invalid_signature` 401 in ingress logs                                              | `SLACK_SIGNING_SECRET` value mismatch (wrong app, or copied with whitespace)                                                                                             | Rotate via punch-out with `mode: "rotate"`                                                                                                                                                                        |
+| `slack.chat.postMessage error: invalid_auth` in session                              | `SLACK_BOT_TOKEN` revoked or wrong (e.g. `xoxp-` user token vs `xoxb-` bot token)                                                                                        | Rotate via punch-out — confirm it's the Bot User OAuth Token, not the user token                                                                                                                                  |
+| `slack.chat.postMessage error: not_in_channel`                                       | Bot not invited to the target channel                                                                                                                                    | `/invite @<bot>` in the channel                                                                                                                                                                                   |
+| Promote refuses with `missing required encrypted_env`                                | One of the two punch-outs got skipped or `user_cancelled`                                                                                                                | Run that specific `set_secret` again                                                                                                                                                                              |
+| Bot ignores thread replies after the first @-mention                                 | `mention_only: true` set without `auto_resume_threads: true`                                                                                                             | Add `auto_resume_threads: true` to the slack trigger config OR drop `mention_only`                                                                                                                                |
+| Bot reacts to non-mention messages despite `mention_only`                            | Slack event subscriptions include `message.channels` AND `auto_resume_threads: true` with the message landing in an owned thread                                         | Expected — `auto_resume_threads` accepts thread replies on owned sessions; the seed flags `mention: false` so the model can ignore                                                                                |
+| Bot replies "only the person who started this thread can continue it" to a colleague | `allow_workspace_participants: false` (default) — a non-owner posted into someone else's thread; the message is parked as an elevation request                           | Expected for owner-only threads. If colleagues should be able to chime in, set `allow_workspace_participants: true` on the slack trigger config                                                                   |
+| No `:eyes:` ack reaction lands in Slack                                              | `ack_reaction` unset, or `SLACK_BOT_TOKEN` missing `reactions:write` scope, or bot not in channel                                                                        | Add the scope + re-install; verify token; remember `ack_reaction` is fail-open so this never blocks ingestion                                                                                                     |
+| `ack_reaction_failed` with `slack_error: missing_scope` in ingress logs              | Bot token lacks `reactions:write`. Slack issues scopes at install time — adding the scope to the app config later requires a re-install to mint a token that carries it. | OAuth & Permissions → add `reactions:write` to Bot Token Scopes → click the yellow "Reinstall to Workspace" banner → authorize. Same `xoxb-...` token now carries the scope; no PostHog-side re-punch-out needed. |
 
 ## Things not to do
 

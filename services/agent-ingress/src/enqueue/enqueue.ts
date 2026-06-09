@@ -76,6 +76,17 @@ export interface EnqueueInput {
      * <cron_name> at <fired_at>" badge etc.
      */
     triggerMetadata?: Record<string, unknown>
+    /**
+     * Skip the per-session owner/ACL check on resume. Only set by triggers
+     * that have ALREADY authorized the incoming principal via a broader,
+     * deliberate policy — currently just the Slack trigger when
+     * `allow_workspace_participants` is true (any trusted-workspace user may
+     * drive the thread, and `trusted_workspaces` was enforced upstream). When
+     * set, a non-owner resume advances the session instead of recording an
+     * elevation request. The real sender is still stamped on the seed message
+     * for audit. Defaults to false (owner-only, the fail-closed behaviour).
+     */
+    bypassOwnerAcl?: boolean
 }
 
 export type EnqueueOutcome =
@@ -105,7 +116,7 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
         const existing = await deps.queue.findByExternalKey(input.application.id, input.externalKey)
         if (existing && existing.state !== 'closed' && existing.state !== 'failed') {
             const incoming = input.principal ?? null
-            const check = requireAclAccess(existing, incoming)
+            const check = input.bypassOwnerAcl ? ({ kind: 'allowed' } as const) : requireAclAccess(existing, incoming)
             if (check.kind === 'denied') {
                 const req = await recordElevationRequest(deps.queue, existing, {
                     requester: incoming,

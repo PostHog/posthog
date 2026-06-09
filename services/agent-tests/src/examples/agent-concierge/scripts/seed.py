@@ -124,13 +124,22 @@ def load_v0_spec() -> dict:
 
     spec.pop("resume", None)
 
-    # Triggers — strip config fields the current schema doesn't accept yet.
-    # Today: chat allows `require_auth` only; mcp allows nothing.
+    # Triggers — strip config fields the Django write-schema doesn't accept yet
+    # (it intentionally lags the zod schema for some fields, e.g. chat/mcp
+    # `allow_restart`). Keep this aligned with `spec_schema.py`, not just
+    # `spec.ts`.
     allowed_trigger_config = {
         "chat": {"require_auth"},
         "mcp": set(),
         "webhook": {"path", "secret"},
-        "slack": {"channel_id", "mention_only", "trusted_workspaces"},
+        "slack": {
+            "channel_id",
+            "mention_only",
+            "auto_resume_threads",
+            "allow_workspace_participants",
+            "ack_reaction",
+            "trusted_workspaces",
+        },
         "cron": {"schedule", "timezone"},
     }
     for t in spec.get("triggers", []):

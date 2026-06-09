@@ -152,6 +152,7 @@ export const AgentApplicationsRevisionsCreateParams = /* @__PURE__ */ zod.object
 export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
 
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigPromptMax = 4096
@@ -246,6 +247,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                     .boolean()
                                     .default(
                                         agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault
+                                    ),
+                                allow_workspace_participants: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault
                                     ),
                                 ack_reaction: zod.string().optional(),
                                 trusted_workspaces: zod.union([zod.array(zod.string()).min(1), zod.literal('*')]),
@@ -624,6 +630,7 @@ export const AgentApplicationsRevisionsPartialUpdateParams = /* @__PURE__ */ zod
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigPromptMax = 4096
@@ -718,6 +725,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                     .boolean()
                                     .default(
                                         agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault
+                                    ),
+                                allow_workspace_participants: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault
                                     ),
                                 ack_reaction: zod.string().optional(),
                                 trusted_workspaces: zod.union([zod.array(zod.string()).min(1), zod.literal('*')]),

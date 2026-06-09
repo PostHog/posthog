@@ -12,6 +12,8 @@
  *   - distinct threads → distinct sessions
  *   - different user in same thread → elevation_required (B.1 v0 security fix
  *     — Slack thread replies must not advance a session opened by another user)
+ *   - allow_workspace_participants: owner-only (default) rejects + replies
+ *     in-thread; workspace-open lets any trusted-workspace user advance it
  *   - completed thread → fresh session
  *   - bot_id events ignored (no echo loop)
  *   - signature verification: missing, stale, wrong, valid
@@ -1089,6 +1091,151 @@ describe('slack trigger: real e2e', () => {
                 expect(res.body.session_id).toBeTruthy()
                 await new Promise((r) => setTimeout(r, 50))
                 expect(slackCalls.filter((c) => c.url.endsWith('reactions.add'))).toHaveLength(0)
+            } finally {
+                await cc.teardown()
+            }
+        })
+    })
+
+    describe('allow_workspace_participants', () => {
+        /** Same http-recorder pattern as ack_reaction: the owner-only rejection
+         *  reply posts chat.postMessage, which we intercept to assert on. */
+        async function recorderCluster(): Promise<{
+            cc: Cluster
+            slackCalls: Array<{ url: string; body: Record<string, unknown> }>
+        }> {
+            const slackCalls: Array<{ url: string; body: Record<string, unknown> }> = []
+            const recorder = {
+                fetch: (input: string | URL, init?: RequestInit): Promise<Response> => {
+                    const url = typeof input === 'string' ? input : input.toString()
+                    if (url.includes('slack.com/api/')) {
+                        slackCalls.push({
+                            url,
+                            body: typeof init?.body === 'string' ? JSON.parse(init.body) : {},
+                        })
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({ ok: true, ts: '0.1', channel: 'C01' }),
+                            text: async () => '{"ok":true}',
+                        } as unknown as Response)
+                    }
+                    return Promise.reject(new Error(`unexpected fetch in test: ${url}`))
+                },
+            }
+            const cc = await buildCluster({ http: recorder })
+            return { cc, slackCalls }
+        }
+
+        function ownerThreadSpec(allow: boolean): Record<string, unknown> {
+            return {
+                triggers: [
+                    {
+                        type: 'slack',
+                        config: {
+                            mention_only: true,
+                            auto_resume_threads: true,
+                            allow_workspace_participants: allow,
+                            trusted_workspaces: '*',
+                        },
+                    },
+                ],
+                auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+            }
+        }
+
+        it('default (owner-only): a non-owner reply is rejected AND gets an in-thread explanation', async () => {
+            const { cc, slackCalls } = await recorderCluster()
+            try {
+                cc.setScript([fauxText('alice first')])
+                await cc.deployAgent({
+                    slug: 'owner-only',
+                    spec: ownerThreadSpec(false),
+                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-owner-only' },
+                })
+                const first = await cc.slackPost(
+                    'owner-only',
+                    'events',
+                    slackEvent({ eventType: 'app_mention', user: 'U-ALICE', text: '<@U0BOT> open', ts: '500.0' }),
+                    SLACK_SECRET
+                )
+                expect(first.body.session_id).toBeTruthy()
+                await cc.drain()
+
+                const second = await cc.slackPost(
+                    'owner-only',
+                    'events',
+                    slackEvent({
+                        eventType: 'message',
+                        user: 'U-BOB',
+                        text: 'bob barges in',
+                        ts: '501.0',
+                        thread_ts: '500.0',
+                    }),
+                    SLACK_SECRET
+                )
+                expect(second.body.elevation_required).toBe(true)
+                expect(second.body.resumed).toBe(false)
+                // Bob's message must not reach the runner.
+                const session = await cc.queue.get(first.body.session_id)
+                expect(session!.pending_inputs).toHaveLength(0)
+                // But Bob is told why, in the thread.
+                const postCalls = slackCalls.filter((c) => c.url.endsWith('chat.postMessage'))
+                expect(postCalls).toHaveLength(1)
+                expect(postCalls[0].body).toMatchObject({ channel: 'C01', thread_ts: '500.0' })
+                expect(String(postCalls[0].body.text)).toContain('started this thread')
+            } finally {
+                await cc.teardown()
+            }
+        })
+
+        it('allow_workspace_participants=true: a non-owner advances the same thread (no elevation, no rejection reply)', async () => {
+            const { cc, slackCalls } = await recorderCluster()
+            try {
+                cc.setScript([fauxText('alice first'), fauxText('reply to bob')])
+                await cc.deployAgent({
+                    slug: 'open-thread',
+                    spec: ownerThreadSpec(true),
+                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-open' },
+                })
+                const first = await cc.slackPost(
+                    'open-thread',
+                    'events',
+                    slackEvent({ eventType: 'app_mention', user: 'U-ALICE', text: '<@U0BOT> open', ts: '600.0' }),
+                    SLACK_SECRET
+                )
+                await cc.drain()
+
+                const second = await cc.slackPost(
+                    'open-thread',
+                    'events',
+                    slackEvent({
+                        eventType: 'message',
+                        user: 'U-BOB',
+                        text: 'bob joins in',
+                        ts: '601.0',
+                        thread_ts: '600.0',
+                    }),
+                    SLACK_SECRET
+                )
+                expect(second.body.session_id).toBe(first.body.session_id)
+                expect(second.body.resumed).toBe(true)
+                expect(second.body.elevation_required).toBeUndefined()
+                await cc.drain()
+
+                const session = await cc.queue.get(first.body.session_id)
+                const userTurns = session!.conversation.filter((m) => m.role === 'user') as Array<{
+                    role: 'user'
+                    content: string
+                    sender?: { kind: string; slack_user_id?: string }
+                }>
+                expect(userTurns).toHaveLength(2)
+                expect(userTurns[1].content).toContain('bob joins in')
+                // The real sender is preserved for audit even though the session
+                // is owned by Alice.
+                expect(userTurns[1].sender).toMatchObject({ kind: 'slack', slack_user_id: 'U-BOB' })
+                // No rejection reply when the thread is open to the workspace.
+                expect(slackCalls.filter((c) => c.url.endsWith('chat.postMessage'))).toHaveLength(0)
             } finally {
                 await cc.teardown()
             }

@@ -127,11 +127,13 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                           trusted_workspaces?: string[] | '*'
                           mention_only?: boolean
                           auto_resume_threads?: boolean
+                          allow_workspace_participants?: boolean
                       })
                     : ({} as {
                           trusted_workspaces?: string[] | '*'
                           mention_only?: boolean
                           auto_resume_threads?: boolean
+                          allow_workspace_participants?: boolean
                       })
             const trusted = slackConfig.trusted_workspaces
             const workspaceId = event.team ?? 'unknown'
@@ -161,6 +163,10 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
             const isAppMention = event.type === 'app_mention'
             const mentionOnly = slackConfig.mention_only ?? false
             const autoResumeThreads = slackConfig.auto_resume_threads ?? false
+            // When set, any user in a trusted workspace may advance an open
+            // thread — waive the per-session owner ACL on resume. The
+            // trusted_workspaces gate above already authorized the workspace.
+            const allowWorkspaceParticipants = slackConfig.allow_workspace_participants ?? false
             const ackReaction = (slackConfig as { ack_reaction?: string }).ack_reaction
             // We need `externalKey` for both the gate and the enqueue below;
             // compute it once.
@@ -325,6 +331,10 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                     },
                     principal: slackPrincipal,
                     trigger: 'slack',
+                    // Owner-only by default; when the agent opts into
+                    // workspace-wide participation, any trusted-workspace user
+                    // (already gated above) may advance the thread.
+                    bypassOwnerAcl: allowWorkspaceParticipants,
                     requesterDisplay: `slack:${workspaceId}:${event.user}`,
                     // Stash the originating thread coordinates so the runner
                     // can post a sanitized failure reply if the session dies
@@ -342,11 +352,21 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                 }
             )
             if (outcome.kind === 'elevation_required') {
-                // Slack expects 200 on the events callback — retrying with the
-                // same payload would just re-record the elevation request. The
-                // v1 elevation message (Slack blocks + interactivity handler)
-                // lands here; for now we just acknowledge and let the audit
-                // trail on the session row carry the rejection.
+                // Owner-only thread: a different user posted into a session they
+                // don't own. The message is parked as an elevation request (see
+                // enqueueOrResume); tell them in-thread why nothing happened
+                // rather than silently 200ing. Awaited so the reply lands before
+                // we ack, but fully error-swallowed so it can never break the
+                // 200 Slack needs within its retry window. To open the thread to
+                // everyone in the workspace, set
+                // `slack.config.allow_workspace_participants: true`.
+                await postThreadMessage(deps, resolved.application, {
+                    channel: event.channel,
+                    thread_ts: event.thread_ts ?? event.ts,
+                    text:
+                        'I can only act on messages from the person who started this thread. ' +
+                        '@-mention me in a new message to start your own.',
+                })
                 res.json({
                     ok: true,
                     session_id: outcome.sessionId,
@@ -590,6 +610,59 @@ async function postAckReaction(
         return
     }
     log.info({ slug: application.slug, channel: opts.channel, ts: opts.ts, reaction: opts.name }, 'ack_reaction_ok')
+}
+
+/**
+ * Post a plain text reply into a thread using the agent's bot token. Used to
+ * tell a rejected non-owner (owner-only threads) why their message did
+ * nothing, instead of silently 200ing the event. Resolves the bot token via
+ * the same per-app encrypted_env resolver as the ack reaction; errors are
+ * swallowed (a missing token / unwired http / slack.com hiccup must not break
+ * the event ack). Returns true if the message was posted.
+ */
+async function postThreadMessage(
+    deps: SlackTriggerDeps,
+    application: AgentApplication,
+    opts: { channel: string; thread_ts: string; text: string }
+): Promise<boolean> {
+    const token = await deps.signingSecretResolver.resolve(SLACK_BOT_TOKEN_KEY, application)
+    if (!token || !deps.http) {
+        log.warn(
+            { slug: application.slug, has_token: Boolean(token), has_http: Boolean(deps.http) },
+            'thread_message_skipped'
+        )
+        return false
+    }
+    try {
+        const res = await deps.http.fetch('https://slack.com/api/chat.postMessage', {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json; charset=utf-8',
+            },
+            body: JSON.stringify({ channel: opts.channel, thread_ts: opts.thread_ts, text: opts.text }),
+        })
+        let body: { ok?: boolean; error?: string } = {}
+        try {
+            body = (await res.json()) as { ok?: boolean; error?: string }
+        } catch {
+            // Non-JSON response — treat as failure but don't throw.
+        }
+        if (!res.ok || body.ok === false) {
+            log.warn(
+                { slug: application.slug, channel: opts.channel, status: res.status, slack_error: body.error ?? null },
+                'thread_message_failed'
+            )
+            return false
+        }
+        return true
+    } catch (err) {
+        log.warn(
+            { slug: application.slug, channel: opts.channel, err: err instanceof Error ? err.message : String(err) },
+            'thread_message_threw'
+        )
+        return false
+    }
 }
 
 /**

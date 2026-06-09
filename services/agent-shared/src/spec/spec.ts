@@ -10,6 +10,35 @@ import { z } from 'zod'
 export const ModelIdSchema = z.string().min(1)
 
 export const TriggerSchema = z.discriminatedUnion('type', [
+    /**
+     * Slack trigger. These spec flags only control what the INGRESS does with
+     * an event once Slack delivers it — they cannot make Slack send an event
+     * it isn't subscribed to. For the agent to behave as configured, the Slack
+     * app itself must be set up to match:
+     *
+     *   - Event Subscriptions → Request URL points at the agent's
+     *     `slack_events_url`. Interactivity (approval buttons) →
+     *     `slack_interactivity_url`.
+     *   - Subscribe to bot events:
+     *       - `app_mention` — required for @-mention triggering.
+     *       - `message.channels` / `message.groups` / `message.im` /
+     *         `message.mpim` — required for ANY non-mention message to arrive
+     *         (i.e. for `mention_only: false`, or for `auto_resume_threads`
+     *         thread follow-ups). If the app only subscribes to `app_mention`,
+     *         setting `mention_only: false` changes nothing — Slack never
+     *         sends the plain messages.
+     *   - OAuth scopes: `app_mentions:read`, `chat:write`, `reactions:write`
+     *     (for `ack_reaction` + replies), and `channels:history` /
+     *     `groups:history` to receive `message.*` events.
+     *   - The bot user must be a MEMBER of each channel — Slack only delivers
+     *     `message.*` events for channels the bot has joined.
+     *   - `SLACK_SIGNING_SECRET` (verify inbound) and `SLACK_BOT_TOKEN` (call
+     *     Slack APIs) must be set in the agent's encrypted env.
+     *
+     * The session key is always the thread: `slack:<channel>:<thread_ts>`
+     * (the opening @-mention's `ts` becomes the thread root). Every later
+     * event in that thread resumes the same session.
+     */
     z.object({
         type: z.literal('slack'),
         config: z.object({
@@ -21,6 +50,9 @@ export const TriggerSchema = z.discriminatedUnion('type', [
              * are dropped at the trigger. Default false to preserve historical
              * "react to anything in the channel" behaviour for bots that
              * already shipped without the gate.
+             *
+             * Recommended setup for "@-mention to start, then converse in the
+             * thread": `mention_only: true` + `auto_resume_threads: true`.
              */
             mention_only: z.boolean().default(false),
             /**
@@ -38,6 +70,23 @@ export const TriggerSchema = z.discriminatedUnion('type', [
              * false for back-compat.
              */
             auto_resume_threads: z.boolean().default(false),
+            /**
+             * Who may advance a thread once it's open. Every Slack session is
+             * owned by the principal who opened it (the @-mentioner). By
+             * default (`false`) only that user can drive the thread: a reply
+             * from a different Slack user fails the per-session ACL check and
+             * is recorded as an elevation request rather than advancing the
+             * session.
+             *
+             * Set `true` to let ANY user in a `trusted_workspaces` workspace
+             * post into the thread and advance the session — a shared/team
+             * concierge thread where colleagues chime in. The `trusted_workspaces`
+             * gate still applies (untrusted workspaces are rejected upstream),
+             * and every message still records its real sender for audit; this
+             * only waives the "same user as the owner" requirement. Default
+             * false (owner-only).
+             */
+            allow_workspace_participants: z.boolean().default(false),
             /**
              * Emoji name (no surrounding colons, e.g. `"eyes"` or
              * `"thinking_face"`) that the ingress posts as an immediate
