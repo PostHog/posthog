@@ -44,15 +44,14 @@ def _repo_name(full_path: Optional[str]) -> Optional[str]:
     return full_path.split("/")[-1]
 
 
-def _cloud_pr_url(task: Task) -> Optional[str]:
-    run = task.latest_run
+def _pr_url_from_run(run: Optional[TaskRun]) -> Optional[str]:
     return (run.output or {}).get("pr_url") if run and run.output else None
 
 
 def _task_to_input(task: Task) -> tuple[TaskInput, Optional[str]]:
     run: Optional[TaskRun] = task.latest_run
     last_activity = run.updated_at if run else task.updated_at
-    cloud_pr_url = _cloud_pr_url(task)
+    cloud_pr_url = _pr_url_from_run(run)
     return (
         TaskInput(
             id=str(task.id),
@@ -133,7 +132,7 @@ def rebuild_team_workstreams(input: RebuildTeamWorkstreamsInput) -> RebuildTeamW
         .order_by("-last_activity")[:MAX_TASKS_PER_TEAM]
     ]
     tasks = list(
-        Task.objects.filter(id__in=recent_task_ids, archived=False, deleted=False)
+        Task.objects.filter(id__in=recent_task_ids, team_id=input.team_id, archived=False, deleted=False)
         .select_related("created_by")
         .prefetch_related("runs")
     )
@@ -144,7 +143,7 @@ def rebuild_team_workstreams(input: RebuildTeamWorkstreamsInput) -> RebuildTeamW
         if task.created_by_id is None:
             continue
         by_user[task.created_by_id].append(task)
-        pr_url = _cloud_pr_url(task)
+        pr_url = _pr_url_from_run(task.latest_run)
         if pr_url:
             needed_pr_urls.add(pr_url)
 

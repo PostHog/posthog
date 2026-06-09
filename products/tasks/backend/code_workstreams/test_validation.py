@@ -43,3 +43,21 @@ def test_missing_skill_is_allowed():
 
 def test_empty_bindings_are_valid():
     assert validate_bindings({}).can_save
+
+
+def test_non_dict_bindings_is_rejected():
+    result = validate_bindings([{"id": "a"}])  # type: ignore[arg-type]
+    assert not result.can_save
+    assert {d.code for d in result.diagnostics} == {"bindings_not_object"}
+
+
+def test_non_list_situation_value_is_rejected():
+    result = validate_bindings({"working": "not a list"})
+    assert not result.can_save
+    assert any(d.code == "situation_not_list" for d in result.diagnostics)
+
+
+def test_non_dict_action_is_rejected():
+    result = validate_bindings({"working": ["not an object"]})
+    assert not result.can_save
+    assert any(d.code == "action_not_object" for d in result.diagnostics)

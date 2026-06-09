@@ -8,6 +8,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+import requests
 from temporalio import activity
 
 from posthog.models import Integration
@@ -39,12 +40,12 @@ def _fingerprint(url: str, updated_at: str | None) -> str:
 
 
 def _resolve_integration(ref: PrRef) -> GitHubIntegrationBase | None:
-    if ref.github_integration_id:
+    if ref.github_integration_id is not None:
         integration = GitHubIntegration(Integration.objects.get(id=ref.github_integration_id))
         if integration.access_token_expired():
             integration.refresh_access_token()
         return integration
-    if ref.github_user_integration_id:
+    if ref.github_user_integration_id is not None:
         user_integration = UserGitHubIntegration(UserIntegration.objects.get(id=ref.github_user_integration_id))
         if user_integration.access_token_expired():
             user_integration.refresh_access_token()
@@ -74,7 +75,9 @@ def poll_pull_requests_for_team(
             heartbeat(index)
 
         cache_key = (
-            f"i:{ref.github_integration_id}" if ref.github_integration_id else f"u:{ref.github_user_integration_id}"
+            f"i:{ref.github_integration_id}"
+            if ref.github_integration_id is not None
+            else f"u:{ref.github_user_integration_id}"
         )
         try:
             if cache_key not in integrations:
@@ -82,6 +85,11 @@ def poll_pull_requests_for_team(
             integration = integrations[cache_key]
         except ObjectDoesNotExist:
             activity.logger.warning("code_workstreams_pr_integration_missing", pr_url=ref.pr_url)
+            continue
+        except (GitHubIntegrationError, requests.RequestException) as e:
+            # A token-refresh failure for one PR must not abort the whole activity (which would
+            # block the team's rebuild this cycle); skip this PR and move on.
+            activity.logger.warning("code_workstreams_pr_integration_unavailable", pr_url=ref.pr_url, error=str(e))
             continue
         if integration is None:
             continue

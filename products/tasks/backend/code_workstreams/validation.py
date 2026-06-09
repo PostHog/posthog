@@ -23,10 +23,42 @@ class ValidationResult:
 def validate_bindings(bindings: Mapping[str, Any]) -> ValidationResult:
     diagnostics: list[ValidationDiagnostic] = []
 
+    if not isinstance(bindings, dict):
+        return ValidationResult(
+            diagnostics=[
+                ValidationDiagnostic(
+                    severity="error",
+                    code="bindings_not_object",
+                    message="bindings must be an object",
+                )
+            ],
+            can_save=False,
+        )
+
     for sid in SITUATION_IDS:
         actions = bindings.get(sid) or []
+        if not isinstance(actions, list):
+            diagnostics.append(
+                ValidationDiagnostic(
+                    severity="error",
+                    code="situation_not_list",
+                    message=f"{sid} must be a list of actions",
+                    situation_id=sid,
+                )
+            )
+            continue
         seen_ids: set[str] = set()
         for action in actions:
+            if not isinstance(action, dict):
+                diagnostics.append(
+                    ValidationDiagnostic(
+                        severity="error",
+                        code="action_not_object",
+                        message=f"An action in {sid} must be an object",
+                        situation_id=sid,
+                    )
+                )
+                continue
             action_id = str(action.get("id", ""))
             if action_id in seen_ids:
                 diagnostics.append(

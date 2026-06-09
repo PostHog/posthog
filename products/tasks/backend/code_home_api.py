@@ -16,7 +16,7 @@ from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 
 from .code_workstreams.default_workflow import build_default_bindings
-from .code_workstreams.validation import validate_bindings
+from .code_workstreams.validation import ValidationDiagnostic, validate_bindings
 from .models import CodeWorkflowConfig, CodeWorkstream, TaskRun
 
 ACTIVE_AGENT_WINDOW = timedelta(minutes=30)
@@ -29,7 +29,7 @@ def _epoch_ms(dt: datetime) -> int:
     return int(dt.timestamp() * 1000)
 
 
-def _serialize_diagnostic(d) -> dict:
+def _serialize_diagnostic(d: ValidationDiagnostic) -> dict:
     out = {"severity": d.severity, "code": d.code, "message": d.message}
     if d.situation_id is not None:
         out["situationId"] = d.situation_id
@@ -70,10 +70,12 @@ class CodeWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         expected_version = request.data.get("expectedVersion")
         bindings = config_in.get("bindings") or {}
 
-        self._get_or_seed()  # ensure the row exists before we lock it
-
         with transaction.atomic():
-            current = CodeWorkflowConfig.objects.select_for_update().get(team=self.team, user=self.request.user)
+            current, _ = CodeWorkflowConfig.objects.select_for_update().get_or_create(
+                team=self.team,
+                user=self.request.user,
+                defaults={"bindings": build_default_bindings(), "version": 1},
+            )
             if not isinstance(expected_version, int) or current.version != expected_version:
                 return Response(
                     {"status": "conflict", "config": _serialize_config(current)},
@@ -98,9 +100,12 @@ class CodeWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @action(detail=False, methods=["post"], url_path="reset", required_scopes=["task:write"])
     def reset(self, request, **kwargs):
-        self._get_or_seed()  # ensure the row exists before we lock it
         with transaction.atomic():
-            config = CodeWorkflowConfig.objects.select_for_update().get(team=self.team, user=self.request.user)
+            config, _ = CodeWorkflowConfig.objects.select_for_update().get_or_create(
+                team=self.team,
+                user=self.request.user,
+                defaults={"bindings": build_default_bindings(), "version": 1},
+            )
             config.bindings = build_default_bindings()
             config.version = config.version + 1
             config.save(update_fields=["bindings", "version", "updated_at"])
@@ -144,6 +149,7 @@ class CodeHomeViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 team=self.team,
                 task__created_by=cast(User, self.request.user),
                 task__archived=False,
+                task__deleted=False,
                 status__in=RUNNING_STATUSES,
                 updated_at__gte=cutoff,
             )
