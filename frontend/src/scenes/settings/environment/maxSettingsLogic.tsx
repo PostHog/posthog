@@ -47,8 +47,14 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
         coreMemory: {
             __default: null as CoreMemory | null,
             loadCoreMemory: async (): Promise<CoreMemory | null> => {
-                const response = await api.coreMemory.list()
-                return response.results[0] || null
+                try {
+                    const response = await api.coreMemory.list()
+                    return response.results[0] || null
+                } catch {
+                    // Non-OK responses (e.g. 403 when lacking access to the environment, or upstream
+                    // timeouts) shouldn't surface as uncaught frontend errors — fall back to empty state.
+                    return null
+                }
             },
             updateCoreMemory: async (data: CoreMemoryForm) => {
                 if (!values.coreMemory) {
