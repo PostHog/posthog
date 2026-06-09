@@ -18,8 +18,9 @@ from posthog.exceptions import (
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
-from posthog.models.cohort import Cohort, CohortOrEmpty
-from posthog.models.cohort.util import (
+
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.cohorts.backend.models.util import (
     CohortErrorCode,
     get_all_cohort_dependencies,
     get_friendly_error_message,
@@ -402,7 +403,7 @@ class TestCohortUtils(BaseTest):
     def test_get_static_cohort_size_with_strong_consistency(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
 
-        with patch("posthog.models.cohort.util.count_cohort_members", return_value=42) as mock_count:
+        with patch("products.cohorts.backend.models.util.count_cohort_members", return_value=42) as mock_count:
             result = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id, consistency="strong")
 
         mock_count.assert_called_once_with(team_id=self.team.id, cohort_id=cohort.id, consistency="strong")
@@ -411,7 +412,7 @@ class TestCohortUtils(BaseTest):
     def test_get_static_cohort_size_defaults_to_eventual_consistency(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
 
-        with patch("posthog.models.cohort.util.count_cohort_members", return_value=10) as mock_count:
+        with patch("products.cohorts.backend.models.util.count_cohort_members", return_value=10) as mock_count:
             result = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id)
 
         mock_count.assert_called_once_with(team_id=self.team.id, cohort_id=cohort.id, consistency="eventual")

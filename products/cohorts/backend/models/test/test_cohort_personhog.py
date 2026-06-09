@@ -8,10 +8,11 @@ from django.db.models import Q
 
 from parameterized import parameterized_class
 
-from posthog.models import Cohort, Person, Team
-from posthog.models.cohort.cohort import CohortPeople
+from posthog.models import Person, Team
 from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
+
+from products.cohorts.backend.models.cohort import Cohort, CohortPeople
 
 
 @parameterized_class(("personhog",), [(False,), (True,)])
@@ -118,8 +119,8 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
     def _create_static_cohort(self) -> Cohort:
         return Cohort.objects.create(team=self.team, groups=[], is_static=True, name="test cohort")
 
-    @patch("posthog.models.cohort.util.remove_person_from_static_cohort")
-    @patch("posthog.models.cohort.util.get_static_cohort_size", return_value=0)
+    @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
+    @patch("products.cohorts.backend.models.util.get_static_cohort_size", return_value=0)
     def test_removes_existing_cohort_member(self, mock_get_size, mock_remove_ch):
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
@@ -141,8 +142,8 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
         assert call_args[1]["team_id"] == self.team.id
         self._assert_personhog_called("check_cohort_membership")
 
-    @patch("posthog.models.cohort.util.remove_person_from_static_cohort")
-    @patch("posthog.models.cohort.util.get_static_cohort_size", return_value=0)
+    @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
+    @patch("products.cohorts.backend.models.util.get_static_cohort_size", return_value=0)
     def test_returns_true_for_person_not_in_cohort(self, mock_get_size, mock_remove_ch):
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
@@ -159,8 +160,8 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
 
         assert result is False
 
-    @patch("posthog.models.cohort.util.remove_person_from_static_cohort")
-    @patch("posthog.models.cohort.util.get_static_cohort_size", return_value=0)
+    @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
+    @patch("products.cohorts.backend.models.util.get_static_cohort_size", return_value=0)
     def test_cross_team_isolation(self, mock_get_size, mock_remove_ch):
         other_team = Team.objects.create(organization=self.organization)
         person = self._seed_person(team=other_team, distinct_ids=["d1"])
@@ -171,8 +172,8 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
         assert result is False
         mock_remove_ch.assert_not_called()
 
-    @patch("posthog.models.cohort.util.remove_person_from_static_cohort")
-    @patch("posthog.models.cohort.util.get_static_cohort_size", return_value=0)
+    @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
+    @patch("products.cohorts.backend.models.util.get_static_cohort_size", return_value=0)
     def test_does_not_delete_when_cohort_belongs_to_other_team(self, mock_get_size, mock_remove_ch):
         """Calling remove_user_by_uuid with a team_id that does not own the
         cohort must not touch CohortPeople rows for that cohort."""
@@ -191,8 +192,8 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
         assert CohortPeople.objects.filter(cohort=other_team_cohort, person=person).exists()
         mock_remove_ch.assert_not_called()
 
-    @patch("posthog.models.cohort.util.remove_person_from_static_cohort")
-    @patch("posthog.models.cohort.util.get_static_cohort_size", return_value=5)
+    @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
+    @patch("products.cohorts.backend.models.util.get_static_cohort_size", return_value=5)
     def test_updates_cohort_count_after_removal(self, mock_get_size, mock_remove_ch):
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
@@ -204,8 +205,8 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
         cohort.refresh_from_db()
         assert cohort.count == 5
 
-    @patch("posthog.models.cohort.util.remove_person_from_static_cohort")
-    @patch("posthog.models.cohort.util.get_static_cohort_size", side_effect=Exception("count failed"))
+    @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
+    @patch("products.cohorts.backend.models.util.get_static_cohort_size", side_effect=Exception("count failed"))
     def test_count_error_does_not_prevent_removal(self, mock_get_size, mock_remove_ch):
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
@@ -222,8 +223,8 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
             assert not CohortPeople.objects.filter(cohort=cohort, person=person).exists()
         mock_remove_ch.assert_called_once()
 
-    @patch("posthog.models.cohort.util.remove_person_from_static_cohort")
-    @patch("posthog.models.cohort.util.get_static_cohort_size", return_value=0)
+    @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
+    @patch("products.cohorts.backend.models.util.get_static_cohort_size", return_value=0)
     def test_personhog_resolves_person_for_removal(self, mock_get_size, mock_remove_ch):
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
@@ -236,7 +237,7 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
 @parameterized_class(("personhog",), [(False,), (True,)])
 class TestCheckCohortMembership(PersonhogTestMixin, BaseTest):
     def test_returns_true_for_member(self):
-        from posthog.models.cohort.util import check_cohort_membership, is_person_in_cohort
+        from products.cohorts.backend.models.util import check_cohort_membership, is_person_in_cohort
 
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
@@ -248,7 +249,7 @@ class TestCheckCohortMembership(PersonhogTestMixin, BaseTest):
         self._assert_personhog_called("check_cohort_membership")
 
     def test_returns_false_for_non_member(self):
-        from posthog.models.cohort.util import is_person_in_cohort
+        from products.cohorts.backend.models.util import is_person_in_cohort
 
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
@@ -256,7 +257,7 @@ class TestCheckCohortMembership(PersonhogTestMixin, BaseTest):
         assert is_person_in_cohort(team_id=self.team.id, person_id=person.id, cohort_id=cohort.id) is False
 
     def test_returns_empty_dict_for_empty_cohort_ids(self):
-        from posthog.models.cohort.util import check_cohort_membership
+        from products.cohorts.backend.models.util import check_cohort_membership
 
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
 
@@ -264,7 +265,7 @@ class TestCheckCohortMembership(PersonhogTestMixin, BaseTest):
         self._assert_personhog_not_called("check_cohort_membership")
 
     def test_mixed_membership(self):
-        from posthog.models.cohort.util import check_cohort_membership
+        from products.cohorts.backend.models.util import check_cohort_membership
 
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
         c1 = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
@@ -284,7 +285,7 @@ class TestCheckCohortMembership(PersonhogTestMixin, BaseTest):
         of which path (personhog vs ORM) runs. Tenant scoping happens in the
         public wrapper before dispatch, so the RPC is never called for
         out-of-team cohort_ids."""
-        from posthog.models.cohort.util import check_cohort_membership
+        from products.cohorts.backend.models.util import check_cohort_membership
 
         other_team = Team.objects.create(organization=self.organization)
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
@@ -304,7 +305,7 @@ class TestCheckCohortMembership(PersonhogTestMixin, BaseTest):
         """When a mix of in-team and out-of-team cohort_ids is passed, only the
         in-team ones reach downstream; the caller still gets a dict keyed by
         every requested id with out-of-team ones reported as non-member."""
-        from posthog.models.cohort.util import check_cohort_membership
+        from products.cohorts.backend.models.util import check_cohort_membership
 
         other_team = Team.objects.create(organization=self.organization)
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
@@ -324,7 +325,7 @@ class TestCheckCohortMembershipFallback(BaseTest):
     """Routing test: verifies ORM fallback when the personhog gate is disabled."""
 
     def test_falls_back_to_orm_when_personhog_disabled(self):
-        from posthog.models.cohort.util import is_person_in_cohort
+        from products.cohorts.backend.models.util import is_person_in_cohort
 
         person = Person.objects.create(team=self.team, distinct_ids=["d1"])
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
@@ -422,7 +423,7 @@ class TestPropertyToQStaticCohortShortCircuit(PersonhogTestMixin, BaseTest):
 @parameterized_class(("personhog",), [(False,), (True,)])
 class TestListCohortMemberIds(PersonhogTestMixin, BaseTest):
     def test_returns_member_ids(self):
-        from posthog.models.cohort.util import list_cohort_member_ids
+        from products.cohorts.backend.models.util import list_cohort_member_ids
 
         p1 = self._seed_person(team=self.team, distinct_ids=["d1"])
         p2 = self._seed_person(team=self.team, distinct_ids=["d2"])
@@ -438,7 +439,7 @@ class TestListCohortMemberIds(PersonhogTestMixin, BaseTest):
         self._assert_personhog_called("list_cohort_member_ids")
 
     def test_returns_empty_for_empty_cohort(self):
-        from posthog.models.cohort.util import list_cohort_member_ids
+        from products.cohorts.backend.models.util import list_cohort_member_ids
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
 
@@ -447,7 +448,7 @@ class TestListCohortMemberIds(PersonhogTestMixin, BaseTest):
         assert result == []
 
     def test_excludes_non_members(self):
-        from posthog.models.cohort.util import list_cohort_member_ids
+        from products.cohorts.backend.models.util import list_cohort_member_ids
 
         p1 = self._seed_person(team=self.team, distinct_ids=["d1"])
         p2 = self._seed_person(team=self.team, distinct_ids=["d2"])
@@ -463,7 +464,7 @@ class TestListCohortMemberIds(PersonhogTestMixin, BaseTest):
         assert result == [p1.id]
 
     def test_isolates_cross_team_cohort(self):
-        from posthog.models.cohort.util import list_cohort_member_ids
+        from products.cohorts.backend.models.util import list_cohort_member_ids
 
         other_team = Team.objects.create(organization=self.organization)
         person = self._seed_person(team=other_team, distinct_ids=["d1"])
@@ -479,7 +480,7 @@ class TestListCohortMemberIds(PersonhogTestMixin, BaseTest):
 
 class TestListCohortMemberIdsFallback(BaseTest):
     def test_falls_back_to_orm_when_personhog_disabled(self):
-        from posthog.models.cohort.util import list_cohort_member_ids
+        from products.cohorts.backend.models.util import list_cohort_member_ids
 
         person = Person.objects.create(team=self.team, distinct_ids=["d1"])
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
@@ -565,7 +566,7 @@ class TestInsertCohortMembers(PersonhogTestMixin, BaseTest):
         return Cohort.objects.create(team=self.team, groups=[], is_static=True, name="test cohort")
 
     def test_inserts_members(self):
-        from posthog.models.cohort.util import insert_cohort_members
+        from products.cohorts.backend.models.util import insert_cohort_members
 
         p1 = self._seed_person(team=self.team, distinct_ids=["d1"])
         p2 = self._seed_person(team=self.team, distinct_ids=["d2"])
@@ -583,7 +584,7 @@ class TestInsertCohortMembers(PersonhogTestMixin, BaseTest):
         self._assert_personhog_called("insert_cohort_members")
 
     def test_deduplicates_existing_members(self):
-        from posthog.models.cohort.util import insert_cohort_members
+        from products.cohorts.backend.models.util import insert_cohort_members
 
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
@@ -598,7 +599,7 @@ class TestInsertCohortMembers(PersonhogTestMixin, BaseTest):
             assert CohortPeople.objects.filter(cohort=cohort).count() == 1
 
     def test_returns_zero_for_empty_list(self):
-        from posthog.models.cohort.util import insert_cohort_members
+        from products.cohorts.backend.models.util import insert_cohort_members
 
         cohort = self._create_static_cohort()
 
@@ -606,7 +607,7 @@ class TestInsertCohortMembers(PersonhogTestMixin, BaseTest):
         self._assert_personhog_not_called("insert_cohort_members")
 
     def test_rejects_cross_team_cohort(self):
-        from posthog.models.cohort.util import insert_cohort_members
+        from products.cohorts.backend.models.util import insert_cohort_members
 
         other_team = Team.objects.create(organization=self.organization)
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
@@ -619,7 +620,7 @@ class TestInsertCohortMembers(PersonhogTestMixin, BaseTest):
         self._assert_personhog_not_called("insert_cohort_members")
 
     def test_skip_ownership_check_bypasses_team_validation(self):
-        from posthog.models.cohort.util import insert_cohort_members
+        from products.cohorts.backend.models.util import insert_cohort_members
 
         other_team = Team.objects.create(organization=self.organization)
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
@@ -634,7 +635,7 @@ class TestInsertCohortMembers(PersonhogTestMixin, BaseTest):
 
 class TestInsertCohortMembersFallback(BaseTest):
     def test_falls_back_to_orm_when_personhog_disabled(self):
-        from posthog.models.cohort.util import insert_cohort_members
+        from products.cohorts.backend.models.util import insert_cohort_members
 
         person = Person.objects.create(team=self.team, distinct_ids=["d1"])
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
@@ -654,7 +655,7 @@ class TestDeleteCohortMember(PersonhogTestMixin, BaseTest):
         return Cohort.objects.create(team=self.team, groups=[], is_static=True, name="test cohort")
 
     def test_deletes_existing_member(self):
-        from posthog.models.cohort.util import delete_cohort_member
+        from products.cohorts.backend.models.util import delete_cohort_member
 
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
@@ -669,7 +670,7 @@ class TestDeleteCohortMember(PersonhogTestMixin, BaseTest):
         self._assert_personhog_called("delete_cohort_member")
 
     def test_returns_false_for_non_member(self):
-        from posthog.models.cohort.util import delete_cohort_member
+        from products.cohorts.backend.models.util import delete_cohort_member
 
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
@@ -679,7 +680,7 @@ class TestDeleteCohortMember(PersonhogTestMixin, BaseTest):
         assert result is False
 
     def test_rejects_cross_team_cohort(self):
-        from posthog.models.cohort.util import delete_cohort_member
+        from products.cohorts.backend.models.util import delete_cohort_member
 
         other_team = Team.objects.create(organization=self.organization)
         person = self._seed_person(team=other_team, distinct_ids=["d1"])
@@ -696,7 +697,7 @@ class TestDeleteCohortMember(PersonhogTestMixin, BaseTest):
 
 class TestDeleteCohortMemberFallback(BaseTest):
     def test_falls_back_to_orm_when_personhog_disabled(self):
-        from posthog.models.cohort.util import delete_cohort_member
+        from products.cohorts.backend.models.util import delete_cohort_member
 
         person = Person.objects.create(team=self.team, distinct_ids=["d1"])
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
@@ -715,7 +716,7 @@ class TestDeleteCohortMembersBulk(PersonhogTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def test_deletes_all_members_for_cohorts(self):
-        from posthog.models.cohort.util import delete_cohort_members_bulk
+        from products.cohorts.backend.models.util import delete_cohort_members_bulk
 
         p1 = self._seed_person(team=self.team, distinct_ids=["d1"])
         p2 = self._seed_person(team=self.team, distinct_ids=["d2"])
@@ -734,7 +735,7 @@ class TestDeleteCohortMembersBulk(PersonhogTestMixin, BaseTest):
         self._assert_personhog_called("delete_cohort_members_bulk")
 
     def test_returns_zero_for_empty_list(self):
-        from posthog.models.cohort.util import delete_cohort_members_bulk
+        from products.cohorts.backend.models.util import delete_cohort_members_bulk
 
         assert delete_cohort_members_bulk(self.team.id, []) == 0
         self._assert_personhog_not_called("delete_cohort_members_bulk")
@@ -742,7 +743,7 @@ class TestDeleteCohortMembersBulk(PersonhogTestMixin, BaseTest):
 
 class TestDeleteCohortMembersBulkFallback(BaseTest):
     def test_falls_back_to_orm_when_personhog_disabled(self):
-        from posthog.models.cohort.util import delete_cohort_members_bulk
+        from products.cohorts.backend.models.util import delete_cohort_members_bulk
 
         person = Person.objects.create(team=self.team, distinct_ids=["d1"])
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
@@ -760,8 +761,9 @@ class TestDeleteCohortMembersBulkMaxIterations(BaseTest):
     def test_stops_after_max_iterations(self):
         from unittest.mock import MagicMock
 
-        from posthog.models.cohort import util as cohort_util
         from posthog.personhog_client.proto import DeleteCohortMembersBulkResponse
+
+        from products.cohorts.backend.models import util as cohort_util
 
         mock_client = MagicMock()
         mock_client.delete_cohort_members_bulk.return_value = DeleteCohortMembersBulkResponse(deleted_count=100)
@@ -780,7 +782,7 @@ class TestDeleteCohortMembersBulkMaxIterations(BaseTest):
 @parameterized_class(("personhog",), [(False,), (True,)])
 class TestCountCohortMembers(PersonhogTestMixin, BaseTest):
     def test_returns_count(self):
-        from posthog.models.cohort.util import count_cohort_members
+        from products.cohorts.backend.models.util import count_cohort_members
 
         p1 = self._seed_person(team=self.team, distinct_ids=["d1"])
         p2 = self._seed_person(team=self.team, distinct_ids=["d2"])
@@ -794,14 +796,14 @@ class TestCountCohortMembers(PersonhogTestMixin, BaseTest):
         self._assert_personhog_called("count_cohort_members")
 
     def test_returns_zero_for_empty_cohort(self):
-        from posthog.models.cohort.util import count_cohort_members
+        from products.cohorts.backend.models.util import count_cohort_members
 
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
 
         assert count_cohort_members(self.team.id, cohort.id) == 0
 
     def test_isolates_cross_team_cohort(self):
-        from posthog.models.cohort.util import count_cohort_members
+        from products.cohorts.backend.models.util import count_cohort_members
 
         other_team = Team.objects.create(organization=self.organization)
         person = self._seed_person(team=other_team, distinct_ids=["d1"])
@@ -815,7 +817,7 @@ class TestCountCohortMembers(PersonhogTestMixin, BaseTest):
 
 class TestCountCohortMembersFallback(BaseTest):
     def test_falls_back_to_orm_when_personhog_disabled(self):
-        from posthog.models.cohort.util import count_cohort_members
+        from products.cohorts.backend.models.util import count_cohort_members
 
         person = Person.objects.create(team=self.team, distinct_ids=["d1"])
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
@@ -834,7 +836,7 @@ class TestInsertUsersListWithBatchingPersonhog(PersonhogTestMixin, BaseTest):
     def _create_static_cohort(self) -> Cohort:
         return Cohort.objects.create(team=self.team, groups=[], is_static=True, name="test cohort")
 
-    @patch("posthog.models.cohort.util.insert_static_cohort")
+    @patch("products.cohorts.backend.models.util.insert_static_cohort")
     def test_insert_users_by_uuid(self, mock_insert_ch):
         p1 = self._seed_person(team=self.team, distinct_ids=["d1"])
         p2 = self._seed_person(team=self.team, distinct_ids=["d2"])
@@ -847,7 +849,7 @@ class TestInsertUsersListWithBatchingPersonhog(PersonhogTestMixin, BaseTest):
         else:
             assert CohortPeople.objects.filter(cohort=cohort).count() == 2
 
-    @patch("posthog.models.cohort.util.insert_static_cohort")
+    @patch("products.cohorts.backend.models.util.insert_static_cohort")
     def test_insert_users_by_distinct_id(self, mock_insert_ch):
         self._seed_person(team=self.team, distinct_ids=["d1"])
         self._seed_person(team=self.team, distinct_ids=["d2"])
@@ -860,7 +862,7 @@ class TestInsertUsersListWithBatchingPersonhog(PersonhogTestMixin, BaseTest):
         else:
             assert CohortPeople.objects.filter(cohort=cohort).count() == 2
 
-    @patch("posthog.models.cohort.util.insert_static_cohort")
+    @patch("products.cohorts.backend.models.util.insert_static_cohort")
     def test_insert_idempotent(self, mock_insert_ch):
         person = self._seed_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
