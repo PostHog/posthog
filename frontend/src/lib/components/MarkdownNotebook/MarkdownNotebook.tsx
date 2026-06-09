@@ -2982,6 +2982,170 @@ export function MarkdownNotebook({
         }
     }
 
+    const renderedNodeGroups = getMarkdownNotebookVisualGroups(renderedNodes)
+
+    const renderInsertBoundaryButton = (boundaryIndex: number): JSX.Element | null => {
+        if (!showInsertBoundaries) {
+            return null
+        }
+
+        return (
+            <InsertBoundaryButton
+                boundaryIndex={boundaryIndex}
+                isAvailable={isInsertBoundaryAvailable(renderedNodes, boundaryIndex, insertMenu?.nodeId)}
+                isVisible={isInsertBoundaryVisible(
+                    renderedNodes,
+                    boundaryIndex,
+                    activeBoundaryIndex,
+                    focusedRowIndex,
+                    insertMenu?.nodeId
+                )}
+                insertEmptyParagraphAtBoundary={insertEmptyParagraphAtBoundary}
+                setActiveBoundaryIndex={setActiveBoundaryIndex}
+            />
+        )
+    }
+
+    const renderNotebookRow = (node: NotebookBlockNode, index: number): JSX.Element => {
+        const isTitleRow = index === 0
+        const isInsertMenuOpen = insertMenu?.nodeId === node.id
+        const insertMenuMode = isInsertMenuOpen ? (insertMenu.mode ?? 'tools') : null
+        const isToolInsertMenuOpen = isInsertMenuOpen && insertMenuMode === 'tools'
+        const isAIPromptOpen = isPromptComponentNode(node)
+        const componentDefinition =
+            node.type === 'component' ? getMarkdownNotebookComponentDefinition(mergedRegistry, node.tagName) : undefined
+        const nodeComponentPanels =
+            node.type === 'component'
+                ? getComponentPanelVisibility(node, DEFAULT_COMPONENT_PANEL_VISIBILITY)
+                : DEFAULT_COMPONENT_PANEL_VISIBILITY
+        const shouldShowInlineInsertMenuButton =
+            !isTitleRow && (isBlankInsertMenuButtonRow(node) || (isToolInsertMenuOpen && isTextBlockNode(node)))
+        const hasInvalidInsertMenuQuery =
+            isToolInsertMenuOpen &&
+            insertMenu.query.length > 0 &&
+            getFilteredInsertCommands(insertCommands, insertMenu.query).length === 0
+
+        return (
+            <div
+                className={clsx('MarkdownNotebook__row', isInsertMenuOpen && 'MarkdownNotebook__row--insert-menu-open')}
+                onMouseEnter={(event) => updateActiveBoundaryFromRow(event, index)}
+                onMouseMove={(event) => updateActiveBoundaryFromRow(event, index)}
+                onFocusCapture={() => handleRowFocus(index)}
+                onBlurCapture={(event) => handleRowBlur(event, index)}
+            >
+                {renderNode({
+                    node,
+                    nodeIndex: index,
+                    mode,
+                    placeholder: isTitleRow
+                        ? NOTEBOOK_TITLE_PLACEHOLDER
+                        : isToolInsertMenuOpen
+                          ? INSERT_MENU_PLACEHOLDER
+                          : isAIPromptOpen
+                            ? ''
+                            : node.id === placeholderNodeId
+                              ? placeholder
+                              : undefined,
+                    registry: mergedRegistry,
+                    componentPanels: nodeComponentPanels,
+                    isSelected: selectedComponentNodeIds.has(node.id),
+                    toggleComponentPanel: (panel) =>
+                        updateNode(node.id, (currentNode) => {
+                            if (currentNode.type !== 'component') {
+                                return currentNode
+                            }
+
+                            const currentPanels = getComponentPanelVisibility(
+                                currentNode,
+                                DEFAULT_COMPONENT_PANEL_VISIBILITY
+                            )
+                            const nextPanels = {
+                                ...currentPanels,
+                                [panel]: !currentPanels[panel],
+                            }
+                            return withPersistedComponentPanelProps(currentNode, componentDefinition, nextPanels)
+                        }),
+                    setBlockRef: (element) => {
+                        blockRefs.current[node.id] = element
+                    },
+                    setListItemRef: (itemIndex, element) => {
+                        listItemRefs.current[getListItemRefKey(node.id, itemIndex)] = element
+                    },
+                    setTableCellRef: (position, element) => {
+                        tableCellRefs.current[getTableCellRefKey(node.id, position)] = element
+                    },
+                    getTableCellElement: (position) =>
+                        tableCellRefs.current[getTableCellRefKey(node.id, position)] ?? null,
+                    updateNode,
+                    replaceNodeWithNodes,
+                    deleteNode: () => updateNode(node.id, () => null),
+                    deleteNodeAndFocusAdjacent: () => {
+                        requestFocusAfterRemovingNode(node.id)
+                        updateNode(node.id, () => null)
+                    },
+                    deleteSelectedNotebookBlocks,
+                    insertParagraphAfterNode: () => insertEmptyParagraphAfterNode(node.id),
+                    deleteNodeBefore,
+                    moveFocusToAdjacentNode,
+                    moveFocusToAdjacentListItem,
+                    moveFocusToAdjacentTableCell,
+                    openInsertMenu: (query = '') => openInsertMenu(node.id, query),
+                    updateAIPromptQuery: (query) => updateAIPromptQuery(node.id, query),
+                    closeInsertMenu: () => setInsertMenu(null),
+                    moveInsertMenuSelection: (direction) => {
+                        setInsertMenu((currentMenu) => {
+                            if (!currentMenu || currentMenu.nodeId !== node.id) {
+                                return currentMenu
+                            }
+
+                            return {
+                                ...currentMenu,
+                                selectedIndex: getNextInsertMenuSelectedIndex(
+                                    currentMenu.selectedIndex,
+                                    getFilteredInsertCommands(insertCommands, currentMenu.query).length,
+                                    direction
+                                ),
+                            }
+                        })
+                    },
+                    toggleInsertMenu: () => {
+                        if (isToolInsertMenuOpen || isAIPromptOpen) {
+                            setInsertMenu(null)
+                            return
+                        }
+                        openInsertMenu(node.id, getInlineInsertMenuQuery(node))
+                    },
+                    activateInlineInsertMenuButton: () => {
+                        setActiveRowIndex(index)
+                        setActiveBoundaryIndex(null)
+                    },
+                    showInlineInsertMenuButton: mode === 'edit' && shouldShowInlineInsertMenuButton,
+                    isInlineInsertMenuButtonVisible: activeRowIndex === index || isToolInsertMenuOpen || isAIPromptOpen,
+                    isInsertMenuOpen,
+                    insertMenuMode,
+                    hasInvalidInsertMenuQuery,
+                    submitInsertMenuSelection: (queryOverride) =>
+                        submitInsertMenuSelectionForNode(node.id, queryOverride),
+                    submitAIPrompt: (queryOverride) => submitAIPromptForNode(node.id, queryOverride),
+                    handleSelectionChange,
+                    startTextSelectionPointer,
+                    restoreSelectionRef,
+                    rootEditableInputHtmlByNodeIdRef,
+                })}
+                {isToolInsertMenuOpen ? (
+                    <InsertMenu
+                        query={insertMenu.query}
+                        commands={insertCommands}
+                        targetNodeId={node.id}
+                        position={insertMenuPosition}
+                        selectedIndex={insertMenu.selectedIndex}
+                        onClose={() => setInsertMenu(null)}
+                    />
+                ) : null}
+            </div>
+        )
+    }
+
     return (
         <div
             className={clsx('MarkdownNotebook', isDebugOpen && 'MarkdownNotebook--debug-open', className)}
@@ -3025,192 +3189,32 @@ export function MarkdownNotebook({
                         onKeyDown={handleRootEditableKeyDown}
                         onMouseLeave={handleCanvasMouseLeave}
                     >
-                        {showInsertBoundaries ? (
-                            <InsertBoundaryButton
-                                boundaryIndex={0}
-                                isAvailable={isInsertBoundaryAvailable(renderedNodes, 0, insertMenu?.nodeId)}
-                                isVisible={isInsertBoundaryVisible(
-                                    renderedNodes,
-                                    0,
-                                    activeBoundaryIndex,
-                                    focusedRowIndex,
-                                    insertMenu?.nodeId
-                                )}
-                                insertEmptyParagraphAtBoundary={insertEmptyParagraphAtBoundary}
-                                setActiveBoundaryIndex={setActiveBoundaryIndex}
-                            />
-                        ) : null}
-                        {renderedNodes.map((node, index) => {
-                            const isTitleRow = index === 0
-                            const isInsertMenuOpen = insertMenu?.nodeId === node.id
-                            const insertMenuMode = isInsertMenuOpen ? (insertMenu.mode ?? 'tools') : null
-                            const isToolInsertMenuOpen = isInsertMenuOpen && insertMenuMode === 'tools'
-                            const isAIPromptOpen = isPromptComponentNode(node)
-                            const componentDefinition =
-                                node.type === 'component'
-                                    ? getMarkdownNotebookComponentDefinition(mergedRegistry, node.tagName)
-                                    : undefined
-                            const nodeComponentPanels =
-                                node.type === 'component'
-                                    ? getComponentPanelVisibility(node, DEFAULT_COMPONENT_PANEL_VISIBILITY)
-                                    : DEFAULT_COMPONENT_PANEL_VISIBILITY
-                            const shouldShowInlineInsertMenuButton =
-                                !isTitleRow &&
-                                (isBlankInsertMenuButtonRow(node) || (isToolInsertMenuOpen && isTextBlockNode(node)))
-                            const hasInvalidInsertMenuQuery =
-                                isToolInsertMenuOpen &&
-                                insertMenu.query.length > 0 &&
-                                getFilteredInsertCommands(insertCommands, insertMenu.query).length === 0
+                        {renderInsertBoundaryButton(0)}
+                        {renderedNodeGroups.map((group) => {
+                            if (group.type === 'text') {
+                                const lastItem = group.items[group.items.length - 1]
+
+                                return (
+                                    <Fragment key={group.key}>
+                                        <div className="MarkdownNotebook__text-group">
+                                            {group.items.map(({ node, index }) => (
+                                                <Fragment key={node.id}>
+                                                    {renderNotebookRow(node, index)}
+                                                    {index < lastItem.index
+                                                        ? renderInsertBoundaryButton(index + 1)
+                                                        : null}
+                                                </Fragment>
+                                            ))}
+                                        </div>
+                                        {renderInsertBoundaryButton(lastItem.index + 1)}
+                                    </Fragment>
+                                )
+                            }
 
                             return (
-                                <Fragment key={node.id}>
-                                    <div
-                                        className={clsx(
-                                            'MarkdownNotebook__row',
-                                            isInsertMenuOpen && 'MarkdownNotebook__row--insert-menu-open'
-                                        )}
-                                        onMouseEnter={(event) => updateActiveBoundaryFromRow(event, index)}
-                                        onMouseMove={(event) => updateActiveBoundaryFromRow(event, index)}
-                                        onFocusCapture={() => handleRowFocus(index)}
-                                        onBlurCapture={(event) => handleRowBlur(event, index)}
-                                    >
-                                        {renderNode({
-                                            node,
-                                            nodeIndex: index,
-                                            mode,
-                                            placeholder: isTitleRow
-                                                ? NOTEBOOK_TITLE_PLACEHOLDER
-                                                : isToolInsertMenuOpen
-                                                  ? INSERT_MENU_PLACEHOLDER
-                                                  : isAIPromptOpen
-                                                    ? ''
-                                                    : node.id === placeholderNodeId
-                                                      ? placeholder
-                                                      : undefined,
-                                            registry: mergedRegistry,
-                                            componentPanels: nodeComponentPanels,
-                                            isSelected: selectedComponentNodeIds.has(node.id),
-                                            toggleComponentPanel: (panel) =>
-                                                updateNode(node.id, (currentNode) => {
-                                                    if (currentNode.type !== 'component') {
-                                                        return currentNode
-                                                    }
-
-                                                    const currentPanels = getComponentPanelVisibility(
-                                                        currentNode,
-                                                        DEFAULT_COMPONENT_PANEL_VISIBILITY
-                                                    )
-                                                    const nextPanels = {
-                                                        ...currentPanels,
-                                                        [panel]: !currentPanels[panel],
-                                                    }
-                                                    return withPersistedComponentPanelProps(
-                                                        currentNode,
-                                                        componentDefinition,
-                                                        nextPanels
-                                                    )
-                                                }),
-                                            setBlockRef: (element) => {
-                                                blockRefs.current[node.id] = element
-                                            },
-                                            setListItemRef: (itemIndex, element) => {
-                                                listItemRefs.current[getListItemRefKey(node.id, itemIndex)] = element
-                                            },
-                                            setTableCellRef: (position, element) => {
-                                                tableCellRefs.current[getTableCellRefKey(node.id, position)] = element
-                                            },
-                                            getTableCellElement: (position) =>
-                                                tableCellRefs.current[getTableCellRefKey(node.id, position)] ?? null,
-                                            updateNode,
-                                            replaceNodeWithNodes,
-                                            deleteNode: () => updateNode(node.id, () => null),
-                                            deleteNodeAndFocusAdjacent: () => {
-                                                requestFocusAfterRemovingNode(node.id)
-                                                updateNode(node.id, () => null)
-                                            },
-                                            deleteSelectedNotebookBlocks,
-                                            insertParagraphAfterNode: () => insertEmptyParagraphAfterNode(node.id),
-                                            deleteNodeBefore,
-                                            moveFocusToAdjacentNode,
-                                            moveFocusToAdjacentListItem,
-                                            moveFocusToAdjacentTableCell,
-                                            openInsertMenu: (query = '') => openInsertMenu(node.id, query),
-                                            updateAIPromptQuery: (query) => updateAIPromptQuery(node.id, query),
-                                            closeInsertMenu: () => setInsertMenu(null),
-                                            moveInsertMenuSelection: (direction) => {
-                                                setInsertMenu((currentMenu) => {
-                                                    if (!currentMenu || currentMenu.nodeId !== node.id) {
-                                                        return currentMenu
-                                                    }
-
-                                                    return {
-                                                        ...currentMenu,
-                                                        selectedIndex: getNextInsertMenuSelectedIndex(
-                                                            currentMenu.selectedIndex,
-                                                            getFilteredInsertCommands(insertCommands, currentMenu.query)
-                                                                .length,
-                                                            direction
-                                                        ),
-                                                    }
-                                                })
-                                            },
-                                            toggleInsertMenu: () => {
-                                                if (isToolInsertMenuOpen || isAIPromptOpen) {
-                                                    setInsertMenu(null)
-                                                    return
-                                                }
-                                                openInsertMenu(node.id, getInlineInsertMenuQuery(node))
-                                            },
-                                            activateInlineInsertMenuButton: () => {
-                                                setActiveRowIndex(index)
-                                                setActiveBoundaryIndex(null)
-                                            },
-                                            showInlineInsertMenuButton:
-                                                mode === 'edit' && shouldShowInlineInsertMenuButton,
-                                            isInlineInsertMenuButtonVisible:
-                                                activeRowIndex === index || isToolInsertMenuOpen || isAIPromptOpen,
-                                            isInsertMenuOpen,
-                                            insertMenuMode,
-                                            hasInvalidInsertMenuQuery,
-                                            submitInsertMenuSelection: (queryOverride) =>
-                                                submitInsertMenuSelectionForNode(node.id, queryOverride),
-                                            submitAIPrompt: (queryOverride) =>
-                                                submitAIPromptForNode(node.id, queryOverride),
-                                            handleSelectionChange,
-                                            startTextSelectionPointer,
-                                            restoreSelectionRef,
-                                            rootEditableInputHtmlByNodeIdRef,
-                                        })}
-                                        {isToolInsertMenuOpen ? (
-                                            <InsertMenu
-                                                query={insertMenu.query}
-                                                commands={insertCommands}
-                                                targetNodeId={node.id}
-                                                position={insertMenuPosition}
-                                                selectedIndex={insertMenu.selectedIndex}
-                                                onClose={() => setInsertMenu(null)}
-                                            />
-                                        ) : null}
-                                    </div>
-                                    {showInsertBoundaries ? (
-                                        <InsertBoundaryButton
-                                            boundaryIndex={index + 1}
-                                            isAvailable={isInsertBoundaryAvailable(
-                                                renderedNodes,
-                                                index + 1,
-                                                insertMenu?.nodeId
-                                            )}
-                                            isVisible={isInsertBoundaryVisible(
-                                                renderedNodes,
-                                                index + 1,
-                                                activeBoundaryIndex,
-                                                focusedRowIndex,
-                                                insertMenu?.nodeId
-                                            )}
-                                            insertEmptyParagraphAtBoundary={insertEmptyParagraphAtBoundary}
-                                            setActiveBoundaryIndex={setActiveBoundaryIndex}
-                                        />
-                                    ) : null}
+                                <Fragment key={group.key}>
+                                    {renderNotebookRow(group.node, group.index)}
+                                    {renderInsertBoundaryButton(group.index + 1)}
                                 </Fragment>
                             )
                         })}
@@ -6480,6 +6484,50 @@ function buildInsertCommands(
         ...componentCommands,
         ...textCommands,
     ]
+}
+
+type MarkdownNotebookVisualGroup =
+    | {
+          type: 'text'
+          key: string
+          items: { node: NotebookBlockNode; index: number }[]
+      }
+    | {
+          type: 'block'
+          key: string
+          node: NotebookBlockNode
+          index: number
+      }
+
+function getMarkdownNotebookVisualGroups(nodes: NotebookBlockNode[]): MarkdownNotebookVisualGroup[] {
+    const groups: MarkdownNotebookVisualGroup[] = []
+    let currentTextGroup: Extract<MarkdownNotebookVisualGroup, { type: 'text' }> | null = null
+
+    nodes.forEach((node, index) => {
+        if (isTextBlockNode(node)) {
+            if (!currentTextGroup) {
+                currentTextGroup = {
+                    type: 'text',
+                    key: `text-${node.id}`,
+                    items: [],
+                }
+                groups.push(currentTextGroup)
+            }
+
+            currentTextGroup.items.push({ node, index })
+            return
+        }
+
+        currentTextGroup = null
+        groups.push({
+            type: 'block',
+            key: node.id,
+            node,
+            index,
+        })
+    })
+
+    return groups
 }
 
 function isTextBlockNode(node: NotebookBlockNode): node is NotebookTextBlockNode {

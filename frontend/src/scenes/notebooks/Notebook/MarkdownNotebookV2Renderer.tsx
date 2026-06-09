@@ -678,6 +678,8 @@ function NotebookAIChat({ node, updateProps }: NotebookComponentRenderProps): JS
             onCollapseOlderMessages={() => {
                 setActiveBaseMessages(getNotebookAIChatBaseMessages(cachedLastAnswer))
                 setLoadOlderMessages(false)
+                setQueuedReply(null)
+                setIsThreadActive(false)
             }}
             onQueuedReplyConsumed={() => setQueuedReply(null)}
             updateProps={updateProps}

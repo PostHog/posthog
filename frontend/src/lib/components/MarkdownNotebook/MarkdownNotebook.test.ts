@@ -526,6 +526,35 @@ continued line
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeInstanceOf(HTMLElement)
     })
 
+    it('groups consecutive text and heading rows into text surfaces', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(
+                    [
+                        'Intro paragraph',
+                        '',
+                        ' ',
+                        '',
+                        '## Section heading',
+                        '',
+                        '<Embed src="https://example.com" />',
+                        '',
+                        'Tail paragraph',
+                    ].join('\n')
+                ),
+            })
+        )
+
+        const groups = Array.from(container.querySelectorAll('.MarkdownNotebook__text-group'))
+        expect(groups).toHaveLength(2)
+        expect(groups[0].querySelectorAll('.MarkdownNotebook__text-block')).toHaveLength(4)
+        expect(groups[0].textContent).toContain(TEST_NOTEBOOK_TITLE)
+        expect(groups[0].textContent).toContain('Intro paragraph')
+        expect(groups[0].textContent).toContain('Section heading')
+        expect(groups[1].textContent).toContain('Tail paragraph')
+        expect(container.querySelector('.MarkdownNotebook__text-group .MarkdownNotebook__component-shell')).toBeNull()
+    })
+
     it('serializes hidden component panel props as bare JSX props', () => {
         const markdown = `<Query query={{"kind":"DataTableNode"}} hideFilters={true} hideResults={false} disabled={false} />`
         const document = parseMarkdownNotebook(markdown)
