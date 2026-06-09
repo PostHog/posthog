@@ -3,6 +3,11 @@ import { actions, kea, listeners, path, reducers } from 'kea'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import {
+    SENSITIVE_ACTION_REQUIRED_REAUTH,
+    TWO_FACTOR_SETUP_REQUIRED,
+    TWO_FACTOR_VERIFICATION_REQUIRED,
+} from 'lib/api-error'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -60,16 +65,16 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
             try {
                 if (response?.status === 403) {
                     const responseData = await response?.json()
-                    if (responseData.code === 'sensitive_action_required_reauth') {
+                    if (responseData.code === SENSITIVE_ACTION_REQUIRED_REAUTH) {
                         actions.setTimeSensitiveAuthenticationRequired(true)
                     } else if (
-                        responseData.code === 'two_factor_setup_required' &&
+                        responseData.code === TWO_FACTOR_SETUP_REQUIRED &&
                         !values.timeSensitiveAuthenticationRequired &&
                         !twoFactorLogic.findMounted()?.values.isTwoFactorSetupModalOpen
                     ) {
                         twoFactorLogic.findMounted()?.actions.openTwoFactorSetupModal(true)
                     } else if (
-                        responseData.code === 'two_factor_verification_required' &&
+                        responseData.code === TWO_FACTOR_VERIFICATION_REQUIRED &&
                         !values.twoFactorVerificationExpiredToastShown
                     ) {
                         actions.setTwoFactorVerificationExpiredToastShown(true)

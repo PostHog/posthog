@@ -8,6 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
+import { isHandledAuthErrorCode } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { identifierToHuman } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/router-utils'
@@ -109,11 +110,7 @@ export function initKea({
                 // These auth errors are handled gracefully by apiStatusLogic (it opens the
                 // 2FA setup modal or prompts re-authentication), so we don't toast, log, or
                 // report them as exceptions — doing so just pollutes error tracking with noise.
-                const isHandledAuthError =
-                    error?.code === 'two_factor_setup_required' ||
-                    error?.code === 'two_factor_verification_required' ||
-                    error?.code === 'sensitive_action_required_reauth'
-                if (isHandledAuthError) {
+                if (isHandledAuthErrorCode(error?.code)) {
                     return
                 }
 
