@@ -57,12 +57,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         )
     }
 
-    let title = 'New scanner'
-    if (step !== 'template' && !isNew) {
-        title = scanner?.name || 'Scanner'
-    } else if (step !== 'template') {
-        title = scanner?.name || 'New scanner'
-    }
+    const title = isNew ? scanner?.name || 'New scanner' : scanner?.name || 'Scanner'
 
     const stepErrors = showScannerErrors
         ? {
