@@ -26,31 +26,30 @@ PROVIDER_ENV_VARS = [
 
 
 class TestApplyModelCostOverrides:
-    def test_adds_missing_model(self) -> None:
+    @pytest.mark.parametrize("model_id", sorted(MODEL_COST_OVERRIDES))
+    def test_adds_missing_model(self, model_id: str) -> None:
         cost_map: dict[str, ModelCost] = {"gpt-4": {"litellm_provider": "openai"}}
         apply_model_cost_overrides(cost_map)
-        assert "claude-fable-5" in cost_map
-        assert cost_map["claude-fable-5"]["litellm_provider"] == "anthropic"
-        assert cost_map["claude-fable-5"]["mode"] == "chat"
-        assert cost_map["claude-fable-5"]["input_cost_per_token"] == 1e-05
-        assert cost_map["claude-fable-5"]["output_cost_per_token"] == 5e-05
+        assert cost_map[model_id] == MODEL_COST_OVERRIDES[model_id]
 
-    def test_does_not_override_existing_upstream_entry(self) -> None:
+    @pytest.mark.parametrize("model_id", sorted(MODEL_COST_OVERRIDES))
+    def test_does_not_override_existing_upstream_entry(self, model_id: str) -> None:
         upstream: ModelCost = {"litellm_provider": "anthropic", "max_input_tokens": 1_000_000}
-        cost_map: dict[str, ModelCost] = {"claude-fable-5": upstream}
+        cost_map: dict[str, ModelCost] = {model_id: upstream}
         apply_model_cost_overrides(cost_map)
-        assert cost_map["claude-fable-5"] is upstream
+        assert cost_map[model_id] is upstream
 
     def test_returns_same_object_in_place(self) -> None:
         cost_map: dict[str, ModelCost] = {}
         assert apply_model_cost_overrides(cost_map) is cost_map
 
-    def test_inserted_entry_is_a_copy(self) -> None:
+    @pytest.mark.parametrize("model_id", sorted(MODEL_COST_OVERRIDES))
+    def test_inserted_entry_is_a_copy(self, model_id: str) -> None:
         # The shared constant must survive callers (and litellm) mutating the map.
         cost_map: dict[str, ModelCost] = {}
         apply_model_cost_overrides(cost_map)
-        cost_map["claude-fable-5"]["input_cost_per_token"] = 999
-        assert MODEL_COST_OVERRIDES["claude-fable-5"]["input_cost_per_token"] == 1e-05
+        cost_map[model_id]["input_cost_per_token"] = -1.0
+        assert MODEL_COST_OVERRIDES[model_id].get("input_cost_per_token") != -1.0
 
 
 class TestOverrideSurfacesThroughRefresh:
