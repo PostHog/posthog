@@ -1,6 +1,7 @@
 import z from 'zod'
 
 import { hasScope, hasScopes } from '@/lib/api'
+import { OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth-scopes.generated'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 
 import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
@@ -65,6 +66,30 @@ export function getToolDefinitions(): ToolDefinitions {
         _toolDefinitions = toolDefinitionsSchema.parse(toolDefinitionsJson)
     }
     return { ..._toolDefinitions, ...generated }
+}
+
+let _advertisedOAuthScopes: readonly string[] | undefined = undefined
+
+/**
+ * Scopes published as `scopes_supported` in the MCP protected-resource
+ * metadata: every grantable scope the tool catalog requires, plus identity
+ * scopes (no `:`) that ride every authorize. Narrower than
+ * `OAUTH_SCOPES_SUPPORTED` (the authorization server's full grantable set) so
+ * clients are not asked to consent to write access no tool exercises. Filtering
+ * `OAUTH_SCOPES_SUPPORTED` keeps the result a subset of the AS, so no advertised
+ * scope is rejected at `/authorize`.
+ */
+export function getAdvertisedOAuthScopes(): readonly string[] {
+    if (!_advertisedOAuthScopes) {
+        const required = new Set<string>()
+        for (const definition of Object.values(getToolDefinitions())) {
+            for (const scope of definition.required_scopes ?? []) {
+                required.add(scope)
+            }
+        }
+        _advertisedOAuthScopes = OAUTH_SCOPES_SUPPORTED.filter((scope) => !scope.includes(':') || required.has(scope))
+    }
+    return _advertisedOAuthScopes
 }
 
 export function getToolDefinition(toolName: string): ToolDefinition {
