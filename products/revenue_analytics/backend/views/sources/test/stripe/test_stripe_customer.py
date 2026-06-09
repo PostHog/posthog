@@ -149,6 +149,15 @@ class TestCustomerStripeBuilder(StripeSourceBaseTest):
         expected_prefix = f"stripe.{self.external_data_source.prefix}"
         self.assertIn(f"'{expected_prefix}'", query_sql)
 
+    def test_customer_query_deduplicates_one_row_per_id(self):
+        query = build(self.stripe_handle)
+
+        self.assertIsNotNone(query.query.limit_by)
+        self.assertEqual(query.query.limit_by.n.value, 1)
+        self.assertEqual([expr.chain for expr in query.query.limit_by.exprs], [["id"]])
+        self.assertEqual(query.query.order_by[0].expr.chain, ["timestamp"])
+        self.assertEqual(query.query.order_by[0].order, "DESC")
+
 
 class TestCustomerStripeMetadataResolution(RevenueAnalyticsTestBase):
     """Integration tests that assert the metadata coalescing values produced by the customer view builder"""
