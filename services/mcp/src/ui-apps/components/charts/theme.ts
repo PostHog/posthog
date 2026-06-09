@@ -12,6 +12,9 @@ export const CHART_COLORS = [
     '#dc2626', // red
 ]
 
+// Picks a palette color by index, wrapping when there are more series than colors.
+export const colorAt = (index: number): string => CHART_COLORS[index % CHART_COLORS.length]!
+
 // Single mid-gray for axis labels — readable on both light and dark hosts. Claude
 // Desktop's iframe doesn't set `prefers-color-scheme`, so we can't detect the host
 // theme and adapt at runtime.

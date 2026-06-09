@@ -99,7 +99,7 @@ Two craft references the whole fleet reasons in terms of — a good scout's **De
 **memory** sections are built on them, so read them before writing those sections:
 
 - [`references/emit-contract.md`](references/emit-contract.md) — what `emit-signal` takes,
-  the weight vs. confidence rubrics, severity, dedupe keys, `finding_id`, the description
+  the confidence rubric, severity, dedupe keys, `finding_id`, the description
   prose contract, and a worked example. This is how your scout decides _what clears the
   bar_ and _how to write the finding_.
 - [`references/dedupe-and-memory.md`](references/dedupe-and-memory.md) — the four-states

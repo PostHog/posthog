@@ -36,7 +36,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.team import Team
@@ -44,6 +43,7 @@ from posthog.models.team.team import Team
 from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 
 # `products.experiments` ships a facade (api.py + contracts.py) but the contract is

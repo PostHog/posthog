@@ -60,8 +60,10 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
     props({} as PropertyFilterLogicProps),
     key((props) => props.pageKey),
     propsChanged(({ actions, props }, oldProps) => {
+        // parseProperties so non-array shapes (PropertyGroup / legacy dicts) don't crash setFilters,
+        // matching the reducer's initial-state path.
         if (!equal(props.propertyFilters ?? [], oldProps.propertyFilters ?? [])) {
-            actions.setFilters(props.propertyFilters ?? [])
+            actions.setFilters(props.propertyFilters ? parseProperties(props.propertyFilters) : [])
         }
     }),
 
