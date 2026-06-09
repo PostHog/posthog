@@ -12,8 +12,7 @@
 // Products under SMALL_THRESHOLD duration get grouped into one matrix entry
 // to avoid spinning up a full Docker stack for a handful of tests.
 // Durations come from .test_durations (maintained by pytest-split).
-// Products listed in DEDICATED_BUCKET_PRODUCTS opt out of this grouping and
-// always run alone, isolating flaky/hang-prone products from the rest.
+// DEDICATED_BUCKET_PRODUCTS opt out of grouping and always run alone.
 //
 // Input:  LEGACY_CHANGED env var ("true"/"false")
 //         SCHEMA_CHANGED env var ("true"/"false") — when set and LEGACY_CHANGED
@@ -42,24 +41,13 @@ const PRODUCT_SAFETY_FACTOR = 1.3
 // Tests under these paths need special infrastructure (Temporal server, etc.)
 // and are handled by Django CI's dedicated segments — exclude from duration estimates
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
-// Products that must never share a bucket — each always gets its own matrix
-// entry (its own runner) instead of being packed with others.
-//
-// Add a product's name (the @posthog/products-<name> suffix, e.g. 'batch-exports')
-// here when it is flaky, slow, or hang-prone enough that sharing a runner risks
-// cancelling unrelated products at the job timeout. batch-exports is isolated
-// because its intermittent async-fixture teardown hang would otherwise take
-// down whatever products were packed alongside it, and isolation lets the shard
-// be tuned independently. The trade-off is a dedicated runner (more CI minutes),
-// so reserve this for products that genuinely need it rather than as a default.
+// Products that always get their own matrix entry instead of being packed with
+// others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
+// at the job timeout. Trade-off: a dedicated runner.
 const DEDICATED_BUCKET_PRODUCTS = new Set(['batch-exports'])
-// Temporary flakiness mitigation for batch-exports' intermittent async-fixture
-// teardown hang (remove once the source fix lands). Its isolated leg runs
-// non-blocking (a failing/flaky run no longer fails the CD gate) and is capped
-// at the 30-min product-test timeout that predated the recent bump to 40. The
-// timeout only bounds a hang's wall-clock — continue-on-error reliably masks a
-// test failure but not a timeout-induced cancellation. Each value's keys are
-// matrix fields the turbo-tests job reads as continue-on-error / timeout-minutes.
+// batch-exports soft-fail for its flaky async-teardown hang (revert once fixed):
+// non-blocking leg, capped at the pre-bump 30-min timeout. continue-on-error
+// masks a failure but not a timeout cancel. Keys → turbo-tests matrix fields.
 const SOFT_FAIL_PRODUCTS = {
     'batch-exports': { continue_on_error: true, timeout_minutes: 30 },
 }

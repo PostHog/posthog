@@ -439,10 +439,8 @@ jobs:
             needs.turbo-discover.outputs.matrix != '[]' &&
             needs.turbo-discover.outputs.matrix != ''
         runs-on: depot-ubuntu-latest
-        # Per-leg overrides (matrix entries from turbo-discover; default for unset legs):
-        # batch-exports runs non-blocking with a tighter cap to keep its async-teardown
-        # flakiness off the CD gate. continue-on-error masks a failing run but not a
-        # timeout-induced cancellation — the tighter timeout only bounds a hang's wall-clock.
+        # Per-leg overrides from the turbo-discover matrix (defaults for unset legs);
+        # batch-exports runs non-blocking with a tighter cap — see SOFT_FAIL_PRODUCTS.
         timeout-minutes: ${{ matrix.timeout_minutes || 40 }}
         continue-on-error: ${{ matrix.continue_on_error || false }}
         name: Product tests (${{ matrix.group }})
