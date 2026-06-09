@@ -157,7 +157,7 @@ export function InsightTooltip({
                 title,
                 sticky: true,
                 render: function renderDatum(_, datum) {
-                    return <div className="whitespace-nowrap">{datum.datumTitle}</div>
+                    return <div className="datum-title">{datum.datumTitle}</div>
                 },
             },
         ]
@@ -186,7 +186,6 @@ export function InsightTooltip({
                                     hideBreakdown
                                     hideCompare
                                     hideIcon
-                                    allowWrap
                                 />,
                                 seriesColumn,
                                 colIdx
@@ -283,7 +282,6 @@ export function InsightTooltip({
                     hideBreakdown
                     hideCompare
                     hideIcon
-                    allowWrap
                 />,
                 datum,
                 rowIdx

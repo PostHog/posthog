@@ -85,6 +85,34 @@
             overflow-wrap: anywhere;
         }
 
+        // Clip long breakdown values and series/event names so a few-column
+        // tooltip never grows wide enough to require horizontal scrolling.
+        // max-width lives on the inner content (not the cell) because cells in
+        // an auto-layout table grow to fit content and ignore their own max-width.
+        .datum-title {
+            max-width: 12rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .datum-column .insights-label {
+            max-width: 12rem;
+            overflow: hidden;
+        }
+
+        .datum-counts-column .insights-label {
+            max-width: 8rem;
+            overflow: hidden;
+        }
+
+        // Let the nested flex wrappers shrink so the labels' built-in
+        // text-ellipsis truncation can engage.
+        .insights-label,
+        .insights-label * {
+            min-width: 0;
+        }
+
         .LemonTable__content > table > thead {
             letter-spacing: 0;
 
