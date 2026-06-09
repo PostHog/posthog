@@ -887,6 +887,16 @@ def _break_multiple_resolve_params(m: dict) -> None:
     m["resources"][1]["endpoint"]["params"]["other_id"] = {"type": "resolve", "resource": "forms", "field": "id"}
 
 
+def _break_missing_resolve_field(m: dict) -> None:
+    # The engine raises KeyError (not ValueError) for this shape — it must still
+    # surface as a clean validation error, not a 500.
+    del m["resources"][1]["endpoint"]["params"]["form_id"]["field"]
+
+
+def _break_missing_resolve_resource(m: dict) -> None:
+    del m["resources"][1]["endpoint"]["params"]["form_id"]["resource"]
+
+
 class TestCustomSourceFanoutValidation(SimpleTestCase):
     def test_accepts_valid_fanout(self):
         validate_manifest(_fanout_manifest())
@@ -897,6 +907,8 @@ class TestCustomSourceFanoutValidation(SimpleTestCase):
             ("resolve_param_not_bound_in_path", _break_resolve_not_in_path),
             ("cycle", _break_cycle),
             ("multiple_resolve_params", _break_multiple_resolve_params),
+            ("missing_resolve_field", _break_missing_resolve_field),
+            ("missing_resolve_resource", _break_missing_resolve_resource),
         ]
     )
     def test_rejects_invalid_fanout(self, _name, break_manifest):
@@ -906,6 +918,27 @@ class TestCustomSourceFanoutValidation(SimpleTestCase):
         break_manifest(manifest)
         with self.assertRaises(ManifestValidationError):
             validate_manifest(manifest)
+
+    def test_cycle_error_message_is_readable(self):
+        # str(graphlib.CycleError) is its raw args tuple — the user-facing
+        # message must render the cycle, not the tuple repr.
+        manifest = _fanout_manifest()
+        _break_cycle(manifest)
+        with self.assertRaises(ManifestValidationError) as ctx:
+            validate_manifest(manifest)
+        message = str(ctx.exception)
+        assert "dependency cycle" in message
+        assert not message.startswith("(")
+
+    def test_validate_credentials_rejects_broken_graph(self):
+        # Graph errors must block create/update — that's where they're fixable.
+        manifest = _fanout_manifest()
+        _break_unknown_parent(manifest)
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok is False
+        assert err is not None and "nonexistent" in err
 
 
 class TestFanoutChain(SimpleTestCase):
@@ -933,6 +966,25 @@ class TestFanoutChain(SimpleTestCase):
         )
         forms, responses, answers = manifest["resources"]
         assert _fanout_chain(manifest, "answers") == [forms, responses, answers]
+
+    def test_falls_back_to_chosen_when_unrelated_resource_breaks_the_graph(self):
+        # A stored manifest can predate the create-time graph rules. A graph
+        # error on a sibling must not sink this schema — the chain degrades to
+        # the pre-fan-out single-resource behavior.
+        manifest = _fanout_manifest()
+        _break_unknown_parent(manifest)
+        manifest["resources"].append(
+            {"name": "users", "primary_key": "id", "endpoint": {"path": "/users", "data_selector": "items"}}
+        )
+        assert _fanout_chain(manifest, "users") == [manifest["resources"][2]]
+
+    def test_raises_for_chosen_resource_in_a_cycle(self):
+        # The graph builder itself doesn't reject cycles (only create-time
+        # static_order does) — the walk must fail loudly, not loop or truncate.
+        manifest = _fanout_manifest()
+        _break_cycle(manifest)
+        with self.assertRaises(ValueError):
+            _fanout_chain(manifest, "responses")
 
 
 class TestCustomSourceFanoutPipeline(SimpleTestCase):
@@ -1029,6 +1081,95 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
         _parent_cfg, child_cfg = mock_plural.call_args.args[0]["resources"]
         assert child_cfg["endpoint"]["incremental"] == {"cursor_path": "submitted_at", "start_param": "since"}
 
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_fanout_strips_params_style_incremental_from_parent(self, mock_plural):
+        # The engine also builds an incremental tracker from a params-style
+        # {"type": "incremental"} spec — it must be stripped from ancestors too,
+        # or the child's watermark would be injected as the parent's start param.
+        mock_plural.return_value = [_fake_resource("forms"), _fake_resource("responses")]
+        manifest = _fanout_manifest()
+        manifest["resources"][0]["endpoint"]["params"] = {
+            "since": {"type": "incremental", "cursor_path": "updated_at"},
+            "status": "active",
+        }
+        manifest["resources"][1]["endpoint"]["incremental"] = {"cursor_path": "submitted_at", "start_param": "since"}
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="responses",
+            job_id="job-1",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2024-01-01T00:00:00Z",
+        )
+        source.source_for_pipeline(config, inputs)
+
+        parent_cfg, _child_cfg = mock_plural.call_args.args[0]["resources"]
+        # Static params survive; only the incremental spec is removed.
+        assert parent_cfg["endpoint"]["params"] == {"status": "active"}
+
+    @parameterized.expand([("child_forces_desc", "responses", "desc"), ("parent_keeps_declared", "forms", "asc")])
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_fanout_child_forces_deferred_watermark_sort_mode(self, _name, schema_name, expected, mock_plural):
+        # Fan-out child rows arrive grouped per parent, never globally
+        # cursor-ascending, so the "asc" per-batch watermark commit would skip
+        # later parents' older rows after an interruption — children must always
+        # use the deferred-commit ("desc") behavior.
+        mock_plural.return_value = [_fake_resource("forms"), _fake_resource("responses")]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_fanout_manifest()))
+        inputs = MagicMock(
+            team_id=999,
+            schema_name=schema_name,
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        response = source.source_for_pipeline(config, inputs)
+        assert response.sort_mode == expected
+
+    def test_engine_config_error_raises_non_retryable(self):
+        # include_from_parent without a resolve param passes create-time graph
+        # validation but is rejected by the engine at build time — a deterministic
+        # config error that must not burn the Temporal retry budget.
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["include_from_parent"] = ["id"]
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        with self.assertRaises(NonRetryableException):
+            source.source_for_pipeline(config, inputs)
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_broken_sibling_does_not_sink_healthy_schema_sync(self, mock_resources):
+        # A stored manifest can carry a graph-broken resource from before the
+        # create-time rules existed — its healthy schemas must keep syncing.
+        mock_resources.return_value = [_fake_resource("forms")]
+        manifest = _fanout_manifest()
+        _break_unknown_parent(manifest)
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="forms",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        response = source.source_for_pipeline(config, inputs)
+
+        assert [r["name"] for r in mock_resources.call_args.args[0]["resources"]] == ["forms"]
+        assert cast(Any, response.items()).name == "forms"
+
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
     def test_fanout_runs_through_real_engine(self, mock_make_session):
         # End-to-end through the real REST engine (only the HTTP session is
@@ -1090,6 +1231,18 @@ class TestCustomSourceFanoutSchemasAndProbe(SimpleTestCase):
         assert set(schemas) == {"forms", "responses"}
         assert schemas["responses"].supports_incremental is True
         assert [f["field"] for f in schemas["responses"].incremental_fields] == ["submitted_at"]
+
+    def test_broken_graph_does_not_break_schema_listing(self):
+        # Schema listing runs on stored manifests; a graph error (which the
+        # create-time validation now rejects, but older manifests may carry)
+        # must not make it raise.
+        manifest = _fanout_manifest()
+        _break_unknown_parent(manifest)
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        schemas = {s.name for s in source.get_schemas(config, team_id=999)}
+        assert schemas == {"forms", "responses"}
 
     @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
     def test_probe_skips_fanout_child(self, mock_session):

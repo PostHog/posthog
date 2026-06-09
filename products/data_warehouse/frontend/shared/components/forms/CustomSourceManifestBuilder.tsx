@@ -13,6 +13,7 @@ import {
     type AuthType,
     CURSOR_TYPES,
     type CursorType,
+    descendantStreamNames,
     type HeaderEntry,
     type ManifestState,
     type Paginator,
@@ -133,9 +134,7 @@ export function CustomSourceManifestBuilder({
                         index={index}
                         stream={stream}
                         canRemove={manifestState.streams.length > 1}
-                        parentOptions={manifestState.streams
-                            .filter((other, otherIndex) => otherIndex !== index && other.name.trim().length > 0)
-                            .map((other) => ({ value: other.name, label: other.name }))}
+                        parentOptions={parentOptionsFor(manifestState.streams, index)}
                         onUpdate={(patch) => updateStream(index, patch)}
                         onUpdatePaginator={(paginator) => updatePaginator(index, paginator)}
                         onRemove={() => removeStream(index)}
@@ -291,6 +290,17 @@ function HeadersSection({
     )
 }
 
+// A stream can't depend on itself or on any of its own descendants — that
+// would be a dependency cycle, which the backend rejects at save.
+function parentOptionsFor(streams: StreamForm[], index: number): { value: string; label: string }[] {
+    const descendants = descendantStreamNames(streams, streams[index].name)
+    return streams
+        .filter(
+            (other, otherIndex) => otherIndex !== index && other.name.trim().length > 0 && !descendants.has(other.name)
+        )
+        .map((other) => ({ value: other.name, label: other.name }))
+}
+
 function StreamCard({
     index,
     stream,
@@ -382,6 +392,11 @@ function ParentSection({
 }): JSX.Element {
     const hasParent = stream.parent_stream.trim().length > 0
     const pathParam = stream.parent_path_param.trim()
+    const parentField = stream.parent_resolve_field.trim()
+    // A parent name can go stale when the manifest was authored elsewhere (raw
+    // JSON) — the select would render the raw value with no visible error, and
+    // saving fails with an engine message that doesn't point here.
+    const parentMissing = hasParent && !parentOptions.some((option) => option.value === stream.parent_stream)
     // The REST engine can only inject a resolved value into the URL path, so the
     // path must contain the placeholder — warn early instead of failing at sync.
     const pathMissingPlaceholder = hasParent && pathParam.length > 0 && !stream.path.includes(`{${pathParam}}`)
@@ -410,6 +425,12 @@ function ParentSection({
                         the chosen parent field into the path placeholder (e.g.{' '}
                         <code>/forms/{'{form_id}'}/responses</code>).
                     </p>
+                    {parentMissing && (
+                        <p className="m-0 text-xs text-danger">
+                            Stream <code>{stream.parent_stream}</code> doesn't exist or can't be this stream's parent —
+                            pick another parent or set to none.
+                        </p>
+                    )}
                     <div className="grid grid-cols-2 gap-2">
                         <LemonField.Pure label="Parent field">
                             <LemonInput
@@ -426,6 +447,16 @@ function ParentSection({
                             />
                         </LemonField.Pure>
                     </div>
+                    {!parentField && (
+                        <p className="m-0 text-xs text-danger">
+                            Set the parent field — the dependency is incomplete without it and saving fails.
+                        </p>
+                    )}
+                    {!pathParam && (
+                        <p className="m-0 text-xs text-danger">
+                            Set the path placeholder — the dependency is incomplete without it and saving fails.
+                        </p>
+                    )}
                     {pathMissingPlaceholder && (
                         <p className="m-0 text-xs text-danger">
                             Add <code>{`{${pathParam}}`}</code> to the path above — the parent field is injected there,
@@ -626,6 +657,11 @@ function IncrementalSection({
                                 value={stream.sort_mode}
                                 onChange={(value) => onUpdate({ sort_mode: value as SortMode })}
                                 options={SORT_MODE_OPTIONS}
+                                disabledReason={
+                                    stream.parent_stream.trim()
+                                        ? 'Streams with a parent always defer the incremental cursor commit to the end of the run — rows arrive grouped by parent, not in cursor order.'
+                                        : undefined
+                                }
                             />
                         </LemonField.Pure>
                     </div>

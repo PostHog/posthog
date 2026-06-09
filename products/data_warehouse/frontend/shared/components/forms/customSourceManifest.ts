@@ -148,6 +148,74 @@ function splitCsv(value: string): string[] {
         .filter(Boolean)
 }
 
+/**
+ * Names of every stream that (transitively) depends on `rootName` via
+ * `parent_stream`. Used to keep the parent options cycle-free: a stream can't
+ * pick itself or any of its own descendants as a parent.
+ */
+export function descendantStreamNames(streams: StreamForm[], rootName: string): Set<string> {
+    const childrenByParent = new Map<string, string[]>()
+    for (const stream of streams) {
+        const parent = stream.parent_stream.trim()
+        if (parent && stream.name.trim()) {
+            childrenByParent.set(parent, [...(childrenByParent.get(parent) ?? []), stream.name])
+        }
+    }
+    const descendants = new Set<string>()
+    const queue = [rootName]
+    while (queue.length > 0) {
+        const current = queue.shift() as string
+        for (const child of childrenByParent.get(current) ?? []) {
+            if (!descendants.has(child)) {
+                descendants.add(child)
+                queue.push(child)
+            }
+        }
+    }
+    return descendants
+}
+
+/**
+ * Applies a patch to one stream. Renaming a stream follows through to children
+ * that reference it via `parent_stream` — otherwise their dependency would
+ * dangle silently and only fail at save time.
+ */
+export function updateStreamInList(streams: StreamForm[], index: number, patch: Partial<StreamForm>): StreamForm[] {
+    const oldName = streams[index]?.name
+    const updated = streams.map((stream, i) => (i === index ? { ...stream, ...patch } : stream))
+    const newName = patch.name
+    if (newName === undefined || !oldName || newName === oldName) {
+        return updated
+    }
+    return updated.map((stream, i) =>
+        i !== index && stream.parent_stream === oldName ? { ...stream, parent_stream: newName } : stream
+    )
+}
+
+/**
+ * Removes a stream. Children that depended on it have the parent dependency
+ * cleared (back to top-level) so they don't reference a stream that no longer
+ * exists.
+ */
+export function removeStreamFromList(streams: StreamForm[], index: number): StreamForm[] {
+    const removedName = streams[index]?.name
+    const remaining = streams.filter((_, i) => i !== index)
+    if (!removedName || remaining.some((stream) => stream.name === removedName)) {
+        return remaining
+    }
+    return remaining.map((stream) =>
+        stream.parent_stream === removedName
+            ? {
+                  ...stream,
+                  parent_stream: '',
+                  parent_resolve_field: '',
+                  parent_path_param: '',
+                  include_from_parent: '',
+              }
+            : stream
+    )
+}
+
 export function defaultState(): ManifestState {
     return {
         base_url: '',
@@ -223,16 +291,19 @@ export function buildManifest(state: ManifestState): Record<string, unknown> {
         }
         // Fan-out: bind the parent's field into the path placeholder via a
         // `resolve` param. The REST engine fetches the parent first, then calls
-        // this stream once per parent row. Only emitted when all three pieces are
-        // present — a half-filled dependency would produce an invalid manifest.
+        // this stream once per parent row. Emitted whenever a parent is selected,
+        // even half-filled: an incomplete dependency must fail backend validation
+        // loudly (the builder UI flags the missing pieces inline) rather than be
+        // silently dropped — that would sync this stream as an unrelated
+        // top-level endpoint.
         const parentStream = stream.parent_stream.trim()
-        const pathParam = stream.parent_path_param.trim()
-        const parentField = stream.parent_resolve_field.trim()
-        const hasParent = Boolean(parentStream && pathParam && parentField)
-        if (hasParent) {
+        if (parentStream) {
             endpoint.params = {
-                ...(endpoint.params as Record<string, unknown> | undefined),
-                [pathParam]: { type: 'resolve', resource: parentStream, field: parentField },
+                [stream.parent_path_param.trim()]: {
+                    type: 'resolve',
+                    resource: parentStream,
+                    field: stream.parent_resolve_field.trim(),
+                },
             }
         }
         const primaryKeys = splitCsv(stream.primary_key)
@@ -244,7 +315,7 @@ export function buildManifest(state: ManifestState): Record<string, unknown> {
             endpoint,
         }
         const includeFromParent = splitCsv(stream.include_from_parent)
-        if (hasParent && includeFromParent.length > 0) {
+        if (parentStream && includeFromParent.length > 0) {
             resource.include_from_parent = includeFromParent
         }
         // sort_mode only affects incremental resume safety. Emit only when the

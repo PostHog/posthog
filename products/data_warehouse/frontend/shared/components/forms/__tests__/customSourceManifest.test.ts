@@ -1,4 +1,12 @@
-import { buildManifest, extractAuthSecrets, ManifestState, parseManifestIntoState } from '../customSourceManifest'
+import {
+    buildManifest,
+    descendantStreamNames,
+    extractAuthSecrets,
+    ManifestState,
+    parseManifestIntoState,
+    removeStreamFromList,
+    updateStreamInList,
+} from '../customSourceManifest'
 
 const baseState = (): ManifestState => ({
     base_url: 'https://api.example.com',
@@ -476,12 +484,15 @@ describe('fan-out (parent/child)', () => {
         expect(manifest.resources[1].include_from_parent).toEqual(['id', 'title'])
     })
 
-    it('omits the resolve param when the dependency is half-filled', () => {
+    it('still emits the resolve param when the dependency is half-filled, so the backend rejects it loudly', () => {
+        // Silently dropping a half-filled dependency would sync the stream as an
+        // unrelated top-level endpoint — wrong data with no error anywhere.
         const state = childState()
         state.streams[1].parent_path_param = '' // missing placeholder name
         const manifest = buildManifest(state) as any
-        expect('params' in manifest.resources[1].endpoint).toBe(false)
-        expect('include_from_parent' in manifest.resources[1]).toBe(false)
+        expect(manifest.resources[1].endpoint.params).toEqual({
+            '': { type: 'resolve', resource: 'forms', field: 'id' },
+        })
     })
 
     it('omits include_from_parent when no parent fields are listed', () => {
@@ -495,6 +506,38 @@ describe('fan-out (parent/child)', () => {
     it('keeps the top-level parent stream free of a resolve param', () => {
         const manifest = buildManifest(childState()) as any
         expect('params' in manifest.resources[0].endpoint).toBe(false)
+    })
+
+    it('lists transitive descendants for cycle-free parent options', () => {
+        const state = childState()
+        state.streams.push({
+            ...state.streams[1],
+            id: 'stream-answers',
+            name: 'answers',
+            path: '/responses/{response_token}/answers',
+            parent_stream: 'responses',
+            parent_resolve_field: 'token',
+            parent_path_param: 'response_token',
+            include_from_parent: '',
+        })
+        expect(descendantStreamNames(state.streams, 'forms')).toEqual(new Set(['responses', 'answers']))
+        expect(descendantStreamNames(state.streams, 'responses')).toEqual(new Set(['answers']))
+        expect(descendantStreamNames(state.streams, 'answers')).toEqual(new Set())
+    })
+
+    it('renaming a parent stream follows through to its children', () => {
+        const streams = updateStreamInList(childState().streams, 0, { name: 'surveys' })
+        expect(streams[0].name).toBe('surveys')
+        expect(streams[1].parent_stream).toBe('surveys')
+    })
+
+    it('removing a parent stream clears its children back to top-level', () => {
+        const streams = removeStreamFromList(childState().streams, 0)
+        expect(streams).toHaveLength(1)
+        expect(streams[0].parent_stream).toBe('')
+        expect(streams[0].parent_resolve_field).toBe('')
+        expect(streams[0].parent_path_param).toBe('')
+        expect(streams[0].include_from_parent).toBe('')
     })
 
     it('hydrates the parent dependency back out on parse', () => {
