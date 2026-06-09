@@ -975,8 +975,9 @@ class SignalReportArtefactViewSet(
 
     Two write surfaces, both gated by the `task:write` scope (already held by the agent tokens):
 
-    - PUT replaces the content of a `suggested_reviewers` artefact (bespoke reviewer enrichment);
-      other types return 400.
+    - PUT edits a report's suggested reviewers: it appends a new `suggested_reviewers` status
+      artefact (latest-wins, so the new row becomes current) with bespoke reviewer enrichment,
+      merging commits/names forward from the current reviewers. Other types return 400.
     - POST / PATCH / DELETE manage *log* artefacts — the appendable work-log entries
       (`code_reference`, `code_diff`, `line_reference`, `pushed_branch`, `task_run`, `note`).
       Only log types are accepted; status / pipeline-owned types return 400. Team scoping is
@@ -1077,9 +1078,18 @@ class SignalReportArtefactViewSet(
             github_name = entry.get("github_name") if explicit_name else None
             resolved_entries.append((login_lc, github_name, explicit_name))
 
-        # Preserve relevant_commits for entries that survive the replace, keyed by login.
+        # Merge commits/names forward from the *current* reviewers (the latest status row), not
+        # necessarily the addressed one — `suggested_reviewers` is append-only and latest-wins.
+        current = (
+            SignalReportArtefact.objects.filter(
+                report_id=artefact.report_id,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            )
+            .order_by("-created_at")
+            .first()
+        )
         try:
-            prior_content = json.loads(artefact.content)
+            prior_content = json.loads((current or artefact).content)
         except (json.JSONDecodeError, ValueError):
             prior_content = []
         prior_commits_by_login: dict[str, list] = {}
@@ -1116,13 +1126,19 @@ class SignalReportArtefactViewSet(
                 }
             )
 
-        artefact.content = json.dumps(new_content)
-        artefact.save(update_fields=["content"])
+        # Append a new status row rather than mutating in place: a human reviewer edit becomes a
+        # point-in-time entry in the work log, and latest-wins keeps it current.
+        new_artefact = SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(artefact.report_id),
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps(new_content),
+        )
 
         # Return the read-shape (enriched) so the client sees the canonical result.
         login_map = resolve_org_github_login_to_users(self.team.id, list(seen)) if seen else {}
         read_serializer = SignalReportArtefactSerializer(
-            artefact,
+            new_artefact,
             context={
                 **self.get_serializer_context(),
                 "signals_github_login_to_user_map": login_map,

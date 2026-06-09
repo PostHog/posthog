@@ -63,6 +63,22 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             _attach_github_login(user, github_login, uid=f"gh-{email}")
         return user
 
+    def _latest_reviewers(self, report: SignalReport) -> list:
+        # suggested_reviewers is append-only: the current reviewers are the latest row's content.
+        artefact = (
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        return json.loads(artefact.content) if artefact else []
+
+    def _reviewers_count(self, report: SignalReport) -> int:
+        return SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+        ).count()
+
     # --- GET list ---
 
     def test_list_returns_results_envelope(self):
@@ -144,7 +160,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
 
     # --- PUT (update) ---
 
-    def test_put_replaces_full_list(self):
+    def test_put_sets_full_list(self):
         report = self._create_report()
         artefact = self._create_artefact(
             report,
@@ -158,10 +174,34 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
 
-        artefact.refresh_from_db()
-        stored = json.loads(artefact.content)
+        stored = self._latest_reviewers(report)
         assert [r["github_login"] for r in stored] == ["bob", "carol"]
         assert all(r["relevant_commits"] == [] for r in stored)
+
+    def test_put_appends_new_status_row_keeping_history(self):
+        report = self._create_report()
+        original = self._create_artefact(
+            report,
+            content=[{"github_login": "alice", "github_name": "Alice", "relevant_commits": []}],
+        )
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(original.id)),
+            data=json.dumps({"content": [{"github_login": "bob"}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        # A new status row is appended; the original is preserved untouched (the log keeps history).
+        assert self._reviewers_count(report) == 2
+        original.refresh_from_db()
+        assert [r["github_login"] for r in json.loads(original.content)] == ["alice"]
+
+        new_id = response.json()["id"]
+        assert new_id != str(original.id)
+        new_row = SignalReportArtefact.objects.get(id=new_id)
+        assert [r["github_login"] for r in json.loads(new_row.content)] == ["bob"]
+        assert [r["github_login"] for r in self._latest_reviewers(report)] == ["bob"]
 
     def test_put_empty_list_clears_content(self):
         report = self._create_report()
@@ -173,8 +213,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_200_OK
-        artefact.refresh_from_db()
-        assert json.loads(artefact.content) == []
+        assert self._latest_reviewers(report) == []
 
     def test_put_preserves_relevant_commits_for_kept_entries(self):
         report = self._create_report()
@@ -202,8 +241,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
 
-        artefact.refresh_from_db()
-        stored = {r["github_login"]: r for r in json.loads(artefact.content)}
+        stored = {r["github_login"]: r for r in self._latest_reviewers(report)}
         assert stored["alice"]["relevant_commits"] == [{"sha": "abc123", "url": "u", "reason": "r"}]
         assert stored["alice"]["github_name"] == "Alice A."  # carried over from prior
         assert stored["dave"]["relevant_commits"] == []
@@ -220,8 +258,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_200_OK
-        artefact.refresh_from_db()
-        stored = json.loads(artefact.content)
+        stored = self._latest_reviewers(report)
         assert len(stored) == 1
         assert stored[0]["github_login"] == "alicecase"
 
@@ -237,8 +274,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_200_OK
-        artefact.refresh_from_db()
-        stored = json.loads(artefact.content)
+        stored = self._latest_reviewers(report)
         assert stored[0]["github_login"] == "alicecase"
 
     def test_put_user_uuid_without_github_login_returns_400(self):
@@ -307,11 +343,12 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_200_OK
-        artefact.refresh_from_db()
-        stored = json.loads(artefact.content)
+        stored = self._latest_reviewers(report)
         assert [r["github_login"] for r in stored] == ["alice", "bob"]
 
-    def test_put_is_idempotent(self):
+    def test_put_repeated_yields_same_current_reviewers(self):
+        # Each PUT appends a new status row (the log grows), but identical bodies leave the
+        # *current* reviewers (latest row) unchanged.
         report = self._create_report()
         artefact = self._create_artefact(report, content=[])
         body = json.dumps({"content": [{"github_login": "alice"}, {"github_login": "bob"}]})
@@ -322,8 +359,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             content_type="application/json",
         )
         assert first.status_code == status.HTTP_200_OK
-        artefact.refresh_from_db()
-        first_content = artefact.content
+        first_current = self._latest_reviewers(report)
 
         second = self.client.put(
             self._detail_url(str(report.id), str(artefact.id)),
@@ -331,8 +367,9 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             content_type="application/json",
         )
         assert second.status_code == status.HTTP_200_OK
-        artefact.refresh_from_db()
-        assert artefact.content == first_content
+        assert self._latest_reviewers(report) == first_current
+        # Original + two appended rows.
+        assert self._reviewers_count(report) == 3
 
     def test_put_response_is_enriched_with_user(self):
         member = self._create_org_member("alice@example.com", github_login="alice")
@@ -438,8 +475,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_200_OK
-        artefact.refresh_from_db()
-        stored = json.loads(artefact.content)
+        stored = self._latest_reviewers(report)
         assert stored[0]["github_name"] == ""
 
     def test_put_omitted_github_name_carries_over_prior_value(self):
@@ -456,8 +492,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_200_OK
-        artefact.refresh_from_db()
-        stored = json.loads(artefact.content)
+        stored = self._latest_reviewers(report)
         assert stored[0]["github_name"] == "Alice A."
 
     def test_put_after_update_preserves_filter_jsonb_containment(self):
