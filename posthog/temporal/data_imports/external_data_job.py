@@ -26,8 +26,10 @@ from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource
 from posthog.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
+    CheckPipelineVersionActivityInputs,
     ReleaseV3LockActivityInputs,
     acquire_v3_pipeline_lock_activity,
+    check_pipeline_version_activity,
     release_v3_pipeline_lock_activity,
 )
 from posthog.temporal.data_imports.workflow_activities.calculate_table_size import (
@@ -264,29 +266,48 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
         source_type = None
         consumer_manages_job_status = False
-        lock_result = None
+        is_v3 = False
+        lock_token = None
 
-        # Acquire V3 pipeline lock before creating the job model.
+        # Check pipeline version (FF evaluated once here, propagated everywhere)
         try:
-            lock_result = await workflow.execute_activity(
-                acquire_v3_pipeline_lock_activity,
-                AcquireV3LockActivityInputs(
+            version_result = await workflow.execute_activity(
+                check_pipeline_version_activity,
+                CheckPipelineVersionActivityInputs(
                     team_id=inputs.team_id,
-                    schema_id=inputs.external_data_schema_id,
                     source_id=inputs.external_data_source_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
+            is_v3 = version_result.is_v3
         except Exception:
             pass
 
-        if lock_result is not None and not lock_result.acquired:
-            workflow.logger.info(
-                "V3 pipeline lock held by another run, skipping",
-                extra={"schema_id": str(inputs.external_data_schema_id)},
-            )
-            return
+        # Only acquire lock for V3 pipelines (V2 never enters this block)
+        if is_v3:
+            lock_result = None
+            try:
+                lock_result = await workflow.execute_activity(
+                    acquire_v3_pipeline_lock_activity,
+                    AcquireV3LockActivityInputs(
+                        team_id=inputs.team_id,
+                        schema_id=inputs.external_data_schema_id,
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except Exception:
+                pass
+
+            if lock_result is None or not lock_result.acquired:
+                workflow.logger.info(
+                    "V3 pipeline lock not acquired, skipping",
+                    extra={"schema_id": str(inputs.external_data_schema_id)},
+                )
+                return
+
+            lock_token = lock_result.token
 
         try:
             # create external data job and trigger activity
@@ -295,6 +316,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schema_id=inputs.external_data_schema_id,
                 source_id=inputs.external_data_source_id,
                 billable=inputs.billable,
+                is_v3=is_v3,
             )
 
             create_job_result = await workflow.execute_activity(
@@ -533,14 +555,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             # Release the V3 pipeline lock when the consumer is NOT managing job
             # status (extraction failed before producing batches, or non-V3).
             # When consumer_manages_job_status is True, the consumer releases.
-            if lock_result is not None and lock_result.is_v3 and not consumer_manages_job_status:
+            if is_v3 and lock_token and not consumer_manages_job_status:
                 try:
                     await workflow.execute_activity(
                         release_v3_pipeline_lock_activity,
                         ReleaseV3LockActivityInputs(
                             team_id=inputs.team_id,
                             schema_id=inputs.external_data_schema_id,
-                            token=lock_result.token,
+                            token=lock_token,
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=1),
                         retry_policy=RetryPolicy(maximum_attempts=3),

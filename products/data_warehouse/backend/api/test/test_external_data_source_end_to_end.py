@@ -96,7 +96,7 @@ def run_data_import_workflow(mock_stripe_client):
             mock.patch("posthoganalytics.capture_exception", return_value=None),
             mock.patch.object(DataWarehouseSavedQuery, "schedule_materialization"),
             mock.patch(
-                "posthog.temporal.data_imports.workflow_activities.import_data_sync._is_pipeline_v3_enabled",
+                "posthog.temporal.data_imports.workflow_activities.import_data_sync.is_pipeline_v3_enabled",
                 new_callable=AsyncMock,
                 return_value=False,
             ),

@@ -24,6 +24,7 @@ from posthog.temporal.data_imports.signals.conversations_coordinator import (
 )
 from posthog.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     acquire_v3_pipeline_lock_activity,
+    check_pipeline_version_activity,
     release_v3_pipeline_lock_activity,
 )
 from posthog.temporal.data_imports.workflow_activities.emit_signals import (
@@ -53,6 +54,7 @@ ACTIVITIES = [
     cdc_extract_activity,
     validate_cdc_prerequisites_activity,
     cleanup_orphan_slots_activity,
+    check_pipeline_version_activity,
     acquire_v3_pipeline_lock_activity,
     release_v3_pipeline_lock_activity,
 ]

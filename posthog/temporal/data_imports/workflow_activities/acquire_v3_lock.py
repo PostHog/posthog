@@ -11,7 +11,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     acquire_v3_pipeline_lock,
     release_v3_pipeline_lock,
 )
-from posthog.temporal.data_imports.workflow_activities.create_job_model import _is_pipeline_v3_enabled
+from posthog.temporal.data_imports.workflow_activities.create_job_model import is_pipeline_v3_enabled
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -19,16 +19,25 @@ LOGGER = get_logger(__name__)
 
 
 @dataclasses.dataclass
+class CheckPipelineVersionActivityInputs:
+    team_id: int
+    source_id: uuid.UUID
+
+
+@dataclasses.dataclass(frozen=True)
+class CheckPipelineVersionActivityOutputs:
+    is_v3: bool
+
+
+@dataclasses.dataclass
 class AcquireV3LockActivityInputs:
     team_id: int
     schema_id: uuid.UUID
-    source_id: uuid.UUID
 
 
 @dataclasses.dataclass(frozen=True)
 class AcquireV3LockActivityOutputs:
     acquired: bool
-    is_v3: bool
     token: str
 
 
@@ -40,23 +49,28 @@ class ReleaseV3LockActivityInputs:
 
 
 @activity.defn
-def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> AcquireV3LockActivityOutputs:
+def check_pipeline_version_activity(inputs: CheckPipelineVersionActivityInputs) -> CheckPipelineVersionActivityOutputs:
     bind_contextvars(team_id=inputs.team_id)
     close_old_connections()
-
-    logger = LOGGER.bind()
 
     try:
         source = ExternalDataSource.objects.get(id=inputs.source_id)
     except ExternalDataSource.DoesNotExist:
-        return AcquireV3LockActivityOutputs(acquired=True, is_v3=False, token="")
+        return CheckPipelineVersionActivityOutputs(is_v3=False)
 
-    if not _is_pipeline_v3_enabled(inputs.team_id, source.source_type):
-        return AcquireV3LockActivityOutputs(acquired=True, is_v3=False, token="")
+    is_v3 = is_pipeline_v3_enabled(inputs.team_id, source.source_type)
+    return CheckPipelineVersionActivityOutputs(is_v3=is_v3)
+
+
+@activity.defn
+def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> AcquireV3LockActivityOutputs:
+    bind_contextvars(team_id=inputs.team_id)
+
+    logger = LOGGER.bind()
 
     token = activity.info().workflow_run_id or ""
     if not token:
-        return AcquireV3LockActivityOutputs(acquired=True, is_v3=True, token="")
+        return AcquireV3LockActivityOutputs(acquired=True, token="")
 
     acquired = acquire_v3_pipeline_lock(inputs.team_id, str(inputs.schema_id), token)
 
@@ -67,7 +81,7 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
         token=token,
     )
 
-    return AcquireV3LockActivityOutputs(acquired=acquired, is_v3=True, token=token)
+    return AcquireV3LockActivityOutputs(acquired=acquired, token=token)
 
 
 @activity.defn
