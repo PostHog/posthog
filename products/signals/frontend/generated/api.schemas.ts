@@ -784,6 +784,10 @@ export interface SignalScoutRunSummaryApi {
     task_url?: string | null
     /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
     summary: string
+    /** Number of findings this run actually emitted to the inbox. 0 for runs that investigated but surfaced nothing, or ran dry-run / before AI approval. `> 0` means the run produced at least one `Signal`. */
+    emitted_count: number
+    /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
+    emitted_finding_ids: string[]
 }
 
 /**
@@ -824,21 +828,10 @@ export interface SignalScoutRunDetailApi {
     task_url?: string | null
     /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
     summary: string
-}
-
-/**
- * One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.
- */
-export interface EvidenceEntryApi {
-    /** Source the citation came from (`error_tracking`, `session_replay`, `logs`, ...). */
-    source_product: string
-    /** One-sentence prose about why this evidence supports the finding. */
-    summary: string
-    /**
-     * Optional ID of the cited entity (issue id, recording id, log query id).
-     * @nullable
-     */
-    entity_id?: string | null
+    /** Number of findings this run actually emitted to the inbox. 0 for runs that investigated but surfaced nothing, or ran dry-run / before AI approval. `> 0` means the run produced at least one `Signal`. */
+    emitted_count: number
+    /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
+    emitted_finding_ids: string[]
 }
 
 /**
@@ -857,6 +850,61 @@ export const AutonomyPriorityEnumApi = {
     P3: 'P3',
     P4: 'P4',
 } as const
+
+/**
+ * One finding a scout run emitted to the inbox — the persisted, queryable record of
+*what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
+lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
+back into the underlying signal store.
+ */
+export interface SignalScoutEmissionApi {
+    readonly id: string
+    /** UUID of the `SignalScoutRun` that emitted this finding. */
+    run_id: string
+    /** Stable id the finding was emitted under; matches an entry in the run's `emitted_finding_ids`. */
+    finding_id: string
+    /** The emitted finding prose — the signal's `description` as surfaced to the inbox. */
+    description: string
+    /**
+     * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
+     * @minimum 0
+     * @maximum 1
+     */
+    weight: number
+    /**
+     * Agent's confidence the finding is real in [0, 1].
+     * @minimum 0
+     * @maximum 1
+     */
+    confidence: number
+    /** Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.
+
+  * `P0` - P0
+  * `P1` - P1
+  * `P2` - P2
+  * `P3` - P3
+  * `P4` - P4 */
+    severity: AutonomyPriorityEnumApi | null
+    /** Deterministic `run:<run_id>:finding:<finding_id>` — the join key into the underlying signal store. */
+    source_id: string
+    /** ISO-8601 timestamp the finding was emitted. */
+    emitted_at: string
+}
+
+/**
+ * One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.
+ */
+export interface EvidenceEntryApi {
+    /** Source the citation came from (`error_tracking`, `session_replay`, `logs`, ...). */
+    source_product: string
+    /** One-sentence prose about why this evidence supports the finding. */
+    summary: string
+    /**
+     * Optional ID of the cited entity (issue id, recording id, log query id).
+     * @nullable
+     */
+    entity_id?: string | null
+}
 
 export interface TimeRangeApi {
     /** ISO-8601 inclusive lower bound for the finding's window. */
@@ -915,6 +963,7 @@ export interface EmitFindingRequestApi {
     mcp_trace_id?: string | null
     /**
      * Stable id for this finding, baked into the signal's source_id for traceability. NOT a dedupe key — re-emitting the same id creates another signal.
+     * @maxLength 100
      * @nullable
      */
     finding_id?: string | null
@@ -1183,6 +1232,11 @@ export type SignalsScoutRunsListParams = {
      * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run from the prior page).
      */
     date_to?: string
+    /**
+     * Filter by emit outcome. `true` returns only runs that emitted at least one finding (`emitted_count > 0`); `false` returns only runs that emitted nothing. Omit for both.
+     * @nullable
+     */
+    emitted?: boolean | null
     /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1

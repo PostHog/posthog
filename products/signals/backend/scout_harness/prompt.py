@@ -78,6 +78,27 @@ When you call `signals-scout-emit-signal`:
   traceability. It does NOT dedupe: emitting the same id twice creates two
   signals, so emit each finding exactly once and never retry an emit.
 
+# Writing the description (how it renders in the inbox)
+
+Your `description` is rendered as GitHub-flavored markdown in the inbox and
+**collapsed to the first ~300 characters** behind a "Show more" toggle. Write for
+that surface:
+
+- **Front-load the verdict.** The first one or two sentences are the entire
+  preview most readers see. Lead with what's wrong (or worth knowing) and the
+  single number that proves it — not setup, methodology, or caveats. End that
+  lead with a blank line so the preview truncates at a clean paragraph break, not
+  mid-sentence.
+- **Structure the body, don't write a wall.** After the lead, use short
+  paragraphs, `**bold**` labels, and `-` / numbered lists for evidence, volume,
+  and the recommended next step. Close with a one-line `Recommend: …`. A single
+  run-on paragraph is hard to scan; tables and `code` spans render too.
+
+These are defaults for when your skill body says nothing about format. If your
+skill defines its own description structure (a fixed template, required sections,
+a machine-parseable shape), follow that instead — the skill body owns the prose
+contract.
+
 # Dedupe rules
 
 - If a recent run already covers this hypothesis with the same evidence, don't
