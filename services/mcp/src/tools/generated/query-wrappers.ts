@@ -727,10 +727,36 @@ const AssistantFunnelsGroupNode = z.object({
     operator: z.literal('OR').describe('Only `OR` is supported.').default('OR'),
 })
 
+const AssistantFunnelsDataWarehouseNode = z.object({
+    aggregation_target_field: z
+        .string()
+        .describe('Column used as the actor the funnel tracks across steps (e.g. `customer_id`, `organization_id`).'),
+    custom_name: z.string().describe('Optional custom name for the step.').optional(),
+    id: z.string().describe('Name of the data warehouse table this step reads from.'),
+    id_field: z.string().describe('Column that uniquely identifies each row in the table (e.g. `id`).'),
+    kind: z.literal('FunnelsDataWarehouseNode').default('FunnelsDataWarehouseNode'),
+    math: AssistantFunnelsMath.describe(
+        'Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.'
+    ).optional(),
+    optionalInFunnel: z.coerce
+        .boolean()
+        .describe(
+            "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required)."
+        )
+        .default(false)
+        .optional(),
+    properties: z.array(AssistantPropertyFilter).optional(),
+    table_name: z.string().describe('Name of the data warehouse table this step reads from.'),
+    timestamp_field: z
+        .string()
+        .describe('Column to treat as the event timestamp, used to order steps within the conversion window.'),
+})
+
 const AssistantFunnelsNode = z.union([
     AssistantFunnelsEventsNode,
     AssistantFunnelsActionsNode,
     AssistantFunnelsGroupNode,
+    AssistantFunnelsDataWarehouseNode,
 ])
 
 const AssistantFunnelsQuery = z.object({

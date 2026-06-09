@@ -1975,6 +1975,57 @@
             "enum": ["person", "event", "group", "session"],
             "type": "string"
         },
+        "AssistantFunnelsDataWarehouseNode": {
+            "additionalProperties": false,
+            "description": "A funnel step that reads its \"events\" from a data warehouse table instead of from captured events. Use this when the sequence lives in warehouse data (e.g. invoices, subscriptions, orders) rather than in events. Each step points at a table and tells the funnel which column to treat as the timestamp and which column identifies the actor moving through the funnel. Filter a step down to a stage with a HogQL property filter over the table's columns (e.g. `classification = 'paid'`).",
+            "properties": {
+                "aggregation_target_field": {
+                    "description": "Column used as the actor the funnel tracks across steps (e.g. `customer_id`, `organization_id`).",
+                    "type": "string"
+                },
+                "custom_name": {
+                    "description": "Optional custom name for the step.",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "Name of the data warehouse table this step reads from.",
+                    "type": "string"
+                },
+                "id_field": {
+                    "description": "Column that uniquely identifies each row in the table (e.g. `id`).",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "FunnelsDataWarehouseNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/AssistantFunnelsMath",
+                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
+                },
+                "optionalInFunnel": {
+                    "default": false,
+                    "description": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+                    "type": "boolean"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "table_name": {
+                    "description": "Name of the data warehouse table this step reads from.",
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "description": "Column to treat as the event timestamp, used to order steps within the conversion window.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "id", "table_name", "id_field", "timestamp_field", "aggregation_target_field"],
+            "type": "object"
+        },
         "AssistantFunnelsEventsNode": {
             "additionalProperties": false,
             "properties": {
@@ -2150,6 +2201,9 @@
                 },
                 {
                     "$ref": "#/definitions/AssistantFunnelsGroupNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantFunnelsDataWarehouseNode"
                 }
             ]
         },

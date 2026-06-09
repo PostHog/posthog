@@ -10538,6 +10538,73 @@ class AssistantFunnelsActionsNode(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class AssistantFunnelsDataWarehouseNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_target_field: str = Field(
+        ...,
+        description=(
+            "Column used as the actor the funnel tracks across steps (e.g. `customer_id`, `organization_id`)."
+        ),
+    )
+    custom_name: str | None = Field(default=None, description="Optional custom name for the step.")
+    id: str = Field(..., description="Name of the data warehouse table this step reads from.")
+    id_field: str = Field(
+        ...,
+        description=("Column that uniquely identifies each row in the table (e.g. `id`)."),
+    )
+    kind: Literal["FunnelsDataWarehouseNode"] = "FunnelsDataWarehouseNode"
+    math: AssistantFunnelsMath | None = Field(
+        default=None,
+        description=(
+            "Optional math aggregation type for the series. Only specify this math type"
+            " if the user wants one of these. `first_time_for_user` - counts the number"
+            " of users who have completed the event for the first time ever."
+            " `first_time_for_user_with_filters` - counts the number of users who have"
+            " completed the event with specified filters for the first time."
+        ),
+    )
+    optionalInFunnel: bool | None = Field(
+        default=False,
+        description=(
+            "If true, this step can be skipped without breaking the funnel — conversion"
+            " between the surrounding required steps still counts even if this step"
+            " didn't happen. Set this when the user asks for a non-required, skippable,"
+            " or optional step in the funnel. Do not set it on the first or last step"
+            " (those must be required)."
+        ),
+    )
+    properties: (
+        list[
+            AssistantCohortPropertyFilter
+            | AssistantHogQLPropertyFilter
+            | AssistantFlagPropertyFilter
+            | AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+            | AssistantElementPropertyFilter1
+            | AssistantElementPropertyFilter2
+            | AssistantElementPropertyFilter3
+            | AssistantElementPropertyFilter4
+            | AssistantElementPropertyFilter5
+        ]
+        | None
+    ) = None
+    table_name: str = Field(..., description="Name of the data warehouse table this step reads from.")
+    timestamp_field: str = Field(
+        ...,
+        description=("Column to treat as the event timestamp, used to order steps within the conversion window."),
+    )
+
+
 class AssistantFunnelsEventsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10684,7 +10751,12 @@ class AssistantFunnelsQuery(BaseModel):
         default=None,
         description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
     )
-    series: list[AssistantFunnelsEventsNode | AssistantFunnelsActionsNode | AssistantFunnelsGroupNode] = Field(
+    series: list[
+        AssistantFunnelsEventsNode
+        | AssistantFunnelsActionsNode
+        | AssistantFunnelsGroupNode
+        | AssistantFunnelsDataWarehouseNode
+    ] = Field(
         ...,
         description=("Events or actions to include. Prioritize the more popular and fresh events and actions."),
     )

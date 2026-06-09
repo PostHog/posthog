@@ -156,6 +156,48 @@ A 3-step funnel where the middle step matches either `$pageview` on Safari or `$
 }
 ```
 
+## Building a funnel from a data warehouse table (`FunnelsDataWarehouseNode`)
+
+**Use a `FunnelsDataWarehouseNode`** when the sequence lives in a data warehouse table (invoices, subscriptions, orders, ...) rather than in captured events. Each step points at a table and tells the funnel which column is the timestamp and which column identifies the actor moving through the funnel:
+
+- `table_name` / `id` — the data warehouse table the step reads from.
+- `id_field` — column uniquely identifying each row.
+- `timestamp_field` — column used to order steps within the conversion window.
+- `aggregation_target_field` — the actor tracked across steps (e.g. `customer_id`, `organization_id`).
+
+Filter a step down to a stage with a HogQL property filter over the table's columns (e.g. `classification = 'paid'`). Steps can mix events and warehouse rows. Because warehouse stages often unfold over months, set a generous `funnelWindowInterval` (the 14-day default is usually too short).
+
+### Example — plan-graduation funnel over an invoices table
+
+```json
+{
+  "kind": "FunnelsQuery",
+  "series": [
+    {
+      "kind": "FunnelsDataWarehouseNode",
+      "custom_name": "Startup plan invoice",
+      "id": "invoices",
+      "table_name": "invoices",
+      "id_field": "id",
+      "timestamp_field": "period_start",
+      "aggregation_target_field": "organization_id",
+      "properties": [{ "kind": "EventPropertyFilter", "type": "hogql", "key": "classification = 'startup'" }]
+    },
+    {
+      "kind": "FunnelsDataWarehouseNode",
+      "custom_name": "Standard plan invoice",
+      "id": "invoices",
+      "table_name": "invoices",
+      "id_field": "id",
+      "timestamp_field": "period_start",
+      "aggregation_target_field": "organization_id",
+      "properties": [{ "kind": "EventPropertyFilter", "type": "hogql", "key": "classification = 'standard'" }]
+    }
+  ],
+  "funnelsFilter": { "funnelOrderType": "ordered", "funnelWindowInterval": 60, "funnelWindowIntervalUnit": "month" }
+}
+```
+
 # Examples
 
 ## Conversion from first event ingested to insight saved for organizations over 6 months
