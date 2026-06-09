@@ -65,47 +65,36 @@ describe('experimentsLogic', () => {
             .toMatchValues({ allExperiments: [] })
     })
 
-    it('throws with the status and URL on a non-2xx response', async () => {
-        mockFetch({ ok: false, status: 404, json: () => Promise.resolve({}) })
-        mountLogic()
+    it.each([
+        [
+            'a non-2xx response',
+            { ok: false, status: 404, json: () => Promise.resolve({}) },
+            ['HTTP 404', '/api/projects/@current/web_experiments/'],
+        ],
+        [
+            'the body is not valid JSON',
+            { ok: true, status: 200, json: () => Promise.reject(new Error('Unexpected token')) },
+            ['not valid JSON'],
+        ],
+        [
+            'results is not an array',
+            { ok: true, status: 200, json: () => Promise.resolve({ results: { unexpected: true } }) },
+            ['expected an array', 'got object'],
+        ],
+    ] as [string, Partial<Response> & { json?: () => Promise<unknown> }, string[]][])(
+        'throws a descriptive error when %s',
+        async (_name, fetchResponse, expectedSubstrings) => {
+            mockFetch(fetchResponse)
+            mountLogic()
 
-        await expectLogic(logic, () => {
-            logic.actions.getExperiments()
-        }).toDispatchActions([
-            'getExperiments',
-            (action) =>
-                action.type === logic.actionTypes.getExperimentsFailure &&
-                action.payload.error.includes('HTTP 404') &&
-                action.payload.error.includes('/api/projects/@current/web_experiments/'),
-        ])
-    })
-
-    it('throws a JSON-parse-specific error when the body is not valid JSON', async () => {
-        mockFetch({ ok: true, status: 200, json: () => Promise.reject(new Error('Unexpected token')) })
-        mountLogic()
-
-        await expectLogic(logic, () => {
-            logic.actions.getExperiments()
-        }).toDispatchActions([
-            'getExperiments',
-            (action) =>
-                action.type === logic.actionTypes.getExperimentsFailure &&
-                action.payload.error.includes('not valid JSON'),
-        ])
-    })
-
-    it('throws with the body shape when results is not an array', async () => {
-        mockFetch({ ok: true, status: 200, json: () => Promise.resolve({ results: { unexpected: true } }) })
-        mountLogic()
-
-        await expectLogic(logic, () => {
-            logic.actions.getExperiments()
-        }).toDispatchActions([
-            'getExperiments',
-            (action) =>
-                action.type === logic.actionTypes.getExperimentsFailure &&
-                action.payload.error.includes('expected an array') &&
-                action.payload.error.includes('got object'),
-        ])
-    })
+            await expectLogic(logic, () => {
+                logic.actions.getExperiments()
+            }).toDispatchActions([
+                'getExperiments',
+                (action) =>
+                    action.type === logic.actionTypes.getExperimentsFailure &&
+                    expectedSubstrings.every((s) => action.payload.error.includes(s)),
+            ])
+        }
+    )
 })
