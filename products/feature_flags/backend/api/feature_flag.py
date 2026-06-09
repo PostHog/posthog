@@ -1561,11 +1561,9 @@ class FeatureFlagSerializer(
             # Check for linked running experiments. Draft, stopped, and completed
             # experiments may keep the flag so their historical results are preserved;
             # only a currently running experiment blocks deletion.
-            running_experiments = instance.experiment_set.filter(
-                deleted=False, start_date__isnull=False, end_date__isnull=True
-            )
-            if running_experiments.exists():
-                experiment_ids = list(running_experiments.values_list("id", flat=True))
+            running_experiments = [exp for exp in instance.experiment_set.filter(deleted=False) if exp.is_running]
+            if running_experiments:
+                experiment_ids = [exp.id for exp in running_experiments]
                 raise exceptions.ValidationError(
                     f"Cannot delete a feature flag that is linked to running experiment(s) with ID(s): {', '.join(map(str, experiment_ids))}. Please stop the experiment(s) before deleting the flag."
                 )
