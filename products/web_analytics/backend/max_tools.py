@@ -546,8 +546,11 @@ def _heatmap_predicates(
     serializer = HeatmapsRequestSerializer(data=request_data, context={"team": team})
     serializer.is_valid(raise_exception=True)
     validated = dict(serializer.validated_data)
+    # Strip the non-predicate fields the serializer always includes — only the
+    # remaining keys map to heatmap filter predicates.
     validated.pop("aggregation", None)
     validated.pop("hide_zero_coordinates", None)
+    validated.pop("filter_test_accounts", None)
 
     placeholders = HeatmapViewSet._build_placeholders(validated)
     exprs = HeatmapViewSet._predicate_expressions(placeholders)
@@ -628,9 +631,11 @@ def _scroll_reach(buckets: list[dict[str, Any]]) -> dict[str, Any] | None:
     if not total:
         return None
     ascending = sorted(buckets, key=lambda b: b["scroll_depth_bucket"])
-    reach: dict[int, int] = {}
+    # The deepest bucket still reached by at least `pct` of the population. `None` (not 0,
+    # a real depth) when no bucket clears the threshold, so the report can say so honestly.
+    reach: dict[int, int | None] = {}
     for pct in (75, 50, 25):
-        deepest = 0
+        deepest: int | None = None
         for b in ascending:
             if b["cumulative_count"] / total * 100 >= pct:
                 deepest = b["scroll_depth_bucket"]
@@ -679,9 +684,13 @@ def _format_heatmap_report(page_url: str, data: dict[str, Any]) -> str:
     reach = _scroll_reach(data["scrolldepth"])
     if reach:
         r = reach["reach"]
+
+        def _depth(px: int | None) -> str:
+            return f"≥{px}px" if px is not None else "n/a"
+
         lines.append(
-            f"- Scroll reach: 75% of visitors reached ≥{r[75]}px, 50% reached ≥{r[50]}px, "
-            f"25% reached ≥{r[25]}px (deepest bucket {reach['max_depth']}px)."
+            f"- Scroll reach: 75% of visitors reached {_depth(r[75])}, 50% reached {_depth(r[50])}, "
+            f"25% reached {_depth(r[25])} (deepest bucket {reach['max_depth']}px)."
         )
     lines.append("")
 
