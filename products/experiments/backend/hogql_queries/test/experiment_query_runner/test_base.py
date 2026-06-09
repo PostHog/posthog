@@ -22,6 +22,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+
 from posthog.models.group.util import create_group
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
