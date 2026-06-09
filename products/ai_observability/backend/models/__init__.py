@@ -1,3 +1,4 @@
+from .ai_observability_report_config import AIObservabilityReportConfig
 from .clustering_config import ClusteringConfig
 from .clustering_job import ClusteringJob
 from .datasets import Dataset, DatasetItem
@@ -16,6 +17,7 @@ from .taggers import Tagger
 from .trace_reviews import TraceReview, TraceReviewScore
 
 __all__ = [
+    "AIObservabilityReportConfig",
     "ClusteringConfig",
     "ClusteringJob",
     "Evaluation",

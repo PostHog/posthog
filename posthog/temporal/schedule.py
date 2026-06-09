@@ -23,6 +23,9 @@ from temporalio.client import (
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
+from posthog.temporal.ai_observability.ai_observability_reports.schedule import (
+    create_ai_observability_report_coordinator_schedule,
+)
 from posthog.temporal.ai_observability.eval_reports.schedule import (
     create_count_trigger_schedule,
     create_eval_reports_schedule,
@@ -639,6 +642,7 @@ schedules = [
     create_intent_clustering_coordinator_schedule,
     create_eval_reports_schedule,
     create_count_trigger_schedule,
+    create_ai_observability_report_coordinator_schedule,
     create_evaluation_sampler_schedule,
     create_evaluation_clustering_schedule,
     cleanup_legacy_session_summarization_schedules,

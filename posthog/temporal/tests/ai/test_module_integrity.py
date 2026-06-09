@@ -332,6 +332,8 @@ class TestAIObservabilityModuleIntegrity:
             "AIObservabilityEvaluationSamplerWorkflow",
             "AIObservabilityEvaluationClusteringCoordinatorWorkflow",
             "AIObservabilityEvaluationClusteringWorkflow",
+            "AIObservabilityReportCoordinatorWorkflow",
+            "GenerateAIObservabilityReportWorkflow",
             "ClassifySentimentWorkflow",
             "RunEvaluationWorkflow",
         ]
@@ -370,6 +372,8 @@ class TestAIObservabilityModuleIntegrity:
             "generate_evaluation_cluster_labels_activity",
             "compute_evaluation_cluster_aggregates_activity",
             "emit_evaluation_cluster_events_activity",
+            "fetch_enabled_ai_observability_report_configs_activity",
+            "run_ai_observability_report_agent_activity",
             "classify_sentiment_activity",
             "fetch_evaluation_activity",
             "increment_trial_eval_count_activity",

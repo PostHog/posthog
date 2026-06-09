@@ -55,6 +55,7 @@ rules:
                       regex: |
                           (?x)(
                               AccessControl
+                              |AIObservabilityReportConfig
                               |Account
                               |Action
                               |AgentArtifact
@@ -298,6 +299,7 @@ rules:
                 regex: |
                     (?x)(
                         AccessControl
+                        |AIObservabilityReportConfig
                         |Account
                         |Action
                         |AgentArtifact

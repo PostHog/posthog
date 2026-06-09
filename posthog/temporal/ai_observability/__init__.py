@@ -1,3 +1,7 @@
+from posthog.temporal.ai_observability.ai_observability_reports import (
+    ACTIVITIES as AI_OBSERVABILITY_REPORT_ACTIVITIES,
+    WORKFLOWS as AI_OBSERVABILITY_REPORT_WORKFLOWS,
+)
 from posthog.temporal.ai_observability.eval_reports.activities import (
     deliver_report_activity,
     fetch_count_triggered_eval_reports_activity,
@@ -127,6 +131,8 @@ WORKFLOWS = [
     AIObservabilityEvaluationSamplerWorkflow,
     AIObservabilityEvaluationClusteringCoordinatorWorkflow,
     AIObservabilityEvaluationClusteringWorkflow,
+    # Daily AI observability digest (Slack-only, never files a Signals report)
+    *AI_OBSERVABILITY_REPORT_WORKFLOWS,
     # Keep sentiment workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
     ClassifySentimentWorkflow,
     # Keep eval workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
@@ -164,6 +170,8 @@ ACTIVITIES = [
     generate_evaluation_cluster_labels_activity,
     compute_evaluation_cluster_aggregates_activity,
     emit_evaluation_cluster_events_activity,
+    # Daily AI observability digest
+    *AI_OBSERVABILITY_REPORT_ACTIVITIES,
     # Keep sentiment activity registered here temporarily so orphaned workflows on general-purpose queue can complete
     classify_sentiment_activity,
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete
