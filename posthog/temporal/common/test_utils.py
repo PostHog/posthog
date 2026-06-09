@@ -5,6 +5,8 @@ import threading
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 
+from django.db import connections
+
 import temporalio.worker
 from temporalio.client import Client as TemporalClient
 from temporalio.worker import Worker
@@ -17,7 +19,7 @@ class ThreadedWorker(Worker):
     """
 
     @contextmanager
-    def run_in_thread(self, *, startup_timeout: float = 30.0):
+    def run_in_thread(self, *, startup_timeout: float = 30.0, shutdown_timeout: float = 60.0):
         """Run a Temporal Worker in a thread.
 
         Don't use this outside of tests. Once PostHog is fully async we can get rid of this.
@@ -55,13 +57,19 @@ class ThreadedWorker(Worker):
             yield
         finally:
             self._shutdown_event.set()
-            # Give the worker a chance to shut down before exiting
-            max_wait = 10.0
-            while t.is_alive() and max_wait > 0:
-                time.sleep(0.1)
-                max_wait -= 0.1
+            try:
+                # asyncio.Event.set() from a foreign thread doesn't wake the worker's loop;
+                # schedule a no-op threadsafe callback to force a wakeup so run() can return.
+                loop.call_soon_threadsafe(lambda: None)
+            except RuntimeError:
+                pass  # loop already closed: the worker thread finished on its own
+            # An abandoned worker thread can hold open database sessions (idle in transaction)
+            # that block the teardown TRUNCATE of the whole test database — fail loudly instead.
+            t.join(timeout=shutdown_timeout)
+            if t.is_alive():
+                raise RuntimeError(f"Temporal test worker thread did not shut down within {shutdown_timeout:g}s")
 
-    def run_using_loop(self, loop):
+    def run_using_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Setup an event loop to run the Worker.
 
         Using async_to_sync(Worker.run) causes a deadlock.
@@ -70,8 +78,16 @@ class ThreadedWorker(Worker):
         try:
             loop.run_until_complete(super().run())
         finally:
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            loop.close()
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+                # Join executor threads (where activity sync DB code runs) so they can't
+                # outlive the worker with database work still in flight.
+                loop.run_until_complete(loop.shutdown_default_executor())
+            finally:
+                loop.close()
+                # Close this thread's Django connections; a leaked one left idle in
+                # transaction blocks the teardown flush of the entire test database.
+                connections.close_all()
 
 
 @contextmanager
