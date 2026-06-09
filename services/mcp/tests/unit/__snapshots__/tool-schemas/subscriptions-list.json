@@ -26,8 +26,8 @@
             "type": "string"
         },
         "resource_type": {
-            "description": "Filter by subscription resource: insight vs dashboard export.",
-            "enum": ["dashboard", "insight"],
+            "description": "Filter by subscription resource: insight, dashboard export, or AI report.",
+            "enum": ["ai_prompt", "dashboard", "insight"],
             "type": "string"
         },
         "search": {
@@ -35,8 +35,8 @@
             "type": "string"
         },
         "target_type": {
-            "description": "Filter by delivery channel (email, Slack, or webhook).",
-            "enum": ["email", "slack", "webhook"],
+            "description": "Filter by delivery channel (email or Slack).",
+            "enum": ["email", "slack"],
             "type": "string"
         }
     },

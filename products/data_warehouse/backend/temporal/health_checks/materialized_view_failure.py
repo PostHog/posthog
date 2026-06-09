@@ -3,7 +3,7 @@ from django.db.models import Q
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
+from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -16,6 +16,24 @@ class MaterializedViewFailureCheck(HealthCheck):
     policy = DEFAULT_EXECUTION_POLICY
     schedule = "30 7 * * *"
     active_since_days = 30
+    remediation = Remediation(
+        human="""
+            Open Data modeling (the Data warehouse / data modeling section). Find the failing view, open
+            its latest materialization run, and read the error. Common causes are a query that no longer
+            compiles (a renamed column or table it depends on), an upstream source that's itself failing,
+            or a timeout / resource limit on a heavy query. Fix the view's SQL or the upstream dependency,
+            then re-run the materialization and confirm it succeeds.
+        """,
+        agent="""
+            Read this issue with `health-issues-get` for the view name and error from the payload, use
+            `read-data-warehouse-schema` to see the available tables and columns, and `execute-sql` to run
+            the view's query (or its upstream tables) directly to pinpoint what broke. The view's SQL is
+            stored in PostHog Data modeling rather than the user's codebase, so the edit happens there —
+            diagnose the exact failure, propose the corrected query, and have it re-run. Use `docs-search`
+            for the data modeling / materialized view docs. The check clears once a materialization
+            succeeds.
+        """,
+    )
 
     @classmethod
     def render_alert(cls, issue: HealthIssue) -> AlertContent:

@@ -95,6 +95,7 @@ class SignalTeamConfig(UUIDModel):
     )
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P0)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
+    autostart_base_branches = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -479,7 +480,9 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     timing, error, and chat-log live on the `TaskRun`; emitted findings are
     `Signal` / `SignalReport` rows created by `emit_signal`. This row carries only
     the scout-specific fields that need to be queryable as real columns
-    (`skill_name` for the per-team running-check, `scout_config` for audit lineage).
+    (`skill_name` for the per-team running-check, `scout_config` for audit lineage,
+    and the `emitted_count` / `emitted_finding_ids` emit tally so "did this run
+    surface anything?" is a column lookup, not a prose-`summary` parse).
     """
 
     # See SignalScoutConfig.all_teams for rationale.
@@ -516,6 +519,19 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # emit any findings (and so left no `Signal` row to query against). Empty default
     # so historical rows and mid-run reads return a string, not NULL.
     summary = models.TextField(blank=True, default="", db_default="")
+    # Tally of findings this run actually emitted (preflight-skipped/dry-run emits don't
+    # count). Bumped post-success by `emit_finding`; kept as a real column so a run that
+    # surfaced something is queryable directly (the `emitted` filter on the list endpoint)
+    # instead of parsing the prose `summary`. NOT an idempotency barrier — re-emitting the
+    # same `finding_id` increments it again, just like it emits a second signal.
+    # Nullable (with a 0 `db_default`) so the AddField stays non-blocking on a table that
+    # already has rows — new and historical rows both read 0; NULL is permitted but never
+    # written by the ORM path.
+    emitted_count = models.IntegerField(null=True, default=0, db_default=0)
+    # The `finding_id`s behind `emitted_count`, in emit order — lets a caller tie a run back
+    # to its `Signal` rows (`source_id = run:<run_id>:finding:<finding_id>`) without a
+    # ClickHouse scan. Parallel to `emitted_count` (`len(emitted_finding_ids) == emitted_count`).
+    emitted_finding_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

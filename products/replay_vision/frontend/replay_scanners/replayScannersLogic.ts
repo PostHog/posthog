@@ -8,7 +8,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
-    visionScannersCreate,
     visionScannersCreatorsRetrieve,
     visionScannersDestroy,
     visionScannersList,
@@ -24,8 +23,6 @@ import {
     ScannerType,
     ReplayScanner,
     createdByLabel,
-    scannerFromApi,
-    scannerToApiBody,
     scannersFromApi,
 } from './types'
 
@@ -155,8 +152,6 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         loadScannerStatsFailure: true,
         deleteScanner: (id: string) => ({ id }),
         deleteScannerSuccess: (id: string) => ({ id }),
-        duplicateScanner: (id: string) => ({ id }),
-        duplicateScannerSuccess: (scanner: ReplayScanner) => ({ scanner }),
         toggleScannerEnabled: (id: string) => ({ id }),
         toggleScannerEnabledDone: (id: string) => ({ id }),
         revertScannerEnabled: (id: string) => ({ id }),
@@ -171,7 +166,6 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             {
                 loadScannersSuccess: (_, { scanners }) => scanners,
                 deleteScannerSuccess: (state, { id }) => state.filter((l) => l.id !== id),
-                duplicateScannerSuccess: (state, { scanner }) => [...state, scanner],
                 toggleScannerEnabled: (state, { id }) =>
                     state.map((l) => (l.id === id ? { ...l, enabled: !l.enabled } : l)),
                 revertScannerEnabled: (state, { id }) =>
@@ -300,37 +294,6 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             }
         },
 
-        duplicateScanner: async ({ id }) => {
-            const original = values.scanners.find((l) => l.id === id)
-            if (!original) {
-                return
-            }
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            const duplicate: Record<string, unknown> = {
-                name: `${original.name} (Copy)`,
-                description: original.description,
-                enabled: false,
-                scanner_type: original.scanner_type,
-                scanner_config: original.scanner_config,
-                sampling_rate: original.sampling_rate,
-                provider: original.provider,
-                model: original.model,
-                emits_signals: original.emits_signals,
-            }
-            if (original.query != null) {
-                duplicate.query = original.query
-            }
-            try {
-                const response = await visionScannersCreate(String(teamId), scannerToApiBody(duplicate))
-                actions.duplicateScannerSuccess(scannerFromApi(response))
-            } catch (error: any) {
-                lemonToast.error(`Failed to duplicate scanner${error.detail ? `: ${error.detail}` : ''}`)
-            }
-        },
-
         loadCreators: async () => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
@@ -361,11 +324,6 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
 
         // Refetch after any mutation so the page + creator dropdown + team-wide stats stay accurate.
         deleteScannerSuccess: () => {
-            actions.loadScanners()
-            actions.loadCreators()
-            actions.loadScannerStats()
-        },
-        duplicateScannerSuccess: () => {
             actions.loadScanners()
             actions.loadCreators()
             actions.loadScannerStats()
