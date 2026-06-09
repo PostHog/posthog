@@ -1,4 +1,4 @@
-import { actions, afterMount, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, isBreakpoint, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
@@ -57,14 +57,11 @@ function getUrlFilters(filters: TraceReviewFilters): Record<string, unknown> {
     }
 }
 
-export interface AIObservabilityReviewsLogicProps {
-    tabId?: string
-}
+export type AIObservabilityReviewsLogicProps = Record<string, never>
 
 export const aiObservabilityReviewsLogic = kea<aiObservabilityReviewsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'traceReviews', 'aiObservabilityReviewsLogic']),
     props({} as AIObservabilityReviewsLogicProps),
-    key((props: AIObservabilityReviewsLogicProps) => props.tabId ?? 'default'),
 
     actions({
         setFilters: (filters: Partial<TraceReviewFilters>, merge: boolean = true, debounce: boolean = true) => ({

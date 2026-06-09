@@ -1317,6 +1317,10 @@
             "siliconflow-fp8": {
                 "prompt_token": 2.7e-7,
                 "completion_token": 0.000001
+            },
+            "streamlake": {
+                "prompt_token": 3.426e-7,
+                "completion_token": 0.0000010284
             }
         }
     },
@@ -2228,7 +2232,7 @@
                 "completion_token": 1.5e-7
             },
             "sambanova": {
-                "prompt_token": 2.2e-7,
+                "prompt_token": 3.5e-7,
                 "completion_token": 5.9e-7
             }
         }
@@ -3545,7 +3549,7 @@
             },
             "parasail-bf16": {
                 "prompt_token": 9e-8,
-                "completion_token": 6e-7,
+                "completion_token": 3e-7,
                 "cache_read_token": 5e-8
             },
             "venice-fp8": {
@@ -6551,6 +6555,11 @@
                 "prompt_token": 5.5e-7,
                 "completion_token": 0.0000035
             },
+            "streamlake": {
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000036,
+                "cache_read_token": 1.2e-7
+            },
             "together": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000036
@@ -7613,8 +7622,8 @@
                 "cache_read_token": 1.82e-7
             },
             "io-net-fp8": {
-                "prompt_token": 0.0000013,
-                "completion_token": 0.0000042,
+                "prompt_token": 0.00000125,
+                "completion_token": 0.00000395,
                 "cache_read_token": 7.8e-7
             },
             "novita-fp8": {
