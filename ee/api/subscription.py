@@ -1004,6 +1004,11 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
 
 
 class SubscriptionDeliverySerializer(serializers.ModelSerializer):
+    # Delivery fields that embed the query-derived AI report, mapped to the value each returns when
+    # scrubbed for a caller without query access (content_snapshot is a non-null object, change_summary
+    # nullable text). Single source of truth — keep in sync when adding AI-derived delivery fields.
+    AI_REPORT_SCRUBBED: ClassVar[dict[str, dict | None]] = {"content_snapshot": {}, "change_summary": None}
+
     class Meta:
         model = SubscriptionDelivery
         fields = [
@@ -1052,11 +1057,6 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "finished_at": {"help_text": "When the run finished, if applicable."},
             "change_summary": {"help_text": "AI-generated summary included in this delivery, when one was produced."},
         }
-
-    # Delivery fields that embed the query-derived AI report, mapped to the value each returns when
-    # scrubbed for a caller without query access (content_snapshot is a non-null object, change_summary
-    # nullable text). Single source of truth — keep in sync when adding AI-derived delivery fields.
-    AI_REPORT_SCRUBBED: ClassVar[dict[str, dict | None]] = {"content_snapshot": {}, "change_summary": None}
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
