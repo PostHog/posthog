@@ -5,7 +5,7 @@ use tonic::{Status, Streaming};
 use tracing::{debug, warn};
 
 use cymbal::error::UnhandledError;
-use cymbal::langs::apple::AppleDebugImage;
+use cymbal::langs::native::DebugImage;
 use cymbal::stages::resolution::exception::ExceptionResolver;
 use cymbal::stages::resolution::frame::FrameResolver;
 use cymbal::stages::resolution::ResolutionStage;
@@ -255,7 +255,7 @@ async fn resolve_item(stage: &ResolutionStage, item: &ResolveItem) -> Result<Vec
         .map_err(|e| ItemFailure::Unhandled(format!("serialize resolved exception: {e}")))
 }
 
-fn apple_debug_images_from_metadata(metadata: &[u8]) -> Result<Vec<AppleDebugImage>, ItemFailure> {
+fn apple_debug_images_from_metadata(metadata: &[u8]) -> Result<Vec<DebugImage>, ItemFailure> {
     if metadata.is_empty() {
         return Ok(Vec::new());
     }
@@ -279,7 +279,7 @@ async fn resolve_one_exception(
     stage: ResolutionStage,
     team_id: i32,
     exception: Exception,
-    debug_images: Vec<AppleDebugImage>,
+    debug_images: Vec<DebugImage>,
 ) -> Result<Exception, ResolveOneError> {
     let exception = if ExceptionResolver::is_java_exception(&exception) {
         let _permit = acquire_permit(&stage).await?;
