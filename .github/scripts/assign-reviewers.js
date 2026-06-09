@@ -154,8 +154,12 @@ function globToRegex(pattern) {
         .replace(/\*/g, '[^/]*')
         .replace(/__DOUBLESTAR__/g, '.*')
 
+    // A trailing-slash pattern is a directory: keep the slash so it matches only
+    // files inside the directory, not sibling paths sharing the name as a prefix
+    // (e.g. `models/ai/` must not match `models/ai_events/`). Mirrors GitHub's
+    // own CODEOWNERS semantics, where `dir/` is a directory boundary.
     if (pattern.endsWith('/')) {
-        regex = regex.slice(0, -1) + '.*'
+        regex = regex + '.*'
     }
 
     return new RegExp(`^${regex}$`)

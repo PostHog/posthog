@@ -41,9 +41,6 @@ jobs:
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
-
             - name: Set up Depot CLI
               uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
 
@@ -64,6 +61,7 @@ jobs:
               continue-on-error: true
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
+                  context: . # match the CI build's context so master reuses the shared Depot layer cache
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
                   tags: ${{ steps.docker-meta.outputs.tags }}
@@ -71,7 +69,6 @@ jobs:
                   platforms: linux/arm64,linux/amd64
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
-                      BUILDKIT_CONTEXT_KEEP_GIT_DIR=1
                   secrets: |
                       posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
 
@@ -107,6 +104,7 @@ jobs:
               continue-on-error: true
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
+                  context: . # match the CI build's context so master reuses the shared Depot layer cache
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
                   tags: ${{ steps.docker-meta.outputs.tags }}
@@ -114,7 +112,6 @@ jobs:
                   platforms: linux/arm64,linux/amd64
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
-                      BUILDKIT_CONTEXT_KEEP_GIT_DIR=1
                   secrets: |
                       posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
 
