@@ -99,19 +99,22 @@ def select_from_persons_table(
                 version = PersonsArgMaxVersion.V2
                 break
 
-    and_conditions = []
-
-    if filter is not None:
-        and_conditions.append(filter)
-
-    # For now, only do this optimization for directly querying the persons table (without joins or as part of a subquery) to avoid knock-on effects to insight queries
-    if (
+    is_direct_persons_select = (
         node.select_from
         and node.select_from.type
         and hasattr(node.select_from.type, "table")
         and node.select_from.type.table
         and isinstance(node.select_from.type.table, PersonsTable)
-    ):
+    )
+    # The id-prefilter below is correct for any predicate the extractor can rebase onto raw_persons: the
+    # prefilter admits a person when any version row matches, the argMax then resolves the true current
+    # row for those candidates, and the untouched outer predicate re-checks the resolved value. The
+    # explicit `filter` parameter is excluded because its placement carries its own semantics below.
+    use_where_optimization = filter is None and (
+        is_direct_persons_select
+        or (isinstance(join_or_table, LazyJoinToAdd) and context.modifiers.optimizeJoinedFilters)
+    )
+    if use_where_optimization:
         extractor = WhereClauseExtractor(context)
         extractor.add_local_tables(join_or_table)
         where = extractor.get_inner_where(node)
@@ -220,15 +223,6 @@ def select_from_persons_table(
                 select.where = And(exprs=[select.where, filter])
             else:
                 select.where = filter
-
-    if context.modifiers.optimizeJoinedFilters:
-        extractor = WhereClauseExtractor(context)
-        extractor.add_local_tables(join_or_table)
-        where = extractor.get_inner_where(node)
-        if where and select.where:
-            select.where = And(exprs=[select.where, where])
-        elif where:
-            select.where = where
 
     return select
 

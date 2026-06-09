@@ -76,9 +76,17 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         if where is None:
             return None
 
-        where = RemoveHiddenAliases().visit(where)
-        assert isinstance(where, ast.Expr)
-        return clone_expr(where, clear_types=True, clear_locations=True)
+        # Extracted filters land inside the where_optimization id-prefilter subquery:
+        # `id IN (SELECT id FROM raw_persons AS where_optimization WHERE <extracted>)`.
+        assert isinstance(where, ast.CompareOperation)
+        assert where.op == ast.CompareOperationOp.In
+        assert isinstance(where.right, ast.SelectQuery)
+        inner_where = where.right.where
+        assert inner_where is not None
+
+        inner_where = RemoveHiddenAliases().visit(inner_where)
+        assert isinstance(inner_where, ast.Expr)
+        return clone_expr(inner_where, clear_types=True, clear_locations=True)
 
     def print_query(self, query: str):
         context = self.prep_context()
@@ -191,7 +199,7 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         actual = self.print_query(
             "SELECT * FROM events WHERE person.id IN (select person_id from person_distinct_ids where distinct_id = '1')"
         )
-        assert "in(id, (SELECT person_distinct_ids.person_id" in actual
+        assert "in(where_optimization.id, (SELECT person_distinct_ids.person_id" in actual
 
     def test_boolean(self):
         PropertyDefinition.objects.get_or_create(
@@ -202,6 +210,6 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         )
         actual = self.print_query("SELECT * FROM events WHERE person.properties.person_boolean = false")
         assert (
-            f"ifNull(equals(toBool(transform(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties"
+            f"ifNull(equals(toBool(transform(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties"
             in actual
         )

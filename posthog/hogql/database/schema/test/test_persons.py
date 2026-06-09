@@ -121,6 +121,60 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("in(tuple(person.id, person.version)", response.clickhouse)
         self.assertNotIn("where_optimization", response.clickhouse)
 
+    def _modifiers_with_joined_filters(self) -> HogQLQueryModifiers:
+        modifiers = create_default_modifiers_for_team(self.team)
+        modifiers.personsOnEventsMode = PersonsOnEventsMode.DISABLED
+        modifiers.optimizeJoinedFilters = True
+        return modifiers
+
+    @snapshot_clickhouse_queries
+    def test_joined_person_property_filter_uses_where_optimization(self):
+        query = "select uuid from events where person.properties.$some_prop = 'something'"
+        baseline = execute_hogql_query(parse_select(query), self.team, modifiers=self.modifiers)
+        response = execute_hogql_query(parse_select(query), self.team, modifiers=self._modifiers_with_joined_filters())
+        assert response.clickhouse
+        self.assertIn("where_optimization", response.clickhouse)
+        self.assertNotIn("in(tuple(person.id, person.version)", response.clickhouse)
+        assert sorted(response.results) == sorted(baseline.results)
+        assert len(response.results) == 2
+
+    @snapshot_clickhouse_queries
+    def test_joined_person_property_filter_via_person_distinct_ids(self):
+        query = "select distinct_id from person_distinct_ids where person.properties.$some_prop = 'something' order by distinct_id"
+        baseline = execute_hogql_query(parse_select(query), self.team, modifiers=self.modifiers)
+        response = execute_hogql_query(parse_select(query), self.team, modifiers=self._modifiers_with_joined_filters())
+        assert response.clickhouse
+        self.assertIn("where_optimization", response.clickhouse)
+        assert response.results == baseline.results == [("1",), ("2",)]
+
+    def test_joined_filters_do_not_match_stale_person_property_versions(self):
+        changed = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["changed"],
+            properties={"$some_prop": "old_value"},
+            version=1,
+        )
+        create_person(
+            team_id=self.team.pk,
+            uuid=str(changed.uuid),
+            properties={"$some_prop": "new_value"},
+            version=2,
+        )
+        _create_event(event="$pageview", distinct_id="changed", team=self.team)
+        flush_persons_and_events()
+
+        query = "select uuid from events where person.properties.$some_prop = 'old_value'"
+        baseline = execute_hogql_query(parse_select(query), self.team, modifiers=self.modifiers)
+        response = execute_hogql_query(parse_select(query), self.team, modifiers=self._modifiers_with_joined_filters())
+        assert baseline.results == []
+        assert response.results == []
+
+        query_new = "select uuid from events where person.properties.$some_prop = 'new_value'"
+        response_new = execute_hogql_query(
+            parse_select(query_new), self.team, modifiers=self._modifiers_with_joined_filters()
+        )
+        assert len(response_new.results) == 1
+
     def test_person_modal_not_optimized_yet(self):
         source_query = TrendsQuery(
             series=[EventsNode(event="$pageview")],
