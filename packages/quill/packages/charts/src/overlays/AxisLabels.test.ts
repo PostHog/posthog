@@ -1,5 +1,5 @@
 import { measureLabelWidth } from '../utils/text-measure'
-import { computeVisibleXLabels } from './AxisLabels'
+import { computeVisibleValueTicks, computeVisibleXLabels } from './AxisLabels'
 
 describe('computeVisibleXLabels', () => {
     const longUrl = 'https://app.posthog.com/project/1/insights/abc123/edit?with=a&very=long&query=string'
@@ -37,5 +37,44 @@ describe('computeVisibleXLabels', () => {
         const visible = computeVisibleXLabels(labels, (label) => (label === 'a' ? 0 : undefined))
 
         expect(visible.map((v) => v.index)).toEqual([0])
+    })
+})
+
+describe('computeVisibleValueTicks', () => {
+    const fmt = (v: number): string => v.toLocaleString('en-US')
+
+    it('drops value ticks whose wide labels would overlap, always keeping the first', () => {
+        // 10 ticks packed into ~120px (every ~13px) — far too tight for "450,000"-style labels.
+        const ticks = Array.from({ length: 10 }, (_, i) => i * 50_000)
+        const valueToCoord = (v: number): number => (v / 450_000) * 120
+
+        const visible = computeVisibleValueTicks(ticks, valueToCoord, fmt)
+
+        expect(visible.length).toBeLessThan(ticks.length)
+        expect(visible[0].tick).toBe(0)
+        // Survivors stay strictly left-to-right with no measured-label overlap.
+        for (let i = 1; i < visible.length; i++) {
+            const prevRight = visible[i - 1].x + measureLabelWidth(visible[i - 1].text) / 2
+            const currLeft = visible[i].x - measureLabelWidth(visible[i].text) / 2
+            expect(currLeft).toBeGreaterThanOrEqual(prevRight)
+        }
+    })
+
+    it('keeps every tick when they are spread far apart', () => {
+        const ticks = [0, 100, 200]
+        const valueToCoord = (v: number): number => v * 10
+
+        const visible = computeVisibleValueTicks(ticks, valueToCoord, fmt)
+
+        expect(visible.map((v) => v.tick)).toEqual([0, 100, 200])
+    })
+
+    it('skips ticks whose coordinate is not finite', () => {
+        const ticks = [0, 50, 100]
+        const valueToCoord = (v: number): number => (v === 50 ? NaN : v * 10)
+
+        const visible = computeVisibleValueTicks(ticks, valueToCoord, fmt)
+
+        expect(visible.map((v) => v.tick)).toEqual([0, 100])
     })
 })
