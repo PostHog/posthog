@@ -71,6 +71,9 @@ rules:
                               |ChangeRequest
                               |ClusteringConfig
                               |ClusteringJob
+                              |CodePrSnapshot
+                              |CodeWorkflowConfig
+                              |CodeWorkstream
                               |Cohort
                               |Comment
                               |Conversation
@@ -310,6 +313,9 @@ rules:
                         |ChangeRequest
                         |ClusteringConfig
                         |ClusteringJob
+                        |CodePrSnapshot
+                        |CodeWorkflowConfig
+                        |CodeWorkstream
                         |Cohort
                         |Comment
                         |Conversation
