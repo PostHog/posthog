@@ -152,10 +152,9 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
         self.assertEqual(self.saved_query.query, {"kind": "HogQLQuery", "query": "select 1"})
 
     def test_child_resource_none_denies_resource_access(self):
-        # A resource-level "none" on the child warehouse_view is now honored (it used to be
-        # ignored in favor of the warehouse_objects umbrella). It denies at the resource gate just
-        # like a warehouse_objects "none" would — even for the creator, who has no explicit
-        # object-level grant to fall back on (has_any_specific_access_for_resource).
+        # Setting warehouse_view to "none" blocks access at the resource gate, which runs before any
+        # object-level checks — so the creator bypass (full access to objects you created) never gets
+        # a chance to apply, and the creator is denied too.
         own_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="own_view",

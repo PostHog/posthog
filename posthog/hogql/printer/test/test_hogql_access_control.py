@@ -324,16 +324,16 @@ class TestWarehouseTableAccessControl(BaseTest):
         assert "denied_table" in database._denied_tables
         assert "allowed_table" in database._denied_tables
 
-    def test_parent_objects_deny_is_ceiling_over_child_grant(self):
-        # Parent acts as a ceiling: a warehouse_objects "none" denies everything, and a more
-        # permissive child warehouse_table grant cannot lift it.
+    def test_child_grant_overrides_parent_deny(self):
+        # Most specific wins: an explicit child warehouse_table grant overrides a warehouse_objects
+        # "none" (the allowlist case — share warehouse tables without opening the umbrella).
         self._create_ac(resource="warehouse_objects", access_level="none")
         self._create_ac(resource="warehouse_table", access_level="viewer")
 
         database = Database.create_for(team=self.team, user=self.user)
 
-        assert "denied_table" in database._denied_tables
-        assert "allowed_table" in database._denied_tables
+        assert "denied_table" not in database._denied_tables
+        assert "allowed_table" not in database._denied_tables
 
     def test_org_admin_bypasses_warehouse_acl(self):
         membership = self._membership()

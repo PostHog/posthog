@@ -754,48 +754,37 @@ class UserAccessControl:
         Access levels are strings - the order of which is determined at run time.
         We find all relevant access controls and then return the highest value.
 
-        Inheriting children (e.g. warehouse_table -> warehouse_objects) combine the parent's
-        level with their own resource-level rows: the parent acts as a ceiling (most restrictive
-        wins), so a parent "none" always denies, while a child rule applies when the parent allows.
-        A child with no rules of its own inherits the parent's level unchanged.
+        Inheriting children (e.g. warehouse_table -> warehouse_objects) resolve as "most specific wins"
+        an explicit child rule (allow or deny) overrides the parent umbrella, and a child
+        with no rule of its own inherits the parent's level.
         """
 
         parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
         if parent_resource:
-            org_membership = self._organization_membership
-            if not org_membership:
+            if self._organization_membership is None:
                 return None
             # Org admins always have resource level access
-            if org_membership.level >= OrganizationMembership.Level.ADMIN:
+            if self.is_organization_admin:
                 return highest_access_level(resource)
 
-            parent_level = self.access_level_for_resource(parent_resource)
             if not self.access_controls_supported:
-                return parent_level
+                return self.access_level_for_resource(parent_resource)
 
             child_level = self._own_resource_access_level(resource)
-            if child_level is None:
-                # No child-specific rule: inherit the parent's level unchanged.
-                return parent_level
-            if parent_level is None:
+            if child_level is not None:
                 return child_level
-
-            # Parent acts as a ceiling: the most restrictive of (parent, child) wins.
-            levels = ordered_access_levels(resource)
-            return min((parent_level, child_level), key=levels.index)
+            return self.access_level_for_resource(parent_resource)
 
         # These are resources which we don't have resource level access controls for
         if resource == "organization" or resource == "project" or resource == "plugin":
             return default_access_level(resource)
 
-        org_membership = self._organization_membership
-
-        if not resource or not org_membership:
+        if not resource or self._organization_membership is None:
             # In any of these cases, we can't determine the access level
             return None
 
         # Org admins always have resource level access
-        if org_membership.level >= OrganizationMembership.Level.ADMIN:
+        if self.is_organization_admin:
             return highest_access_level(resource)
 
         if not self.access_controls_supported:
