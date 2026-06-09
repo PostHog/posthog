@@ -517,6 +517,9 @@ export type AssistantTool =
     | 'marketing_suggest_utm_mappings'
     | 'summarize_replay_vision_summaries'
     | 'draft_replay_vision_scanner_prompt'
+    | 'upsert_account'
+    | 'upsert_account_notebook'
+    | 'open_account'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -531,6 +534,7 @@ export enum AgentMode {
     AIObservability = 'llm_analytics',
     Sandbox = 'sandbox',
     UserInterview = 'user_interview',
+    CustomerAnalytics = 'customer_analytics',
 }
 
 export enum SlashCommandName {
