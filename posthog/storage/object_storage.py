@@ -1,4 +1,5 @@
 import abc
+import socket
 import threading
 from typing import IO, Any, Optional, Union
 
@@ -7,11 +8,43 @@ from django.conf import settings
 import structlog
 from boto3 import client
 from botocore.client import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import (
+    ClientError,
+    ConnectionError as BotoCoreConnectionError,
+)
+from urllib3.exceptions import NewConnectionError
 
 from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
+
+
+# Connection-class failures that occur when the object-storage host is briefly unreachable
+# (DNS hiccups, dropped/refused connections). Callers retry past these, so they are transient
+# infrastructure blips rather than application faults.
+_CONNECTION_ERROR_TYPES: tuple[type[BaseException], ...] = (
+    BotoCoreConnectionError,  # botocore EndpointConnectionError, ConnectTimeoutError, etc.
+    NewConnectionError,
+    ConnectionError,  # builtin: ConnectionResetError, ConnectionRefusedError, ...
+    socket.gaierror,
+)
+
+
+def is_transient_connection_error(error: BaseException) -> bool:
+    """Return True if the error (or anything in its cause chain) is a connection-class failure.
+
+    These are reported via logs but deliberately not sent to error tracking — surfacing
+    momentary object-storage connectivity blips as issues pollutes the error inbox with noise
+    that masquerades as application bugs.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, _CONNECTION_ERROR_TYPES):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 class ObjectStorageError(Exception):
@@ -218,7 +251,8 @@ class ObjectStorage(ObjectStorageClient):
                 prefix=prefix,
                 error=e,
             )
-            capture_exception(e)
+            if not is_transient_connection_error(e):
+                capture_exception(e)
             return None
 
     def read(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[str]:
@@ -254,7 +288,8 @@ class ObjectStorage(ObjectStorageClient):
                 error=e,
                 s3_response=s3_response,
             )
-            capture_exception(e)
+            if not is_transient_connection_error(e):
+                capture_exception(e)
             raise ObjectStorageError("read failed") from e
 
     def tag(self, bucket: str, key: str, tags: dict[str, str]) -> None:
@@ -266,7 +301,8 @@ class ObjectStorage(ObjectStorageClient):
             )
         except Exception as e:
             logger.exception("object_storage.tag_failed", bucket=bucket, file_name=key, error=e)
-            capture_exception(e)
+            if not is_transient_connection_error(e):
+                capture_exception(e)
             raise ObjectStorageError("tag failed") from e
 
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
@@ -281,7 +317,8 @@ class ObjectStorage(ObjectStorageClient):
                 error=e,
                 s3_response=s3_response,
             )
-            capture_exception(e)
+            if not is_transient_connection_error(e):
+                capture_exception(e)
             raise ObjectStorageError("write failed") from e
 
     def write_stream(self, bucket: str, key: str, fileobj: IO[bytes], extras: dict | None = None) -> None:
@@ -305,7 +342,8 @@ class ObjectStorage(ObjectStorageClient):
                 file_name=key,
                 error=e,
             )
-            capture_exception(e)
+            if not is_transient_connection_error(e):
+                capture_exception(e)
             raise ObjectStorageError("write_stream failed") from e
 
     def write_from_file(self, bucket: str, key: str, file_path: str) -> None:
@@ -320,7 +358,8 @@ class ObjectStorage(ObjectStorageClient):
                 file_path=file_path,
                 error=e,
             )
-            capture_exception(e)
+            if not is_transient_connection_error(e):
+                capture_exception(e)
             raise ObjectStorageError("write_from_file failed") from e
 
     def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
@@ -340,7 +379,8 @@ class ObjectStorage(ObjectStorageClient):
                 target_prefix=target_prefix,
                 error=e,
             )
-            capture_exception(e)
+            if not is_transient_connection_error(e):
+                capture_exception(e)
             return None
 
     def copy(self, bucket: str, source_key: str, target_key: str) -> None:
@@ -354,7 +394,8 @@ class ObjectStorage(ObjectStorageClient):
                 target_key=target_key,
                 error=e,
             )
-            capture_exception(e)
+            if not is_transient_connection_error(e):
+                capture_exception(e)
             raise ObjectStorageError("copy failed") from e
 
     def delete(self, bucket: str, key: str) -> None:
@@ -363,7 +404,8 @@ class ObjectStorage(ObjectStorageClient):
             response = self.aws_client.delete_object(Bucket=bucket, Key=key)
         except Exception as e:
             logger.exception("object_storage.delete_failed", bucket=bucket, key=key, error=e, s3_response=response)
-            capture_exception(e)
+            if not is_transient_connection_error(e):
+                capture_exception(e)
             raise ObjectStorageError("delete failed") from e
 
 

@@ -1,12 +1,15 @@
 import re
 import uuid
+import socket
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from boto3 import resource
 from botocore.client import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError
+from parameterized import parameterized
+from urllib3.exceptions import NewConnectionError
 
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -21,6 +24,7 @@ from posthog.storage.object_storage import (
     get_presigned_post,
     get_presigned_url,
     health_check,
+    is_transient_connection_error,
     list_objects,
     read,
     write,
@@ -213,3 +217,56 @@ class TestStorage(APIBaseTest):
 
         with self.assertRaises(ObjectStorageError):
             storage.read_bytes("test-bucket", "test-key")
+
+    @parameterized.expand(
+        [
+            ("gaierror", socket.gaierror(-2, "Name or service not known"), True),
+            ("endpoint_connection", EndpointConnectionError(endpoint_url="http://objectstorage:19000"), True),
+            ("builtin_connection_reset", ConnectionResetError("Connection reset by peer"), True),
+            (
+                "urllib3_new_connection",
+                NewConnectionError(None, "Failed to establish a new connection"),  # type: ignore[arg-type]
+                True,
+            ),
+            ("value_error", ValueError("something else"), False),
+            ("client_error", ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject"), False),  # type: ignore[arg-type]
+        ]
+    )
+    def test_is_transient_connection_error(self, _name, error, expected):
+        assert is_transient_connection_error(error) is expected
+
+    def test_is_transient_connection_error_walks_cause_chain(self):
+        wrapped = ObjectStorageError("read failed")
+        wrapped.__cause__ = socket.gaierror(-2, "Name or service not known")
+        assert is_transient_connection_error(wrapped) is True
+
+    def test_read_bytes_skips_capture_for_transient_connection_error(self):
+        mock_client = MagicMock()
+        mock_client.get_object.side_effect = EndpointConnectionError(endpoint_url="http://objectstorage:19000")
+        storage = ObjectStorage(mock_client)
+
+        with patch("posthog.storage.object_storage.capture_exception") as mock_capture:
+            with self.assertRaises(ObjectStorageError):
+                storage.read_bytes("test-bucket", "test-key")
+            mock_capture.assert_not_called()
+
+    def test_read_bytes_captures_genuine_client_error(self):
+        mock_client = MagicMock()
+        error_response = {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}}
+        mock_client.get_object.side_effect = ClientError(error_response, "GetObject")  # type: ignore[arg-type]
+        storage = ObjectStorage(mock_client)
+
+        with patch("posthog.storage.object_storage.capture_exception") as mock_capture:
+            with self.assertRaises(ObjectStorageError):
+                storage.read_bytes("test-bucket", "test-key")
+            mock_capture.assert_called_once()
+
+    def test_write_skips_capture_for_transient_connection_error(self):
+        mock_client = MagicMock()
+        mock_client.put_object.side_effect = socket.gaierror(-2, "Name or service not known")
+        storage = ObjectStorage(mock_client)
+
+        with patch("posthog.storage.object_storage.capture_exception") as mock_capture:
+            with self.assertRaises(ObjectStorageError):
+                storage.write("test-bucket", "test-key", b"content", None)
+            mock_capture.assert_not_called()
