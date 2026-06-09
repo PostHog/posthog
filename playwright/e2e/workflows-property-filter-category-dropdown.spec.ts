@@ -75,8 +75,9 @@ test.describe('Workflows conditional branch property filter category dropdown', 
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
-        // Navigate to the app so the session + CSRF cookie are set before the test creates a hog_flow.
-        await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
+        // Log in (sets the session + CSRF cookie the test needs to create a hog_flow) without
+        // navigating into the app, so the feature flag mock is installed before the editor loads.
+        await playwrightSetup.login(page, workspace!)
         await mockFeatureFlags(page, {
             'taxonomic-filter-category-dropdown': 'pill',
         })
