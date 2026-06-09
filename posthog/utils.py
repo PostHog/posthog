@@ -710,6 +710,14 @@ async def initialize_self_capture_api_token():
         posthoganalytics.disabled = False
         posthoganalytics.api_key = local_api_key
         posthoganalytics.host = settings.SITE_URL
+        # Read flag definitions straight from the HyperCache (Redis) for the self-capture team, the way
+        # production does. Without this the SDK polls `host` over HTTP, which in dev is the auth-gated
+        # public SITE_URL (it 303-redirects), so PH-on-PH `feature_enabled` checks never resolve locally.
+        from products.feature_flags.backend.sdk_cache_provider import (  # noqa: PLC0415 — deferred to avoid the local_evaluation circular import chain
+            HyperCacheFlagProvider,
+        )
+
+        posthoganalytics.flag_definition_cache_provider = HyperCacheFlagProvider(team_id=team.id)
 
 
 BOTH_DEFAULTS_PRESENT_TTL_SECONDS = 24 * 60 * 60
