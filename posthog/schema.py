@@ -1934,6 +1934,11 @@ class Kind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
 
 
+class Kind1(StrEnum):
+    EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
+    ACTIONS_NODE = "ActionsNode"
+
+
 class StartHandling(StrEnum):
     FIRST_SEEN = "first_seen"
     LAST_SEEN = "last_seen"
@@ -7157,8 +7162,17 @@ class ExperimentApiExposureConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    event: str = Field(..., description="Custom exposure event name.")
-    kind: Literal["ExperimentEventExposureConfig"] = "ExperimentEventExposureConfig"
+    event: str | None = Field(
+        default=None,
+        description=("Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."),
+    )
+    id: int | None = Field(default=None, description="Action ID. Required when kind is 'ActionsNode'.")
+    kind: Kind1 | None = Field(
+        default=None,
+        description=(
+            "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
+        ),
+    )
     properties: list[EventPropertyFilter] = Field(
         ...,
         description="Event property filters. Pass an empty array if no filters needed.",

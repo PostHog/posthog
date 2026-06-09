@@ -18398,14 +18398,19 @@
         },
         "ExperimentApiExposureConfig": {
             "additionalProperties": false,
-            "description": "Slim exposure config for experiment API payloads.",
+            "description": "Slim exposure config for experiment API payloads. Discriminated by `kind`: 'ExperimentEventExposureConfig' tracks exposure via a custom event, 'ActionsNode' tracks exposure via an action.",
             "properties": {
                 "event": {
-                    "description": "Custom exposure event name.",
+                    "description": "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'.",
                     "type": "string"
                 },
+                "id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Action ID. Required when kind is 'ActionsNode'."
+                },
                 "kind": {
-                    "const": "ExperimentEventExposureConfig",
+                    "description": "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure.",
+                    "enum": ["ExperimentEventExposureConfig", "ActionsNode"],
                     "type": "string"
                 },
                 "properties": {
@@ -18416,7 +18421,7 @@
                     "type": "array"
                 }
             },
-            "required": ["kind", "event", "properties"],
+            "required": ["properties"],
             "type": "object"
         },
         "ExperimentApiExposureCriteria": {
