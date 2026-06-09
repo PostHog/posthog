@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api, { ApiConfig } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -10,6 +10,18 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import type { recentItemsModelType } from './recentItemsModelType'
 
 const RECENTS_FETCH_LIMIT = 20
+
+// This loader is permanently mounted and fires on every team load, so transient browser-level
+// fetch failures (offline, CORS, navigation aborts) would otherwise flood error tracking. Those
+// never reach the server, so `handleFetch` wraps them in an `ApiError` without an HTTP status,
+// while aborted requests surface as an `AbortError`. Real HTTP errors keep their numeric status
+// and must keep propagating so genuinely broken requests stay visible.
+function isTransientFetchError(error: unknown): boolean {
+    if ((error as { name?: string })?.name === 'AbortError') {
+        return true
+    }
+    return error instanceof ApiError && error.status === undefined
+}
 
 export const recentItemsModel = kea<recentItemsModelType>([
     path(['models', 'recentItemsModel']),
@@ -31,12 +43,19 @@ export const recentItemsModel = kea<recentItemsModelType>([
                         return []
                     }
 
-                    const response = await api.fileSystem.list({
-                        orderBy: '-last_viewed_at',
-                        notType: 'folder',
-                        limit: RECENTS_FETCH_LIMIT,
-                    })
-                    return response.results
+                    try {
+                        const response = await api.fileSystem.list({
+                            orderBy: '-last_viewed_at',
+                            notType: 'folder',
+                            limit: RECENTS_FETCH_LIMIT,
+                        })
+                        return response.results
+                    } catch (error) {
+                        if (isTransientFetchError(error)) {
+                            return []
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -48,15 +67,22 @@ export const recentItemsModel = kea<recentItemsModelType>([
                         return {}
                     }
 
-                    const results = await api.fileSystemLogView.list({ type: 'scene' })
-                    const record: Record<string, string> = {}
-                    for (const { ref, viewed_at } of results) {
-                        const current = record[ref]
-                        if (!current || Date.parse(viewed_at) > Date.parse(current)) {
-                            record[ref] = viewed_at
+                    try {
+                        const results = await api.fileSystemLogView.list({ type: 'scene' })
+                        const record: Record<string, string> = {}
+                        for (const { ref, viewed_at } of results) {
+                            const current = record[ref]
+                            if (!current || Date.parse(viewed_at) > Date.parse(current)) {
+                                record[ref] = viewed_at
+                            }
                         }
+                        return record
+                    } catch (error) {
+                        if (isTransientFetchError(error)) {
+                            return {}
+                        }
+                        throw error
                     }
-                    return record
                 },
             },
         ],

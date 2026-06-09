@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import api, { ApiConfig } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -81,5 +81,40 @@ describe('recentItemsModel', () => {
                     DataManagementScene: '2026-04-22T00:00:00Z',
                 },
             })
+    })
+
+    it('swallows transient network failures instead of bubbling them to error tracking', async () => {
+        jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
+        // handleFetch wraps a browser-level `TypeError: Failed to fetch` in an ApiError with no status.
+        jest.spyOn(api.fileSystem, 'list').mockRejectedValue(new ApiError(new TypeError('Failed to fetch') as any))
+        jest.spyOn(api.fileSystemLogView, 'list').mockRejectedValue(
+            new DOMException('The operation was aborted.', 'AbortError')
+        )
+
+        logic = recentItemsModel()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadRecentsSuccess', 'loadSceneLogViewsSuccess']).toMatchValues({
+            recents: [],
+            sceneLogViewsByRef: {},
+            recentsHasLoaded: true,
+            sceneLogViewsHasLoaded: true,
+        })
+    })
+
+    it('lets real HTTP errors propagate to the failure state', async () => {
+        jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
+        jest.spyOn(api.fileSystem, 'list').mockRejectedValue(new ApiError('Project not found.', 404))
+        jest.spyOn(api.fileSystemLogView, 'list').mockRejectedValue(new ApiError('Server error', 500))
+
+        logic = recentItemsModel()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadRecentsFailure', 'loadSceneLogViewsFailure']).toMatchValues({
+            recents: [],
+            sceneLogViewsByRef: {},
+            recentsHasLoaded: true,
+            sceneLogViewsHasLoaded: true,
+        })
     })
 })
