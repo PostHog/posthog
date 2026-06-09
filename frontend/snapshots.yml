@@ -4607,21 +4607,21 @@ snapshots:
     scenes-app-data-management-comments--tasks--light:
         hash: v1.k794b7964.b4301afdf80b77d7dd0c5c5b6f98ec6584b9d2920fde5d374687c4e428721e63.TmUXts4eR0Ihk6mqk4pUQ7s_nv3SNHv1FVSl3Kle-YE
     scenes-app-data-management-definition-view--event-definition-metadata--medium--dark:
-        hash: v1.k794b7964.c7b7d2c5f95c3ce99ecaeab9d9ed6e6d9499a98861b3ede5440393419c17f5cb.ueYV6XuLO_0K2pwfh4CJF2Y1rmtIOh1THmrrS_BXxpI
+        hash: v1.k794b7964.0e0104e4190859436436a7ce0581ab2325ffa526ca20a541a215299e7d0013c4.bUtcdbIWGPSirIzSptxNnLzvuVu97kZdsoeKYNG1lp8
     scenes-app-data-management-definition-view--event-definition-metadata--medium--light:
-        hash: v1.k794b7964.c433b66497e70fa4fb86e4c919e12b43aaed66507b90c5072318e84ab6950a24.HnNmlf4ylK7MODmQBes3TvAWeVv0S5vqb0NCCjvsjHM
+        hash: v1.k794b7964.c81ef7551c051910ac1b5f87c167f724ec24020e1e4153e6517f61ba094ccd06.6X14ZuIBWumWAlYX2tfq0coKfReedMynGUwHDLuQzdo
     scenes-app-data-management-definition-view--event-definition-metadata--narrow--dark:
-        hash: v1.k794b7964.fa02aff6c3c5b88709c42a088972474575559cc980e33f25734eea53be4fac35.PQQGRGFr9YaBx71JExwUNMuFTxvU7l5JCjJVH6N-slE
+        hash: v1.k794b7964.fab0ed445e5db2f37de6e76fa0935b6de8367cfca98d06a3c5ef52d7be3029b9.lNrv8v1UIH9mq3fTSWgKM4orFFl1V-84t9MFfnOqlcU
     scenes-app-data-management-definition-view--event-definition-metadata--narrow--light:
-        hash: v1.k794b7964.b1d54dc7d0155f640a85ff2ce645a2086a2486ad36fa11d3745cefe97b5a8311.s1PwclMeHSwy_lv39mk-_6hxXCZ9MrPVGqJseH0metc
+        hash: v1.k794b7964.3f4d91e8f616b1713a2f1ea70c400d5e2188c265bca97fbe54c10b004fbbc1fa.pCFHzkJnPxOFdwC7-QK7kysAs9I3AZwFPJYNYgBeJXY
     scenes-app-data-management-definition-view--event-definition-metadata--superwide--dark:
-        hash: v1.k794b7964.c25f416b46ad72bcd5b59da13a1147c215b9e0f36d51e7eb19adf9b7386f238e.8XQT4wBHoM4WaZW5PZlzySTKFKj6TtbzCcUjC71ZEbE
+        hash: v1.k794b7964.ed3742df3518eaab9916973b07e971ba375763a991b3df1bb96a2d60a4ea1614.orHFPz15RGlaVrvgZ56jgFa6B9yRkEEjd77oZ6VxQJ4
     scenes-app-data-management-definition-view--event-definition-metadata--superwide--light:
-        hash: v1.k794b7964.8b3fff0cb878ee0030fa94db7213eaa366cc43b73eb28bdf0966c5ed01d46484.LcckH_FIGPc7aMMGIJ_LzbVqUdajnUBTHfcSMZM02h8
+        hash: v1.k794b7964.218c3d5c315230f19a296de9b543838b592b218426ffb7e7d40a2402c97d887d.bKwdGLJrJfFINJ7uGje7bqzwUDPIOokLanHxPCEkU04
     scenes-app-data-management-definition-view--event-definition-metadata--wide--dark:
-        hash: v1.k794b7964.cde90f6139bffca3a3186650772ff3ee3899ed026ab2603018e19a9b96aeade0.7rkUkg3q73ROrF89l8-p1zQQIr00XDaIjdU7EotoNiU
+        hash: v1.k794b7964.a47a62c03d11627b2de464cfa4898c3e7958165857f807890d6753b5d2999194.S7UOOaYEN5MWOAzBpV8Ks8Ns3lpEVVAXz9b1I9TGNX0
     scenes-app-data-management-definition-view--event-definition-metadata--wide--light:
-        hash: v1.k794b7964.ff6b9229664d87dc67da826166a3e06e826a038c8bdba68114611c8ec23eaf6e.Y3LODx-KcFLPF7XmJ6g7CooJU7s5F_zteunfd4RPEPQ
+        hash: v1.k794b7964.76c7298d826c789d2d13bb5fc6f378eb25900695c508d04c478b48fae27ba110.HmEQYvy5abBpRaNyShSAU5Uf_UENmk9F_Irrxk_TIog
     scenes-app-data-management-event-definitions--default--dark:
         hash: v1.k794b7964.04bce4680337c769135bed6dbf746bf9b4514372dac828332003077e8665f826.QQK7usEkEfW6T4iqwtYzrFIN7cToBo1aPjGmHQFYNwU
     scenes-app-data-management-event-definitions--default--light:
