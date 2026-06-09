@@ -1152,6 +1152,37 @@ class TestHogFlowAPI(APIBaseTest):
         response = self._post_batch_with_cohort(cohort.pk, status="draft")
         assert response.status_code == 201, response.json()
 
+    def _post_event_trigger_with_cohort(self, cohort_id: int, *, status: str = "draft", **extra):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                    "properties": [{"key": "id", "type": "cohort", "value": cohort_id, "operator": "in"}],
+                },
+            },
+        }
+        hog_flow = {"name": "Test Event Flow", "status": status, "actions": [trigger_action]}
+        return self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, **extra)
+
+    def test_hog_flow_event_trigger_cohort_filter_rejected_for_mcp_draft(self):
+        # Cohorts can't be evaluated in real-time event filters. Generalized strict validation rejects this
+        # at create for programmatic callers, instead of silently storing a filter that won't compile and
+        # only surfacing the failure at enable (which reads to the caller as a successful create).
+        cohort = self._make_cohort(behavioral=True)
+        response = self._post_event_trigger_with_cohort(cohort.pk, HTTP_X_POSTHOG_CLIENT="mcp")
+        assert response.status_code == 400, response.json()
+        assert "cohort" in str(response.json()).lower()
+
+    def test_hog_flow_event_trigger_cohort_filter_allowed_for_web_draft(self):
+        # Web builder drafts stay lenient so incomplete graphs can be saved mid-edit.
+        cohort = self._make_cohort(behavioral=True)
+        response = self._post_event_trigger_with_cohort(cohort.pk)
+        assert response.status_code == 201, response.json()
+
     def test_hog_flow_user_blast_radius_requires_filters(self):
         with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
             response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {})
