@@ -485,22 +485,25 @@ def _gather_heatmap_data(
     if not team.heatmaps_opt_in:
         return {"opted_in": False}
 
-    common = {
-        "page_url": page_url,
-        "date_from": date_from,
-        "date_to": date_to,
-        "vmin": viewport_width_min,
-        "vmax": viewport_width_max,
-    }
+    def predicates(heatmap_type: str) -> tuple[dict[str, Any], list[ast.Expr]]:
+        return _heatmap_predicates(
+            team,
+            type=heatmap_type,
+            page_url=page_url,
+            date_from=date_from,
+            date_to=date_to,
+            vmin=viewport_width_min,
+            vmax=viewport_width_max,
+        )
 
-    click_validated, click_exprs = _heatmap_predicates(team, type="click", **common)
+    click_validated, click_exprs = predicates("click")
     # Drop (0, 0) origin noise the same way the heatmaps endpoint does for positional types.
     click_exprs.append(parse_expr("NOT (x = 0 AND y = 0)"))
 
-    _rage_validated, rage_exprs = _heatmap_predicates(team, type="rageclick", **common)
+    _rage_validated, rage_exprs = predicates("rageclick")
     rage_exprs.append(parse_expr("NOT (x = 0 AND y = 0)"))
 
-    _scroll_validated, scroll_exprs = _heatmap_predicates(team, type="scrolldepth", **common)
+    _scroll_validated, scroll_exprs = predicates("scrolldepth")
 
     resolved_from: date = click_validated["date_from"]
     resolved_to: date = click_validated.get("date_to") or date.today()
