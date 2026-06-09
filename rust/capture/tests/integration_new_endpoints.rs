@@ -18,119 +18,45 @@ use capture::config::CaptureMode;
 
 #[tokio::test]
 async fn test_i_v0_e_endpoint() {
-    let base_path = "/i/v0/e";
+    run_endpoint_suite("/i/v0/e").await;
+}
 
-    // NOT currently supported by new capture endpoint handlers
+#[tokio::test]
+async fn test_batch_endpoint() {
+    run_endpoint_suite("/batch").await;
+}
+
+#[tokio::test]
+async fn test_ai_batch_endpoint() {
+    run_endpoint_suite("/i/v0/ai/batch").await;
+}
+
+// Exercises the full payload-shape/encoding matrix against a single base path.
+// Each case's title already encodes the request method (new_get-, new_post-,
+// get_with_body-), so a failing assertion still identifies both the path (test
+// name) and the specific case.
+async fn run_endpoint_suite(base_path: &'static str) {
+    // GET requests: only the subset of encodings the new handlers accept via query params
     for mut unit in get_cases() {
         unit.base_path = base_path;
         execute_test(&unit).await;
     }
-}
-
-#[tokio::test]
-async fn test_i_v0_e_endpoint_post() {
-    let base_path = "/i/v0/e";
 
     // POST requests with payload in body, metadata in POST form or GET params
     for mut unit in post_cases() {
         unit.base_path = base_path;
         execute_test(&unit).await;
     }
-}
 
-#[tokio::test]
-async fn test_i_v0_e_endpoint_get_with_body() {
     // GET requests with a body payload are treated identically to POST requests
     let mut get_with_body_cases = post_cases();
-
     get_with_body_cases
         .iter_mut()
         .for_each(|tc: &mut TestCase| {
-            tc.base_path = "/i/v0/e";
+            tc.base_path = base_path;
             tc.method = Method::GetWithBody;
             tc.title = tc.title.replace("post-", "get_with_body-");
         });
-
-    for unit in get_with_body_cases {
-        execute_test(&unit).await;
-    }
-}
-
-#[tokio::test]
-async fn test_batch_endpoint_get() {
-    let base_path = "/batch";
-
-    // NOT currently supported by new capture endpoint handlers
-    for mut unit in get_cases() {
-        unit.base_path = base_path;
-        execute_test(&unit).await;
-    }
-}
-
-#[tokio::test]
-async fn test_batch_endpoint_post() {
-    let base_path = "/batch";
-
-    // POST requests with payload in body, metadata in POST form or GET params
-    for mut unit in post_cases() {
-        unit.base_path = base_path;
-        execute_test(&unit).await;
-    }
-}
-
-#[tokio::test]
-async fn test_batch_endpoint_get_with_body() {
-    // GET requests with a body payload are treated identically to POST requests
-    let mut get_with_body_cases = post_cases();
-
-    get_with_body_cases
-        .iter_mut()
-        .for_each(|tc: &mut TestCase| {
-            tc.base_path = "/batch";
-            tc.method = Method::GetWithBody;
-            tc.title = tc.title.replace("post-", "get_with_body-");
-        });
-
-    for unit in get_with_body_cases {
-        execute_test(&unit).await;
-    }
-}
-
-#[tokio::test]
-async fn test_ai_batch_endpoint_get() {
-    let base_path = "/i/v0/ai/batch";
-
-    // NOT currently supported by new capture endpoint handlers
-    for mut unit in get_cases() {
-        unit.base_path = base_path;
-        execute_test(&unit).await;
-    }
-}
-
-#[tokio::test]
-async fn test_ai_batch_endpoint_post() {
-    let base_path = "/i/v0/ai/batch";
-
-    // POST requests with payload in body, metadata in POST form or GET params
-    for mut unit in post_cases() {
-        unit.base_path = base_path;
-        execute_test(&unit).await;
-    }
-}
-
-#[tokio::test]
-async fn test_ai_batch_endpoint_get_with_body() {
-    // GET requests with a body payload are treated identically to POST requests
-    let mut get_with_body_cases = post_cases();
-
-    get_with_body_cases
-        .iter_mut()
-        .for_each(|tc: &mut TestCase| {
-            tc.base_path = "/i/v0/ai/batch";
-            tc.method = Method::GetWithBody;
-            tc.title = tc.title.replace("post-", "get_with_body-");
-        });
-
     for unit in get_with_body_cases {
         execute_test(&unit).await;
     }
