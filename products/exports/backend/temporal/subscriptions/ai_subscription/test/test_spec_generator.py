@@ -6,7 +6,11 @@ from unittest.mock import MagicMock, patch
 
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition
 
-from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import QueryPlan, QueryPlanStep
+from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
+    QueryPlan,
+    QueryPlanStep,
+    RelevantEvents,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH,
     PromptRejectedError,
@@ -14,7 +18,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     _group_type_labels,
     _no_data_event_names,
     _person_property_names,
-    _prompt_relevant_event_names,
+    _select_relevant_events,
     build_context_blob,
     generate_query_plan,
     sanitize_prompt,
@@ -95,34 +99,30 @@ class TestGroupTypeLabels(APIBaseTest):
         assert labels == ["group_0 = organization", "group_1 = project"]
 
 
-class TestPromptRelevantEventNames(APIBaseTest):
-    def test_matches_by_prompt_token_including_plural(self) -> None:
+class TestSelectRelevantEvents(APIBaseTest):
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_keeps_real_events_and_drops_hallucinations(self, mock_chat: MagicMock) -> None:
         EventDefinition.objects.create(team=self.team, name="export created")
-        EventDefinition.objects.create(team=self.team, name="export failed")
         EventDefinition.objects.create(team=self.team, name="alert created")
-        EventDefinition.objects.create(team=self.team, name="$pageview")
+        structured = mock_chat.return_value.with_structured_output.return_value
+        # the model returns one real event plus one it invented; the invented name must be dropped
+        structured.invoke.return_value = RelevantEvents(events=["export created", "totally made up event"])
 
-        # "exports" (plural) must still match the singular "export ..." event names
-        names = _prompt_relevant_event_names(self.team, "how are exports doing?", limit=12)
+        assert _select_relevant_events(self.team, self.user, "how are exports doing?") == ["export created"]
 
-        assert "export created" in names
-        assert "export failed" in names
-        assert "alert created" not in names
-        assert "$pageview" not in names
-
-    def test_singularizes_four_letter_plural_token(self) -> None:
-        EventDefinition.objects.create(team=self.team, name="job created")
-        # "jobs" is exactly PROMPT_TOKEN_MIN_LENGTH (4 chars) — it must still singularize to "job"
-        assert "job created" in _prompt_relevant_event_names(self.team, "show jobs", limit=12)
-
-    def test_returns_empty_when_prompt_is_only_generic_filler(self) -> None:
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_falls_back_to_empty_on_llm_error(self, mock_chat: MagicMock) -> None:
         EventDefinition.objects.create(team=self.team, name="export created")
-        assert _prompt_relevant_event_names(self.team, "give me a weekly summary", limit=12) == []
+        mock_chat.return_value.with_structured_output.return_value.invoke.side_effect = RuntimeError("boom")
 
-    def test_respects_limit(self) -> None:
-        for i in range(5):
-            EventDefinition.objects.create(team=self.team, name=f"export variant {i}")
-        assert len(_prompt_relevant_event_names(self.team, "exports", limit=2)) == 2
+        # a selection failure degrades to no relevant events rather than raising
+        assert _select_relevant_events(self.team, self.user, "exports") == []
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_no_candidate_events_skips_the_llm(self, mock_chat: MagicMock) -> None:
+        # no EventDefinitions → nothing to select from → never calls the model
+        assert _select_relevant_events(self.team, self.user, "exports") == []
+        mock_chat.assert_not_called()
 
 
 class TestEventPropertyNames(APIBaseTest):
@@ -164,26 +164,20 @@ class TestContextBlob(APIBaseTest):
 
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
     @patch(f"{_SG}._top_event_names", return_value=[])
-    def test_surfaces_prompt_relevant_events_and_their_property_schema(
-        self, _mock_top: object, _mock_groups: object
-    ) -> None:
-        EventDefinition.objects.create(team=self.team, name="export created", last_seen_at=datetime.now(tz=UTC))
+    def test_surfaces_selected_events_and_their_property_schema(self, _mock_top: object, _mock_groups: object) -> None:
         EventProperty.objects.create(team=self.team, event="export created", property="format")
 
-        blob = build_context_blob(self.team, window_days=7, prompt="how are exports doing?")
+        blob = build_context_blob(self.team, window_days=7, relevant_events=["export created"])
 
         assert "Events matching your request: export created" in blob
         assert "`export created` properties (use properties.<name>): format" in blob
 
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
     @patch(f"{_SG}._top_event_names", return_value=["$pageview"])
-    def test_injects_property_schema_for_prompt_matched_top_event(
-        self, _mock_top: object, _mock_groups: object
-    ) -> None:
-        EventDefinition.objects.create(team=self.team, name="$pageview", last_seen_at=datetime.now(tz=UTC))
+    def test_injects_property_schema_for_selected_top_event(self, _mock_top: object, _mock_groups: object) -> None:
         EventProperty.objects.create(team=self.team, event="$pageview", property="$browser")
 
-        blob = build_context_blob(self.team, window_days=7, prompt="show pageview breakdown by browser")
+        blob = build_context_blob(self.team, window_days=7, relevant_events=["$pageview"])
 
         # $pageview is already under "Top events", so it's not repeated in the matched-names line...
         assert "Events matching your request" not in blob
@@ -192,9 +186,7 @@ class TestContextBlob(APIBaseTest):
 
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
     @patch(f"{_SG}._top_event_names", return_value=[])
-    def test_omits_relevant_section_without_a_prompt(self, _mock_top: object, _mock_groups: object) -> None:
-        EventDefinition.objects.create(team=self.team, name="export created", last_seen_at=datetime.now(tz=UTC))
-
+    def test_omits_relevant_section_without_selected_events(self, _mock_top: object, _mock_groups: object) -> None:
         blob = build_context_blob(self.team, window_days=7)
 
         assert "Events matching your request" not in blob
