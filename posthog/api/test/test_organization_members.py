@@ -534,10 +534,10 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
     def test_list_organization_members_search_matches_literal_substring_below_trigram_threshold(self, _name, email):
         User.objects.create_and_join(self.organization, email, None, first_name="Real", last_name="Person")
         User.objects.create_and_join(
-            self.organization, "unrelated@example.com", None, first_name="Bob", last_name="Jones"
+            self.organization, "nomatch@unrelated.test", None, first_name="Bob", last_name="Jones"
         )
 
-        response = self.client.get(f"/api/organizations/@current/members/?search={email}")
+        response = self.client.get("/api/organizations/@current/members/", {"search": email})
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
 
@@ -545,7 +545,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         assert match_type_by_email.get(email) == "exact", (
             "a literal email substring must match and be labelled exact even when it scores below the trigram thresholds"
         )
-        assert "unrelated@example.com" not in match_type_by_email
+        assert "nomatch@unrelated.test" not in match_type_by_email
 
     def test_list_organization_members_search_returns_exact_first_with_match_type(self):
         User.objects.create_and_join(
