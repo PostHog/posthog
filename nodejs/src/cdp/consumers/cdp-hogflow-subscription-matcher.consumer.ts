@@ -248,6 +248,11 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         const conversionEvents = hogflow.conversion?.events ?? []
         const context = { hogFlowId: hogflow.id }
         for (const eventConfig of conversionEvents) {
+            // Same always-true guard as wait_until_condition: an entry targeting neither events nor
+            // actions compiles to always-true bytecode and would convert on every incoming event.
+            if (!eventConfig.filters?.events?.length && !eventConfig.filters?.actions?.length) {
+                continue
+            }
             if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
                 return true
             }

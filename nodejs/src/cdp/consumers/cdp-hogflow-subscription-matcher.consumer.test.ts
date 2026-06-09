@@ -527,6 +527,35 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(newState.state.conversionMatched).toBe(true)
         })
 
+        it('does not wake on an empty conversion "events" entry (always-true bytecode)', async () => {
+            // A conversion entry that targets neither events nor actions compiles to always-true
+            // bytecode and would otherwise mark every incoming event as a conversion.
+            const flow = makeHogFlow({
+                id: 'flow-1',
+                conversion: { events: [{ filters: { bytecode: ['_H', 1, 29], events: [] } }] } as any,
+            } as any)
+            matcher.findRows = [
+                {
+                    id: 'job-c',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            // Wire the wake path so that IF the empty entry incorrectly matched, an UPDATE would
+            // be produced — otherwise this assertion would pass trivially.
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) }]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({ 'flow-1': flow })
+
+            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'unrelated_event' } })])
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeUndefined()
+        })
+
         it('does not wake when neither step filter nor conversion matches', async () => {
             matcher.findRows = [
                 {

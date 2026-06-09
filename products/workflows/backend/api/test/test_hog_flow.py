@@ -754,6 +754,40 @@ class TestHogFlowAPI(APIBaseTest):
         assert "tier" in bytecode, bytecode
         assert "enterprise" in bytecode, bytecode
 
+    def test_hog_flow_conversion_drops_empty_keeps_action_event(self):
+        # Same always-true guard as wait_until: a conversion "events" entry targeting nothing is
+        # dropped (it would convert on every event), while an action-based entry is kept and compiled.
+        action = Action.objects.create(team=self.team, name="Converted via action", steps_json=[{"event": "converted"}])
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        hog_flow = {
+            "name": "Test Flow Conversion Drop Empty Keep Action",
+            "status": "active",
+            "actions": [trigger_action],
+            "conversion": {
+                "window_minutes": 60,
+                "events": [
+                    {"filters": {"events": []}},
+                    {"filters": {"actions": [{"id": str(action.id), "type": "actions", "order": 0}], "events": []}},
+                ],
+            },
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        conversion_events = response.json()["conversion"]["events"]
+        assert len(conversion_events) == 1, conversion_events
+        assert conversion_events[0]["filters"]["actions"] == [{"id": str(action.id), "type": "actions", "order": 0}]
+        assert conversion_events[0]["filters"]["bytecode"], conversion_events[0]["filters"]
+
     def test_hog_flow_draft_conversion_event_strips_client_supplied_bytecode(self):
         # A draft with invalid conversion-event filters must not persist client-supplied
         # bytecode: conversion is not revalidated on a status-only activation, so it would

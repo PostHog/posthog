@@ -624,7 +624,17 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if "bytecode" not in data["conversion"]:
                 data["conversion"]["bytecode"] = []
 
-            for event_config in conversion.get("events") or []:
+            # Drop conversion "events" entries that target neither events nor actions, for the same
+            # always-true reason as the wait_until_condition guard above: an empty entry would mark
+            # every incoming event as a conversion. Action-based entries (events empty, actions set)
+            # are kept.
+            conversion_events = [
+                ec
+                for ec in (conversion.get("events") or [])
+                if (ec.get("filters") or {}).get("events") or (ec.get("filters") or {}).get("actions")
+            ]
+            data["conversion"]["events"] = conversion_events
+            for event_config in conversion_events:
                 event_filters = event_config.get("filters")
                 if event_filters is not None:
                     event_serializer = HogFunctionFiltersSerializer(data=event_filters, context=self.context)
