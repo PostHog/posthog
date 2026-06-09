@@ -25,6 +25,48 @@ export type { PreBuiltTool }
 
 const EMPTY_OBJECT_JSON_SCHEMA = { type: 'object' as const, properties: {} }
 
+/**
+ * JSON-Schema convention: a property carrying a `default` is omittable and must not
+ * appear in `required`. The Zod→JSON-Schema converter only honors this in input mode;
+ * were its conversion mode ever to flip to output (e.g. on an SDK bump), every
+ * defaulted field would be promoted into `required` — inflating every MCP call with
+ * boilerplate the agent shouldn't have to reason about, contradicting the tools' own
+ * "be minimalist" guidance. Strip such fields defensively so the invariant holds
+ * regardless of conversion mode. The tool-schema invariant test enforces it.
+ */
+export function stripDefaultedFromRequired(node: unknown): void {
+    if (Array.isArray(node)) {
+        for (const item of node) {
+            stripDefaultedFromRequired(item)
+        }
+        return
+    }
+    if (!node || typeof node !== 'object') {
+        return
+    }
+    const obj = node as Record<string, unknown>
+    const properties = obj['properties']
+    const required = obj['required']
+    if (properties && typeof properties === 'object' && Array.isArray(required)) {
+        const props = properties as Record<string, unknown>
+        const filtered = required.filter((name) => {
+            if (typeof name !== 'string') {
+                return true
+            }
+            const prop = props[name]
+            return !(prop && typeof prop === 'object' && 'default' in (prop as Record<string, unknown>))
+        })
+        if (filtered.length === 0) {
+            delete obj['required']
+        } else {
+            obj['required'] = filtered
+        }
+    }
+    for (const value of Object.values(obj)) {
+        stripDefaultedFromRequired(value)
+    }
+}
+
 export class ToolCatalog {
     private _preBuilt: Map<string, PreBuiltTool> = new Map()
     private _entries: McpTool[] = []
@@ -92,6 +134,7 @@ export class ToolCatalog {
                 if (!jsonSchema['type'] && (Array.isArray(jsonSchema['anyOf']) || Array.isArray(jsonSchema['oneOf']))) {
                     jsonSchema = { type: 'object', ...jsonSchema }
                 }
+                stripDefaultedFromRequired(jsonSchema)
             } catch {
                 jsonSchema = EMPTY_OBJECT_JSON_SCHEMA
             }

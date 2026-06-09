@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-import { ToolCatalog } from '@/hono/tool-catalog'
+import { ToolCatalog, stripDefaultedFromRequired } from '@/hono/tool-catalog'
 import type { ToolBase, ZodObjectAny } from '@/tools/types'
 
 type FakeDefinition = {
@@ -186,5 +186,73 @@ describe('ToolCatalog', () => {
             const tools = coldCatalog.getFilteredTools({ scopes: [] })
             expect(tools).toEqual([])
         })
+    })
+})
+
+describe('stripDefaultedFromRequired', () => {
+    it('removes defaulted properties from required while keeping mandatory ones', () => {
+        const schema = {
+            type: 'object',
+            properties: {
+                issueId: { type: 'string' },
+                status: { type: 'string', default: 'active' },
+                limit: { type: 'number', default: 25 },
+            },
+            required: ['issueId', 'status', 'limit'],
+        }
+        stripDefaultedFromRequired(schema)
+        expect(schema.required).toEqual(['issueId'])
+    })
+
+    it('drops the required array entirely when only defaulted properties remain', () => {
+        const schema = {
+            type: 'object',
+            properties: { kind: { type: 'string', const: 'RecordingsQuery', default: 'RecordingsQuery' } },
+            required: ['kind'],
+        }
+        stripDefaultedFromRequired(schema)
+        expect(schema).not.toHaveProperty('required')
+    })
+
+    it('recurses into nested objects, array items, and unions', () => {
+        const schema = {
+            type: 'object',
+            properties: {
+                nested: {
+                    type: 'object',
+                    properties: { a: { type: 'string', default: 'x' }, b: { type: 'string' } },
+                    required: ['a', 'b'],
+                },
+                items: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: { c: { type: 'number', default: 1 } },
+                        required: ['c'],
+                    },
+                },
+            },
+            anyOf: [
+                {
+                    type: 'object',
+                    properties: { d: { type: 'boolean', default: false }, e: { type: 'string' } },
+                    required: ['d', 'e'],
+                },
+            ],
+        }
+        stripDefaultedFromRequired(schema)
+        expect(schema.properties.nested.required).toEqual(['b'])
+        expect(schema.properties.items.items).not.toHaveProperty('required')
+        expect(schema.anyOf[0]?.required).toEqual(['e'])
+    })
+
+    it('leaves schemas without defaults untouched', () => {
+        const schema = {
+            type: 'object',
+            properties: { a: { type: 'string' }, b: { type: 'number' } },
+            required: ['a', 'b'],
+        }
+        stripDefaultedFromRequired(schema)
+        expect(schema.required).toEqual(['a', 'b'])
     })
 })
