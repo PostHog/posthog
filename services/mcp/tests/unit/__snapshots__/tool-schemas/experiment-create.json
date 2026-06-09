@@ -27,12 +27,29 @@
                                 {
                                     "properties": {
                                         "event": {
-                                            "description": "Custom exposure event name.",
-                                            "type": "string"
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
+                                        },
+                                        "id": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Action ID. Required when kind is 'ActionsNode'."
                                         },
                                         "kind": {
-                                            "const": "ExperimentEventExposureConfig",
-                                            "default": "ExperimentEventExposureConfig",
+                                            "enum": ["ExperimentEventExposureConfig", "ActionsNode"],
                                             "type": "string"
                                         },
                                         "properties": {
@@ -144,7 +161,7 @@
                                             "type": "array"
                                         }
                                     },
-                                    "required": ["event", "properties"],
+                                    "required": ["kind", "properties"],
                                     "type": "object"
                                 },
                                 {
