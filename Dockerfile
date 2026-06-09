@@ -72,7 +72,7 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
         [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ] && \
         apt-get update && \
         apt-get install -y --no-install-recommends ca-certificates curl && \
-        curl --proto '=https' --tlsv1.2 -LsSf https://download.posthog.com/cli | sh && \
+        curl --proto '=https' --tlsv1.2 -LsSf https://github.com/PostHog/posthog/releases/latest/download/posthog-cli-installer.sh | sh && \
         export PATH="/root/.posthog:$PATH" && \
         export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
         export POSTHOG_CLI_ENV_ID=2 && \
