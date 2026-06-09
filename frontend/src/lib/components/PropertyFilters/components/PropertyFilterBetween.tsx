@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-// @ts-expect-error - useId exists in React 18 but @types/react is pinned to v17
 import { useId } from 'react'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'

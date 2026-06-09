@@ -2,7 +2,6 @@ import './TaxonomicFilter.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-// @ts-expect-error - useId exists in React 18 but @types/react is pinned to v17
 import { forwardRef, useEffect, useId, useRef, useState } from 'react'
 
 import { Link } from '@posthog/lemon-ui'

@@ -1,6 +1,5 @@
 import { Placement } from '@floating-ui/react'
 import { useValues } from 'kea'
-// @ts-expect-error - useId exists in React 18 but @types/react is pinned to v17
 import { Ref, forwardRef, useEffect, useId, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
