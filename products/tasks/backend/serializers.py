@@ -2,7 +2,6 @@ import base64
 import binascii
 from zoneinfo import available_timezones
 
-from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 
@@ -24,6 +23,7 @@ from .constants import (
     INITIAL_PERMISSION_MODE_CHOICES,
 )
 from .models import SandboxEnvironment, Task, TaskAutomation, TaskRun
+from .redis import get_tasks_cache
 from .services.title_generator import generate_task_title
 from .temporal.process_task.utils import (
     PUBLIC_REASONING_EFFORTS,
@@ -81,8 +81,30 @@ def build_task_run_artifact_size_error(
     return f"{artifact_name or 'Artifact'} exceeds the {max_mb}MB attachment limit"
 
 
+class TaskFileRequestSerializer(serializers.Serializer):
+    folder = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Destination folder path in the project tree (e.g. 'Tasks/Bugs'). Defaults to 'Tasks'.",
+    )
+
+
+class TaskFileResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Identifier of the project-tree entry for this task.")
+    path = serializers.CharField(help_text="Full slash-separated path of the filed task in the project tree.")
+    type = serializers.CharField(help_text="File system entry type. Always 'task'.")
+    ref = serializers.CharField(help_text="Identifier of the task this entry points to.")
+    href = serializers.CharField(help_text="In-app link to the task.")
+
+
 class TaskSerializer(serializers.ModelSerializer):
-    repository = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
+    repository = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).",
+    )
     # UserIntegration is scoped to request.user in validate_github_user_integration.
     github_user_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
         queryset=UserIntegration.objects.filter(kind="github"),
@@ -93,9 +115,22 @@ class TaskSerializer(serializers.ModelSerializer):
     latest_run = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
-    title = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    description = serializers.CharField(required=False, allow_blank=True)
-    origin_product = serializers.ChoiceField(choices=Task.OriginProduct.choices, required=False)
+    title = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Short human-readable title. Auto-generated from `description` when omitted.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Free-form description of the work to be done. Used as the prompt passed to the agent.",
+    )
+    origin_product = serializers.ChoiceField(
+        choices=Task.OriginProduct.choices,
+        required=False,
+        help_text="PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).",
+    )
     # Write-only: which SignalReportTask row to create when linking a task to a report from the
     # public task API (e.g. PostHog Code inbox). Only implementation is supported; research/repo
     # selection links are created by server-side flows.
@@ -384,14 +419,14 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
         """Return presigned S3 URL for log access, cached to avoid regeneration."""
         cache_key = f"task_run_log_url:{obj.id}"
 
-        cached_url = cache.get(cache_key)
+        cached_url = get_tasks_cache().get(cache_key)
         if cached_url:
             return cached_url
 
         presigned_url = object_storage.get_presigned_url(obj.log_url, expiration=3600)
 
         if presigned_url:
-            cache.set(cache_key, presigned_url, timeout=PRESIGNED_URL_CACHE_TTL)
+            get_tasks_cache().set(cache_key, presigned_url, timeout=PRESIGNED_URL_CACHE_TTL)
 
         return presigned_url
 
@@ -483,6 +518,19 @@ class TaskRunErrorResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         help_text="Artifact ids that could not be resolved for the run",
+    )
+    limit_type = serializers.ChoiceField(
+        choices=[("burst", "burst"), ("sustained", "sustained")],
+        required=False,
+        help_text="Which usage limit was hit on a rate_limited error: 'burst' (daily) or 'sustained' (monthly)",
+    )
+    reset_at = serializers.CharField(
+        required=False,
+        help_text="ISO 8601 timestamp when the hit usage limit resets, when known",
+    )
+    is_pro = serializers.BooleanField(
+        required=False,
+        help_text="Whether the team is on a Pro plan (drives the upgrade-prompt copy)",
     )
 
 

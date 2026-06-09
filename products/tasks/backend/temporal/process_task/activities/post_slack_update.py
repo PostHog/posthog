@@ -7,6 +7,7 @@ from temporalio import activity
 
 from posthog.models.user import User
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.access import has_tasks_access
 
@@ -38,6 +39,7 @@ def _viewer_has_posthog_code_access(viewer: User | None) -> bool:
 
 
 @activity.defn
+@close_db_connections
 def post_slack_update(input: PostSlackUpdateInput) -> None:
     """Post Slack update based on current task run state. Idempotent."""
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler

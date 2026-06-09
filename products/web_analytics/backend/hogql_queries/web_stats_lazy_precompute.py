@@ -57,14 +57,18 @@ WEB_STATS_LAZY_FAILED = Counter(
 # Breakdowns served by `SimpleBreakdownStrategy` / `ChannelTypeStrategy` that we
 # expect to behave well under precompute. UTM/browser/OS/region/city values are
 # user-controlled at ingestion so cardinality is not strictly bounded, but in
-# practice they sit several orders of magnitude below the per-URL breakdowns we
-# deliberately route to the raw path (page/path/referring-URL, FRUSTRATION_METRICS,
-# LANGUAGE). The failure mode for a pathological team is a slow precompute INSERT,
-# not an incorrect result — sort, pagination and HAVING all run in SQL so the
-# read returns exactly the page the user asked for regardless of total distinct
+# practice they sit several orders of magnitude below the per-page breakdowns we
+# deliberately route to the raw path (page/path, FRUSTRATION_METRICS, LANGUAGE).
+# The failure mode for a pathological team is a slow precompute INSERT, not an
+# incorrect result — sort, pagination and HAVING all run in SQL so the read
+# returns exactly the page the user asked for regardless of total distinct
 # values. If a team's INSERT becomes a hotspot we can carve them out via the
 # rollout gate; we are not adding a defensive SQL-side cardinality cap because
 # it would silently truncate results vs. the raw path.
+#
+# INITIAL_REFERRING_URL is the one high-cardinality URL breakdown we precompute:
+# the lazy INSERT runs per daily bucket, which stays tractable where the 28-day
+# raw query times out, so precompute is strictly better than the raw fallback.
 #
 # Tuple/float breakdowns (REGION, CITY, VIEWPORT, TIMEZONE) are supported: the
 # breakdown value is JSON-encoded into the `breakdown_value` String column and
@@ -72,6 +76,7 @@ WEB_STATS_LAZY_FAILED = Counter(
 SUPPORTED_BREAKDOWNS: set[WebStatsBreakdown] = {
     WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
     WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
+    WebStatsBreakdown.INITIAL_REFERRING_URL,
     WebStatsBreakdown.INITIAL_UTM_SOURCE,
     WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
     WebStatsBreakdown.INITIAL_UTM_MEDIUM,

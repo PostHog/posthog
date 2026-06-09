@@ -4,8 +4,7 @@ from django.utils.timezone import now
 
 from temporalio import activity
 
-from posthog.models.exported_asset import ExportedAsset
-
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.types import EnsureSessionAssetInputs, EnsureSessionAssetOutput
 

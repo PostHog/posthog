@@ -45,6 +45,7 @@ import type {
     LlmAnalyticsEvaluationReportsListParams,
     LlmAnalyticsEvaluationReportsRunsListParams,
     LlmAnalyticsModelsRetrieveParams,
+    LlmAnalyticsParserRecipesListParams,
     LlmAnalyticsPersonalSpendListParams,
     LlmAnalyticsProviderKeyValidationsCreate200,
     LlmAnalyticsProviderKeysListParams,
@@ -72,11 +73,13 @@ import type {
     PaginatedLLMPromptListListApi,
     PaginatedLLMProviderKeyListApi,
     PaginatedLLMSkillListListApi,
+    PaginatedParserRecipeListApi,
     PaginatedReviewQueueItemListApi,
     PaginatedReviewQueueListApi,
     PaginatedScoreDefinitionListApi,
     PaginatedTaggerListApi,
     PaginatedTraceReviewListApi,
+    ParserRecipeApi,
     PatchedClusteringJobApi,
     PatchedDatasetApi,
     PatchedDatasetItemApi,
@@ -85,9 +88,11 @@ import type {
     PatchedLLMPromptPublishApi,
     PatchedLLMProviderKeyApi,
     PatchedLLMSkillPublishApi,
+    PatchedParserRecipeApi,
     PatchedReviewQueueItemUpdateApi,
     PatchedReviewQueueUpdateApi,
     PatchedScoreDefinitionMetadataApi,
+    PatchedTaggerUpdateApi,
     PatchedTraceReviewUpdateApi,
     PersonalSpendAnalysisResponseApi,
     ReviewQueueApi,
@@ -105,6 +110,7 @@ import type {
     SummarizeResponseApi,
     TaggerApi,
     TaggerCreateApi,
+    TaggerUpdateApi,
     TaggersListParams,
     TestHogRequestApi,
     TestHogResponseApi,
@@ -1025,6 +1031,101 @@ export const llmAnalyticsOfflineEvaluationsExperimentItemsCreate = async (
             body: JSON.stringify(offlineExperimentItemsRequestApi),
         }
     )
+}
+
+export const getLlmAnalyticsParserRecipesListUrl = (
+    projectId: string,
+    params?: LlmAnalyticsParserRecipesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/llm_analytics/parser_recipes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/llm_analytics/parser_recipes/`
+}
+
+export const llmAnalyticsParserRecipesList = async (
+    projectId: string,
+    params?: LlmAnalyticsParserRecipesListParams,
+    options?: RequestInit
+): Promise<PaginatedParserRecipeListApi> => {
+    return apiMutator<PaginatedParserRecipeListApi>(getLlmAnalyticsParserRecipesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmAnalyticsParserRecipesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/llm_analytics/parser_recipes/`
+}
+
+export const llmAnalyticsParserRecipesCreate = async (
+    projectId: string,
+    parserRecipeApi: NonReadonly<ParserRecipeApi>,
+    options?: RequestInit
+): Promise<ParserRecipeApi> => {
+    return apiMutator<ParserRecipeApi>(getLlmAnalyticsParserRecipesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(parserRecipeApi),
+    })
+}
+
+export const getLlmAnalyticsParserRecipesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/llm_analytics/parser_recipes/${id}/`
+}
+
+export const llmAnalyticsParserRecipesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ParserRecipeApi> => {
+    return apiMutator<ParserRecipeApi>(getLlmAnalyticsParserRecipesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmAnalyticsParserRecipesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/llm_analytics/parser_recipes/${id}/`
+}
+
+export const llmAnalyticsParserRecipesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedParserRecipeApi?: NonReadonly<PatchedParserRecipeApi>,
+    options?: RequestInit
+): Promise<ParserRecipeApi> => {
+    return apiMutator<ParserRecipeApi>(getLlmAnalyticsParserRecipesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedParserRecipeApi),
+    })
+}
+
+export const getLlmAnalyticsParserRecipesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/llm_analytics/parser_recipes/${id}/`
+}
+
+export const llmAnalyticsParserRecipesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsParserRecipesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
 }
 
 export const getLlmAnalyticsProviderKeyValidationsCreateUrl = (projectId: string) => {
@@ -2253,6 +2354,67 @@ export const taggersCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taggerCreateApi),
+    })
+}
+
+export const getTaggersRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/taggers/${id}/`
+}
+
+export const taggersRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<TaggerApi> => {
+    return apiMutator<TaggerApi>(getTaggersRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaggersUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/taggers/${id}/`
+}
+
+export const taggersUpdate = async (
+    projectId: string,
+    id: string,
+    taggerUpdateApi: TaggerUpdateApi,
+    options?: RequestInit
+): Promise<TaggerApi> => {
+    return apiMutator<TaggerApi>(getTaggersUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taggerUpdateApi),
+    })
+}
+
+export const getTaggersPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/taggers/${id}/`
+}
+
+export const taggersPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedTaggerUpdateApi?: PatchedTaggerUpdateApi,
+    options?: RequestInit
+): Promise<TaggerApi> => {
+    return apiMutator<TaggerApi>(getTaggersPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTaggerUpdateApi),
+    })
+}
+
+export const getTaggersDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/taggers/${id}/`
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export const taggersDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
+    return apiMutator<unknown>(getTaggersDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

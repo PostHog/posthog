@@ -56,7 +56,7 @@ class CIMDVerificationTokenWithValueSerializer(CIMDVerificationTokenSerializer):
         read_only_fields = [*CIMDVerificationTokenSerializer.Meta.read_only_fields, "value"]
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class CIMDVerificationTokenViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,

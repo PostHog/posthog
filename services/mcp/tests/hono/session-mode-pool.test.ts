@@ -6,22 +6,13 @@
 // `tools/call` carrying a different vendor must NOT flip the resolved
 // mode/version.
 //
-// To probe the resolved mode DIRECTLY via a `tools/call` (the user flow
-// under test) we exploit tools that are gated by `mcpVersion` in the catalog.
-// The state resolver filters `state.allTools` by the resolved `version`
-// (`tool-catalog.ts:161-163`), and `handleToolCall` returns the guard
-// "Tool <name> not found" (`tool-executor.ts:78-80`) when the requested
-// tool is absent from `state.allTools`.
-//
-// cli mode pins `version=2`. A v2-only tool (e.g. `query-session-recordings-list`)
-// is present iff this request resolved to v2; a v1-only tool
-// (e.g. `accounts-list`) is absent iff this request resolved to v2.
-//
-// If cli mode survives the vendor flip on the pooled session, calling the
-// v2-only tool dispatches (any non-"not found" response) and calling the
-// v1-only tool returns the missing-tool guard. If mode flipped to v1, both
-// outcomes reverse. That's a direct observable for "the resolved mode at
-// headers_2 equals the resolved mode at headers_1".
+// To probe the resolved mode DIRECTLY we issue a raw `tools/list` on the pooled
+// session: cli (single-exec) mode collapses the wire roster to a single `exec`
+// tool, while tools mode exposes the full multi-tool roster. If cli mode
+// survives the vendor flip, a `tools/list` carrying the flipped vendor still
+// returns just `[exec]`; if mode flipped to tools, it would return the full
+// roster. That's a direct observable for "the resolved mode at headers_2 equals
+// the resolved mode at headers_1".
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { setupServer } from 'msw/node'
@@ -65,10 +56,6 @@ let app: ReturnType<typeof createApp>['app']
 const TOKEN = 'phx_session_mode_pool_test'
 const BASE_URL = new URL('http://hono.test')
 
-// Tools chosen as version-specific probes (see file header for rationale).
-const V1_ONLY_TOOL = 'accounts-list'
-const V2_ONLY_TOOL = 'query-session-recordings-list'
-
 beforeAll(async () => {
     process.env.TEST = '1'
     process.env.MCP_APPS_BASE_URL = 'https://apps.test'
@@ -89,11 +76,11 @@ const fetchViaApp: typeof fetch = async (input, init) => {
 
 type ConnectableTransport = Parameters<Client['connect']>[0]
 
-interface ToolCallResponse {
-    result?: { content?: Array<{ type: string; text: string }>; isError?: boolean }
+interface ToolsListResponse {
+    result?: { tools?: Array<{ name: string }> }
 }
 
-async function callToolOnSession(sessionId: string, vendorClient: string, toolName: string): Promise<ToolCallResponse> {
+async function listToolsOnSession(sessionId: string, vendorClient: string): Promise<Array<{ name: string }>> {
     const res = await fetchViaApp(new URL('/mcp', BASE_URL), {
         method: 'POST',
         headers: {
@@ -105,17 +92,14 @@ async function callToolOnSession(sessionId: string, vendorClient: string, toolNa
         },
         body: JSON.stringify({
             jsonrpc: '2.0',
-            id: 'pool-tools-call',
-            method: 'tools/call',
-            params: { name: toolName, arguments: {} },
+            id: 'pool-tools-list',
+            method: 'tools/list',
+            params: {},
         }),
     })
     expect(res.status).toBe(200)
-    return (await res.json()) as ToolCallResponse
-}
-
-function firstText(resp: ToolCallResponse): string {
-    return resp.result?.content?.[0]?.text ?? ''
+    const json = (await res.json()) as ToolsListResponse
+    return json.result?.tools ?? []
 }
 
 describe('Resolved mode is preserved across pooled-transport vendor flips', () => {
@@ -153,20 +137,13 @@ describe('Resolved mode is preserved across pooled-transport vendor flips', () =
         expect(cachedTools.tools[0]!.name).toBe('exec')
 
         // headers_2 — pool member with a non-coding-agent vendor. If the
-        // resolver re-derives mode from the live request, `vendorClient='ClaudeAI'`
+        // resolver re-derived mode from the live request, `vendorClient='ClaudeAI'`
         // + cached `clientName='Anthropic/ClaudeAI'` both miss the coding-agent
-        // fragments -> resolves to tools mode (v1) -> the v2-only tool falls out
-        // of `state.allTools` and the dispatcher returns "not found". With the
-        // initial vendor hint cached, the request stays at v2 and the v2-only
-        // tool dispatches.
-        const probe = await callToolOnSession(sessionId!, 'ClaudeAI', V2_ONLY_TOOL)
-        expect(firstText(probe)).not.toMatch(new RegExp(`Tool ${V2_ONLY_TOOL} not found`, 'i'))
-
-        // Symmetric negative probe: a v1-only tool must STILL be absent under
-        // the preserved cli/v2 mode.
-        const negative = await callToolOnSession(sessionId!, 'ClaudeAI', V1_ONLY_TOOL)
-        expect(negative.result?.isError).toBe(true)
-        expect(firstText(negative)).toMatch(new RegExp(`Tool ${V1_ONLY_TOOL} not found`, 'i'))
+        // fragments -> resolves to tools mode -> a `tools/list` would expose the
+        // full multi-tool roster. With the initial vendor hint cached, the request
+        // stays in cli mode and the roster still collapses to a single `exec`.
+        const pooledRoster = await listToolsOnSession(sessionId!, 'ClaudeAI')
+        expect(pooledRoster.map((t) => t.name)).toEqual(['exec'])
 
         await clientA.close()
     })

@@ -6,7 +6,7 @@ import {
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsActivityRetrieveQueryParams,
     FeatureFlagsBulkDeleteCreateBody,
-    FeatureFlagsBulkKeysCreateBody,
+    FeatureFlagsBulkKeysRetrieveBody,
     FeatureFlagsBulkUpdateTagsCreateBody,
     FeatureFlagsCopyFlagsCreateBody,
     FeatureFlagsCreateBody,
@@ -209,12 +209,15 @@ const featureFlagsBulkDeleteCreate = (): ToolBase<
     },
 })
 
-const FeatureFlagsBulkKeysCreateSchema = FeatureFlagsBulkKeysCreateBody
+const FeatureFlagsBulkKeysRetrieveSchema = FeatureFlagsBulkKeysRetrieveBody
 
-const featureFlagsBulkKeysCreate = (): ToolBase<typeof FeatureFlagsBulkKeysCreateSchema, Schemas.BulkKeysResponse> => ({
-    name: 'feature-flags-bulk-keys-create',
-    schema: FeatureFlagsBulkKeysCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagsBulkKeysCreateSchema>) => {
+const featureFlagsBulkKeysRetrieve = (): ToolBase<
+    typeof FeatureFlagsBulkKeysRetrieveSchema,
+    Schemas.BulkKeysResponse
+> => ({
+    name: 'feature-flags-bulk-keys-retrieve',
+    schema: FeatureFlagsBulkKeysRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsBulkKeysRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.ids !== undefined) {
@@ -627,7 +630,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-flag-get-definition': featureFlagGetDefinition,
     'feature-flags-activity-retrieve': featureFlagsActivityRetrieve,
     'feature-flags-bulk-delete-create': featureFlagsBulkDeleteCreate,
-    'feature-flags-bulk-keys-create': featureFlagsBulkKeysCreate,
+    'feature-flags-bulk-keys-retrieve': featureFlagsBulkKeysRetrieve,
     'feature-flags-bulk-update-tags-create': featureFlagsBulkUpdateTagsCreate,
     'feature-flags-copy-flags-create': featureFlagsCopyFlagsCreate,
     'feature-flags-dependent-flags-retrieve': featureFlagsDependentFlagsRetrieve,

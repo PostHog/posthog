@@ -4,6 +4,8 @@ from datetime import datetime
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
 
+from parameterized import parameterized
+
 from posthog.hogql.query import execute_hogql_query
 
 from products.ai_observability.backend.queries import get_sessions_query
@@ -47,6 +49,7 @@ def _create_ai_generation_event(
     cost: float | None = None,
     latency: float | None = None,
     is_error: bool = False,
+    tools_called: str | None = None,
     timestamp: datetime | None = None,
 ):
     props: dict = {
@@ -60,6 +63,8 @@ def _create_ai_generation_event(
         props["$ai_latency"] = latency
     if is_error:
         props["$ai_is_error"] = "true"
+    if tools_called is not None:
+        props["$ai_tools_called"] = tools_called
 
     _create_event(
         event="$ai_generation",
@@ -383,6 +388,61 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
         self.assertEqual(row["generations"], 2)
         self.assertEqual(row["total_cost"], 0.8)  # 0.5 + 0.3
         self.assertEqual(row["total_latency"], 3.0)  # 2.0 + 1.0 (sum of children)
+
+    def test_session_surfaces_first_trace_distinct_id(self):
+        _create_person(distinct_ids=["early-user", "late-user"], team=self.team)
+
+        # Earlier trace, distinct_id "early-user"
+        _create_ai_generation_event(
+            trace_id="trace-early",
+            session_id="session-1",
+            distinct_id="early-user",
+            cost=0.1,
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0, 0),
+        )
+        # Later trace in the same session, different distinct_id
+        _create_ai_generation_event(
+            trace_id="trace-late",
+            session_id="session-1",
+            distinct_id="late-user",
+            cost=0.1,
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 5, 0),
+        )
+
+        results = self._execute_sessions_query()
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["distinct_id"], "early-user")
+
+    @parameterized.expand(
+        [
+            # Comma-separated and repeated within a generation, plus across generations and a tool-less one
+            (
+                "dedupes within and across generations",
+                ["search,search,read_taxonomy", "execute_sql,search", None],
+                ["execute_sql", "read_taxonomy", "search"],
+            ),
+            ("no tools returns empty list", [None], []),
+        ]
+    )
+    def test_session_tools_aggregation(self, _name, tools_per_generation, expected_tools):
+        _create_person(distinct_ids=["test-user"], team=self.team)
+
+        for index, tools_called in enumerate(tools_per_generation):
+            _create_ai_generation_event(
+                trace_id=f"trace-{index}",
+                session_id="session-1",
+                tools_called=tools_called,
+                team=self.team,
+                timestamp=datetime(2025, 1, 15, index, 0),
+            )
+
+        results = self._execute_sessions_query()
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(sorted(results[0]["tools"]), expected_tools)
 
     def test_mixed_traces_with_and_without_trace_event(self):
         _create_person(distinct_ids=["test-user"], team=self.team)

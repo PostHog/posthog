@@ -4,9 +4,10 @@ from typing import Optional
 import structlog
 
 from posthog.email import EmailMessage
-from posthog.models.exported_asset import ExportedAsset
-from posthog.models.subscription import Subscription, get_unsubscribe_token
 from posthog.utils import absolute_uri
+
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.subscription import Subscription, get_unsubscribe_token
 
 from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, UTM_TAGS_BASE, _has_asset_failed
 

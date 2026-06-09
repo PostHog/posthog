@@ -26,8 +26,6 @@ import type {
     PersonsCohortsRetrieveParams,
     PersonsDeletePropertyCreateParams,
     PersonsDeletionStatusListParams,
-    PersonsFunnelCorrelationCreateParams,
-    PersonsFunnelCorrelationRetrieveParams,
     PersonsFunnelCreateParams,
     PersonsFunnelRetrieveParams,
     PersonsLifecycleRetrieveParams,
@@ -620,75 +618,6 @@ export const personsFunnelCreate = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getPersonsFunnelCreateUrl(projectId, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(personRecordApi),
-    })
-}
-
-export const getPersonsFunnelCorrelationRetrieveUrl = (
-    projectId: string,
-    params?: PersonsFunnelCorrelationRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/persons/funnel/correlation/?${stringifiedParams}`
-        : `/api/projects/${projectId}/persons/funnel/correlation/`
-}
-
-/**
- * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
- */
-export const personsFunnelCorrelationRetrieve = async (
-    projectId: string,
-    params?: PersonsFunnelCorrelationRetrieveParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsFunnelCorrelationRetrieveUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getPersonsFunnelCorrelationCreateUrl = (
-    projectId: string,
-    params?: PersonsFunnelCorrelationCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/persons/funnel/correlation/?${stringifiedParams}`
-        : `/api/projects/${projectId}/persons/funnel/correlation/`
-}
-
-/**
- * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
- */
-export const personsFunnelCorrelationCreate = async (
-    projectId: string,
-    personRecordApi?: NonReadonly<PersonRecordApi>,
-    params?: PersonsFunnelCorrelationCreateParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsFunnelCorrelationCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

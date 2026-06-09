@@ -1013,7 +1013,7 @@ class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
 
 class HealthIssueRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
     scope = "health_issue_refresh"
-    rate = "1/15minutes"
+    rate = "1/5minutes"
 
     def parse_rate(self, rate):
         if rate is None:

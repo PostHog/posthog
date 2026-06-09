@@ -157,7 +157,7 @@ class TestEmitEvalReportSignalActivity:
             patch(
                 "posthog.temporal.ai_observability.eval_reports.emit_signal.summarize_report_for_signal"
             ) as mock_summarize,
-            patch("products.signals.backend.api.emit_signal", new_callable=AsyncMock) as mock_emit,
+            patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit,
         ):
             await emit_eval_report_signal_activity(inputs)
         mock_summarize.assert_not_called()
@@ -186,7 +186,7 @@ class TestEmitEvalReportSignalActivity:
             patch(
                 "posthog.temporal.ai_observability.eval_reports.emit_signal.EvaluationReportRun.objects.values_list"
             ) as mock_values_list,
-            patch("products.signals.backend.api.emit_signal", new_callable=AsyncMock) as mock_emit,
+            patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit,
         ):
             mock_values_list.return_value.get.return_value = _make_content()
             await emit_eval_report_signal_activity(inputs)
@@ -231,7 +231,7 @@ class TestEmitEvalReportSignalActivity:
             patch(
                 "posthog.temporal.ai_observability.eval_reports.emit_signal.EvaluationReportRun.objects.values_list"
             ) as mock_values_list,
-            patch("products.signals.backend.api.emit_signal", new_callable=AsyncMock) as mock_emit,
+            patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit,
         ):
             mock_values_list.return_value.get.return_value = _make_content()
             await emit_eval_report_signal_activity(inputs)
@@ -248,7 +248,7 @@ class TestEvalReportSignalSchemaContract:
     """
 
     def test_evaluation_report_variant_is_registered(self):
-        from products.signals.backend.api import _SIGNAL_VARIANT_LOOKUP
+        from products.signals.backend.facade.api import _SIGNAL_VARIANT_LOOKUP
 
         variant = _SIGNAL_VARIANT_LOOKUP.get(("llm_analytics", "evaluation_report"))
         assert variant is not None, (
@@ -258,7 +258,7 @@ class TestEvalReportSignalSchemaContract:
 
     def test_activity_payload_validates_against_variant(self):
         """Construct the exact emit_signal kwargs the activity sends and validate them."""
-        from products.signals.backend.api import _SIGNAL_VARIANT_LOOKUP
+        from products.signals.backend.facade.api import _SIGNAL_VARIANT_LOOKUP
 
         variant = _SIGNAL_VARIANT_LOOKUP[("llm_analytics", "evaluation_report")]
         payload = {

@@ -326,10 +326,12 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                     },
                     columns: [
                         'session_id',
+                        'distinct_id',
                         'traces',
                         'spans',
                         'generations',
                         'embeddings',
+                        'tools',
                         'errors',
                         'total_cost',
                         'total_latency',

@@ -44,6 +44,7 @@ POLL_INTERVAL_SECONDS = 2.0
 
 RECOVERY_INTERVAL_SECONDS = 30.0
 RETRY_BACKOFF_BASE_SECONDS = 15
+HEARTBEAT_INTERVAL_SECONDS = 5.0
 
 
 @dataclass
@@ -57,6 +58,7 @@ class ConsumerConfig:
     poll_limit: int = 50
     health_port: int = 8080
     health_timeout_seconds: float = 60.0
+    heartbeat_interval_seconds: float = HEARTBEAT_INTERVAL_SECONDS
     recovery_interval_seconds: float = RECOVERY_INTERVAL_SECONDS
     retry_backoff_base_seconds: int = RETRY_BACKOFF_BASE_SECONDS
     recovery_grace_seconds: int | None = None
@@ -88,6 +90,7 @@ class BatchConsumer:
         self._conn: psycopg.AsyncConnection[Any] | None = None
         self._recovery_conn: psycopg.AsyncConnection[Any] | None = None
         self._recovery_task: asyncio.Task[None] | None = None
+        self._heartbeat_task: asyncio.Task[None] | None = None
 
     async def run(self) -> None:
         """Main loop: poll → group → process → unlock → repeat."""
@@ -112,6 +115,7 @@ class BatchConsumer:
         try:
             await self._recovery_sweep()
             self._recovery_task = asyncio.create_task(self._recovery_loop())
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
             while not self._shutdown.is_set():
                 if self._health_reporter:
@@ -372,6 +376,19 @@ class BatchConsumer:
             except Exception:
                 logger.exception("recovery_sweep_error")
 
+    async def _heartbeat_loop(self) -> None:
+        """Report liveness on a fixed cadence, independent of batch processing."""
+        while not self._shutdown.is_set():
+            if self._health_reporter:
+                self._health_reporter()
+            try:
+                await asyncio.wait_for(
+                    self._shutdown.wait(),
+                    timeout=self._config.heartbeat_interval_seconds,
+                )
+            except TimeoutError:
+                pass
+
     async def _recovery_sweep(self) -> None:
         """Recover batches left in 'executing' by a crashed pod."""
         conn = self._recovery_conn or self._conn
@@ -443,13 +460,14 @@ class BatchConsumer:
             loop.add_signal_handler(sig, self._shutdown.set)
 
     async def _close(self) -> None:
-        """Cancel the recovery task, release all advisory locks, and close both connections."""
-        if self._recovery_task is not None:
-            self._recovery_task.cancel()
-            try:
-                await self._recovery_task
-            except asyncio.CancelledError:
-                pass
+        """Cancel the recovery and heartbeat tasks, release all advisory locks, and close both connections."""
+        for task in (self._recovery_task, self._heartbeat_task):
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
         if self._recovery_conn is not None and not self._recovery_conn.closed:
             await self._recovery_conn.close()

@@ -1,8 +1,8 @@
 """Local eval for the Slack repo-selection flow — the canonical "how to test locally" tool.
 
 Replicates the production cascade → Haiku gate → discovery agent path against a real
-team with a real GitHub integration, without needing a `slack-posthog-code` Integration
-row or any actual Slack traffic. Each case declares its expected terminal stage/outcome;
+team with a real GitHub integration, without needing a Slack Integration row or any
+actual Slack traffic. Each case declares its expected terminal stage/outcome;
 the eval prints a pass/fail summary so you can re-run after touching repo selection
 and spot regressions immediately.
 

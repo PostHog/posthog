@@ -57,18 +57,22 @@ test.describe('Events', () => {
         await page.waitForURL('**/activity/explore')
     })
 
-    test.skip('Apply 1 overall filter', async ({ page }) => {
-        await page.locator('[data-attr="new-prop-filter-EventPropertyFilters.0"]').click()
-        await page.locator('[data-attr=taxonomic-filter-searchfield]').click()
+    test('Apply a single overall filter', async ({ page }) => {
+        await page.locator('[data-attr^="new-prop-filter-EventPropertyFilters."]').first().click()
+        await page.locator('[data-attr=taxonomic-filter-searchfield]').fill('$browser')
         await page.locator('.taxonomic-list-row').getByText('Browser').first().click()
         await page.locator('[data-attr=prop-val]').click({ force: true })
         await page.waitForResponse('/api/event/values?key=%24browser')
-        await page.locator('[data-attr=prop-val-0]').click()
+
+        const taxonomicValueInput = page.locator('[data-attr="taxonomic-value-select"] input')
+        await expect(taxonomicValueInput).toBeVisible()
+        await taxonomicValueInput.fill('Chrome 145')
+        await taxonomicValueInput.press('Enter')
         await expect(page.locator('.DataTable')).toBeVisible()
     })
 
-    test.skip('Separates feature flag properties into their own tab', async ({ page }) => {
-        await page.locator('[data-attr="new-prop-filter-EventPropertyFilters.0"]').click()
+    test('Separates feature flag properties into their own tab', async ({ page }) => {
+        await page.locator('[data-attr^="new-prop-filter-EventPropertyFilters."]').first().click()
         await expect(page.locator('[data-attr="taxonomic-tab-event_feature_flags"]')).toContainText('Feature flags: 2')
         await page.locator('[data-attr="taxonomic-tab-event_feature_flags"]').click()
         await expect(page.locator('.taxonomic-list-row:visible')).toHaveCount(2)

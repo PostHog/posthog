@@ -1,6 +1,10 @@
 import { build } from 'esbuild'
 
+import { copyInstructions } from './copy-instructions'
 import { honoEsbuildOptions, honoOutfile } from './hono-esbuild-config'
+
+// Populate `shared/guidelines.md` so esbuild can inline it via `@shared/*`.
+copyInstructions()
 
 build(honoEsbuildOptions())
     .then(() => {

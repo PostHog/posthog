@@ -454,6 +454,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 date_from=self.query_date_range.date_from(),
                 date_to=self.query_date_range.date_to(),
             ),
+            resolved_compare_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_previous_date_range.date_from(),
+                date_to=self.query_previous_date_range.date_to(),
+            )
+            if self.query.compareFilter is not None and self.query.compareFilter.compare
+            else None,
         )
 
     def format_results(self, returned_results: list[list[dict[str, Any]]]) -> tuple[list[dict[str, Any]], bool]:

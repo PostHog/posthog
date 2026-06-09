@@ -118,6 +118,21 @@ describe('PerIssueGuardedRateLimiterService', () => {
         expect(await cooldownIsSet(limiter.cooldownKey(42))).toBe(false)
     })
 
+    it('colocates cooldown, counter, and bucket keys on one Redis Cluster slot per team', () => {
+        const limiter = build('slot-tag')
+        const nowSeconds = Math.round(now / 1000)
+        const keys = [
+            limiter.cooldownKey(42),
+            limiter.counterKey(42, nowSeconds),
+            limiter.bucketKey(42, '42:exceptions:issue:abc'),
+        ]
+        // Redis hashes only the substring inside the first {…}; identical tags ⇒ same slot ⇒ no CROSSSLOT.
+        const hashTag = (key: string) => key.slice(key.indexOf('{') + 1, key.indexOf('}'))
+        expect(keys.map(hashTag)).toEqual(['42', '42', '42'])
+        // Different teams must not collapse onto the same tag.
+        expect(hashTag(limiter.cooldownKey(99))).toBe('99')
+    })
+
     it('skips counter increment for an already-seen scopeKey', async () => {
         const limiter = build('repeat-scope')
         await cleanLimiter(limiter)
@@ -146,7 +161,7 @@ describe('PerIssueGuardedRateLimiterService', () => {
 
         // Bucket for 'b' was never written.
         const bExists = await redis.useClient({ name: 'check' }, async (client) =>
-            client.exists(`${limiter.getKeyPrefix()}/42:exceptions:issue:b`)
+            client.exists(limiter.bucketKey(42, '42:exceptions:issue:b'))
         )
         expect(bExists).toBe(0)
 
@@ -266,14 +281,14 @@ describe('PerIssueGuardedRateLimiterService', () => {
         ])
 
         // Team 100 was already in cooldown → new scopeKeys never minted buckets.
-        expect(await bucketExists(`${limiter.getKeyPrefix()}/100:exceptions:issue:cooldown-1`)).toBe(0)
-        expect(await bucketExists(`${limiter.getKeyPrefix()}/100:exceptions:issue:cooldown-2`)).toBe(0)
+        expect(await bucketExists(limiter.bucketKey(100, '100:exceptions:issue:cooldown-1'))).toBe(0)
+        expect(await bucketExists(limiter.bucketKey(100, '100:exceptions:issue:cooldown-2'))).toBe(0)
 
         // Team 200 tripped this batch — first two buckets minted, third (tripC) NOT.
         expect(await cooldownIsSet(limiter.cooldownKey(200))).toBe(true)
-        expect(await bucketExists(`${limiter.getKeyPrefix()}/200:exceptions:issue:tripA`)).toBe(1)
-        expect(await bucketExists(`${limiter.getKeyPrefix()}/200:exceptions:issue:tripB`)).toBe(1)
-        expect(await bucketExists(`${limiter.getKeyPrefix()}/200:exceptions:issue:tripC`)).toBe(0)
+        expect(await bucketExists(limiter.bucketKey(200, '200:exceptions:issue:tripA'))).toBe(1)
+        expect(await bucketExists(limiter.bucketKey(200, '200:exceptions:issue:tripB'))).toBe(1)
+        expect(await bucketExists(limiter.bucketKey(200, '200:exceptions:issue:tripC'))).toBe(0)
 
         // Team 300 never tripped (only 1 distinct scopeKey).
         expect(await cooldownIsSet(limiter.cooldownKey(300))).toBe(false)

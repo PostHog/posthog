@@ -5,6 +5,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
@@ -13,7 +14,6 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 
 from posthog.schema import ProductKey
 
@@ -22,12 +22,12 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import PropertyOperatorType
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, FunctionBatchIterator
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.filters.filter import Filter
-from posthog.models.person import Person, PersonDistinctId
-from posthog.models.person.person import READ_DB_FOR_PERSONS
-from posthog.models.person.util import get_person_by_uuid, get_persons_by_distinct_ids
+from posthog.models.person import Person
+from posthog.models.person.util import get_person_by_uuid
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.settings.base_variables import TEST
@@ -57,10 +57,6 @@ CohortOrEmpty = Union["Cohort", Literal[""], None]
 REALTIME_COHORT_MAX_PERSON_COUNT = 20_000_000
 
 logger = structlog.get_logger(__name__)
-
-DELETE_QUERY = """
-DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {cohort_id}
-"""
 
 DEFAULT_COHORT_INSERT_BATCH_SIZE = 1000
 
@@ -234,14 +230,20 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 name="unique_cohort_kind_per_team",
             ),
         ]
+        indexes = [
+            # Backs the default list ordering (filter by team, order by -created_at).
+            models.Index(fields=["team", "-created_at"], name="cohort_team_created_idx"),
+            # Backs `name__icontains` search (the cohort picker's server-side search).
+            GinIndex(fields=["name"], name="cohort_name_trgm_idx", opclasses=["gin_trgm_ops"]),
+        ]
 
     def __str__(self):
         return self.name or "Untitled cohort"
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Cohort"]:
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Cohort"]:
         base_qs = cls.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type="cohort", ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="cohort", ref_field="id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
@@ -412,50 +414,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             duration=(time.monotonic() - start_time),
         )
 
-    def _get_uuids_for_distinct_ids_batch(self, distinct_ids: list[str], team_id: int) -> list[str]:
-        """
-        Get UUIDs for a batch of distinct IDs, excluding those already in this cohort.
-
-        Args:
-            distinct_ids: List of distinct IDs to convert to UUIDs
-            team_id: Team ID to filter by
-
-        Remarks:
-            This used to be a single query with a complex JOIN, but that query was timing out.
-            So we split it into two queries that are much simpler and should hopefully not time out.
-
-        Returns:
-            List of UUIDs for persons with the given distinct IDs who are not already in this cohort
-        """
-        if not distinct_ids:
-            return []
-
-        # Get person UUIDs for this batch of distinct IDs.
-        # This is limited to the batch size so it will be no more than 1000 items in-memory at a time.
-        # You're going to be tempted to exclude people already in the cohort, but that's not only NOT
-        # necessary, but it leads to query timeouts. The insert_users_list_by_uuid handles ensuring we
-        # don't insert people that are already in the cohort efficiently.
-        from posthog.personhog_client.gate import use_personhog
-
-        if use_personhog():
-            persons = get_persons_by_distinct_ids(team_id, list(distinct_ids))
-            return [str(person.uuid) for person in persons]
-
-        # ORM path: lightweight values_list queries — no full model instantiation
-        person_ids_qs = (
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-            .filter(team_id=team_id, distinct_id__in=distinct_ids)
-            .values_list("person_id", flat=True)
-            .distinct()
-        )
-
-        return [
-            str(uuid)
-            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-            .filter(team_id=team_id, id__in=person_ids_qs)
-            .values_list("uuid", flat=True)
-        ]
-
     def insert_users_by_list(
         self,
         items: list[str],
@@ -480,19 +438,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # Make sure persons are created in tests before running this
             flush_persons_and_events()
 
-        # Process distinct IDs in batches to avoid memory issues
         def create_uuid_batch(batch_index: int, batch_size: int) -> list[str]:
-            """Create a batch of UUIDs from distinct IDs, excluding those already in cohort."""
+            from posthog.models.person.util import get_person_uuids_by_distinct_ids
+
             start_idx = batch_index * batch_size
             end_idx = start_idx + batch_size
-            batch_distinct_ids = items[start_idx:end_idx]
+            return get_person_uuids_by_distinct_ids(team_id, items[start_idx:end_idx])
 
-            return self._get_uuids_for_distinct_ids_batch(batch_distinct_ids, team_id)
-
-        # Use FunctionBatchIterator to process distinct IDs in batches
         batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
-
-        # Call the batching method with ClickHouse insertion enabled
         return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
 
     def insert_users_list_by_uuid(
@@ -531,14 +484,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             items: List of email addresses of users to be inserted into the cohort.
             team_id: ID of the team for which to insert the users. Defaults to `self.team`, because of a lot of existing usage in tests.
             batch_size: Number of records to process in each batch. Defaults to 1000.
-            email_property_key: Exact person property key (e.g., 'email', 'Email', 'EMAIL').
-                                Defaults to 'email' when not provided.
+            email_property_key: Accepted for backwards compatibility but ignored — all lookups
+                                use the ClickHouse pmat_email materialized column.
         """
         if team_id is None:
             team_id = self.team_id
-
-        if email_property_key is None:
-            email_property_key = "email"
 
         if TEST:
             from posthog.test.base import flush_persons_and_events
@@ -546,131 +496,31 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # Make sure persons are created in tests before running this
             flush_persons_and_events()
 
-        # ClickHouse fast path is only wired up for the lowercase 'email' property
-        # (via the pmat_email materialized column), so non-default keys force the PG path.
-        use_clickhouse = email_property_key == "email" and posthoganalytics.feature_enabled(
-            "cohort-email-lookup-clickhouse",
-            str(team_id),
-            groups={"project": str(team_id)},
-            group_properties={
-                "project": {
-                    "id": str(team_id),
-                }
-            },
-            send_feature_flag_events=False,
-        )
-
-        # Process emails in batches to avoid memory issues
         def create_uuid_batch(batch_index: int, batch_size: int) -> list[str]:
-            """Create a batch of UUIDs from email addresses, excluding those already in cohort."""
             start_idx = batch_index * batch_size
             end_idx = start_idx + batch_size
-            batch_emails = items[start_idx:end_idx]
-            uuids = self._get_uuids_for_emails_batch(
-                batch_emails, team_id, email_property_key=email_property_key, use_clickhouse=use_clickhouse
-            )
-            return uuids
+            return self._get_uuids_for_emails_batch_ch(items[start_idx:end_idx], team_id)
 
-        # Use FunctionBatchIterator to process emails in batches
         batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
-
-        # Call the batching method with ClickHouse insertion enabled
         return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
 
-    def _get_uuids_for_emails_batch(
-        self, emails: list[str], team_id: int, email_property_key: str = "email", use_clickhouse: bool = False
-    ) -> list[str]:
-        """
-        Get UUIDs for a batch of email addresses, excluding those already in this cohort.
-
-        Args:
-            emails: List of email addresses to convert to UUIDs
-            team_id: Team ID to filter by
-            email_property_key: Exact person property key to match against (e.g., 'email', 'Email', 'EMAIL').
-            use_clickhouse: Whether to use ClickHouse instead of PostgreSQL
-
-        Returns:
-            List of UUIDs for persons with the given email addresses who are not already in this cohort
-        """
-        if not emails:
-            return []
-
-        if use_clickhouse:
-            return self._get_uuids_for_emails_batch_ch(emails, team_id)
-
-        return self._get_uuids_for_emails_batch_pg(emails, team_id, email_property_key)
-
-    def _get_uuids_for_emails_batch_pg(
-        self, emails: list[str], team_id: int, email_property_key: str = "email"
-    ) -> list[str]:
-        """
-        Get UUIDs for email addresses using PostgreSQL (fallback path).
-
-        Args:
-            emails: List of email addresses to convert to UUIDs
-            team_id: Team ID to filter by
-            email_property_key: Exact person property key to match against (e.g., 'email', 'Email', 'EMAIL').
-
-        Returns:
-            List of UUIDs for persons with the given email addresses
-        """
-        if not emails:
-            return []
-
-        filter_kwargs = {f"properties__{email_property_key}__in": emails}
-
-        uuids = [
-            str(uuid)
-            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-            .filter(team_id=team_id)
-            .filter(**filter_kwargs)
-            .values_list("uuid", flat=True)
-        ]
-        return uuids
-
     def _get_uuids_for_emails_batch_ch(self, emails: list[str], team_id: int) -> list[str]:
-        """
-        Get UUIDs for email addresses using ClickHouse (fast path).
-        Uses direct ClickHouse SQL for optimal performance.
-
-        Note: This method currently only supports the lowercase 'email' property key
-        via the pmat_email materialized column.
-
-        Args:
-            emails: List of email addresses to convert to UUIDs
-            team_id: Team ID to filter by
-
-        Returns:
-            List of UUIDs for persons with the given email addresses
-        """
         if not emails:
             return []
 
-        try:
-            # Use optimized ClickHouse query with GROUP BY HAVING
-            query = """
-            SELECT person.id
-            FROM person
-            WHERE person.team_id = %(team_id)s
-              AND person.pmat_email IN %(emails)s
-            GROUP BY person.id
-            HAVING argMax(person.is_deleted, person.version) = 0
-            SETTINGS optimize_aggregation_in_order = 1
-            """
+        query = """
+        SELECT person.id
+        FROM person
+        WHERE person.team_id = %(team_id)s
+          AND person.pmat_email IN %(emails)s
+        GROUP BY person.id
+        HAVING argMax(person.is_deleted, person.version) = 0
+        SETTINGS optimize_aggregation_in_order = 1
+        """
 
-            tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
-            result = sync_execute(query, {"team_id": team_id, "emails": emails})
-            return [str(row[0]) for row in result]
-
-        except Exception:
-            # Log error before falling back to PostgreSQL
-            logger.exception(
-                "ClickHouse email lookup failed, falling back to PostgreSQL",
-                team_id=team_id,
-                email_count=len(emails),
-            )
-            # Fallback to PostgreSQL method (CH path is only used for the default 'email' key)
-            return self._get_uuids_for_emails_batch_pg(emails, team_id)
+        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+        result = sync_execute(query, {"team_id": team_id, "emails": emails})
+        return [str(row[0]) for row in result]
 
     def insert_users_list_by_uuid_into_pg_only(
         self,

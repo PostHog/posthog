@@ -114,16 +114,6 @@ export const PersonsFunnelCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
- */
-export const PersonsFunnelCorrelationCreateBody = /* @__PURE__ */ zod.object({
-    properties: zod
-        .unknown()
-        .optional()
-        .describe('Key-value map of person properties set via $set and $set_once operations.'),
-})
-
-/**
  * Reset a distinct_id for a deleted person. This allows the distinct_id to be used again.
  */
 export const PersonsResetPersonDistinctIdCreateBody = /* @__PURE__ */ zod.object({

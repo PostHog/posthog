@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import HogQLQueryModifiers, InCohortVia, RetentionQuery
@@ -3997,6 +3998,69 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                     [0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0],
                     [1, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
+
+    @parameterized.expand(
+        [
+            ("plain", "upper(properties.browser)"),
+            # The `AS` clause exercises strip_user_aliases: it must be dropped, not break the query.
+            ("with_alias", "upper(properties.browser) AS browser_upper"),
+        ]
+    )
+    def test_retention_with_breakdown_hogql_expression(self, _name: str, breakdown: str):
+        # upper(...) makes the buckets uppercased, which only happens if the expression
+        # is evaluated as SQL rather than treated as a property name.
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+
+        _create_events(
+            self.team,
+            [
+                # Chrome cohort
+                ("person1", _date(0), {"browser": "Chrome"}),  # Day 0
+                ("person1", _date(1), {"browser": "Chrome"}),  # Day 1
+                ("person1", _date(3), {"browser": "Chrome"}),  # Day 3
+                ("person3", _date(0), {"browser": "Chrome"}),  # Day 0
+                ("person3", _date(2), {"browser": "Chrome"}),  # Day 2
+                # Safari cohort
+                ("person2", _date(0), {"browser": "Safari"}),  # Day 0
+                ("person2", _date(1), {"browser": "Safari"}),  # Day 1
+                ("person2", _date(4), {"browser": "Safari"}),  # Day 4
+                # Firefox cohort
+                ("person4", _date(0), {"browser": "Firefox"}),  # Day 0
+                ("person4", _date(5), {"browser": "Firefox"}),  # Day 5
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                },
+                "breakdownFilter": {"breakdown": breakdown, "breakdown_type": "hogql"},
+            }
+        )
+
+        breakdown_values = {c.get("breakdown_value") for c in result}
+        self.assertEqual(breakdown_values, {"CHROME", "SAFARI", "FIREFOX"})
+
+        chrome_cohorts = pluck([c for c in result if c.get("breakdown_value") == "CHROME"], "values", "count")
+        self.assertEqual(
+            chrome_cohorts,
+            pad(
+                [
+                    [2, 1, 1, 1, 0, 0],
+                    [1, 0, 1, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
                 ]
             ),
         )

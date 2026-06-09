@@ -1,6 +1,9 @@
 import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import type { AccountsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -85,6 +88,18 @@ describe('accountsLogic', () => {
     it('setSearchQuery updates the reducer', () => {
         logic.actions.setSearchQuery('acme')
         expect(logic.values.searchQuery).toBe('acme')
+    })
+
+    it('setSearchInput updates the input immediately but defers the committed searchQuery', () => {
+        logic.actions.setSearchInput('acme')
+        expect(logic.values.searchInput).toBe('acme')
+        // Debounced: the query-driving value is not committed synchronously.
+        expect(logic.values.searchQuery).toBe('')
+    })
+
+    it('carries the overview tile metrics on the same AccountsQuery', () => {
+        const source = logic.values.hogqlQuery.source as AccountsQuery
+        expect(source.metrics).toEqual(['count()'])
     })
 
     it('setAllRolesUnassigned toggles the flag', () => {
@@ -205,6 +220,88 @@ describe('accountsLogic', () => {
             const config = accountsColumnConfigLogic.findMounted()
             config?.actions.setSelectColumns(['csm', ACCOUNTS_NAME_COLUMN, 'account_executive'])
             expect(config?.values.selectColumns).toEqual(['csm', ACCOUNTS_NAME_COLUMN, 'account_executive'])
+        })
+    })
+
+    describe('url persistence', () => {
+        it('writes active filters into the view hash param', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSearchQuery('acme')
+                logic.actions.setTagsFilter(['enterprise'])
+                logic.actions.setCsmFilter(7)
+                logic.actions.setSortOrder({ column: 'name', direction: 'desc' })
+                logic.actions.setTileFilter({ tileId: 'tile-1', expression: 'count() > 5' })
+            }).toFinishAllListeners()
+
+            expect(router.values.hashParams.view).toEqual({
+                search: 'acme',
+                tags: ['enterprise'],
+                csm: 7,
+                sort: { column: 'name', direction: 'desc' },
+                tileFilter: { tileId: 'tile-1', expression: 'count() > 5' },
+            })
+        })
+
+        it('keeps the hash empty for the default view', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setTagsFilter(['enterprise'])
+                logic.actions.setTagsFilter([])
+            }).toFinishAllListeners()
+
+            expect(router.values.hashParams.view).toBeUndefined()
+        })
+
+        it('restores filters, sort, and tile filter from the view hash param', async () => {
+            const tileFilter = { tileId: 'tile-1', expression: 'count() > 5' }
+            router.actions.push(
+                urls.customerAnalyticsAccounts(),
+                {},
+                {
+                    view: { search: 'beta', csm: 7, sort: { column: 'name', direction: 'desc' }, tileFilter },
+                }
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.searchQuery).toBe('beta')
+            expect(logic.values.searchInput).toBe('beta')
+            expect(logic.values.csmFilter).toBe(7)
+            expect(logic.values.sortOrder).toEqual({ column: 'name', direction: 'desc' })
+            expect(logic.values.tileFilter).toEqual(tileFilter)
+        })
+
+        it('restores columns and shields them from a late saved column config', async () => {
+            router.actions.push(
+                urls.customerAnalyticsAccounts(),
+                {},
+                {
+                    view: { columns: [ACCOUNTS_NAME_COLUMN, 'csm'] },
+                }
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            const config = accountsColumnConfigLogic.findMounted()
+            expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm'])
+
+            // A saved config arriving after the URL was applied must not clobber the shared view.
+            config?.actions.loadSavedColumnConfigurationSuccess({
+                id: 'saved-1',
+                columns: [ACCOUNTS_NAME_COLUMN, 'account_owner'],
+            })
+            await expectLogic(config!).toFinishAllListeners()
+            expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm'])
+        })
+
+        it('applies the saved column config when the URL has no columns', async () => {
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, {})
+            await expectLogic(logic).toFinishAllListeners()
+
+            const config = accountsColumnConfigLogic.findMounted()
+            config?.actions.loadSavedColumnConfigurationSuccess({
+                id: 'saved-1',
+                columns: [ACCOUNTS_NAME_COLUMN, 'account_owner'],
+            })
+            await expectLogic(config!).toFinishAllListeners()
+            expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'account_owner'])
         })
     })
 

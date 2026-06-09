@@ -39,6 +39,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     getGroupTypeMappingsByProjectId: () => ({ mappings: [] }),
     getGroupTypeMappingsByProjectIds: () => ({ results: [] }),
     getGroupTypeMappingByDashboardId: () => ({}),
+    countGroupTypeMappings: () => ({ counts: [] }),
     createGroup: () => ({}),
     updateGroup: () => ({ updated: false }),
     deleteGroupsBatchForTeam: () => ({ deletedCount: 0n }),

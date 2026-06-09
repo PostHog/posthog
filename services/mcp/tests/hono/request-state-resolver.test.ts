@@ -80,7 +80,6 @@ function makeProps(overrides: Partial<RequestProperties> = {}): RequestPropertie
         projectId: '1',
         requestStartTime: Date.now(),
         transport: 'streamable-http',
-        version: 1,
         ...overrides,
     }
 }

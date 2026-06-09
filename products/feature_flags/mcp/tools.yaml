@@ -141,8 +141,8 @@ tools:
             with `filters`, and prefer explicit `ids` whenever the user has named specific flags. Flags linked to active
             experiments, early access features, or that other flags depend on are skipped and reported in `errors`.
             Returns `deleted` (with each flag's rollout state at deletion time) and `errors` arrays.
-    feature-flags-bulk-keys-create:
-        operation: feature_flags_bulk_keys_create
+    feature-flags-bulk-keys-retrieve:
+        operation: feature_flags_bulk_keys_retrieve
         enabled: true
         scopes:
             - feature_flag:read

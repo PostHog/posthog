@@ -8,6 +8,18 @@ from posthog.models import Cohort
 class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
     """Tests for HogQLCohortQuery, particularly the optimization for multiple person property filters."""
 
+    def test_dynamic_cohort_id_is_not_injectable(self) -> None:
+        # A static/dynamic-cohort property whose value is an arbitrary string (e.g. smuggled through
+        # the unvalidated legacy `groups` field) must be rejected, not interpolated into the query.
+        for cohort_type in ("dynamic-cohort", "static-cohort"):
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name=f"malicious-{cohort_type}",
+                groups=[{"properties": [{"key": "id", "type": cohort_type, "value": "0 OR 1=1"}]}],
+            )
+            with self.assertRaises(ValueError):
+                HogQLCohortQuery(cohort=cohort).get_query()
+
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_multiple_person_properties_optimization(self, mock_feature_enabled: MagicMock) -> None:
         """

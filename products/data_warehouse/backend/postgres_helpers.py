@@ -227,7 +227,13 @@ def reconcile_postgres_schemas(
             source_schema=resolved_schema,
             source_table_name=resolved_table,
         )
-        matched.sync_type_config = {**(matched.sync_type_config or {}), "schema_metadata": schema_metadata}
+        new_sync_type_config = {**(matched.sync_type_config or {}), "schema_metadata": schema_metadata}
+        # Persist the detected primary key so tables discovered after source creation can be
+        # switched to CDC (which requires a PK). Don't clobber a value already stored — e.g. an
+        # explicit override set during creation or a prior refresh.
+        if source_schema.detected_primary_keys and not new_sync_type_config.get("primary_key_columns"):
+            new_sync_type_config["primary_key_columns"] = source_schema.detected_primary_keys
+        matched.sync_type_config = new_sync_type_config
         update_fields = ["sync_type_config", "updated_at"]
 
         # Drop dead columns so next sync doesn't emit `SELECT … missing_col`.
@@ -312,6 +318,8 @@ def reproject_direct_postgres_table(
             enabled_columns,
             schema_row.primary_key_columns,
             schema_row.incremental_field,
+            # Direct-postgres columns are keyed by raw, case-sensitive source names.
+            normalize=False,
         ),
         source_catalog=source_catalog,
         source_schema=source_schema,

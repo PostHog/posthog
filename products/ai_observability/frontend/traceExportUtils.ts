@@ -4,8 +4,9 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { EnrichedTraceTreeNode } from './aiObservabilityTraceDataLogic'
+import { normalizeMessages } from './messageNormalization'
 import { CompatMessage } from './types'
-import { formatLLMEventTitle, normalizeMessages, readAiOutput } from './utils'
+import { formatLLMEventTitle, readAiOutput } from './utils'
 
 interface EventMetrics {
     latency?: number

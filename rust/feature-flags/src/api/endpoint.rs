@@ -944,7 +944,10 @@ mod tests {
 
         const GOOGLEBOT_UA: &str =
             "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
-        const GOOGLEBOT_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(66, 249, 79, 123));
+        // Interior of `66.249.66.0/27` — a densely-covered Googlebot /24 in
+        // the published JSON. The classifier is JSON-precise so unpublished
+        // /27 gaps (e.g. `.79.96/27`) no longer match.
+        const GOOGLEBOT_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(66, 249, 66, 0));
         const BENIGN_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8));
         const BENIGN_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X) Chrome/120 Safari/537.36";
 

@@ -67,21 +67,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getDomainsScimLogsRetrieveUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/domains/${id}/scim/logs/`
-}
-
-export const domainsScimLogsRetrieve = async (
-    organizationId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDomainsScimLogsRetrieveUrl(organizationId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getLogsAlertsListUrl = (projectId: string, params?: LogsAlertsListParams) => {
     const normalizedParams = new URLSearchParams()
 

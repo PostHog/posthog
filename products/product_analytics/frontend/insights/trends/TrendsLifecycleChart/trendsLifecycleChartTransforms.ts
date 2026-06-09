@@ -1,5 +1,6 @@
+import type { Series, TimeSeriesBarChartConfig } from '@posthog/quill-charts'
+
 import { getBarColorFromStatus } from 'lib/colors'
-import type { Series, TimeSeriesBarChartConfig } from 'lib/hog-charts'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import type { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'

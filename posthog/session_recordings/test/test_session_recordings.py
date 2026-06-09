@@ -573,6 +573,82 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ("test_viewed_state_of_session_recording_version-1", True),
         ]
 
+    def _result_ids(self, response) -> list[str]:
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return [r["id"] for r in response.json()["results"]]
+
+    def test_hide_viewed_recordings_current_user_excludes_viewed_server_side(self):
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        self.produce_replay_summary("u1", "viewed", base_time)
+        self.produce_replay_summary("u1", "unviewed", base_time + relativedelta(seconds=30))
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="viewed")
+
+        without_filter = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        assert sorted(self._result_ids(without_filter)) == ["unviewed", "viewed"]
+
+        with_filter = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings?hide_viewed_recordings=current-user"
+        )
+        assert self._result_ids(with_filter) == ["unviewed"]
+
+    def test_hide_viewed_recordings_any_user_excludes_team_viewed_server_side(self):
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        self.produce_replay_summary("u1", "viewed-by-other", base_time)
+        self.produce_replay_summary("u1", "unviewed", base_time + relativedelta(seconds=30))
+        SessionRecordingViewed.objects.create(team=self.team, user=other_user, session_id="viewed-by-other")
+
+        # current-user mode keeps it (this user hasn't viewed it)
+        current_user = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings?hide_viewed_recordings=current-user"
+        )
+        assert sorted(self._result_ids(current_user)) == ["unviewed", "viewed-by-other"]
+
+        # any-user mode excludes it
+        any_user = self.client.get(f"/api/projects/{self.team.id}/session_recordings?hide_viewed_recordings=any-user")
+        assert self._result_ids(any_user) == ["unviewed"]
+
+    def test_hide_viewed_recordings_does_not_apply_to_explicit_session_ids(self):
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        self.produce_replay_summary("u1", "viewed", base_time)
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="viewed")
+
+        # Pinned recordings request explicit session_ids; hide-viewed must not strip them.
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings"
+            f'?hide_viewed_recordings=current-user&session_ids=["viewed"]'
+        )
+        assert self._result_ids(response) == ["viewed"]
+
+    def test_hide_viewed_recordings_still_prepends_selected_recording(self):
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        self.produce_replay_summary("u1", "viewed", base_time)
+        self.produce_replay_summary("u1", "unviewed", base_time + relativedelta(seconds=30))
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="viewed")
+
+        # The explicitly-selected recording is prepended even though it's viewed.
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings"
+            f"?hide_viewed_recordings=current-user&session_recording_id=viewed"
+        )
+        assert sorted(self._result_ids(response)) == ["unviewed", "viewed"]
+
+    def test_hide_viewed_recordings_paginates_over_filtered_set(self):
+        # The two newest recordings are viewed; with a page size of 2 and the filter on, the first page
+        # must still surface the older unviewed recordings rather than returning an empty page.
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        self.produce_replay_summary("u1", "unviewed-old", base_time)
+        self.produce_replay_summary("u1", "unviewed-mid", base_time + relativedelta(seconds=20))
+        self.produce_replay_summary("u1", "viewed-newer", base_time + relativedelta(seconds=40))
+        self.produce_replay_summary("u1", "viewed-newest", base_time + relativedelta(seconds=60))
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="viewed-newer")
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="viewed-newest")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings?hide_viewed_recordings=current-user&limit=2"
+        )
+        assert self._result_ids(response) == ["unviewed-mid", "unviewed-old"]
+
     def test_setting_viewed_state_of_session_recording(self):
         Person.objects.create(
             team=self.team,

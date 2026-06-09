@@ -197,6 +197,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -450,6 +452,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -579,7 +583,7 @@
   ORDER BY revenue_analytics_subscription.customer_id ASC, breakdown_by ASC, period_start ASC) AS subquery
   GROUP BY subquery.breakdown_by, subquery.period_start
   ORDER BY subquery.breakdown_by ASC, subquery.period_start ASC, subscription_count DESC, customer_count DESC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMetricsQueryRunner.test_with_data
@@ -829,6 +833,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -1080,6 +1086,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -1345,6 +1353,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -1596,6 +1606,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -1847,6 +1859,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -2100,6 +2114,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -2353,6 +2369,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -2606,6 +2624,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -2859,6 +2879,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -3128,6 +3150,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -3395,6 +3419,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''
@@ -3662,6 +3688,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0
   '''

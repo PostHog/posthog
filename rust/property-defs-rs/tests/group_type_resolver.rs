@@ -243,6 +243,12 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<GetGroupTypeMappingByDashboardIdResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+    async fn count_group_type_mappings(
+        &self,
+        _: Request<CountGroupTypeMappingsRequest>,
+    ) -> Result<Response<CountGroupTypeMappingsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
     async fn create_group(
         &self,
         _: Request<CreateGroupRequest>,

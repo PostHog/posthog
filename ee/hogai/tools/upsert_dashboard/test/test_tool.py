@@ -26,6 +26,7 @@ from posthog.schema import (
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult, VisualizationWithSourceResult
@@ -34,7 +35,6 @@ from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.upsert_dashboard.tool import CreateDashboardToolArgs, UpdateDashboardToolArgs, UpsertDashboardTool
 from ee.hogai.utils.types import AssistantState
-from ee.models.assistant import AgentArtifact, Conversation
 
 DEFAULT_TRENDS_QUERY = TrendsQuery(series=[EventsNode(name="$pageview")])
 

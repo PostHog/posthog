@@ -131,14 +131,19 @@ describe('SlackChannelPicker', () => {
         expect(channelsRequestSearchQueries).toEqual([''])
     })
 
-    it('directly fetches the saved channel by id on mount so it resolves even when not in the bulk list', async () => {
-        // The saved value is a bare channel ID and the channel lives beyond the first page that the
-        // backend returns from /channels. Without the direct lookup the picker would only know about
-        // the bulk-list channels (test-slack-notifications, general) and would render the raw
-        // "COFFPAGE9XX" string instead of "#off-page-channel (COFFPAGE9XX)".
+    // The saved channel needs to be in slackChannels for LemonInputSelect's options to contain a
+    // matching key — otherwise the picker falls back to displaying the raw value text instead of
+    // "#name (id)". The by-id fetch is what feeds the channel into slackChannels regardless of
+    // bulk-list position, so it has to fire for both shapes the value can take. The lookup must
+    // also use just the id portion: sending the composite would 404 against Slack's
+    // conversations.info.
+    it.each<[string, string]>([
+        ['bare ID', 'COFFPAGE9XX'],
+        ['composite "id|#name"', 'COFFPAGE9XX|#off-page-channel'],
+    ])('directly fetches the saved channel by id on mount when value is a %s', async (_label, savedValue) => {
         render(
             <Provider>
-                <SlackChannelPicker integration={INTEGRATION} value="COFFPAGE9XX" onChange={jest.fn()} />
+                <SlackChannelPicker integration={INTEGRATION} value={savedValue} onChange={jest.fn()} />
             </Provider>
         )
 
@@ -149,28 +154,8 @@ describe('SlackChannelPicker', () => {
             },
             { timeout: 2000 }
         )
-    })
-
-    it('skips the direct lookup when the saved value is already in composite "id|#name" form', async () => {
-        // Composite values already carry the name; modifiedValue short-circuits resolution for
-        // them and the picker has nothing to do with a by-id response, so the fetch would be a
-        // wasted round-trip on every mount of a previously-saved picker.
-        render(
-            <Provider>
-                <SlackChannelPicker
-                    integration={INTEGRATION}
-                    value="COFFPAGE9XX|#off-page-channel"
-                    onChange={jest.fn()}
-                />
-            </Provider>
-        )
-
-        // Wait for the bulk load and any debounced by-id call to settle.
-        await waitFor(() => {
-            expect(channelsRequestSearchQueries).toEqual([''])
-        })
-        await new Promise((resolve) => setTimeout(resolve, 800))
-        expect(channelIdLookups).toEqual([])
+        // Never forward the composite to /channels?channel_id=… — that would 404 against Slack.
+        expect(channelIdLookups).not.toContain('COFFPAGE9XX|#off-page-channel')
     })
 
     it('does not fire a direct lookup when there is no saved value', async () => {
