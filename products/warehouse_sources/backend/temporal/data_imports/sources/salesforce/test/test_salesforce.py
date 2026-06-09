@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import pytest
 from unittest import mock
@@ -9,6 +9,7 @@ from requests import Request, Session
 from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.salesforce import (
     SalesforceEndpointPaginator,
     SalesforceResumeConfig,
+    get_custom_object_resource,
     list_custom_object_definitions,
     salesforce_source,
 )
@@ -242,7 +243,7 @@ class TestSalesforceEndpointPaginator:
             assert request.params == {"q": "initial"}
 
 
-class TestSalesforceCustomObjectDefinitions:
+class TestSalesforceCustomObject:
     @pytest.mark.parametrize(
         "expected_defs,expected_call_count",
         [
@@ -261,8 +262,8 @@ class TestSalesforceCustomObjectDefinitions:
             ),
         ],
     )
-    @mock.patch("posthog.temporal.data_imports.sources.salesforce.salesforce.make_tracked_session")
-    def test_returns_definitions(
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.salesforce.make_tracked_session")
+    def test_returns_custom_object_definitions(
         self, mock_rest: mock.MagicMock, expected_defs: list[dict[str, Any]], expected_call_count: int
     ) -> None:
         session = _make_session([_mock_sobjects_response(expected_defs)])
@@ -272,6 +273,24 @@ class TestSalesforceCustomObjectDefinitions:
 
         assert defs == expected_defs
         assert session.send.call_count == expected_call_count
+
+    @pytest.mark.parametrize("should_use_incremental_field", [False, True])
+    def test_builds_resource_for_custom_object(self, should_use_incremental_field: bool) -> None:
+        resource = get_custom_object_resource("Employee__c", should_use_incremental_field)
+        endpoint = cast(dict[str, Any], resource["endpoint"])
+
+        assert endpoint["path"] == "/services/data/v61.0/query"
+        assert resource["name"] == "Employee__c"
+        assert resource["table_name"] == "employee_c"
+
+        params = cast(dict[str, Any], endpoint["params"])
+        if should_use_incremental_field:
+            assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
+            assert params["q"]["type"] == "incremental"
+            assert params["q"]["cursor_path"] == "SystemModstamp"
+        else:
+            assert resource["write_disposition"] == "replace"
+            assert params["q"] == "SELECT FIELDS(ALL) FROM Employee__c ORDER BY Id ASC LIMIT 200"
 
 
 class TestSalesforceSourceResumeWiring:
@@ -283,6 +302,9 @@ class TestSalesforceSourceResumeWiring:
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.salesforce.rest_api_resource"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.salesforce.list_custom_object_definitions"
     )
     def test_fresh_run_does_not_seed_paginator(self, mock_rest: mock.MagicMock) -> None:
         manager = self._build_manager(can_resume=False, loaded=None)
@@ -305,6 +327,9 @@ class TestSalesforceSourceResumeWiring:
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.salesforce.rest_api_resource"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.salesforce.list_custom_object_definitions"
     )
     def test_resume_run_seeds_paginator_from_saved_state(self, mock_rest: mock.MagicMock) -> None:
         loaded = SalesforceResumeConfig(
@@ -335,6 +360,9 @@ class TestSalesforceSourceResumeWiring:
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.salesforce.rest_api_resource"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.salesforce.list_custom_object_definitions"
     )
     def test_resume_hook_persists_checkpoint(self, mock_rest: mock.MagicMock) -> None:
         manager = self._build_manager(can_resume=False, loaded=None)
@@ -375,3 +403,34 @@ class TestSalesforceSourceResumeWiring:
 
         resume_hook({"model_name": "Account"})
         manager.save_state.assert_not_called()
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.salesforce.rest_api_resource")
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.salesforce.list_custom_object_definitions")
+    def test_resume_run_seeds_paginator_for_custom_object(
+        self, mock_list: mock.MagicMock, mock_rest: mock.MagicMock
+    ) -> None:
+        mock_list.return_value = [
+            {"name": "Employee__c", "label": "Employee", "labelPlural": "Employees", "queryable": True, "custom": True}
+        ]
+        loaded = SalesforceResumeConfig(
+            model_name="Employee__c",
+            last_record_id="a00ZZZ",
+            date_filter="2024-01-01T00:00:00.000+0000",
+        )
+        manager = self._build_manager(can_resume=True, loaded=loaded)
+        salesforce_source(
+            instance_url=INSTANCE_URL,
+            access_token="token",
+            refresh_token="refresh",
+            endpoint="Employee__c",
+            team_id=1,
+            job_id="job-1",
+            db_incremental_field_last_value=None,
+            resumable_source_manager=manager,
+            should_use_incremental_field=True,
+        )
+        assert mock_rest.call_args.kwargs["initial_paginator_state"] == {
+            "model_name": "Employee__c",
+            "last_record_id": "a00ZZZ",
+            "date_filter": "2024-01-01T00:00:00.000+0000",
+        }

@@ -5,12 +5,14 @@ from typing import Any, Optional
 
 from requests import Request, Response
 
-from posthog.temporal.data_imports.sources.common.http import make_tracked_session
-from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
-from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
-from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.salesforce.auth import SalesforceAuth
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth import SalesforceAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.settings import ENDPOINTS
 
 
 @dataclasses.dataclass
@@ -411,6 +413,36 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
     return resources[name]
 
 
+def get_custom_object_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
+    return {
+        "name": name,
+        "table_name": NamingConvention.normalize_identifier(name),
+        "write_disposition": {
+            "disposition": "merge",
+            "strategy": "upsert",
+        }
+        if should_use_incremental_field
+        else "replace",
+        "endpoint": {
+            "data_selector": "records",
+            "path": "/services/data/v61.0/query",
+            "params": {
+                "q": {
+                    "type": "incremental",
+                    "cursor_path": "SystemModstamp",
+                    "initial_value": "2000-01-01T00:00:00.000+0000",
+                    "convert": lambda date_str: (
+                        f"SELECT FIELDS(ALL) FROM {name} WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200"
+                    ),
+                }
+                if should_use_incremental_field
+                else f"SELECT FIELDS(ALL) FROM {name} ORDER BY Id ASC LIMIT 200",
+            },
+        },
+        "table_format": "delta",
+    }
+
+
 _DATE_FILTER_RE = re.compile(r"SystemModstamp >= (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+?)\s")
 
 
@@ -530,6 +562,29 @@ def salesforce_source(
     resumable_source_manager: ResumableSourceManager[SalesforceResumeConfig],
     should_use_incremental_field: bool = False,
 ):
+    auth = SalesforceAuth(
+        refresh_token=refresh_token,
+        access_token=access_token,
+        instance_url=instance_url,
+    )
+
+    definitions = list_custom_object_definitions(
+        instance_url=instance_url,
+        access_token=auth.token,
+        endpoint="/services/data/v61.0/sobjects",
+    )
+
+    if endpoint not in ENDPOINTS:
+        match = next((d for d in definitions if d.get("name") == endpoint), None)
+        if match is None:
+            raise ValueError(
+                f"Salesforce custom object '{endpoint}' could not be resolved. "
+                "It may have been deleted or renamed in Salesforce; refresh source schemas to pick up the new name."
+            )
+        resource = get_custom_object_resource(endpoint, should_use_incremental_field)
+    else:
+        resource = get_resource(endpoint, should_use_incremental_field)
+
     config: RESTAPIConfig = {
         "client": {
             "base_url": instance_url,
@@ -537,7 +592,7 @@ def salesforce_source(
             "paginator": SalesforceEndpointPaginator(should_use_incremental_field=should_use_incremental_field),
         },
         "resource_defaults": {},
-        "resources": [get_resource(endpoint, should_use_incremental_field)],
+        "resources": [resource],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None

@@ -8,15 +8,15 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
-from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.generated_configs import SalesforceSourceConfig
-from posthog.temporal.data_imports.sources.salesforce.auth import SalesforceAuth, salesforce_refresh_access_token
-from posthog.temporal.data_imports.sources.salesforce.salesforce import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SalesforceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth import SalesforceAuth, salesforce_refresh_access_token
+from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.salesforce import (
     SalesforceResumeConfig,
     list_custom_object_definitions,
     salesforce_source,
@@ -24,13 +24,13 @@ from posthog.temporal.data_imports.sources.salesforce.salesforce import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
-from posthog.temporal.data_imports.sources.salesforce.settings import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     SYSTEM_MODSTAMP_INCREMENTAL_FIELD,
 )
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
