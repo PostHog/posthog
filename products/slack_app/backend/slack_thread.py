@@ -117,11 +117,10 @@ class SlackThreadHandler:
         target_ts = self.context.user_message_ts or self.context.thread_ts
         try:
             client = self._get_client()
-            for stale in ("seedling", "eyes"):
-                try:
-                    client.reactions_remove(channel=self.context.channel, timestamp=target_ts, name=stale)
-                except Exception:
-                    pass
+            try:
+                client.reactions_remove(channel=self.context.channel, timestamp=target_ts, name="eyes")
+            except Exception:
+                pass
             client.reactions_add(
                 channel=self.context.channel,
                 timestamp=target_ts,

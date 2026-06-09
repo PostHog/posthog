@@ -112,6 +112,8 @@ from posthog.temporal.session_replay.session_summary.workflow import (
     execute_summarize_session_video_stream,
 )
 
+from products.replay.backend.models.team_session_summaries_config import TeamSessionSummariesConfig
+
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.output_data import OutcomeSerializer
 from ee.hogai.session_summaries.tracking import (
@@ -120,7 +122,6 @@ from ee.hogai.session_summaries.tracking import (
     generate_tracking_id,
 )
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
-from ee.models.team_session_summaries_config import TeamSessionSummariesConfig
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
@@ -330,7 +331,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             return False
 
         try:
-            from ee.models.session_summaries import SingleSessionSummary
+            from products.replay.backend.models.session_summaries import SingleSessionSummary
         except ImportError:
             return False
 
@@ -541,6 +542,34 @@ def list_recordings_response(
     return response
 
 
+class _SessionRecordingListViewShim:
+    """Minimal view shim so SessionRecordingSerializer skips list-view N+1 loads."""
+
+    action = "list"
+
+
+def session_recording_list_serializer_context(team: Team) -> dict[str, Any]:
+    return {"view": _SessionRecordingListViewShim(), "get_team": lambda: team}
+
+
+def run_recordings_list_query(
+    query: RecordingsQuery,
+    *,
+    user: User | None,
+    team: Team,
+    allow_event_property_expansion: bool = False,
+) -> dict[str, Any]:
+    """Fetch and serialize recordings the same way as SessionRecordingViewSet.list."""
+    listing_result = list_recordings_from_query(
+        query=query,
+        user=user,
+        team=team,
+        allow_event_property_expansion=allow_event_property_expansion,
+    )
+    response = list_recordings_response(listing_result, context=session_recording_list_serializer_context(team))
+    return cast(dict[str, Any], response.data)
+
+
 def ensure_not_weak(etag: str) -> str:
     """
     minio at least doesn't like weak etags, so we need to strip the W/ prefix if it exists.
@@ -694,6 +723,23 @@ class ListingSustainedRateThrottle(_TierAwareReplayThrottle):
 
     def _get_rates(self) -> dict[str, dict[str, str]]:
         return listing_rates()
+
+
+def get_replay_listing_throttle_error(request, view) -> str | None:
+    """Return a client-facing error when replay listing throttles would block this request."""
+    auth_type = _request_auth_type(request)
+    for throttle_cls in (ListingBurstRateThrottle, ListingSustainedRateThrottle):
+        throttle = throttle_cls()
+        if throttle.allow_request(request, view):
+            continue
+        wait = throttle.wait()
+        scope = throttle.scope or "listing"
+        SESSION_RECORDING_THROTTLED.labels(location=scope, auth_type=auth_type).inc()
+        if wait:
+            return f"Rate limit exceeded. Expected available in {wait} seconds."
+        return "Rate limit exceeded. Try again later."
+    # None: both listing burst and sustained throttles allowed the request.
+    return None
 
 
 class SharingTokenReplayThrottle(SimpleRateThrottle):
@@ -1224,7 +1270,7 @@ class SessionRecordingViewSet(
         if include_outcomes:
             outcomes: dict[str, dict] = {}
             try:
-                from ee.models.session_summaries import SingleSessionSummary
+                from products.replay.backend.models.session_summaries import SingleSessionSummary
             except ImportError:
                 # Distinguishes OSS deploys (expected) from EE refactors that break the import (silent feature
                 # degradation otherwise).
@@ -2048,7 +2094,7 @@ def list_recordings_from_query(
     summary_outcomes: dict[str, dict] = {}
     if recording_ids_in_list:
         try:
-            from ee.models.session_summaries import SingleSessionSummary
+            from products.replay.backend.models.session_summaries import SingleSessionSummary
         except ImportError:
             default_summary_session_ids = set()
         else:

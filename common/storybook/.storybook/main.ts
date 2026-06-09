@@ -33,13 +33,17 @@ const config: StorybookConfig = {
         { from: '../../../frontend/node_modules/@posthog/hedgehog-mode/assets', to: '/static/hedgehog-mode' },
     ],
 
-    webpackFinal: (config) => {
+    webpackFinal: (config, { configType }) => {
         const mainConfig = createEntry('main')
         return {
             ...config,
             // Disable filesystem cache in CI to avoid heap OOM during cache shutdown
             // (especially on memory-constrained environments like Cloudflare Pages)
             cache: process.env.CI ? false : { type: 'filesystem' },
+            // The hosted build doesn't need source maps, and generating them is what
+            // tips Terser over the heap limit during minification (webpack 5 ties
+            // Terser's source maps to `devtool`). Keep them for local `storybook dev`.
+            devtool: configType === 'PRODUCTION' ? false : config.devtool,
             plugins: [...(config.plugins ?? []), new ModuleGraphPlugin(REPO_ROOT)],
             resolve: {
                 ...config.resolve,

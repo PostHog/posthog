@@ -665,3 +665,150 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_sync_connect.assert_called_once()
         mock_asyncio_run.assert_called_once()
         mock_post_feedback.assert_not_called()
+
+
+class TestChannelApprovalGate(TestCase):
+    """Gate covering the externally-shared-channel approval flow.
+
+    The gate fires only when the Slack event envelope reports
+    ``is_ext_shared_channel=True`` and no ``SlackChannel`` row with
+    ``approved_at`` exists for ``(workspace, channel)``.
+    """
+
+    def setUp(self):
+        from products.slack_app.backend.api import POSTHOG_CODE_REQUIRED_SLACK_SCOPES
+
+        cache.clear()
+        self.factory = RequestFactory()
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create(email="dev@example.com", distinct_id="user-1")
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T12345",
+            config={"scope": ",".join(sorted(POSTHOG_CODE_REQUIRED_SLACK_SCOPES))},
+            sensitive_config={"access_token": "xoxb-posthog-code-test"},
+        )
+        self.event = {
+            "type": "app_mention",
+            "channel": "C_EXT",
+            "user": "U123",
+            "ts": "1234.5678",
+        }
+
+    @patch("products.slack_app.backend.api._post_channel_approval_prompt")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_external_channel_without_approval_posts_prompt(self, mock_sync_connect, mock_asyncio_run, mock_prompt):
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345", is_ext_shared_channel=True)
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_prompt.assert_called_once()
+        mock_sync_connect.assert_not_called()
+        mock_asyncio_run.assert_not_called()
+
+    @patch("products.slack_app.backend.api._post_channel_approval_prompt")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_external_channel_with_approval_starts_workflow(self, mock_sync_connect, mock_asyncio_run, mock_prompt):
+        from django.utils import timezone
+
+        from products.slack_app.backend.models import SlackChannel
+
+        SlackChannel.objects.create(
+            slack_workspace_id="T12345",
+            slack_channel_id="C_EXT",
+            approved_at=timezone.now(),
+            approved_by=self.user,
+        )
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345", is_ext_shared_channel=True)
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_prompt.assert_not_called()
+        mock_sync_connect.assert_called_once()
+        mock_sync_connect.return_value.start_workflow.assert_called_once()
+        mock_asyncio_run.assert_called_once()
+
+    @patch("products.slack_app.backend.api._post_channel_approval_prompt")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_non_external_channel_starts_workflow_without_prompt(
+        self, mock_sync_connect, mock_asyncio_run, mock_prompt
+    ):
+        # ``is_ext_shared_channel=False`` mirrors the envelope flag being absent /
+        # false; the gate doesn't fire and the workflow starts normally.
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345", is_ext_shared_channel=False)
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_prompt.assert_not_called()
+        mock_sync_connect.return_value.start_workflow.assert_called_once()
+        mock_asyncio_run.assert_called_once()
+
+    @patch("products.slack_app.backend.api._post_channel_approval_prompt")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_pending_row_without_approval_still_prompts(self, mock_sync_connect, mock_asyncio_run, mock_prompt):
+        # A row with ``approved_at`` NULL has no semantic weight today, but must not bypass the
+        # gate — only ``approved_at`` being set counts as approval.
+        from products.slack_app.backend.models import SlackChannel
+
+        SlackChannel.objects.create(
+            slack_workspace_id="T12345",
+            slack_channel_id="C_EXT",
+            approved_at=None,
+        )
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345", is_ext_shared_channel=True)
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_prompt.assert_called_once()
+        mock_sync_connect.assert_not_called()
+        mock_asyncio_run.assert_not_called()
+
+    @patch("products.slack_app.backend.api.route_posthog_code_event_to_relevant_region")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_envelope_ext_shared_flag_is_forwarded_to_router(self, mock_config, mock_route):
+        # End-to-end through the HTTP endpoint: the envelope's ``is_ext_shared_channel``
+        # must flow into the routing function — otherwise the gate would silently never
+        # fire on real Slack traffic.
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": "secret"}
+        mock_route.return_value = "handled_locally"
+
+        envelope = {
+            "type": "event_callback",
+            "team_id": "T12345",
+            "is_ext_shared_channel": True,
+            "event": {"type": "app_mention", "channel": "C_EXT", "user": "U123", "ts": "1.0"},
+        }
+        body = json.dumps(envelope).encode()
+        signature, ts = sign_slack_request(body, "secret")
+        APIClient().post(
+            "/slack/event-callback/",
+            data=body,
+            content_type="application/json",
+            HTTP_X_SLACK_SIGNATURE=signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+        )
+
+        mock_route.assert_called_once()
+        assert mock_route.call_args.kwargs["is_ext_shared_channel"] is True

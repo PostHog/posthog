@@ -90,14 +90,17 @@ def _resolve_autostart_assignee(
     if not candidate_user_ids:
         return None
 
-    # Single query: fetch users who have an autonomy config, joined eagerly
+    # organization__team uses the singular related_query_name for each hop, not the
+    # related_name accessor (organizations/teams), which filter() won't resolve.
     users_with_config = {
         u.id: u
         for u in User.objects.filter(
             id__in=candidate_user_ids,
             signal_autonomy_config__isnull=False,
-            teams__id=team_id,
-        ).select_related("signal_autonomy_config")
+            organization__team=team_id,
+        )
+        .select_related("signal_autonomy_config")
+        .distinct()
     }
 
     # Walk in reviewer order (most relevant first)
@@ -160,6 +163,10 @@ async def maybe_autostart_implementation_task(
     if task_user is None:
         return
 
+    base_branch = None
+    if repository and team_config:
+        base_branch = (team_config.autostart_base_branches or {}).get(repository.lower())
+
     task = await database_sync_to_async(Task.create_and_run, thread_sensitive=False)(
         team=team,
         title=title,
@@ -169,6 +176,7 @@ async def maybe_autostart_implementation_task(
         origin_product=Task.OriginProduct.SIGNAL_REPORT,
         user_id=task_user.id,
         repository=repository,
+        branch=base_branch,
         signal_report_id=report_id,
         posthog_mcp_scopes="read_only",
         interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR

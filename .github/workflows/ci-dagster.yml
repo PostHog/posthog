@@ -123,6 +123,7 @@ jobs:
                         - 'ee/clickhouse/**'
                         - 'ee/hogai/**'
                         # --- Only the products that DAGs actually import from ---
+                        - 'products/cohorts/backend/**/*.py'
                         - 'products/data_modeling/backend/**/*.py'
                         - 'products/data_warehouse/backend/**/*.py'
                         - 'products/error_tracking/backend/**/*.py'
@@ -266,6 +267,7 @@ jobs:
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
+                  token: ${{ github.token }}
 
             - name: Install uv
               id: setup-uv

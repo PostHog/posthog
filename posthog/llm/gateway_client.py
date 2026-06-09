@@ -19,7 +19,6 @@ Product = Literal[
     "llma_eval_summary",
     "slack-twig",
     "customer_archetype_classification",
-    "slack-posthog-code",
     "product_analytics",
     "subscriptions",
     "signals",

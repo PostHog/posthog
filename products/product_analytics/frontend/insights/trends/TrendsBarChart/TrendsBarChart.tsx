@@ -251,7 +251,9 @@ export function TrendsBarChart({
             // Dashboard/card tiles are a fixed height, so cap the rows to those that fit. The full
             // insight page is `embedded: false` — even when opened from a dashboard (dashboardId in
             // the URL) — so it keeps the grow-to-fit-all behavior and renders every breakdown row.
-            bars: { fitToHeight: embedded },
+            // divergingStack keeps negative values (e.g. a `A*(-1)` formula) below the zero baseline
+            // instead of clamping them to 0.
+            bars: { fitToHeight: embedded, divergingStack: true },
         }
     }, [
         yAxisScaleType,
@@ -401,7 +403,7 @@ export function TrendsBarChart({
 
     // Annotations are date-anchored, so they only make sense for the time-series bar
     // layouts (vertical bars). The horizontal aggregated layout has categorical labels.
-    const showAnnotations = !inSharedMode
+    const showAnnotations = !inSharedMode && trendsFilter?.showAnnotations !== false
     const annotationsDates = currentPeriodResult?.days ?? []
     // In compare-against-previous grouped layouts each band holds two bars (previous, current).
     // Anchor each period's annotations on its matching bar so they line up with what they describe.

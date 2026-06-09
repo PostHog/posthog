@@ -750,7 +750,7 @@ class TestRunEvaluationWorkflow:
             "team_id": team.id,
             "model_configuration": {
                 "provider": "openai",
-                "model": "o3-pro",
+                "model": "gpt-5.4",
                 "provider_key_id": None,
             },
         }

@@ -301,6 +301,8 @@ class ClickHouseClient:
         if database:
             self.params["database"] = database
 
+        self.params["max_query_size"] = "1048576"  # 1MB
+
         self.params.update(kwargs)
 
     @classmethod

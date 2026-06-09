@@ -142,7 +142,7 @@ export enum Scene {
     Health = 'Health',
     HealthCategoryDetail = 'HealthCategoryDetail',
     HealthAlerts = 'HealthAlerts',
-    SdkDoctor = 'SdkDoctor',
+    SdkHealth = 'SdkHealth',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
     SessionGroupSummariesTable = 'SessionGroupSummariesTable',
     SessionGroupSummary = 'SessionGroupSummary',
@@ -209,6 +209,7 @@ export enum Scene {
     SlackTaskContext = 'SlackTaskContext',
     OrganizationDeactivated = 'OrganizationDeactivated',
     OrganizationPendingDeletion = 'OrganizationPendingDeletion',
+    ProjectPendingDeletion = 'ProjectPendingDeletion',
     CustomerJourneyTemplates = 'CustomerJourneyTemplates',
 }
 

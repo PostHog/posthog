@@ -16,12 +16,16 @@ import type {
     SurveyApi,
     SurveyGlobalStatsResponseApi,
     SurveyQuestionLabelsResponseApi,
+    SurveyResponsesListApi,
     SurveySerializerCreateUpdateOnlyApi,
     SurveySerializerCreateUpdateOnlySchemaApi,
     SurveyStatsResponseApi,
+    SurveySummarizeRequestApi,
     SurveysGlobalStatsRetrieveParams,
     SurveysListParams,
+    SurveysResponsesListParams,
     SurveysStatsRetrieveParams,
+    SurveysSummarizeResponsesCreateParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -217,6 +221,51 @@ export const surveysGenerateTranslationsCreate = async (
     })
 }
 
+export const getSurveysLaunchUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/surveys/${id}/launch/`
+}
+
+/**
+ * Launch a survey by setting `start_date` to the current time. No-op if the survey is already launched (start_date set in the past) — returns the existing state unchanged. Does not affect archived surveys or surveys with an end_date in the past; unarchive or extend the end_date first.
+ */
+export const surveysLaunch = async (projectId: string, id: string, options?: RequestInit): Promise<SurveyApi> => {
+    return apiMutator<SurveyApi>(getSurveysLaunchUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSurveysResponsesListUrl = (projectId: string, id: string, params?: SurveysResponsesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/surveys/${id}/responses/?${stringifiedParams}`
+        : `/api/projects/${projectId}/surveys/${id}/responses/`
+}
+
+/**
+ * List survey responses for a specific survey, with question text resolved server-side so callers do not have to map opaque `$survey_response_<id>` keys. Each row carries `distinct_id`, `session_id`, `submitted_at`, and an `extra` block (device, browser, OS, geoip, current_url, iteration) so agents can cross-pivot to recordings, persons, or paths in a single follow-up call. For person properties at event time, follow up with `persons-get` using the returned `distinct_id` — keeps scopes scoped. Use `question_id` + `score_lte` to fetch NPS detractors and similar score-filtered cohorts.
+ */
+export const surveysResponsesList = async (
+    projectId: string,
+    id: string,
+    params?: SurveysResponsesListParams,
+    options?: RequestInit
+): Promise<SurveyResponsesListApi> => {
+    return apiMutator<SurveyResponsesListApi>(getSurveysResponsesListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSurveysResponsesArchiveCreateUrl = (projectId: string, id: string, responseUuid: string) => {
     return `/api/projects/${projectId}/surveys/${id}/responses/${responseUuid}/archive/`
 }
@@ -284,6 +333,7 @@ Args:
     date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
     date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
     exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
+    include_per_question_stats: Optional boolean to include per-question response counts and distributions
 
 Returns:
     Survey statistics including event counts, unique respondents, and conversion rates
@@ -300,21 +350,55 @@ export const surveysStatsRetrieve = async (
     })
 }
 
-export const getSurveysSummarizeResponsesCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/surveys/${id}/summarize_responses/`
+export const getSurveysStopUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/surveys/${id}/stop/`
 }
 
+/**
+ * Stop a survey by setting `end_date` to the current time. No new responses are accepted after this; existing responses remain available. No-op if the survey already has an end_date in the past.
+ */
+export const surveysStop = async (projectId: string, id: string, options?: RequestInit): Promise<SurveyApi> => {
+    return apiMutator<SurveyApi>(getSurveysStopUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSurveysSummarizeResponsesCreateUrl = (
+    projectId: string,
+    id: string,
+    params?: SurveysSummarizeResponsesCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/surveys/${id}/summarize_responses/?${stringifiedParams}`
+        : `/api/projects/${projectId}/surveys/${id}/summarize_responses/`
+}
+
+/**
+ * Summarize survey responses. When `question_index` or `question_id` is provided, returns a per-question theme summary using cached `survey.question_summaries` when fresh. When neither is provided, returns the survey-wide headline summary (delegates to summary_headline). Pass `force_refresh=true` in the body to bypass caches.
+ */
 export const surveysSummarizeResponsesCreate = async (
     projectId: string,
     id: string,
-    surveySerializerCreateUpdateOnlyApi: NonReadonly<SurveySerializerCreateUpdateOnlyApi>,
+    surveySummarizeRequestApi?: SurveySummarizeRequestApi,
+    params?: SurveysSummarizeResponsesCreateParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getSurveysSummarizeResponsesCreateUrl(projectId, id), {
+    return apiMutator<void>(getSurveysSummarizeResponsesCreateUrl(projectId, id, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(surveySerializerCreateUpdateOnlyApi),
+        body: JSON.stringify(surveySummarizeRequestApi),
     })
 }
 

@@ -10,7 +10,7 @@ import {
 } from 'd3-scale'
 import { stack as stackGen, stackOffsetDiverging, stackOffsetExpand, stackOffsetNone } from 'd3-shape'
 
-import type { ChartDimensions, ChartScales, ResolveValueFn, Series, ValueDomain } from './types'
+import type { BandSlot, ChartDimensions, ChartScales, ResolveValueFn, Series, ValueDomain } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 /** Inner padding fraction applied to the band scale when `BarChartConfig.bars.bandPadding` is unset. */
@@ -375,6 +375,19 @@ export interface BarScaleSet {
     value: D3YScale
     /** Sub-band for grouped layout — maps a series key to its offset inside a band. */
     group?: ScaleBand<string>
+}
+
+/** Band-axis slot of one series's bar within a grouped band: `{ x, width }` along the band axis.
+ *  The single source of truth for grouped bar geometry — used for drawing, hit-testing, and
+ *  tooltip anchoring. Returns undefined for non-grouped layouts or a series not in the group. */
+export function groupedBandSlot(scales: BarScaleSet, label: string, seriesKey: string): BandSlot | undefined {
+    const start = scales.band(label)
+    const group = scales.group
+    const offset = group?.(seriesKey)
+    if (start == null || group == null || offset == null) {
+        return undefined
+    }
+    return { x: start + offset, width: group.bandwidth() }
 }
 
 export function createBarScales(

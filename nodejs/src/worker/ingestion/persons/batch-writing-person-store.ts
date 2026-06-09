@@ -683,6 +683,14 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return fetchPromise
     }
 
+    /**
+     * Best-effort cache warmer for the given distinct IDs. Callers fire this without awaiting it,
+     * so its own rejection would become an unhandled rejection that exits the worker — so it swallows
+     * transient persons-Postgres unavailability (DependencyUnavailableError) here. The failure is not
+     * masked: each per-key promise (awaited by fetchForChecking/fetchForUpdate) still rejects, so a
+     * consumer propagates the error and the per-distinct-id pipeline retries it. Any other error
+     * (e.g. a broken query) is rethrown so it crashes loudly rather than being silently masked.
+     */
     async prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string }[]): Promise<void> {
         if (teamDistinctIds.length === 0) {
             return
@@ -755,16 +763,33 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 }
             })
 
-        // Register per-key promises so fetchForChecking/fetchForUpdate will wait on them
+        // Register per-key promises so fetchForChecking/fetchForUpdate can wait on the in-flight
+        // batch. On failure these reject, so a consumer propagates the error (and a transient
+        // DependencyUnavailableError is retried in the per-distinct-id pipeline) rather than seeing a
+        // misleading "person absent" null. The throwaway catch only marks the promise handled so an
+        // unconsumed key (its event may be dropped before the fetch) can't become an unhandled
+        // rejection — it does not change what awaiting consumers observe.
         for (const { cacheKey } of uncachedEntries) {
-            const keyPromise = batchFetchPromise.then((personsByKey) => {
-                return personsByKey.get(cacheKey) ?? null
-            })
+            const keyPromise = batchFetchPromise.then((personsByKey) => personsByKey.get(cacheKey) ?? null)
+            keyPromise.catch(() => {})
             this.fetchPromisesForChecking.set(cacheKey, keyPromise)
         }
 
-        // Await the batch fetch so callers who await prefetchPersons() get blocking behavior
-        await batchFetchPromise
+        // Recover from a retriable failure (e.g. transient persons-Postgres unavailability) so this
+        // best-effort, fire-and-forget warmer can't crash the worker. The failure is not masked:
+        // consumers still observe the rejection on their per-key promise and retry it in the
+        // per-distinct-id pipeline — we only swallow the redundant fire-and-forget copy. We recover
+        // only on an explicit `isRetriable === true`, not the pipeline's `!== false`: an unflagged
+        // error (e.g. a broken query) should rethrow and crash loudly rather than be silently masked.
+        await batchFetchPromise.catch((error) => {
+            if (error?.isRetriable === true) {
+                logger.warn('⚠️', 'prefetchPersons failed on a retriable persons-Postgres error', {
+                    error: String(error),
+                })
+                return
+            }
+            throw error
+        })
     }
 
     async fetchForUpdate(teamId: Team['id'], distinctId: string): Promise<InternalPerson | null> {

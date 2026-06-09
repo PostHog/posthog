@@ -154,7 +154,7 @@ export const VisualReviewRunsSnapshotHistoryListQueryParams = /* @__PURE__ */ zo
 })
 
 /**
- * Get all snapshots for a run with diff results.
+ * Get a run's snapshots with diff results, excluding quarantined ones by default.
  */
 export const VisualReviewRunsSnapshotsListParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
@@ -166,6 +166,12 @@ export const VisualReviewRunsSnapshotsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const VisualReviewRunsSnapshotsListQueryParams = /* @__PURE__ */ zod.object({
+    include_quarantined: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })

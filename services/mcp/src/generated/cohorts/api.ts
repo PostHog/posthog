@@ -23,6 +23,12 @@ export const CohortsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.'
         ),
+    hide_behavioral_cohorts: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences."
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })

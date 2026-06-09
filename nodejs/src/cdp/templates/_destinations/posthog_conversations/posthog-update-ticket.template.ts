@@ -6,7 +6,8 @@ export const template: HogFunctionTemplate = {
     type: 'destination',
     id: 'template-posthog-update-ticket',
     name: 'Update conversation ticket',
-    description: 'Update the status, priority, SLA, assignee, or tags of a conversation ticket',
+    description:
+        'Update the status, priority, SLA, assignee, or tags of a conversation ticket. Tags are additive by default.',
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
     code_language: 'hog',
@@ -51,6 +52,7 @@ if (not empty(inputs.assignee)) {
 
 if (not empty(inputs.tags)) {
   updates.tags := inputs.tags
+  updates.tags_mode := (not empty(inputs.tags_mode)) ? inputs.tags_mode : 'add'
 }
 
 let response := postHogUpdateTicket({
@@ -147,7 +149,23 @@ return response.body
             label: 'Tags',
             secret: false,
             required: false,
-            description: 'Set tags on the ticket. Leave empty to keep current tags.',
+            description:
+                'Tags to apply to the ticket. Each tag supports variable templating, e.g. {event.properties.region}. Leave empty to keep current tags.',
+        },
+        {
+            key: 'tags_mode',
+            type: 'choice',
+            label: 'Tag mode',
+            secret: false,
+            required: false,
+            default: 'add',
+            choices: [
+                { label: 'Add to existing tags', value: 'add' },
+                { label: 'Replace all tags', value: 'set' },
+                { label: 'Remove these tags', value: 'remove' },
+            ],
+            description:
+                'How the tags above are applied. Add (default) is safe when multiple workflows tag the same ticket.',
         },
     ],
 }

@@ -1,5 +1,5 @@
 import { PreIngestionEvent, Team } from '../../types'
-import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
+import { ReadOnlyGroupTypeManager } from '../../worker/ingestion/readonly-group-type-manager'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 import { enrichPropertiesWithGroupTypes } from './groups'
@@ -13,7 +13,7 @@ export interface ReadOnlyProcessGroupsStepInput {
 export type ReadOnlyProcessGroupsStepResult<TInput> = TInput
 
 export function createReadOnlyProcessGroupsStep<TInput extends ReadOnlyProcessGroupsStepInput>(
-    groupTypeManager: GroupTypeManager
+    groupTypeManager: ReadOnlyGroupTypeManager
 ): ProcessingStep<TInput, ReadOnlyProcessGroupsStepResult<TInput>> {
     return async function readOnlyProcessGroupsStep(input: TInput) {
         const { preparedEvent, team, processPerson } = input

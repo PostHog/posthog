@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT team_id::bigint as \"team_id!\", COUNT(*)::bigint as \"count!\"\n            FROM posthog_grouptypemapping\n            GROUP BY team_id\n            ORDER BY team_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "team_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "99b243ac97e7f200738f44f7d2d2869afa011e8b10eb897697d543bba576cbe0"
+}

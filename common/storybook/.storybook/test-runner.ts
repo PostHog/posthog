@@ -83,6 +83,7 @@ declare module '@storybook/types' {
 const RETRY_TIMES = 2
 const LOADER_SELECTORS = [
     '.Spinner',
+    '.quill-spinner', // Quill's <Spinner /> — rotates while present, so it must settle before we snapshot
     '.LemonSkeleton',
     '.LemonTableLoader',
     '.Toastify__toast',

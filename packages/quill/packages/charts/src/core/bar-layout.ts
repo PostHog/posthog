@@ -1,5 +1,5 @@
 import type { BarRect, BarRoundedCorners } from './canvas-renderer'
-import type { BarScaleSet, StackedBand } from './scales'
+import { type BarScaleSet, groupedBandSlot, type StackedBand } from './scales'
 import type { Series } from './types'
 
 /** Brand for the BarChart `ChartScales._private` slot — populated by BarChart and
@@ -161,15 +161,13 @@ export function computeBarAtIndex({
     const bandWidth = scales.band.bandwidth()
 
     if (isGrouped) {
-        const groupOffsetForKey = scales.group?.(series.key)
+        const slot = groupedBandSlot(scales, label, series.key)
         const valuePixel = scales.value(raw)
-        if (groupOffsetForKey == null || !isFinite(valuePixel)) {
+        if (!slot || !isFinite(valuePixel)) {
             return null
         }
-        const groupBandWidth = scales.group?.bandwidth() ?? bandWidth
         const corners = cornersFor(isHorizontal, raw >= 0, shouldRoundCap)
-        const start = bandStart + groupOffsetForKey
-        return makeBarRect(isHorizontal, start, groupBandWidth, scales.value(0), valuePixel, corners, dataIndex)
+        return makeBarRect(isHorizontal, slot.x, slot.width, scales.value(0), valuePixel, corners, dataIndex)
     }
 
     const topPixel = scales.value(stackedBand!.top[dataIndex])
@@ -206,4 +204,18 @@ export function computeBarTrackRect(
               dataIndex: bar.dataIndex,
           }
         : { x: bar.x, y: valueMin, width: bar.width, height: valueSize, corners: bar.corners, dataIndex: bar.dataIndex }
+}
+
+/** Pixel center of a band along the band axis — the anchor for band-level tooltips and grid ticks. */
+export function bandCenter(scales: BarScaleSet, label: string): number | undefined {
+    const start = scales.band(label)
+    return start == null ? undefined : start + scales.band.bandwidth() / 2
+}
+
+/** Center of a specific series's bar within a band. Used by overlays (e.g. annotations)
+ *  to anchor on the current-period bar in compare-against-previous grouped layouts.
+ *  Returns undefined when the layout isn't grouped or the series isn't in the group scale. */
+export function groupedBarCenter(scales: BarScaleSet, label: string, seriesKey: string): number | undefined {
+    const slot = groupedBandSlot(scales, label, seriesKey)
+    return slot && slot.x + slot.width / 2
 }

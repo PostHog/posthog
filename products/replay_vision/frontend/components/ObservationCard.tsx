@@ -1,4 +1,4 @@
-import { IconRewindPlay, IconSparkles, IconWarning } from '@posthog/icons'
+import { IconRewindPlay, IconSparkles } from '@posthog/icons'
 import { LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { colonDelimitedDuration } from 'lib/utils'
@@ -7,21 +7,49 @@ import { urls } from 'scenes/urls'
 import type { ReplayObservationApi, ScannerSnapshotApi } from '../generated/api.schemas'
 import {
     failureKindDescription,
+    ineligibleKindDescription,
     parseFailureReason,
     parseIneligibleReason,
     scannerTypeLabel,
 } from '../replay_scanners/types'
+import { ObservationProgressBar } from './ObservationProgressBar'
 
-export function ObservationStatusTag({ status }: { status: ReplayObservationApi['status'] }): JSX.Element {
+export function ObservationStatusTag({
+    status,
+    errorReason,
+}: {
+    status: ReplayObservationApi['status']
+    errorReason?: string | null
+}): JSX.Element {
     if (status === 'succeeded') {
         return <LemonTag type="success">Succeeded</LemonTag>
     }
     if (status === 'failed') {
-        return <LemonTag type="danger">Failed</LemonTag>
+        // Raw exception text lives in `FailureDetail`; tooltip is the description only.
+        const parsed = errorReason ? parseFailureReason(errorReason) : null
+        const tooltip = parsed ? failureKindDescription(parsed.kind) : errorReason || null
+        return (
+            <Tooltip title={tooltip}>
+                <LemonTag type="danger">Failed</LemonTag>
+            </Tooltip>
+        )
     }
     if (status === 'ineligible') {
         // Muted, not danger — the session was skipped at the gate, not a scanner failure.
-        return <LemonTag type="muted">Ineligible</LemonTag>
+        const parsed = errorReason ? parseIneligibleReason(errorReason) : null
+        const tooltip = parsed ? (
+            <div className="flex flex-col gap-1">
+                <div>{ineligibleKindDescription(parsed.kind)}</div>
+                {parsed.message && <div className="text-xs opacity-80">{parsed.message}</div>}
+            </div>
+        ) : errorReason ? (
+            <div>{errorReason}</div>
+        ) : null
+        return (
+            <Tooltip title={tooltip}>
+                <LemonTag type="muted">Ineligible</LemonTag>
+            </Tooltip>
+        )
     }
     if (status === 'running') {
         return (
@@ -305,29 +333,8 @@ export function ObservationConfidence({ result }: { result: Record<string, unkno
 }
 
 export function ObservationResultSummary({ observation }: { observation: ReplayObservationApi }): JSX.Element {
-    if (observation.status === 'ineligible') {
-        const parsed = parseIneligibleReason(observation.error_reason)
-        const label = parsed?.label ?? 'Ineligible'
-        const detail = parsed?.message ?? observation.error_reason
-        return (
-            <Tooltip title={detail || label}>
-                <span className="text-muted text-sm">{label}</span>
-            </Tooltip>
-        )
-    }
-    if (observation.status === 'failed') {
-        const parsed = parseFailureReason(observation.error_reason)
-        const label = parsed?.label ?? 'Failed'
-        const description = parsed ? failureKindDescription(parsed.kind) : null
-        const detail = parsed?.message ?? observation.error_reason
-        const tooltip = [description, detail].filter(Boolean).join('\n\n') || 'Unknown error'
-        return (
-            <Tooltip title={tooltip}>
-                <span className="inline-flex items-center gap-1 text-danger text-sm">
-                    <IconWarning /> {label}
-                </span>
-            </Tooltip>
-        )
+    if (observation.status === 'ineligible' || observation.status === 'failed') {
+        return <span className="text-muted text-sm">—</span>
     }
     const snapshot = observation.scanner_snapshot
     const result = readResult(observation)
@@ -365,12 +372,7 @@ export function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.
 }
 
 function ObservationProgress({ observation }: { observation: ReplayObservationApi }): JSX.Element {
-    return (
-        <div className="flex items-center gap-2 text-muted text-sm">
-            <Spinner textColored />
-            <span>{observation.status === 'pending' ? 'Queued…' : 'Analyzing recording…'}</span>
-        </div>
-    )
+    return <ObservationProgressBar observationId={observation.id} sessionId={observation.session_id} compact />
 }
 
 export function ObservationDockCard({
@@ -388,7 +390,7 @@ export function ObservationDockCard({
         <div className="border rounded p-3 bg-surface-primary space-y-2">
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
-                    <ObservationStatusTag status={observation.status} />
+                    <ObservationStatusTag status={observation.status} errorReason={observation.error_reason} />
                     <span className="font-semibold text-sm truncate">{snapshot?.name || 'Scanner'}</span>
                     {scannerType && <span className="text-muted text-xs">{scannerTypeLabel(scannerType)}</span>}
                 </div>

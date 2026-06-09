@@ -195,6 +195,7 @@ export const mockCohort: CohortType = {
 
 export const mockSubscription: SubscriptionType = {
     id: 1,
+    resource_type: 'insight',
     title: 'My example subscription',
     target_type: 'email',
     target_value: 'ben@posthog.com,geoff@other-company.com',

@@ -398,7 +398,16 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         op = ">" if self.query.orderBy == "earliest" else "<"
         ts_op = ">=" if self.query.orderBy == "earliest" else "<="
 
+        # rootSpans is opt-in and gated on `is True` (not truthiness): the frontend never sends it
+        # (None), so its prefetch-driven waterfall is untouched. An explicit True narrows the
+        # trace-selection subquery to `is_root_span = 1`, so we only pick traces whose root matches
+        # the filter. The outer fetch is deliberately left unfiltered — it still prefetches every
+        # span of the selected traces so the waterfall gets its children.
+        root_only = self.query.rootSpans is True
+
         subquery_where_exprs: list[ast.Expr] = [self.where()]
+        if root_only:
+            subquery_where_exprs.append(parse_expr("is_root_span = 1"))
         having_expr: ast.Expr | None = None
         if cursor is not None:
             cursor_ts, cursor_trace_id = cursor
@@ -470,7 +479,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 is_root_span,
                 {where} as matched_filter,
                 min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id) as trace_start,
-                attributes
+                {attributes}
             FROM posthog.trace_spans
             WHERE {filters} AND trace_id IN ({trace_id_query}) LIMIT {limit}
         """,
@@ -480,6 +489,10 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "trace_id_query": trace_id_query,
                 "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
                 "filters": ast.Placeholder(expr=ast.Field(chain=["filters"])),
+                # The attribute map dominates payload size (db.statement holds multi-KB SQL). When
+                # excluded we still SELECT a column so the positional result mapping stays stable —
+                # an empty map instead of the real one.
+                "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
             },
         )
         assert isinstance(query, ast.SelectQuery)

@@ -86,6 +86,10 @@ from posthog.temporal.ingestion_acceptance_test import (
     ACTIVITIES as INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
     WORKFLOWS as INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
 )
+from posthog.temporal.mcp_analytics.intent_clustering import (
+    MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
+    MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
+)
 from posthog.temporal.messaging import (
     ACTIVITIES as MESSAGING_ACTIVITIES,
     WORKFLOWS as MESSAGING_WORKFLOWS,
@@ -162,6 +166,14 @@ from posthog.temporal.weekly_digest import (
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
+)
+from products.business_knowledge.backend.temporal import (
+    ACTIVITIES as BUSINESS_KNOWLEDGE_ACTIVITIES,
+    WORKFLOWS as BUSINESS_KNOWLEDGE_WORKFLOWS,
+)
+from products.error_tracking.backend.temporal import (
+    ACTIVITIES as ERROR_TRACKING_ACTIVITIES,
+    WORKFLOWS as ERROR_TRACKING_WORKFLOWS,
 )
 from products.exports.backend.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
@@ -279,8 +291,8 @@ _task_queue_specs = [
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
-        SIGNALS_PRODUCT_WORKFLOWS + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
-        SIGNALS_PRODUCT_ACTIVITIES + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
+        SIGNALS_PRODUCT_WORKFLOWS + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS + BUSINESS_KNOWLEDGE_WORKFLOWS,
+        SIGNALS_PRODUCT_ACTIVITIES + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES + BUSINESS_KNOWLEDGE_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
@@ -336,6 +348,21 @@ _task_queue_specs = [
         settings.LLMA_TASK_QUEUE,
         LLM_ANALYTICS_WORKFLOWS,
         LLM_ANALYTICS_ACTIVITIES,
+    ),
+    (
+        # Dedicated queue for MCP analytics clustering — isolates the CPU
+        # burst (cluster compute) and external embedding worker calls from
+        # the general-purpose queue that hosts the rest of mcp_analytics.
+        # Workflow + activity lists are populated as the stack lands; an
+        # empty queue is harmless — the worker registers and idles.
+        settings.MCPA_TASK_QUEUE,
+        MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
+        MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
+    ),
+    (
+        settings.ERROR_TRACKING_TASK_QUEUE,
+        ERROR_TRACKING_WORKFLOWS,
+        ERROR_TRACKING_ACTIVITIES,
     ),
     (
         settings.EVENT_SCREENSHOTS_TASK_QUEUE,
