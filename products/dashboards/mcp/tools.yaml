@@ -272,6 +272,7 @@ tools:
                 - dashboard_filters
                 - deleted
                 - created_by
+                - availability_contexts
     dashboard-templates-partial-update:
         operation: dashboard_templates_partial_update
         enabled: false
@@ -295,8 +296,8 @@ tools:
         response:
             exclude:
                 - created_by
-                - deleted
                 - dashboard_filters
+                - availability_contexts
                 - tiles.*.query
                 - tiles.*.layouts
                 - tiles.*.color

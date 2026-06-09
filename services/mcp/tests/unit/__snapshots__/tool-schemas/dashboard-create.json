@@ -1,6 +1,5 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "description": "Serializer mixin that handles tags for objects.",
     "properties": {
         "breakdown_colors": {
             "description": "Custom color mapping for breakdown values."
@@ -81,7 +80,7 @@
             "description": "ID of an existing dashboard to duplicate."
         },
         "use_template": {
-            "description": "Template key to create the dashboard from a predefined template.",
+            "description": "Optional template key to pre-populate the dashboard with tiles. This is the `template_name` of an existing dashboard template — call dashboard-templates-list to discover valid keys (and dashboard-templates-retrieve to inspect a candidate's tiles). Do not guess a key; an unknown key returns an error. Omit to create an empty dashboard.",
             "type": "string"
         }
     },

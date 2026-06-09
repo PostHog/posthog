@@ -360,7 +360,14 @@ const dashboardTemplatesList = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                omitResponseFields(item, ['tiles', 'variables', 'dashboard_filters', 'deleted', 'created_by'])
+                omitResponseFields(item, [
+                    'tiles',
+                    'variables',
+                    'dashboard_filters',
+                    'deleted',
+                    'created_by',
+                    'availability_contexts',
+                ])
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/dashboard')
@@ -383,8 +390,8 @@ const dashboardTemplatesRetrieve = (): ToolBase<
         })
         const filtered = omitResponseFields(result, [
             'created_by',
-            'deleted',
             'dashboard_filters',
+            'availability_contexts',
             'tiles.*.query',
             'tiles.*.layouts',
             'tiles.*.color',
