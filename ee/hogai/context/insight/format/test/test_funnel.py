@@ -110,6 +110,32 @@ class TestFunnelResultsFormatter(BaseTest):
             ).format(),
         )
 
+    def test_funnels_steps_none_results(self):
+        self.assertEqual(
+            FunnelResultsFormatter(AssistantFunnelsQuery(series=[]), None, self.team, datetime.now()).format(),
+            "No data recorded for this time period.",
+        )
+
+    def test_funnels_time_to_convert_none_results(self):
+        query = AssistantFunnelsQuery(
+            series=[],
+            funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TIME_TO_CONVERT),
+        )
+        self.assertEqual(
+            FunnelResultsFormatter(query, None, self.team, datetime.now()).format(),
+            "No data recorded for this time period.",
+        )
+
+    def test_funnels_trends_none_results(self):
+        query = AssistantFunnelsQuery(
+            series=[],
+            funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TRENDS),
+        )
+        self.assertEqual(
+            FunnelResultsFormatter(query, None, self.team, datetime.now()).format(),
+            "No data recorded for this time period.",
+        )
+
     def test_funnels_breakdown(self):
         results = [
             {
