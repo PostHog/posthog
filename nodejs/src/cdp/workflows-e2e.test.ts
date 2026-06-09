@@ -293,6 +293,10 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     const actionFilter = (eventName: string, actionId: number) => ({
         filters: { actions: [{ id: actionId, type: 'actions' }], events: [], bytecode: eventNameBytecode(eventName) },
     })
+    // The state left when the last event is removed from a wait entry in the UI: no events, no
+    // actions. Empty filters compile to always-true bytecode (op 29), which must NOT wake on every
+    // event. ['_H', 1, 29] is exactly what the Django compiler emits for empty filters.
+    const emptyEventFilter = () => ({ filters: { events: [], bytecode: ['_H', 1, 29] } })
 
     describe('simple workflow: trigger → function → exit', () => {
         beforeEach(async () => {
@@ -751,6 +755,28 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
             // An unrelated event must not wake the job.
             await matcher.processBatch([createGlobals({ event: 'some_other_event' })])
+
+            // Give the worker room to (incorrectly) pick the job up — it must not.
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('does not wake on a completely empty "events to wait for" entry (always-true bytecode)', async () => {
+            // The state left when the last event is removed from a wait entry: empty filters compile
+            // to always-true bytecode. Inserted directly so it bypasses the serializer strip — this
+            // guards the matcher itself, which must NOT fire the workflow on every incoming event.
+            await createWaitUntilWorkflow({
+                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                events: [emptyEventFilter()],
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // An unrelated event must not wake the job — the always-true bytecode would otherwise match.
+            await matcher.processBatch([createGlobals({ event: 'some_unrelated_event' })])
 
             // Give the worker room to (incorrectly) pick the job up — it must not.
             await new Promise((resolve) => setTimeout(resolve, 1000))
