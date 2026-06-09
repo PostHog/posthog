@@ -1,5 +1,9 @@
 import os
+import logging
+import warnings
 import subprocess
+from collections.abc import Callable
+from functools import partial
 from typing import Any
 from urllib.parse import quote_plus
 
@@ -8,11 +12,14 @@ from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_paral
 
 from django.conf import settings
 from django.core.management.commands.flush import Command as FlushCommand
-from django.db import connections
+from django.db import DEFAULT_DB_ALIAS, connections
 
 from infi.clickhouse_orm import Database
+from psycopg import errors as psycopg_errors
 
 from posthog.clickhouse.client import sync_execute
+
+logger = logging.getLogger(__name__)
 
 
 def create_clickhouse_tables():
@@ -332,9 +339,104 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     yield from _django_db_setup(django_db_keepdb, django_db_blocker)
 
 
+# How long a teardown flush may wait on a Postgres lock before we terminate idle-in-transaction
+# blockers and retry (Postgres duration syntax). Generous: nothing legitimate holds a table lock
+# for anywhere near this long in tests.
+FLUSH_LOCK_TIMEOUT = "30s"
+
+
+def _is_lock_timeout(exc: BaseException | None) -> bool:
+    seen: set[int] = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, psycopg_errors.LockNotAvailable):
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+def _terminate_idle_in_transaction_sessions(database: str) -> list[str]:
+    """Snapshot and terminate other idle-in-transaction sessions on this connection's database."""
+    with connections[database].cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT pid, usename, application_name,
+                   now() - xact_start AS xact_age,
+                   now() - state_change AS idle_for,
+                   query
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND pid != pg_backend_pid()
+              AND state LIKE 'idle in transaction%'
+            """
+        )
+        blockers = cursor.fetchall()
+        descriptions = [
+            f"pid={pid} user={user} app={app!r} xact_age={xact_age} idle_for={idle_for} last_query={query!r}"
+            for pid, user, app, xact_age, idle_for, query in blockers
+        ]
+        for pid, *_ in blockers:
+            cursor.execute("SELECT pg_terminate_backend(%s)", [pid])
+    return descriptions
+
+
+def _flush_with_lock_guard(database: str, flush: Callable[[], None]) -> None:
+    """Run a teardown flush with a session lock_timeout and a terminate-and-retry fallback.
+
+    TRUNCATE needs an ACCESS EXCLUSIVE lock on every flushed table, so a single leaked
+    idle-in-transaction session (e.g. a background worker thread that never closed its
+    transaction) blocks teardown forever and the CI job dies at its timeout with no
+    diagnostics. Instead: time out quickly, name and terminate the blockers, retry once.
+    """
+    conn = connections[database]
+
+    def set_lock_timeout(value: str) -> None:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT set_config('lock_timeout', %s, false)", [value])
+
+    set_lock_timeout(FLUSH_LOCK_TIMEOUT)
+    try:
+        try:
+            flush()
+        except Exception as err:
+            if not _is_lock_timeout(err):
+                raise
+            blockers = _terminate_idle_in_transaction_sessions(database)
+            message = (
+                f"Teardown flush of {database!r} timed out after {FLUSH_LOCK_TIMEOUT} waiting for a table lock; "
+                f"terminated {len(blockers)} idle-in-transaction session(s) and retrying: {'; '.join(blockers)}"
+            )
+            logger.exception(message)
+            warnings.warn(message, stacklevel=2)
+            try:
+                flush()
+            except Exception as retry_err:
+                raise RuntimeError(
+                    f"Teardown flush of {database!r} is still lock-blocked after terminating "
+                    f"idle-in-transaction sessions: {'; '.join(blockers)}"
+                ) from retry_err
+    finally:
+        set_lock_timeout("0")
+
+
+def _truncate_persons_db_tables(database: str) -> None:
+    conn = connections[database]
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT tablename FROM pg_tables
+            WHERE schemaname = 'public'
+            AND tablename NOT LIKE 'pg_%'
+            AND tablename NOT LIKE '_sqlx_%'
+            AND tablename NOT LIKE '_persons_migrations'
+        """)
+        tables = [row[0] for row in cursor.fetchall()]
+        if tables:
+            cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
+
+
 def _patched_flush_handle(self, **options: Any) -> None:
     """
-    Patched Django flush command for two reasons:
+    Patched Django flush command for three reasons:
 
     1. Persons database doesn't have Django's built-in tables (contenttypes,
        permissions), so we skip post_migrate signals by truncating manually.
@@ -343,28 +445,24 @@ def _patched_flush_handle(self, **options: Any) -> None:
        Django doesn't know about. CASCADE lets TRUNCATE succeed even when
        unknown FK constraints reference a table being flushed.
 
+    3. TRUNCATE waits on an ACCESS EXCLUSIVE lock, so one leaked idle-in-transaction
+       session (e.g. from a background worker thread) hangs teardown until the CI job
+       timeout. _flush_with_lock_guard turns that silent hang into a loud, self-healing
+       terminate-and-retry.
+
     Applied at module level (not via monkeypatch) so it stays active during
     pytest-django's _post_teardown, which runs flush AFTER function-scoped
     fixture teardown.
     """
-    database = options.get("database")
+    database = options.get("database") or DEFAULT_DB_ALIAS
 
     if database in ("persons_db_writer", "persons_db_reader"):
-        conn = connections[database]
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT tablename FROM pg_tables
-                WHERE schemaname = 'public'
-                AND tablename NOT LIKE 'pg_%'
-                AND tablename NOT LIKE '_sqlx_%'
-                AND tablename NOT LIKE '_persons_migrations'
-            """)
-            tables = [row[0] for row in cursor.fetchall()]
-            if tables:
-                cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
+        flush: Callable[[], None] = partial(_truncate_persons_db_tables, database)
     else:
         options["allow_cascade"] = True
-        return _original_flush_handle(self, **options)
+        flush = partial(_original_flush_handle, self, **options)
+
+    _flush_with_lock_guard(database, flush)
 
 
 _original_flush_handle = FlushCommand.handle
