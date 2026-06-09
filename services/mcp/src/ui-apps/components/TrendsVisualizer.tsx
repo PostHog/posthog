@@ -2,10 +2,17 @@ import { type ReactElement, useState } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
+import { TimeSeriesLineChart } from '@posthog/quill-charts'
 
-import { BarChart, BigNumber, LineChart, Select, type Series } from './charts'
+import {
+    buildTrendsLineTimeSeriesConfig,
+    buildTrendsSeries,
+} from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
+
+import { BarChart, BigNumber, Select, type Series } from './charts'
+import { CHART_COLORS, CHART_THEME } from './charts/theme'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
-import { getDisplayType, getSeriesLabel, isBarChart } from './utils'
+import { formatDate, getDisplayType, getSeriesLabel, isBarChart } from './utils'
 
 type ChartMode = 'line' | 'bar'
 
@@ -82,6 +89,27 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         return <BigNumber value={total} label={label} />
     }
 
+    const lineResults = results.map((item, i) => ({
+        id: i,
+        label: getSeriesLabel(item, i),
+        data: item.data ?? [],
+        days: item.days,
+    }))
+
+    const lineSeries = buildTrendsSeries(lineResults, {
+        isArea: displayType === 'ActionsAreaGraph',
+        getColor: (_, index) => CHART_COLORS[index % CHART_COLORS.length]!,
+    })
+
+    const lineConfig = buildTrendsLineTimeSeriesConfig({
+        results: lineResults,
+        trendsFilter: query?.trendsFilter,
+        yAxisLabel: results.length === 1 && results[0] ? getSeriesLabel(results[0], 0) : undefined,
+        isPercentStackView: false,
+        showCrosshair: true,
+        xAxisTickFormatter: (value) => formatDate(value),
+    })
+
     return (
         <div>
             <div className="mb-2 flex justify-end">
@@ -96,12 +124,9 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                     yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
                 />
             ) : (
-                <LineChart
-                    series={series}
-                    labels={labels}
-                    maxValue={maxValue}
-                    yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
-                />
+                <div className="flex flex-col w-full h-[400px]">
+                    <TimeSeriesLineChart series={lineSeries} labels={labels} theme={CHART_THEME} config={lineConfig} />
+                </div>
             )}
         </div>
     )
