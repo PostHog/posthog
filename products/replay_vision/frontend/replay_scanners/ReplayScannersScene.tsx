@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
+import { IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -59,7 +59,7 @@ export function ReplayScannersScene(): JSX.Element {
         hasActiveFilters,
         scannerStats,
     } = useValues(replayScannersLogic)
-    const { loadScanners, deleteScanner, duplicateScanner, toggleScannerEnabled, setScannersFilters, clearFilters } =
+    const { loadScanners, deleteScanner, toggleScannerEnabled, setScannersFilters, clearFilters } =
         useActions(replayScannersLogic)
     const { push } = useActions(router)
 
@@ -155,18 +155,6 @@ export function ReplayScannersScene(): JSX.Element {
                             icon={<IconPencil />}
                             onClick={() => push(urls.replayVision(scanner.id))}
                             tooltip="Edit"
-                        />
-                    </AccessControlAction>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.SessionRecording}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconCopy />}
-                            onClick={() => duplicateScanner(scanner.id)}
-                            tooltip="Duplicate"
                         />
                     </AccessControlAction>
                     <AccessControlAction
