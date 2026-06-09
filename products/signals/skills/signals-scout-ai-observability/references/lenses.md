@@ -26,6 +26,20 @@ queries, and the **discipline** (what's noise here).
   product / tool drove it, then pull one or two representative traces via `query-llm-trace`
   as evidence. A finding with no localized cause and no sample is rarely worth emitting.
 
+## Quick-probe HogQL gotchas
+
+For the cheap trend queries you write yourself (the deep-dive skills have the maintained
+queries for anything more):
+
+- The `$ai_*` numeric properties sit in a **typed property group**, so guard them
+  numerically — filter `properties.$ai_latency > 0` (a `!= ''` guard triggers a float-cast
+  error) and aggregate them directly: `quantile(0.9)(properties.$ai_latency)`, no `toFloat`.
+- HogQL has `toFloatOrDefault` / `toIntOrDefault`, **not** `toFloatOrNull`.
+- `$ai_tools_called` is a **comma-joined string**, not a JSON array —
+  `arrayJoin(splitByChar(',', properties.$ai_tools_called))` to tally tool usage.
+- Not every team emits `$ai_embedding` (the dogfood project doesn't); including it in cost
+  rollups is harmless but querying an absent event raises a taxonomy warning.
+
 ## The deep-dive skills
 
 The sandbox bakes four upstream PostHog skills — they hold the exact, maintained query
