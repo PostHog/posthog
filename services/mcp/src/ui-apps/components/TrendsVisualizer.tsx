@@ -2,15 +2,19 @@ import { type ReactElement, useState } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
-import { TimeSeriesLineChart } from '@posthog/quill-charts'
+import { BarChart as BarValueChart, TimeSeriesLineChart } from '@posthog/quill-charts'
 
+import {
+    buildTrendsBarValueConfig,
+    buildTrendsBarValueSeries,
+} from 'products/product_analytics/frontend/insights/trends/TrendsBarValueChart/trendsBarValueChartTransforms'
 import {
     buildTrendsLineTimeSeriesConfig,
     buildTrendsSeries,
 } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
 
 import { BarChart, BigNumber, Select, type Series } from './charts'
-import { CHART_COLORS, CHART_THEME } from './charts/theme'
+import { CHART_THEME, colorAt } from './charts/theme'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
 import { formatDate, getDisplayType, getSeriesLabel, isBarChart } from './utils'
 
@@ -89,6 +93,27 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         return <BigNumber value={total} label={label} />
     }
 
+    // ActionsBarValue returns aggregated_value per series (empty data[]/days[]) — render a
+    // horizontal bar of totals, not a time series, so there's no line/bar mode toggle.
+    if (displayType === 'ActionsBarValue') {
+        const items = results.map((item, i) => ({
+            label: getSeriesLabel(item, i),
+            value: item.aggregated_value,
+        }))
+        const barSeries = buildTrendsBarValueSeries(items, { getColor: colorAt })
+        const barConfig = buildTrendsBarValueConfig()
+        return (
+            <div className="flex flex-col w-full h-[400px]">
+                <BarValueChart
+                    series={barSeries}
+                    labels={items.map((item) => item.label)}
+                    theme={CHART_THEME}
+                    config={barConfig}
+                />
+            </div>
+        )
+    }
+
     const lineResults = results.map((item, i) => ({
         id: i,
         label: getSeriesLabel(item, i),
@@ -98,7 +123,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
 
     const lineSeries = buildTrendsSeries(lineResults, {
         isArea: displayType === 'ActionsAreaGraph',
-        getColor: (_, index) => CHART_COLORS[index % CHART_COLORS.length]!,
+        getColor: (_, index) => colorAt(index),
     })
 
     const lineConfig = buildTrendsLineTimeSeriesConfig({

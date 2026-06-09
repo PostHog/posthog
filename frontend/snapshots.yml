@@ -3840,6 +3840,10 @@ snapshots:
         hash: v1.k794b7964.da67b48f277665016d143ea09d4471ca6f01f3b8a6d22e7fe0f3dc51b075e92a.l81wzNlVna0bTrWF2HHg1RkJaB7vXRpAIdMbNylhzCw
     mcp-apps-trends--area-chart--light:
         hash: v1.k794b7964.6ed37783ed84b48f2d648749ffc298bfd71075de834aae5d71f1a3b57dceb307.CP-Rjuy-9M_y2GO4qu462L0uVUqNr5EjDcW5v81BryE
+    mcp-apps-trends--bar-value-few-series--light:
+        hash: v1.k794b7964.bcb42d00df54e5bf9adccb454c817a56a52561ec5b481ffe9b25a8896baeae89.E3s1npkDTg03NEIlR9OhwvzSa2k1RWTAlqi-HlgnjZg
+    mcp-apps-trends--bar-value-many-breakdowns--light:
+        hash: v1.k794b7964.d421caf04ff4ffe69988ee87e3faa29b8de082074da252a8afb62ab1855648f2.qIt6erKrYbIJIHSDm1PF4wtGvohw-Dkk5BK2v5jyjAk
     mcp-apps-trends--multi-series--light:
         hash: v1.k794b7964.466f26e9748bf36e37c3b01368ede6314529acc9de022545d2d7732fd27b9876.UBFF_lMm5lyhQHZ67NejD1gwBIUG40R24So4yyXge2I
     mcp-apps-trends--single-series--light:
