@@ -12,6 +12,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -654,6 +655,48 @@ class TestHogFlowAPI(APIBaseTest):
         events = response.json()["actions"][1]["config"]["events"]
         assert len(events) == 1, events
         assert "subscription created" in events[0]["filters"]["bytecode"], events[0]["filters"]
+
+    def test_hog_flow_wait_until_keeps_action_only_entry(self):
+        # An "events to wait for" entry can target a PostHog Action instead of an event: filters.actions
+        # is set and filters.events is empty. That is a real wait and must be kept (and its bytecode
+        # compiled), while a truly-empty entry alongside it is still dropped.
+        action = Action.objects.create(team=self.team, name="Played with calculator", steps_json=[{"event": "calc"}])
+
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        wait_action = {
+            "id": "wait_1",
+            "name": "wait_1",
+            "type": "wait_until_condition",
+            "config": {
+                "condition": {"filters": None},
+                "max_wait_duration": "5m",
+                "events": [
+                    {"filters": {"events": []}},
+                    {"filters": {"actions": [{"id": str(action.id), "type": "actions", "order": 0}], "events": []}},
+                ],
+            },
+        }
+        hog_flow = {
+            "name": "Test Flow Keep Action Wait Entry",
+            "status": "active",
+            "actions": [trigger_action, wait_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        events = response.json()["actions"][1]["config"]["events"]
+        assert len(events) == 1, events
+        assert events[0]["filters"]["actions"] == [{"id": str(action.id), "type": "actions", "order": 0}]
+        assert events[0]["filters"]["bytecode"], events[0]["filters"]
 
     def test_hog_flow_conversion_events_filters_bytecode(self):
         trigger_action = {

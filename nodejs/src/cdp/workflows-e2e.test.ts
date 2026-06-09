@@ -288,6 +288,11 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     const eventNameFilter = (eventName: string) => ({
         filters: { events: [{ id: eventName }], bytecode: eventNameBytecode(eventName) },
     })
+    // An action-based wait entry: the editor's Actions picker yields a filter with `actions` set and
+    // `events` empty. Django compiles the action's match conditions into bytecode the same way.
+    const actionFilter = (eventName: string, actionId: number) => ({
+        filters: { actions: [{ id: actionId, type: 'actions' }], events: [], bytecode: eventNameBytecode(eventName) },
+    })
 
     describe('simple workflow: trigger → function → exit', () => {
         beforeEach(async () => {
@@ -666,6 +671,28 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
             // A subscribed event fires for this person — the matcher wakes the job.
             await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('wakes a parked job whose wait entry is action-based (events empty, actions + bytecode set)', async () => {
+            await createWaitUntilWorkflow({
+                // Property condition never matches the trigger event, so the job parks.
+                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                // "Events to wait for" entry targets a PostHog Action: filters.events is empty,
+                // filters.actions is set, and the compiled bytecode matches the action's event.
+                events: [actionFilter('action_wakeup_event', 3)],
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // The action's underlying event fires — the matcher must wake the job via the action
+            // entry even though filters.events is empty.
+            await matcher.processBatch([createGlobals({ event: 'action_wakeup_event' })])
 
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
