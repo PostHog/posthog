@@ -193,10 +193,15 @@ class EventsSubexprHoister(CloningVisitor):
         return name
 
     def _preferred_name(self, node: ast.Expr) -> str | None:
-        # A property read reuses the resolver's `__`-joined name (`$browser`, `foo__bar`); a direct column its database
-        # name; any other events-only subexpression a synthetic internal name (its outer output name rides its alias).
+        # A property read's name is its source blob column joined with its key path, so `properties.x` and the person
+        # blob's `person_properties.x` hoist to separate columns instead of colliding on the bare key `x` (which would
+        # read the wrong blob for one of them). A direct column uses its database name; any other events-only
+        # subexpression a synthetic internal name (its outer output name rides its alias).
         if isinstance(node, ast.JSONFieldAccess):
-            return "__".join(str(key) for key in node.keys)
+            blob = self._database_column_name(node.expr.type) if isinstance(node.expr.type, ast.FieldType) else None
+            if blob is None:
+                return None
+            return "__".join([blob, *(str(key) for key in node.keys)])
         if isinstance(node, ast.Field) and isinstance(node.type, ast.FieldType):
             return self._database_column_name(node.type)
         name = f"__pd_expr_{self._counter}"

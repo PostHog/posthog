@@ -812,13 +812,14 @@ class TestEventsSubexprHoister(BaseTest):
         assert self._references_subquery(rewritten[0], subquery_ref) is True
 
     def test_property_is_projected_under_its_dunder_name(self):
+        # The name is `<blob column>__<key>`, so reads off different blobs never collide on a bare key.
         hoister, _, _ = self._run("SELECT properties.$browser FROM events")
-        assert "$browser" in hoister.projections
+        assert "properties__$browser" in hoister.projections
         assert hoister.blocked is False
 
     def test_nested_property_uses_dunder_joined_name(self):
         hoister, _, _ = self._run("SELECT properties.a.b FROM events")
-        assert "a__b" in hoister.projections
+        assert "properties__a__b" in hoister.projections
 
     def test_property_reference_is_rewritten_to_subquery(self):
         # The outer occurrence of a property read becomes a reference to the subquery column the physical pass fills.
@@ -829,6 +830,51 @@ class TestEventsSubexprHoister(BaseTest):
         # session.* is a lazy join, never the target events table; the hoister leaves it for the outer query.
         hoister, _, _ = self._run("SELECT event FROM events")
         assert "session_duration" not in hoister.projections and "$session_duration" not in hoister.projections
+
+    def test_poe_properties_collected_as_person_properties(self):
+        # poe.properties (VirtualTable) resolves to database column person_properties.
+        hoister, _, _ = self._run("SELECT poe.properties FROM events")
+        assert "person_properties" in hoister.projections
+        assert hoister.blocked is False
+
+    def test_poe_id_collected_as_person_id(self):
+        # poe.id (VirtualTable) resolves to database column person_id.
+        hoister, _, _ = self._run("SELECT poe.id FROM events")
+        assert "person_id" in hoister.projections
+        assert hoister.blocked is False
+
+    def test_poe_created_at_collected_as_person_created_at(self):
+        # poe.created_at (VirtualTable) resolves to database column person_created_at.
+        hoister, _, _ = self._run("SELECT poe.created_at FROM events")
+        assert "person_created_at" in hoister.projections
+        assert hoister.blocked is False
+
+    def test_poe_field_type_has_virtual_table_type(self):
+        # The projected poe field keeps its VirtualTableType (the physical pass peels it to person_properties).
+        hoister, _, _ = self._run("SELECT poe.properties FROM events")
+        field_type = hoister.column_types["person_properties"]
+        assert isinstance(field_type.table_type, ast.VirtualTableType)
+
+    def test_poe_mixed_with_direct_columns(self):
+        # VirtualTable fields and direct columns are both projected.
+        hoister, _, _ = self._run("SELECT event, poe.id, timestamp FROM events")
+        assert {"event", "person_id", "timestamp"} <= set(hoister.projections)
+        assert hoister.blocked is False
+
+    def test_poe_revenue_analytics_lazy_join_triggers_non_direct(self):
+        # poe.revenue_analytics is a LazyJoin inside VirtualTable, not an events column, so it is foreign — left in
+        # the outer query (an empty projection set makes the full transform decline pushdown), never hoisted.
+        hoister, rewritten, subquery_ref = self._run("SELECT poe.revenue_analytics.revenue FROM events")
+        assert hoister.projections == {}
+        assert self._references_subquery(rewritten[0], subquery_ref) is False
+
+    def test_poe_property_and_event_property_same_key_project_separately(self):
+        # `properties.url` reads the event blob; `poe.properties.url` reads `person_properties`. They share the key
+        # `url` but must hoist to separate columns — collapsing them onto one silently read the wrong blob for one.
+        hoister, _, _ = self._run("SELECT properties.url, poe.properties.url FROM events")
+        assert "properties__url" in hoister.projections
+        assert "person_properties__url" in hoister.projections
+        assert hoister.blocked is False
 
 
 class TestSavedQueryWithLazyJoins(BaseTest):
