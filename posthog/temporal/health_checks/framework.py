@@ -6,6 +6,8 @@ from typing import Any
 
 from django.conf import settings
 
+from posthog.schema import Priority
+
 from posthog.clickhouse.query_tagging import Product
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
@@ -19,6 +21,14 @@ _SEVERITY_WEIGHT: dict[str, float] = {
     HealthIssue.Severity.CRITICAL: 1.0,
     HealthIssue.Severity.WARNING: 0.7,
     HealthIssue.Severity.INFO: 0.4,
+}
+
+# Severity → suggested report priority, carried on a signal's remediation. Kept beside
+# `_SEVERITY_WEIGHT` so the two severity mappings stay in sync.
+_SEVERITY_PRIORITY: dict[str, Priority] = {
+    HealthIssue.Severity.CRITICAL: Priority.P1,
+    HealthIssue.Severity.WARNING: Priority.P2,
+    HealthIssue.Severity.INFO: Priority.P3,
 }
 
 

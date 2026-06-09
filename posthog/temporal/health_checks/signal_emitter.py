@@ -7,6 +7,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.alerts import _check_class_for_kind
+from posthog.temporal.health_checks.framework import _SEVERITY_PRIORITY
 
 logger = structlog.get_logger(__name__)
 
@@ -36,9 +37,14 @@ def emit_health_check_signal(issue: HealthIssue) -> bool:
         return False
 
     # The signal's remediation is the check's static human/agent guide, mapped onto the
-    # SignalRemediation schema the facade validates. Checks without one emit no remediation.
+    # SignalRemediation schema the facade validates, with priority derived from the issue's
+    # severity. Checks without a remediation emit none.
     remediation = (
-        SignalRemediation(human=check_cls.remediation.human, agent=check_cls.remediation.agent)
+        SignalRemediation(
+            human=check_cls.remediation.human,
+            agent=check_cls.remediation.agent,
+            priority=_SEVERITY_PRIORITY.get(issue.severity),
+        )
         if check_cls.remediation is not None
         else None
     )

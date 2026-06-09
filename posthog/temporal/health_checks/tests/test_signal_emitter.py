@@ -4,7 +4,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import HealthCheckSignalExtra, SignalRemediation
+from posthog.schema import HealthCheckSignalExtra, Priority, SignalRemediation
 
 from posthog.models import Team
 from posthog.models.health_issue import HealthIssue
@@ -92,6 +92,7 @@ class TestEmitHealthCheckSignal(SimpleTestCase):
         assert kwargs["remediation"] == SignalRemediation(
             human="Open the health page and set your authorized URLs.",
             agent="Call `project-settings-update` to set app_urls; verify with `project-get`.",
+            priority=Priority.P2,  # derived from the issue's "warning" severity
         )
 
     def test_check_without_override_emits_nothing(self):
