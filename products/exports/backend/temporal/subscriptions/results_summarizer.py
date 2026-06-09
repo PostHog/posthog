@@ -24,7 +24,10 @@ def _safe_value(value: Any) -> str:
 
 def build_results_summary(
     query_kind: str,
-    results: list[Any] | dict[str, Any] | None,
+    # `Any`, not `list | dict | None`: the caller hands us a raw `query_results["result"]`
+    # payload whose shape varies by query kind and isn't statically known. Typing it
+    # honestly keeps the non-list defensive branch below reachable.
+    results: Any,
     columns: list[str] | None = None,
 ) -> str:
     if not results:
