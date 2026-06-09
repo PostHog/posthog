@@ -267,9 +267,6 @@ export const SignalsScoutEmitSignalParams = /* @__PURE__ */ zod.object({
 
 export const signalsScoutEmitSignalBodyDescriptionMax = 50000
 
-export const signalsScoutEmitSignalBodyWeightMin = 0
-export const signalsScoutEmitSignalBodyWeightMax = 1
-
 export const signalsScoutEmitSignalBodyConfidenceMin = 0
 export const signalsScoutEmitSignalBodyConfidenceMax = 1
 
@@ -281,11 +278,6 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             .string()
             .max(signalsScoutEmitSignalBodyDescriptionMax)
             .describe("Canonical evidence-bundle prose. Becomes the signal's `description`."),
-        weight: zod
-            .number()
-            .min(signalsScoutEmitSignalBodyWeightMin)
-            .max(signalsScoutEmitSignalBodyWeightMax)
-            .describe("Agent's weight for the signal in [0, 1]. Drives ranking in the inbox."),
         confidence: zod
             .number()
             .min(signalsScoutEmitSignalBodyConfidenceMin)

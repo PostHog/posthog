@@ -14396,12 +14396,6 @@ export namespace Schemas {
          */
       description: string;
       /**
-         * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
-         * @minimum 0
-         * @maximum 1
-         */
-      weight: number;
-      /**
          * Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.
          * @minimum 0
          * @maximum 1
