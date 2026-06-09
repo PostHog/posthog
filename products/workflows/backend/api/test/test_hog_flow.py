@@ -2078,6 +2078,14 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
         rows = self._global().json()
         assert {r["workflow_id"]: r["succeeded"] for r in rows} == {str(self.flow_a.id): 2}
 
+    def test_excludes_metrics_for_workflows_not_in_queryset(self):
+        # Metrics are intersected with workflows the caller can see, so a row for an id that isn't a
+        # live workflow (e.g. since-deleted, or one the caller can't access) must not leak in.
+        self._seed(self.flow_a.id, failed=2)
+        self._seed("00000000-0000-0000-0000-000000000000", failed=9)
+        rows = self._global().json()
+        assert {r["workflow_id"] for r in rows} == {str(self.flow_a.id)}
+
     def test_personal_api_key_hog_flow_read_only_allowed(self):
         # Aggregate counts carry no person data, so hog_flow:read alone is sufficient (no person:read).
         self._seed(self.flow_a.id, failed=1)

@@ -998,6 +998,16 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             after=after_date,
             before=before_date,
         )
+        # The ClickHouse query is only team-scoped, so intersect with the workflows the caller can
+        # actually see. Keeps the aggregate consistent with workflows-list/-get access control (hog
+        # flows aren't an access-control resource today, so this is a no-op now but won't silently
+        # become a bypass if they become one), and drops orphaned metrics for since-deleted workflows.
+        accessible_ids = {
+            str(pk)
+            for pk in self.user_access_control.filter_queryset_by_access_level(self.get_queryset()).values_list(
+                "id", flat=True
+            )
+        }
         rows: list[dict[str, object]] = [
             {
                 "workflow_id": workflow_id,
@@ -1005,6 +1015,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
                 "failed": counts.get("failed", 0),
             }
             for workflow_id, counts in totals.items()
+            if workflow_id in accessible_ids
         ]
         # Surface the most-failing workflows first — this is the at-a-glance triage view.
         rows.sort(key=lambda row: cast(int, row["failed"]), reverse=True)
