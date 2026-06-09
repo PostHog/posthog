@@ -733,6 +733,8 @@ export interface HogQLQueryModifiersApi {
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[] | null
     formatCsvAllowDoubleQuotes?: boolean | null
+    /** Ignore minmax skip indexes on materialized columns that the query only compares with negated operators (`!=` / `NOT IN`), where evaluating the index costs more than it prunes */
+    ignoreNegationOnlySkipIndexes?: boolean | null
     inCohortVia?: InCohortViaApi | null
     inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null
