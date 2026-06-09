@@ -556,7 +556,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             raise ValidationError("Event Property Correlation expects atleast one event name to run correlation on")
 
         funnel_persons_query = self.get_funnel_actors_cte()
-        event_left_join_query = self._get_events_left_join_query("AND event_table.event IN {event_names}")
+        event_right_join_query = self._get_events_right_join_query("AND event_table.event IN {event_names}")
         target_step = self.context.max_steps
         funnel_step_names = self._get_funnel_step_names()
         date_from = self._date_range().date_from_as_hogql()
@@ -619,8 +619,8 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                         [tuple({{total_identifier}}, '', '')],
                         {event_property_array_query}
                     )) as prop
-                FROM funnel_actors
-                    {event_left_join_query}
+                FROM events AS event_table
+                    {event_right_join_query}
             )
             GROUP BY name, prop
             -- Discard high cardinality / low hits properties
@@ -785,7 +785,14 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 AND event.event NOT IN funnel_step_names
         """
 
-    def _get_events_left_join_query(self, extra_event_conditions: str = "") -> str:
+    def _get_events_right_join_query(self, extra_event_conditions: str = "") -> str:
+        """Join filtered events onto funnel_actors, preserving actors without events.
+
+        Written as `FROM events RIGHT JOIN funnel_actors` rather than
+        `FROM funnel_actors LEFT JOIN events`: the semantics are identical, but the
+        right table is ClickHouse's hash-build side, and that must be the small
+        funnel_actors set — not events — or memory scales with the event count.
+        """
         windowInterval = self.context.funnelWindowInterval
         windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
 
@@ -799,7 +806,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             join_condition = "event_table.person_id = funnel_actors.actor_id"
 
         return f"""
-            LEFT JOIN events AS event_table
+            RIGHT JOIN funnel_actors
                 ON {join_condition}
                 AND toTimeZone(toDateTime(event_table.timestamp), 'UTC') >= {{date_from}}
                 AND toTimeZone(toDateTime(event_table.timestamp), 'UTC') < {{date_to}}
