@@ -255,10 +255,11 @@ async def _run_steps(
                 )
                 fixed = await _arequest_hogql_fix(
                     original_hogql=current_hogql,
-                    # Forward the message for exposed errors and ResolutionError — the latter only names the
-                    # field/property the planner itself referenced (e.g. "Unable to resolve field 'operaton'"),
-                    # which is exactly what the fixer needs and carries no cluster internals. Other internal
-                    # errors (parsing/impossible-AST) stay type-only — they can echo cluster URLs/table names.
+                    # Forward the message for exposed errors and ResolutionError. ResolutionError messages
+                    # describe query structure — usually the field/property the planner itself referenced
+                    # (e.g. "Unable to resolve field 'operaton'"), which is what the fixer needs. A few raise
+                    # sites wrap a nested exception, but those describe query shape, not cluster topology, so
+                    # the leak risk stays low. Other internal errors (parsing/impossible-AST) stay type-only.
                     error_message=(
                         str(exc) if isinstance(exc, (ExposedHogQLError, ResolutionError)) else type(exc).__name__
                     ),
