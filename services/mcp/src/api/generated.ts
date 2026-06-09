@@ -23793,7 +23793,7 @@ export namespace Schemas {
       first_name?: string;
       readonly emailing_attempt_made: boolean;
       level?: OrganizationMembershipLevelEnum;
-      /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
+      /** Check if the invite has passed its (possibly postponed) expiry. */
       readonly is_expired: boolean;
       readonly created_by: UserBasic;
       readonly created_at: string;
