@@ -1064,6 +1064,16 @@
         "params": ["observationId"],
         "scope": "project"
     },
+    "replayVisionScannerConfigure": {
+        "template": "/replay-vision/{id}/configure",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "replayVisionScannerTriggers": {
+        "template": "/replay-vision/{id}/triggers",
+        "params": ["id"],
+        "scope": "project"
+    },
     "replayVisionTemplates": {
         "template": "/replay-vision/templates",
         "params": [],
@@ -1094,8 +1104,8 @@
         "params": [],
         "scope": "project"
     },
-    "sdkDoctor": {
-        "template": "/health/sdk-doctor",
+    "sdkHealth": {
+        "template": "/health/sdk-health",
         "params": [],
         "scope": "project"
     },
@@ -1172,6 +1182,16 @@
     "subscription": {
         "template": "/subscriptions/{id}",
         "params": ["id"],
+        "scope": "project"
+    },
+    "subscriptionEdit": {
+        "template": "/subscriptions/{id}/edit",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "subscriptionNew": {
+        "template": "/subscriptions/new",
+        "params": [],
         "scope": "project"
     },
     "subscriptions": {
