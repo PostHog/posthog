@@ -33,8 +33,8 @@ import '../Nodes/NotebookNodeZendeskTickets'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconSparkles } from '@posthog/icons'
-import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
+import { IconMessage, IconSend, IconSparkles } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { MarkdownNotebook, createMarkdownNotebookRegistry } from 'lib/components/MarkdownNotebook'
 import type { MarkdownNotebookAskAIRequest } from 'lib/components/MarkdownNotebook'
@@ -49,6 +49,7 @@ import {
 import { isNotebookPropValue } from 'lib/components/MarkdownNotebook/utils'
 import { uuid } from 'lib/utils'
 import { MarkdownMessage } from 'scenes/max/MarkdownMessage'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import type { maxLogicType } from 'scenes/max/maxLogicType'
 import { MaxThreadLogicProps, ThreadMessage, maxThreadLogic } from 'scenes/max/maxThreadLogic'
@@ -267,7 +268,7 @@ export function MarkdownNotebookV2(): JSX.Element {
 
             const inlineAIRequest: InlineNotebookAIRequest = {
                 chatId,
-                tabId: getInlineNotebookAITabId(chatId),
+                tabId: getInlineNotebookAITabId(chatId, 'inline'),
                 query,
                 source,
                 chatNodeId,
@@ -543,11 +544,14 @@ function getMarkdownNotebookNodeTitle(
 }
 
 function getNotebookAIChatTitle(node: NotebookComponentBlockNode): string | null {
-    return getNotebookStringProp(node.props.title) ?? summarizeTitle(getNotebookStringProp(node.props.answer))
+    return (
+        getNotebookStringProp(node.props.title) ??
+        summarizeTitle(getNotebookStringProp(node.props.lastAnswer) ?? getNotebookStringProp(node.props.answer))
+    )
 }
 
-function getInlineNotebookAITabId(chatId: string): string {
-    return `notebook-inline-${chatId}`
+function getInlineNotebookAITabId(chatId: string, mode: 'inline' | 'full'): string {
+    return `notebook-inline-${mode}-${chatId}`
 }
 
 function getNotebookStringProp(value: NotebookPropValue | undefined): string | null {
@@ -616,31 +620,97 @@ function summarizeTitle(value: string | null | undefined): string | null {
 }
 
 function NotebookAIChat({ node, updateProps }: NotebookComponentRenderProps): JSX.Element {
-    const cachedAnswer = getNotebookStringProp(node.props.answer)
+    const cachedLastAnswer = getNotebookStringProp(node.props.lastAnswer) ?? getNotebookStringProp(node.props.answer)
+    const hasLegacyAnswer = node.props.answer !== undefined
     const chatId = getNotebookStringProp(node.props.id)
     const cachedTitle = getNotebookStringProp(node.props.title)
+    const hasPersistedMessages = node.props.messages !== undefined
+    const shouldStartActive = !cachedLastAnswer
+    const [isThreadActive, setIsThreadActive] = useState(shouldStartActive)
+    const [loadOlderMessages, setLoadOlderMessages] = useState(false)
+    const [queuedReply, setQueuedReply] = useState<string | null>(null)
+    const [activeBaseMessages, setActiveBaseMessages] = useState<NotebookAIChatMessage[]>(() =>
+        shouldStartActive ? getNotebookAIChatBaseMessages(cachedLastAnswer) : []
+    )
 
-    if (cachedAnswer) {
-        return <NotebookAIChatAnswer id={chatId ?? 'notebook-ai-chat-cached-answer'} content={cachedAnswer} />
-    }
+    useEffect(() => {
+        if (hasPersistedMessages) {
+            updateProps({ messages: undefined })
+        }
+    }, [hasPersistedMessages, updateProps])
 
     if (!chatId) {
         return <div className="MarkdownNotebook__component-preview">Missing AI chat id.</div>
     }
 
-    return <NotebookAIChatById chatId={chatId} cachedTitle={cachedTitle} updateProps={updateProps} />
+    if (cachedLastAnswer && !isThreadActive) {
+        const baseMessages = getNotebookAIChatBaseMessages(cachedLastAnswer)
+
+        return (
+            <NotebookAIChatConversation
+                messages={baseMessages}
+                canReply
+                showOlderMessages
+                onShowOlderMessages={() => {
+                    setActiveBaseMessages(baseMessages)
+                    setLoadOlderMessages(true)
+                    setIsThreadActive(true)
+                }}
+                onReply={(reply) => {
+                    setActiveBaseMessages(baseMessages)
+                    setQueuedReply(reply)
+                    setIsThreadActive(true)
+                }}
+            />
+        )
+    }
+
+    return (
+        <NotebookAIChatById
+            chatId={chatId}
+            cachedTitle={cachedTitle}
+            cachedLastAnswer={cachedLastAnswer}
+            baseMessages={activeBaseMessages}
+            hasLegacyAnswer={hasLegacyAnswer}
+            loadOlderMessages={loadOlderMessages}
+            queuedReply={queuedReply}
+            onShowOlderMessages={() => setLoadOlderMessages(true)}
+            onCollapseOlderMessages={() => {
+                setActiveBaseMessages(getNotebookAIChatBaseMessages(cachedLastAnswer))
+                setLoadOlderMessages(false)
+            }}
+            onQueuedReplyConsumed={() => setQueuedReply(null)}
+            updateProps={updateProps}
+        />
+    )
 }
 
 function NotebookAIChatById({
     chatId,
     cachedTitle,
+    cachedLastAnswer,
+    baseMessages,
+    hasLegacyAnswer,
+    loadOlderMessages,
+    queuedReply,
+    onShowOlderMessages,
+    onCollapseOlderMessages,
+    onQueuedReplyConsumed,
     updateProps,
 }: {
     chatId: string
     cachedTitle: string | null
+    cachedLastAnswer: string | null
+    baseMessages: NotebookAIChatMessage[]
+    hasLegacyAnswer: boolean
+    loadOlderMessages: boolean
+    queuedReply: string | null
+    onShowOlderMessages: () => void
+    onCollapseOlderMessages: () => void
+    onQueuedReplyConsumed: () => void
     updateProps: (props: Partial<NotebookComponentProps>) => void
 }): JSX.Element {
-    const tabId = getInlineNotebookAITabId(chatId)
+    const tabId = getInlineNotebookAITabId(chatId, loadOlderMessages ? 'full' : 'inline')
     const maxLogicProps = useMemo<maxLogicType['props']>(
         () => ({ tabId, initialFrontendConversationId: chatId }),
         [chatId, tabId]
@@ -649,47 +719,109 @@ function NotebookAIChatById({
     useMountedLogic(maxLogicInstance)
 
     const { setConversationId } = useActions(maxLogicInstance)
+    const { loadConversation } = useActions(maxGlobalLogic)
     const { threadLogicProps } = useValues(maxLogicInstance)
 
     useEffect(() => {
+        if (loadOlderMessages) {
+            setConversationId(chatId)
+            loadConversation(chatId)
+            return
+        }
+
         const timeout = window.setTimeout(() => {
             if (!maxLogicInstance.values.conversationId && maxLogicInstance.values.activeStreamingThreads === 0) {
                 setConversationId(chatId)
             }
         }, 1500)
         return () => window.clearTimeout(timeout)
-    }, [chatId, maxLogicInstance, setConversationId])
+    }, [chatId, loadConversation, loadOlderMessages, maxLogicInstance, setConversationId])
 
     if (threadLogicProps.conversationId !== chatId) {
-        return <NotebookAIChatThinking message="Thinking ..." />
+        return (
+            <NotebookAIChatConversation
+                messages={[{ role: 'thinking', id: 'notebook-ai-chat-loading', content: 'Thinking ...' }]}
+                canReply={false}
+                showOlderMessages={false}
+            />
+        )
     }
 
     return (
-        <NotebookAIChatThread threadLogicProps={threadLogicProps} cachedTitle={cachedTitle} updateProps={updateProps} />
+        <NotebookAIChatThread
+            threadLogicProps={{ ...threadLogicProps, skipInitialLoad: !loadOlderMessages }}
+            cachedTitle={cachedTitle}
+            cachedLastAnswer={cachedLastAnswer}
+            baseMessages={baseMessages}
+            hasLegacyAnswer={hasLegacyAnswer}
+            loadOlderMessages={loadOlderMessages}
+            queuedReply={queuedReply}
+            onShowOlderMessages={onShowOlderMessages}
+            onCollapseOlderMessages={onCollapseOlderMessages}
+            onQueuedReplyConsumed={onQueuedReplyConsumed}
+            updateProps={updateProps}
+        />
     )
 }
 
 function NotebookAIChatThread({
     threadLogicProps,
     cachedTitle,
+    cachedLastAnswer,
+    baseMessages,
+    hasLegacyAnswer,
+    loadOlderMessages,
+    queuedReply,
+    onShowOlderMessages,
+    onCollapseOlderMessages,
+    onQueuedReplyConsumed,
     updateProps,
 }: {
     threadLogicProps: MaxThreadLogicProps
     cachedTitle: string | null
+    cachedLastAnswer: string | null
+    baseMessages: NotebookAIChatMessage[]
+    hasLegacyAnswer: boolean
+    loadOlderMessages: boolean
+    queuedReply: string | null
+    onShowOlderMessages: () => void
+    onCollapseOlderMessages: () => void
+    onQueuedReplyConsumed: () => void
     updateProps: (props: Partial<NotebookComponentProps>) => void
 }): JSX.Element {
     const threadLogicInstance = maxThreadLogic(threadLogicProps)
     useMountedLogic(threadLogicInstance)
 
+    const { askMax } = useActions(threadLogicInstance)
     const { conversation, threadGrouped, threadLoading } = useValues(threadLogicInstance)
-    const display = getNotebookAIChatDisplay(threadGrouped, threadLoading)
+    const threadMessages = getNotebookAIChatThreadMessages(threadGrouped, threadLoading)
+    const visibleMessages =
+        loadOlderMessages && threadMessages.length > 0 ? threadMessages : [...baseMessages, ...threadMessages]
+    const displayMessages =
+        visibleMessages.length > 0
+            ? visibleMessages
+            : [{ role: 'thinking' as const, id: 'notebook-ai-chat-loading', content: 'Thinking ...' }]
     const conversationTitle = getUnknownStringProp(conversation?.title)
+    const latestAnswer = getLatestNotebookAIChatAnswer(visibleMessages)
+    const isThinking = threadLoading || displayMessages.at(-1)?.role === 'thinking'
+
+    useEffect(() => {
+        if (!queuedReply) {
+            return
+        }
+
+        askMax(queuedReply)
+        onQueuedReplyConsumed()
+    }, [askMax, onQueuedReplyConsumed, queuedReply])
 
     useEffect(() => {
         const nextProps: Partial<NotebookComponentProps> = {}
 
-        if (display.type === 'answer') {
-            nextProps.answer = display.content
+        if (latestAnswer && latestAnswer !== cachedLastAnswer) {
+            nextProps.lastAnswer = latestAnswer
+        }
+        if (hasLegacyAnswer && latestAnswer) {
+            nextProps.answer = undefined
         }
         if (conversationTitle && conversationTitle !== cachedTitle) {
             nextProps.title = conversationTitle
@@ -698,22 +830,38 @@ function NotebookAIChatThread({
         if (Object.keys(nextProps).length > 0) {
             updateProps(nextProps)
         }
-    }, [cachedTitle, conversationTitle, display, updateProps])
+    }, [cachedLastAnswer, cachedTitle, conversationTitle, hasLegacyAnswer, latestAnswer, updateProps])
 
-    if (display.type === 'answer') {
-        return <NotebookAIChatAnswer id={display.id} content={display.content} />
-    }
-
-    if (display.type === 'error') {
-        return <div className="MarkdownNotebook__ai-chat-error">{display.content}</div>
-    }
-
-    return <NotebookAIChatThinking message={display.message} />
+    return (
+        <NotebookAIChatConversation
+            messages={displayMessages}
+            canReply={!isThinking}
+            showOlderMessages={!loadOlderMessages && baseMessages.length > 0}
+            showCollapseOlderMessages={loadOlderMessages}
+            onShowOlderMessages={onShowOlderMessages}
+            onCollapseOlderMessages={onCollapseOlderMessages}
+            onReply={(reply) => askMax(reply)}
+        />
+    )
 }
 
-function NotebookAIChatAnswer({ id, content }: { id: string; content: string }): JSX.Element {
+function NotebookAIChatAnswer({
+    id,
+    content,
+    compact = false,
+}: {
+    id: string
+    content: string
+    compact?: boolean
+}): JSX.Element {
     return (
-        <div className="MarkdownNotebook__ai-chat-answer">
+        <div
+            className={
+                compact
+                    ? 'MarkdownNotebook__ai-chat-answer MarkdownNotebook__ai-chat-answer--compact'
+                    : 'MarkdownNotebook__ai-chat-answer'
+            }
+        >
             <MarkdownMessage content={content} id={id} />
         </div>
     )
@@ -728,54 +876,200 @@ function NotebookAIChatThinking({ message }: { message: string }): JSX.Element {
     )
 }
 
-type NotebookAIChatDisplay =
-    | { type: 'thinking'; message: string }
-    | { type: 'answer'; id: string; content: string }
-    | { type: 'error'; content: string }
+type NotebookAIChatMessageRole = 'human' | 'assistant' | 'thinking' | 'error'
 
-function getNotebookAIChatDisplay(threadGrouped: ThreadMessage[], threadLoading: boolean): NotebookAIChatDisplay {
-    const errorMessage = [...threadGrouped]
-        .reverse()
-        .find((message) => message.type === AssistantMessageType.Failure || message.status === 'error')
-    if (errorMessage) {
-        return {
-            type: 'error',
-            content: getMessageContent(errorMessage) || 'PostHog AI could not finish this request.',
+type NotebookAIChatMessage = {
+    role: NotebookAIChatMessageRole
+    content: string
+    id?: string
+}
+
+function NotebookAIChatConversation({
+    messages,
+    canReply,
+    showOlderMessages,
+    showCollapseOlderMessages = false,
+    onShowOlderMessages,
+    onCollapseOlderMessages,
+    onReply,
+}: {
+    messages: NotebookAIChatMessage[]
+    canReply: boolean
+    showOlderMessages: boolean
+    showCollapseOlderMessages?: boolean
+    onShowOlderMessages?: () => void
+    onCollapseOlderMessages?: () => void
+    onReply?: (reply: string) => void
+}): JSX.Element {
+    const [isReplying, setIsReplying] = useState(false)
+    const [reply, setReply] = useState('')
+    const scrollRef = useRef<HTMLDivElement>(null)
+    const replyText = reply.trim()
+    const canSubmit = canReply && !!replyText && !!onReply
+    const messageFingerprint = messages
+        .map((message) => `${message.role}:${message.id ?? ''}:${message.content}`)
+        .join('|')
+
+    useEffect(() => {
+        const scrollElement = scrollRef.current
+        if (!scrollElement) {
+            return
         }
-    }
+        scrollElement.scrollTop = scrollElement.scrollHeight
+    }, [messageFingerprint, isReplying])
 
-    const assistantMessage = [...threadGrouped]
-        .reverse()
-        .find(
-            (message) =>
-                message.type === AssistantMessageType.Assistant &&
-                message.status === 'completed' &&
-                getMessageContent(message).trim().length > 0
-        )
-    if (assistantMessage) {
-        return {
-            type: 'answer',
-            id: assistantMessage.id || 'notebook-ai-chat-answer',
-            content: getMessageContent(assistantMessage),
+    const submitReply = useCallback((): void => {
+        if (!canSubmit) {
+            return
         }
-    }
 
-    const notebookMessage = [...threadGrouped]
-        .reverse()
-        .find((message) => message.type === AssistantMessageType.Notebook && message.status === 'completed')
-    if (notebookMessage) {
-        return {
-            type: 'answer',
-            id: notebookMessage.id || 'notebook-ai-chat-notebook-update',
-            content: 'Updated the notebook.',
+        onReply(replyText)
+        setReply('')
+        setIsReplying(false)
+    }, [canSubmit, onReply, replyText])
+
+    return (
+        <div className="MarkdownNotebook__ai-chat" ref={scrollRef}>
+            <div className="MarkdownNotebook__ai-chat-messages">
+                {messages.map((message, index) => (
+                    <NotebookAIChatMessageView
+                        key={`${message.role}-${message.id ?? index}`}
+                        message={message}
+                        fallbackId={`notebook-ai-chat-message-${index}`}
+                    />
+                ))}
+            </div>
+            <div className="MarkdownNotebook__ai-chat-footer">
+                <div className="MarkdownNotebook__ai-chat-footer-actions">
+                    {canReply && !isReplying && onReply ? (
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            icon={<IconMessage />}
+                            onClick={() => setIsReplying(true)}
+                        >
+                            Reply
+                        </LemonButton>
+                    ) : null}
+                    {showOlderMessages && onShowOlderMessages ? (
+                        <LemonButton size="xsmall" type="secondary" onClick={onShowOlderMessages}>
+                            Show older messages
+                        </LemonButton>
+                    ) : null}
+                    {showCollapseOlderMessages && onCollapseOlderMessages ? (
+                        <LemonButton size="xsmall" type="secondary" onClick={onCollapseOlderMessages}>
+                            Collapse older messages
+                        </LemonButton>
+                    ) : null}
+                </div>
+                {canReply && isReplying && onReply ? (
+                    <div className="MarkdownNotebook__ai-chat-reply">
+                        <LemonTextArea
+                            value={reply}
+                            onChange={setReply}
+                            onPressEnter={submitReply}
+                            onBlur={() => {
+                                if (!reply.trim()) {
+                                    setIsReplying(false)
+                                }
+                            }}
+                            placeholder="Reply..."
+                            minRows={2}
+                            maxRows={6}
+                            autoFocus
+                        />
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            icon={<IconSend />}
+                            onClick={submitReply}
+                            disabledReason={canSubmit ? undefined : 'Write a reply first'}
+                        >
+                            Send
+                        </LemonButton>
+                    </div>
+                ) : null}
+            </div>
+        </div>
+    )
+}
+
+function NotebookAIChatMessageView({
+    message,
+    fallbackId,
+}: {
+    message: NotebookAIChatMessage
+    fallbackId: string
+}): JSX.Element {
+    if (message.role === 'human') {
+        return <div className="MarkdownNotebook__ai-chat-human-message">{message.content}</div>
+    }
+    if (message.role === 'thinking') {
+        return <NotebookAIChatThinking message={message.content} />
+    }
+    if (message.role === 'error') {
+        return <div className="MarkdownNotebook__ai-chat-error">{message.content}</div>
+    }
+    return <NotebookAIChatAnswer id={message.id ?? fallbackId} content={message.content} compact />
+}
+
+function getNotebookAIChatBaseMessages(cachedLastAnswer: string | null): NotebookAIChatMessage[] {
+    if (cachedLastAnswer) {
+        return [{ role: 'assistant', id: 'notebook-ai-chat-cached-answer', content: cachedLastAnswer }]
+    }
+    return []
+}
+
+function getNotebookAIChatThreadMessages(
+    threadGrouped: ThreadMessage[],
+    threadLoading: boolean
+): NotebookAIChatMessage[] {
+    const messages = threadGrouped.flatMap((message, index): NotebookAIChatMessage[] => {
+        const id = getThreadMessageId(message, index)
+        const content = getMessageContent(message)
+
+        if (message.type === AssistantMessageType.Human && content.trim()) {
+            return [{ role: 'human', id, content }]
         }
+        if (message.type === AssistantMessageType.Failure || message.status === 'error') {
+            return [{ role: 'error', id, content: content || 'PostHog AI could not finish this request.' }]
+        }
+        if (message.type === AssistantMessageType.Notebook && message.status === 'completed') {
+            return [{ role: 'assistant', id, content: 'Updated the notebook.' }]
+        }
+        if (message.type === AssistantMessageType.Assistant) {
+            if (content.trim()) {
+                return [{ role: 'assistant', id, content }]
+            }
+
+            const thinkingMessage = getThinkingMessage(message)
+            if (thinkingMessage || message.status === 'loading') {
+                return [{ role: 'thinking', id, content: thinkingMessage ?? 'Thinking ...' }]
+            }
+        }
+
+        return []
+    })
+    const latestMessage = messages.at(-1)
+
+    if (threadLoading && latestMessage?.role !== 'thinking') {
+        const thinkingMessage = [...threadGrouped].reverse().map(getThinkingMessage).find(Boolean)
+        messages.push({
+            role: 'thinking',
+            id: 'notebook-ai-chat-thinking',
+            content: thinkingMessage ?? 'Thinking ...',
+        })
     }
 
-    const thinkingMessage = [...threadGrouped].reverse().map(getThinkingMessage).find(Boolean)
-    return {
-        type: 'thinking',
-        message: threadLoading || thinkingMessage ? (thinkingMessage ?? 'Thinking ...') : 'Thinking ...',
-    }
+    return messages
+}
+
+function getLatestNotebookAIChatAnswer(messages: NotebookAIChatMessage[]): string | null {
+    return [...messages].reverse().find((message) => message.role === 'assistant')?.content ?? null
+}
+
+function getThreadMessageId(message: ThreadMessage, index: number): string {
+    return 'id' in message && typeof message.id === 'string' ? message.id : `notebook-ai-chat-message-${index}`
 }
 
 function getMessageContent(message: ThreadMessage): string {

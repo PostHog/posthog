@@ -474,7 +474,22 @@ continued line
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
     })
 
-    it('round-trips persisted AI chat answer tags', () => {
+    it('round-trips persisted AI chat last answer tags', () => {
+        const markdown = `<Chat id="${TEST_AI_CHAT_ID}" lastAnswer=${JSON.stringify('## Summary\nDone')} />`
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes[0]).toMatchObject({
+            type: 'component',
+            tagName: 'Chat',
+            props: {
+                id: TEST_AI_CHAT_ID,
+                lastAnswer: '## Summary\nDone',
+            },
+        })
+        expect(serializeMarkdownNotebook(document)).toEqual(markdown)
+    })
+
+    it('continues to parse legacy AI chat answer tags', () => {
         const markdown = `<Chat id="${TEST_AI_CHAT_ID}" answer=${JSON.stringify('## Summary\nDone')} />`
         const document = parseMarkdownNotebook(markdown)
 

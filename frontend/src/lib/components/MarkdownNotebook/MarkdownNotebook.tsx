@@ -5735,6 +5735,11 @@ function NotebookComponentShell({
     const toolbarTitle = getComponentToolbarTitle(node, definition, titleDisplay.label)
     const showToolbarTitle = !!toolbarTitle && (mode === 'view' || !componentPanels.filters || !showModeActions)
     const updateProps = (props: Partial<NotebookComponentProps>): void => {
+        const propKeysToRemove = new Set(
+            Object.entries(props)
+                .filter(([, value]) => value === undefined)
+                .map(([key]) => key)
+        )
         const nextProps = Object.entries(props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
             if (value !== undefined) {
                 accumulator[key] = value
@@ -5749,7 +5754,12 @@ function NotebookComponentShell({
             return {
                 ...currentNode,
                 props: {
-                    ...currentNode.props,
+                    ...Object.entries(currentNode.props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
+                        if (!propKeysToRemove.has(key)) {
+                            accumulator[key] = value
+                        }
+                        return accumulator
+                    }, {}),
                     ...nextProps,
                 },
             }
