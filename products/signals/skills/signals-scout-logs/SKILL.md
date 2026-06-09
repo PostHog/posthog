@@ -47,12 +47,14 @@ busiest services) so future runs skip rediscovery.
 
 ## Quick close-out: are logs even in use?
 
-Check with **`logs-services-create`** over a short window (e.g. `-15m`) — it's an
+Check with **`logs-services-create`** over `-24h` (`m` = month and there is no minute unit,
+so don't write `-15m`; `-24h`/`-7d` or explicit ISO are the safe forms) — it's an
 all-severity aggregation that survives the firehose. **Zero services back = genuinely not
-using logs.** Do _not_ decide this from error/fatal counts alone: a team that logs only at
-`info`/`warn` (common — one line per request) would read as "no logs" and get permanently
-short-circuited. And don't read a `logs-count` 500 as "no logs" — that's the firehose, not
-silence. Write one scratchpad entry:
+using logs.** Use a day-plus window, not minutes, so a batch/sparse project that only logs
+periodically isn't misread as silent. Do _not_ decide this from error/fatal counts alone: a
+team that logs only at `info`/`warn` (common — one line per request) would read as "no logs"
+and get permanently short-circuited. And don't read a `logs-count` 500 as "no logs" — that's
+the firehose, not silence. Write one scratchpad entry:
 
 - key: `not-in-use:logs:team{team_id}`
 - content: brief note ("checked at {timestamp}, logs-services-create returned 0 services")
@@ -76,8 +78,9 @@ Three cheap reads cold-start a run:
 - `signals-scout-runs-list` (last 7d) — what prior logs scouts found and ruled out.
 - **The cheap tripwire set** (runs in seconds, no firehose) — this is the
   is-anything-loud-today check, _not_ an unfiltered baseline diff:
-  1. `logs-services-create` over a short window (read the `services` list, ignore the
-     `sparkline`) — the **all-severity** volume + per-service share in one call. This is
+  1. `logs-services-create` over `-1h` (read the `services` list, ignore the `sparkline`;
+     `-1h`/`-24h` are valid, `-Nm` is months) — the **all-severity** volume + per-service
+     share in one call. This is
      what catches an `info`/`warn` flood (e.g. a stuck retry loop logging at `info`) that
      the severity-filtered probes below would miss, and it names the hot service for
      localization.
@@ -170,8 +173,10 @@ Before trusting a `firing` state, check the alert's history with `logs-alerts-ev
 fire (a new fire event in the recent window) is real; an alert that has sat `firing`
 indefinitely is usually a misconfigured always-on threshold (record it under a `noise:`
 key), not a new signal. (This endpoint rejects personal API keys with a 403; the scout's
-internal token should reach it — if it 403s for you too, fall back to `logs-alerts-list`
-state plus a `logs-count` over the alert's filter to gauge whether it's genuinely firing.)
+internal token should reach it — if it 403s for you too, read the alert's filter with
+`logs-alerts-retrieve` (`logs-alerts-list` returns only id/name/state/threshold, not
+`filters`), then run a bounded `logs-count` over that filter to gauge whether it's
+genuinely firing.)
 
 ### Save memory as you go
 
@@ -235,8 +240,9 @@ When in doubt, write a memory entry instead of emitting.
 
 Direct calls (read-only):
 
-- `logs-count` — bounded volume over a window (always severity/service-filtered or ≤3h;
-  unfiltered wide counts 500 — see the firehose note above).
+- `logs-count` — bounded volume over a window. **Always** severity- and/or
+  service-filtered; an unfiltered count 500s at any window (even minutes), so a filter is
+  mandatory, not window length — see the firehose note above.
 - `logs-count-ranges` — locate _when_ in a window the volume sits (today vs 7d-prior,
   this hour vs same hour yesterday). The robust localizer — survives busy services where
   `logs-sparkline-query` 500s.
