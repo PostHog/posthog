@@ -1,15 +1,10 @@
-"""API deprecation watch loop.
+"""API deprecation detection for the Signals inbox.
 
-Two stages with a deliberate boundary:
-
-1. **Detector** (deterministic, ``scanner.scan_repo`` + ``extractors``): a factual inventory of where
-   the codebase pins external-API versions — vendor/host/version/file/line. No dates, no claims.
-2. **Research** (agentic, ``agent.ApiDeprecationAgent``): per pin, reads the vendor's real changelog
-   and produces a *cited* ``ResearchedDeprecation``. Dates + mechanical/structural come from here;
-   a deprecation claim without a citation is rejected (``schema``). No seeded sunset tables.
-
-``emit`` lands the cited findings in the Signals inbox (PostHog Code); ``dispatch`` routes mechanical
-findings to PostHog Code (draft PRs) and structural ones to humans (issues). See README.md.
+A deterministic **detector** (``scanner.scan_repo`` + ``extractors``) produces a factual inventory of
+where the codebase pins external-API versions — vendor/host/version/file/line, no dates, no claims.
+The agentic research that turns each pin into a *cited* ``ResearchedDeprecation`` (dates +
+mechanical/structural, with citation enforced by ``schema``) runs in
+``custom_agent.examples.api_deprecation_agent.ApiDeprecationAgent`` on the shared custom-agent rails.
 """
 
 from products.signals.backend.api_deprecation.schema import Classification, Pin, ResearchedDeprecation
