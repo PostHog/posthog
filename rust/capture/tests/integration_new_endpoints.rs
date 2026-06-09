@@ -10,8 +10,10 @@ use axum::http::StatusCode;
 use capture::config::CaptureMode;
 
 //
-// The /i/v0/e/ and /batch/ endpoints are all processed by event_next
-// and support the same request payload shapes and encodings.
+// The /i/v0/e/, /batch/, and /i/v0/ai/batch/ endpoints are all processed by
+// event_next and support the same request payload shapes and encodings. The
+// /i/v0/ai/batch path is a dedicated alias so the ingress can route $ai_* events
+// to the capture-ai deployment; the handler behavior is identical.
 //
 
 #[tokio::test]
@@ -85,6 +87,46 @@ async fn test_batch_endpoint_get_with_body() {
         .iter_mut()
         .for_each(|tc: &mut TestCase| {
             tc.base_path = "/batch";
+            tc.method = Method::GetWithBody;
+            tc.title = tc.title.replace("post-", "get_with_body-");
+        });
+
+    for unit in get_with_body_cases {
+        execute_test(&unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_ai_batch_endpoint_get() {
+    let base_path = "/i/v0/ai/batch";
+
+    // NOT currently supported by new capture endpoint handlers
+    for mut unit in get_cases() {
+        unit.base_path = base_path;
+        execute_test(&unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_ai_batch_endpoint_post() {
+    let base_path = "/i/v0/ai/batch";
+
+    // POST requests with payload in body, metadata in POST form or GET params
+    for mut unit in post_cases() {
+        unit.base_path = base_path;
+        execute_test(&unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_ai_batch_endpoint_get_with_body() {
+    // GET requests with a body payload are treated identically to POST requests
+    let mut get_with_body_cases = post_cases();
+
+    get_with_body_cases
+        .iter_mut()
+        .for_each(|tc: &mut TestCase| {
+            tc.base_path = "/i/v0/ai/batch";
             tc.method = Method::GetWithBody;
             tc.title = tc.title.replace("post-", "get_with_body-");
         });
