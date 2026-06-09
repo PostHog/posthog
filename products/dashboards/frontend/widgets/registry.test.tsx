@@ -21,6 +21,8 @@ describe('dashboard widget registry', () => {
         const definition = getDashboardWidgetDefinition('error_tracking_list')
         expect(definition?.Component).toBeTruthy()
         expect(definition?.EditModal).toBeTruthy()
+        expect(definition?.TileFilters).toBeTruthy()
+        expect(DASHBOARD_WIDGET_CATALOG.error_tracking_list.tileFilters).toBeTruthy()
         expect(definition?.productAccess).toBe('error_tracking')
         expect(definition?.parseConfigApiError).toBeTruthy()
         expect(posthog.captureException).not.toHaveBeenCalled()
@@ -30,8 +32,20 @@ describe('dashboard widget registry', () => {
         const definition = getDashboardWidgetDefinition('session_replay_list')
         expect(definition?.Component).toBeTruthy()
         expect(definition?.EditModal).toBeTruthy()
+        expect(definition?.TileFilters).toBeTruthy()
+        expect(DASHBOARD_WIDGET_CATALOG.session_replay_list.tileFilters).toBeTruthy()
         expect(definition?.productAccess).toBe('session_recording')
         expect(definition?.parseConfigApiError).toBeTruthy()
+    })
+
+    it('defines tileFilters catalog config for every widget with TileFilters', () => {
+        for (const key of Object.keys(DASHBOARD_WIDGET_CATALOG) as Array<keyof typeof DASHBOARD_WIDGET_CATALOG>) {
+            const definition = getDashboardWidgetDefinition(key)
+            if (!definition?.TileFilters) {
+                continue
+            }
+            expect(DASHBOARD_WIDGET_CATALOG[key].tileFilters?.allowedPropertyNames.length).toBeGreaterThan(0)
+        }
     })
 
     it('delegates config api error parsing to the widget registry entry', () => {

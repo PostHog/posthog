@@ -22,6 +22,8 @@
         "build:with-report": "pnpm build && node ./bin/build-bundle-report.mjs",
         "build:esbuild": "DEBUG=0 node ./build.mjs",
         "build:products": "DEBUG=0 node build-products.mjs",
+        "build:app-urls": "node bin/build-app-url-manifest.mjs",
+        "build:app-urls:check": "node bin/build-app-url-manifest.mjs --check",
         "start": "pnpm start-http",
         "start-http": "pnpm clean && pnpm copy-scripts && pnpm build:esbuild --dev",
         "start-docker": "pnpm start-http --host 0.0.0.0",

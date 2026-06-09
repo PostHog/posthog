@@ -114,11 +114,12 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self._list()
         self.assertEqual(mock_long_running.call_count, 1)
 
-        frozen_time.tick(timedelta(minutes=30))
+        # Re-listing within the same refresh window doesn't recompute.
         self._list()
         self.assertEqual(mock_long_running.call_count, 1)
 
-        frozen_time.tick(timedelta(hours=1))
+        # A full refresh_interval always crosses into the next window — recompute, regardless of phase.
+        frozen_time.tick(LongRunningIssuesRecommendation.refresh_interval)
         self._list()
         self.assertEqual(mock_long_running.call_count, 2)
 
@@ -232,7 +233,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(meta["issues"], [])
 
-    def test_long_running_limits_to_ten(self):
+    def test_long_running_limits_to_five(self):
         for i in range(15):
             issue = self._create_issue(
                 created_at=timezone.now() - timedelta(days=60 - i),
@@ -243,9 +244,9 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
         meta = LongRunningIssuesRecommendation().compute(self.team)
 
-        self.assertEqual(len(meta["issues"]), 10)
+        self.assertEqual(len(meta["issues"]), 5)
         self.assertEqual(meta["issues"][0]["name"], "Issue 00")
-        self.assertEqual(meta["issues"][9]["name"], "Issue 09")
+        self.assertEqual(meta["issues"][4]["name"], "Issue 04")
 
     def test_long_running_ignores_other_teams_issues(self):
         other_issue_id = str(uuid4())

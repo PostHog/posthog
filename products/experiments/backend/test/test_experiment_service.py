@@ -18,10 +18,10 @@ from rest_framework.test import APIRequestFactory
 from posthog.schema import EventsNode, ExperimentMetric
 
 from posthog.models import Team
-from posthog.models.cohort import Cohort
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import (
@@ -3004,7 +3004,7 @@ class TestExperimentService(APIBaseTest):
         assert "does not have a start date" in str(ctx.exception)
 
     def test_create_exposure_cohort_duplicate_raises(self):
-        from posthog.models.cohort import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         self._create_flag(key="cohort-dup")
         service = self._service()

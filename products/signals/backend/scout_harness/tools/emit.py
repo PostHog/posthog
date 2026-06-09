@@ -4,11 +4,16 @@ Each finding is forwarded to `emit_signal` with a deterministic `source_id`:
 `f"run:{run.id}:finding:{finding_id}"`. This is for traceability only — it is NOT
 an idempotency barrier. The downstream pipeline assigns every signal a fresh random
 `document_id` and dedupes on that, never on `source_id` (which it only stores in
-metadata), so a re-call with the same `finding_id` emits a *second* signal. The
-previous in-postgres idempotency layer (writing to `SignalScoutRun.findings` jsonb
-pre-emit, marking `emitted=True` post-success) was dropped in PR 2 review along with
-the `findings` field itself; this module no longer persists any scout-side state and
-provides no dedupe, so callers must not retry an emit that may have already succeeded.
+metadata), so a re-call with the same `finding_id` emits a *second* signal.
+
+Post-success we bump a scout-side tally on the run row (`emitted_count` +
+`emitted_finding_ids` via `_record_emit`) so "did this run surface anything?" is a
+column lookup rather than a prose-`summary` parse or a ClickHouse scan. The tally write
+is best-effort: a failure to record it never propagates out of the emit, because the
+signal has already fired and the caller must not be told the emit failed. It is
+observability only, NOT a dedupe layer — there is no scout-side idempotency, so callers
+must not retry an emit that may have already succeeded; a retry double-counts here
+exactly as it double-emits downstream.
 
 Attribution (`scout_run_id`, `task_run_id`, `finding_id`, `skill_name`, `skill_version`)
 is read off the run row so the agent never has to plumb it through. `task_run_id` is the
@@ -25,10 +30,12 @@ import logging
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from django.db import transaction
+
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalSourceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +46,15 @@ SOURCE_TYPE = SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE.value
 # citations per finding. The pydantic schema accepts any length; this is a harness
 # circuit breaker.
 MAX_EVIDENCE_ENTRIES = 20
+
+# Cap on a caller-supplied `finding_id`. The deterministic `source_id` is
+# `run:<uuid>:finding:<finding_id>` (~49 fixed chars), and both `finding_id` and `source_id`
+# persist in 200-char columns — so an unbounded id would overflow them, fail the emission insert
+# inside the (best-effort, exception-swallowing) tally transaction, and silently drop the emission
+# *and* the run tally. Rejecting an overlong id at the boundary keeps the write within bounds;
+# trimming is not an option here (an id is a join/dedupe key, and truncation could collide). The
+# auto-generated id is a 36-char uuid, so this only ever rejects pathological caller input.
+MAX_FINDING_ID_LENGTH = 100
 
 
 class InvalidEmitError(ValueError):
@@ -96,7 +112,7 @@ async def emit_finding(
     Same (non-idempotent) emit behavior as `emit_finding_sync`.
     """
     _assert_team_owns_run(team, run)
-    _validate_inputs(description, weight, confidence, evidence)
+    _validate_inputs(description, weight, confidence, evidence, finding_id)
     finding_id = finding_id or _new_finding_id()
     extra = _build_extra(
         run_id=str(run.id),
@@ -147,6 +163,15 @@ async def emit_finding(
         weight=weight,
         extra=extra,
     )
+    await database_sync_to_async(_record_emit, thread_sensitive=False)(
+        run_id=run.id,
+        finding_id=finding_id,
+        description=description,
+        weight=weight,
+        confidence=confidence,
+        severity=severity,
+        source_id=source_id,
+    )
     logger.info(
         "signals_scout.emit: emitted",
         extra={**attempt_extra, "source_id": source_id},
@@ -177,7 +202,7 @@ def emit_finding_sync(
     from asgiref.sync import async_to_sync
 
     _assert_team_owns_run(team, run)
-    _validate_inputs(description, weight, confidence, evidence)
+    _validate_inputs(description, weight, confidence, evidence, finding_id)
     finding_id = finding_id or _new_finding_id()
     extra = _build_extra(
         run_id=str(run.id),
@@ -227,6 +252,15 @@ def emit_finding_sync(
         weight=weight,
         extra=extra,
     )
+    _record_emit(
+        run_id=run.id,
+        finding_id=finding_id,
+        description=description,
+        weight=weight,
+        confidence=confidence,
+        severity=severity,
+        source_id=source_id,
+    )
     logger.info(
         "signals_scout.emit: emitted",
         extra={**attempt_extra, "source_id": source_id},
@@ -256,6 +290,7 @@ def _validate_inputs(
     weight: float,
     confidence: float,
     evidence: list[EvidenceEntry],
+    finding_id: str | None,
 ) -> None:
     if not description or not description.strip():
         raise InvalidEmitError("description must not be empty")
@@ -265,6 +300,10 @@ def _validate_inputs(
         raise InvalidEmitError(f"confidence must be in [0.0, 1.0], got {confidence}")
     if len(evidence) > MAX_EVIDENCE_ENTRIES:
         raise InvalidEmitError(f"evidence has {len(evidence)} entries, max is {MAX_EVIDENCE_ENTRIES}")
+    # Reject before defaulting — a generated id is a safe 36-char uuid; only a caller-supplied
+    # id can overflow `source_id` and silently drop the emission + tally (see MAX_FINDING_ID_LENGTH).
+    if finding_id is not None and len(finding_id) > MAX_FINDING_ID_LENGTH:
+        raise InvalidEmitError(f"finding_id exceeds {MAX_FINDING_ID_LENGTH} chars ({len(finding_id)})")
 
 
 def _build_extra(
@@ -309,6 +348,55 @@ def _build_extra(
 
 def _new_finding_id() -> str:
     return str(uuid.uuid4())
+
+
+def _record_emit(
+    *,
+    run_id: Any,
+    finding_id: str,
+    description: str,
+    weight: float,
+    confidence: float,
+    severity: str | None,
+    source_id: str,
+) -> None:
+    """Persist the emit: bump the run's tally (`emitted_finding_ids` + `emitted_count`) and
+    write a `SignalScoutEmission` row carrying the finding's content, in one transaction.
+
+    Best-effort and observability only — not a dedupe barrier (see the module docstring).
+    The emit has already fired by the time this runs, so **any** failure here (row gone,
+    lock timeout, transient DB error) is swallowed: surfacing it would make a succeeded
+    emit look failed and invite a double-emitting retry. Runs under `select_for_update` so
+    the read-modify-write on `emitted_finding_ids` is safe even though emits within a single
+    run are sequential today, and keeps `emitted_count` exactly `len(emitted_finding_ids)`
+    so the two never drift. The emission row is written in the same atomic block so the tally
+    and the per-finding record never diverge — one row per appended `finding_id`. Uses the
+    unscoped `all_teams` manager because the caller already validated `team`/`run` ownership
+    and emit can run with no team scope set (Temporal activity)."""
+    try:
+        with transaction.atomic():
+            run = SignalScoutRun.all_teams.select_for_update().filter(pk=run_id).first()
+            if run is None:
+                logger.warning("signals_scout.emit: run %s gone, skipping emit tally", run_id)
+                return
+            finding_ids = [*(run.emitted_finding_ids or []), finding_id]
+            run.emitted_finding_ids = finding_ids
+            run.emitted_count = len(finding_ids)
+            run.save(update_fields=["emitted_finding_ids", "emitted_count"])
+            SignalScoutEmission.all_teams.create(
+                team_id=run.team_id,
+                scout_run=run,
+                finding_id=finding_id,
+                description=description,
+                weight=weight,
+                confidence=confidence,
+                severity=severity,
+                source_id=source_id,
+            )
+    except Exception:
+        # Tally and emission row are best-effort; the signal already emitted. Log and move on
+        # so the emit call returns success rather than a false failure the caller might retry.
+        logger.exception("signals_scout.emit: failed to record emit for run %s", run_id)
 
 
 def _log_extra(

@@ -23,7 +23,6 @@ from django.db.models.query import QuerySet
 import structlog
 
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
-from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
@@ -34,6 +33,7 @@ from posthog.models.utils import execute_with_timeout
 from posthog.person_db_router import PERSONS_DB_FOR_READ, PERSONS_DB_FOR_WRITE
 from posthog.queries.base import match_property, properties_to_Q, sanitize_property_key
 
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.feature_flags.backend.encrypted_flag_payloads import get_decrypted_flag_payload
 
 from .models.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
