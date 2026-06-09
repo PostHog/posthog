@@ -5,7 +5,7 @@ from requests import Request, Response, Session
 from urllib3.util.retry import Retry
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.http import DEFAULT_RETRY, make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
@@ -38,12 +38,14 @@ def _auth_headers(access_token: str) -> dict[str, str]:
 # in the same walk, which retry transparently. These POSTs are read-only,
 # idempotent queries (the body just carries the query + cursor), so it's safe to
 # retry them on transient read timeouts and 429/5xx like everything else.
+# Derived from DEFAULT_RETRY so the shared policy stays the single source of
+# truth — the only intentional difference is adding POST to allowed_methods.
 _INTERCOM_RETRY = Retry(
-    total=3,
-    backoff_factor=0.5,
-    status_forcelist=(429, 500, 502, 503, 504),
-    allowed_methods=frozenset(["GET", "HEAD", "OPTIONS", "POST"]),
-    raise_on_status=False,
+    total=DEFAULT_RETRY.total,
+    backoff_factor=DEFAULT_RETRY.backoff_factor,
+    status_forcelist=DEFAULT_RETRY.status_forcelist,
+    allowed_methods=DEFAULT_RETRY.allowed_methods | frozenset(["POST"]),
+    raise_on_status=DEFAULT_RETRY.raise_on_status,
 )
 
 
