@@ -491,12 +491,42 @@ side-by-side token usage, tool-call mix, average turns. Today
 requires the user to know which queries to run; this is exactly
 what a concierge should do reflexively.
 
-### 9.2 Agent-fleet health monitor (cron concierge)
+### 9.2 Agent-fleet health monitor (cron concierge) — ✅ shipped in the reference bundle
 
 A scheduled run of the concierge against every agent in the team —
-fires nightly, posts a Slack summary or PostHog notification when an
-agent's error rate crossed a threshold or its cost jumped. Same
-agent, different trigger.
+fires nightly, posts a Slack summary when an agent tripped up, and
+branches a draft proposal for each concrete fix. Same agent,
+different trigger.
+
+**Status:** wired in the reference bundle. The
+`nightly-fleet-audit` `cron` trigger (daily 07:00 PT) loads
+[`skills/auditing-the-fleet`](../../../services/agent-tests/src/examples/agent-concierge/skills/auditing-the-fleet/SKILL.md)
+and runs the sweep unattended: enumerate the fleet, mine each
+agent's recent sessions for failures / anomalies / degraded
+behaviour via the existing `agent-applications-sessions-*` +
+`-session-logs` reads, classify root causes, and for each fix branch
+a **draft** revision (`new-draft-create` → bundle edit → `validate`,
+stopping short of freeze / promote — drafts are proposals). Outputs
+land in memory (`reports/fleet-audit/{date}.md` + `latest.md`, which
+powers night-over-night carry-over) and as a condensed Slack digest
+to the team's configured channel.
+
+The read-and-propose contract is enforced structurally rather than
+by prompt alone: under the cron trigger there is no
+`session_principal`, so the approval-gated `promote` / `archive`
+verbs are unreachable, and the client tools (`focus_*`, `toast`,
+`set_secret`) time out. New bundle pieces: the cron trigger +
+`@posthog/memory-*` / `@posthog/slack-post-message` tools +
+`SLACK_BOT_TOKEN` secret in `spec.json`, the `auditing-the-fleet`
+skill, and faux coverage in `tests/06-nightly-fleet-audit.json` plus
+wiring assertions in `cases/example-agent-concierge.test.ts`.
+
+**Still platform-side (same gaps as the rest of the concierge):** an
+unattended cron run acts under the cron/service principal rather than
+a user OAuth principal, so the §8.3 principal-threading work governs
+what the audit can actually read in production. The bundle is
+loadable + faux-testable today; the live nightly run lands with the
+§8 runtime gaps.
 
 ### 9.3 The concierge as judge
 

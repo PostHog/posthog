@@ -22,6 +22,18 @@
             "auth": {
                 "modes": [{ "type": "posthog" }, { "type": "posthog_internal" }]
             }
+        },
+        {
+            "type": "cron",
+            "config": {
+                "name": "nightly-fleet-audit",
+                "schedule": "0 7 * * *",
+                "timezone": "America/Los_Angeles",
+                "prompt": "Run the nightly fleet audit for {fired_at:date}. Load skills/auditing-the-fleet and follow it end to end. Sweep every agent in this team, investigate each one's recent sessions for failures, anomalies, and degraded behaviour, diagnose the root cause of anything that tripped an agent up, and for each concrete fix branch a DRAFT revision with the change applied (validate it; never freeze or promote — drafts are proposals a human reviews). Write the full report to memory, then post the condensed digest to the team's configured fleet-audit Slack channel; if no channel is configured, skip the post silently — the memory report is the source of truth. Read yesterday's report first so this one leads with what's new or worsening rather than repeating known issues. This is an unattended run: no human is on the other end, the focus_*/toast/set_secret client tools time out, and there is no session_principal to approve a promote — stay strictly read-and-propose.",
+                "external_key": "fleet-audit:{fired_at:date}",
+                "catch_up": "most_recent",
+                "max_catch_up_age_seconds": 7200
+            }
         }
     ],
     "tools": [
@@ -76,6 +88,22 @@
         {
             "kind": "native",
             "id": "@posthog/agent-applications-env-keys-get"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/memory-search"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/memory-read"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/memory-write"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/slack-post-message"
         },
         {
             "kind": "native",
@@ -362,13 +390,18 @@
             "description": "Running cost / token / failure-rate queries against PostHog LLM analytics \u2014 which event names to query, which properties to aggregate, the standard rollups. Load when the user asks about cost, performance, usage, or limits."
         },
         {
+            "id": "auditing-the-fleet",
+            "path": "skills/auditing-the-fleet/SKILL.md",
+            "description": "The unattended nightly fleet audit \u2014 sweep every agent in the team, mine each one's recent sessions for failures / anomalies / degraded behaviour, classify root causes, branch a DRAFT proposal revision per fix (never freeze or promote), and write the structured report to memory + post the Slack digest. Load AT THE START of the `nightly-fleet-audit` cron run, or whenever the user asks for a fleet-wide health sweep / 'audit all my agents' / 'what's underperforming?'. Builds on debugging-sessions (per-session triage) and editing-agents-safely (the draft-proposal mechanics)."
+        },
+        {
             "id": "safety-and-boundaries",
             "path": "skills/safety-and-boundaries/SKILL.md",
             "description": "Hard rules \u2014 what the concierge MUST NOT do regardless of user request. Load IMMEDIATELY if a request feels like it crosses into raw-secret handling, unprompted promotion, irreversible deletion, or impersonation of another user."
         }
     ],
     "integrations": [],
-    "secrets": [],
+    "secrets": ["SLACK_BOT_TOKEN"],
     "limits": {
         "max_turns": 80,
         "max_tool_calls": 300,

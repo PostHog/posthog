@@ -19,13 +19,39 @@ call the tools.
 
 ## What it does
 
-| Mode    | Trigger                                                     | Primary skill             |
-| ------- | ----------------------------------------------------------- | ------------------------- |
-| Inspect | "what does X do?" / "is X healthy?" / "show me Y"           | `reading-an-agent`        |
-| Debug   | "why did session Y fail?" / "X is broken" / "X did Z wrong" | `debugging-sessions`      |
-| Edit    | "change X" / "tweak the prompt" / "add a tool"              | `editing-agents-safely`   |
-| Author  | "build me a new agent that..."                              | `authoring-new-agents`    |
-| Audit   | "audit my team's agents" / "where's our cost going?"        | `cost-and-quota-analysis` |
+| Mode                  | Trigger                                                     | Primary skill             |
+| --------------------- | ----------------------------------------------------------- | ------------------------- |
+| Inspect               | "what does X do?" / "is X healthy?" / "show me Y"           | `reading-an-agent`        |
+| Debug                 | "why did session Y fail?" / "X is broken" / "X did Z wrong" | `debugging-sessions`      |
+| Edit                  | "change X" / "tweak the prompt" / "add a tool"              | `editing-agents-safely`   |
+| Author                | "build me a new agent that..."                              | `authoring-new-agents`    |
+| Audit                 | "audit my team's agents" / "where's our cost going?"        | `cost-and-quota-analysis` |
+| Fleet audit (nightly) | the `nightly-fleet-audit` cron — no human                   | `auditing-the-fleet`      |
+
+### The nightly fleet audit
+
+A `cron` trigger (`nightly-fleet-audit`, daily 07:00 PT) fires the
+concierge unattended against the whole team: it sweeps every agent,
+mines each one's recent sessions for failures / anomalies / degraded
+behaviour, diagnoses root causes, and for each concrete fix branches
+a **draft** revision with the change applied (validated, never frozen
+or promoted — drafts are proposals a human reviews). The findings
+land as a structured report in memory (`reports/fleet-audit/{date}.md`
+
+- `latest.md`) and a condensed digest is posted to the team's
+  configured Slack channel.
+
+The run is deliberately read-and-propose: with no human attached
+there is no `session_principal` to approve a promote, the `focus_*` /
+`toast` / `set_secret` client tools time out, and the skill forbids
+freeze / promote / archive / delete. See
+[`skills/auditing-the-fleet/SKILL.md`](skills/auditing-the-fleet/SKILL.md).
+
+**Operator config.** Slack delivery is opt-in: set
+`config/fleet-audit.md` in the agent's memory with a
+`slack_channel: C0XXXXXXX` line and set the agent's `SLACK_BOT_TOKEN`
+secret. Without a channel the audit skips the post silently — the
+memory report is the source of truth regardless.
 
 For each mode, the concierge calls the same `agent-applications-*`
 MCP tools that the authoring AI uses (`docs/agent-platform/plans/agent-authoring-flow.md`),
@@ -53,15 +79,17 @@ agent-concierge/
     ├── using-the-console-ui/SKILL.md        # focus_* + toast etiquette
     ├── working-outside-the-console/SKILL.md # MCP / IDE mode; no client tools
     ├── cost-and-quota-analysis/SKILL.md     # LLM analytics views
+    ├── auditing-the-fleet/SKILL.md          # the unattended nightly cron sweep
     └── safety-and-boundaries/SKILL.md       # hard rules
 ```
 
 ## Tool surface
 
-| Class  | Tool                                                                                                       | Class semantics                                                                                                                                                                        |
-| ------ | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Native | `@posthog/agent-applications-*` (list, retrieve, revisions, sessions, logs)                                | Read agent state — applications, revisions, sessions, logs — as the connected user. Routed through the credential broker; no platform credentials, no impersonation. Read-only for v0. |
-| Client | `focus_tab`, `focus_file`, `focus_revision`, `focus_session`, `focus_spec_section`, `toast`, `get_context` | Drive the console's read panel + read the user's current view. No-op outside the console.                                                                                              |
+| Class              | Tool                                                                                                                     | Class semantics                                                                                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native             | `@posthog/agent-applications-*` (list, retrieve, revisions, sessions, logs + the draft edit + validate verbs)            | Read agent state — applications, revisions, sessions, logs — as the connected user. Routed through the credential broker; no platform credentials, no impersonation. |
+| Native (audit I/O) | `@posthog/memory-search`, `@posthog/memory-read`, `@posthog/memory-write`, `@posthog/slack-post-message`                 | Durable outputs of the unattended `nightly-fleet-audit` cron — persist the report to memory, post the digest to Slack (reads the agent's own `SLACK_BOT_TOKEN`).     |
+| Client             | `focus_tab`, `focus_file`, `focus_revision`, `focus_session`, `focus_spec_section`, `toast`, `get_context`, `set_secret` | Drive the console's read panel + read the user's current view. No-op outside the console (time out under the cron trigger).                                          |
 
 ## Auth model
 
