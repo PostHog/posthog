@@ -4,6 +4,7 @@ set -e
 
 # Generate schema.py from schema.json
 datamodel-codegen \
+    --base-class='posthog.schema_base.SchemaBaseModel' \
     --class-name='SchemaRoot' --collapse-root-models --target-python-version 3.12 --disable-timestamp \
     --use-one-literal-as-default --use-default --use-default-kwarg --use-subclass-enum \
     --use-union-operator --use-standard-collections \
