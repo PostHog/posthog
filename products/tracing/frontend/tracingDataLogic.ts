@@ -616,16 +616,6 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 posthog.capture('tracing query failed', { query_type: 'spans', error_message: String(error) })
             }
         },
-        fetchSparklineFailure: ({ error }) => {
-            if (!isUserInitiatedError(error)) {
-                // Sparkline failures are non-critical, don't show toast
-            }
-        },
-        fetchDurationHistogramFailure: ({ error }) => {
-            if (!isUserInitiatedError(error)) {
-                // Like the sparkline, the histogram is decorative context — fail quietly
-            }
-        },
         fetchAggregationFailure: ({ error }) => {
             if (!isUserInitiatedError(error)) {
                 lemonToast.error(`Failed to load span aggregation: ${error}`)

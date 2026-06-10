@@ -1,12 +1,24 @@
-from posthog.schema import TraceSpansQueryResponse
+from typing import TYPE_CHECKING
+
+from posthog.schema import (
+    CachedTraceSpansQueryResponse,
+    DateRange,
+    PropertyGroupFilter,
+    TraceSpansQuery,
+    TraceSpansQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.tracing.backend.logic import TraceSpansQueryRunner
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 
 class TraceSpansDurationHistogramQueryRunner(TraceSpansQueryRunner):
@@ -82,3 +94,24 @@ class TraceSpansDurationHistogramQueryRunner(TraceSpansQueryRunner):
         )
         assert isinstance(query, ast.SelectQuery)
         return query
+
+
+def run_duration_histogram_query(
+    *,
+    team: "Team",
+    date_range: DateRange,
+    service_names: list[str] | None = None,
+    status_codes: list[int] | None = None,
+    filter_group: PropertyGroupFilter | None = None,
+) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
+    """Facade-friendly entry point for running a duration histogram query."""
+    query = TraceSpansQuery(
+        dateRange=date_range,
+        serviceNames=service_names,
+        statusCodes=status_codes,
+        filterGroup=filter_group,
+    )
+    runner = TraceSpansDurationHistogramQueryRunner(query, team)
+    response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+    assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+    return response

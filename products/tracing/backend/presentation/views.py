@@ -38,8 +38,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from ..duration_histogram_query_runner import TraceSpansDurationHistogramQueryRunner
-from ..facade.api import run_count_query
+from ..facade.api import run_count_query, run_duration_histogram_query
 from ..has_spans_query_runner import team_has_spans
 from ..logic import (
     TraceSpansQueryRunner,
@@ -559,16 +558,13 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (ValidationError, ValueError, ParseError):
             filter_group = None
 
-        spans_query = TraceSpansQuery(
-            dateRange=date_range,
-            serviceNames=query_data.get("serviceNames", None),
-            statusCodes=query_data.get("statusCodes", None),
-            filterGroup=filter_group,
+        response = run_duration_histogram_query(
+            team=self.team,
+            date_range=date_range,
+            service_names=query_data.get("serviceNames", None),
+            status_codes=query_data.get("statusCodes", None),
+            filter_group=filter_group,
         )
-
-        runner = TraceSpansDurationHistogramQueryRunner(spans_query, self.team)
-        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
 

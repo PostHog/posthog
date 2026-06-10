@@ -72,7 +72,10 @@ export function formatBucketLabel(ns: number): string {
  * Pivot histogram rows into the Sparkline series shape, filling gaps along the 1-2-5 series
  * between the smallest and largest non-empty bucket so the log axis is continuous.
  */
-export function pivotDurationHistogram(rows: DurationHistogramRow[], colors: string[]): TracingDurationHistogramData {
+export function pivotDurationHistogram(
+    rows: DurationHistogramRow[],
+    colors: readonly string[]
+): TracingDurationHistogramData {
     if (!rows.length) {
         return { data: [], bucketsNs: [], labels: [] }
     }
@@ -104,7 +107,7 @@ export function pivotDurationHistogram(rows: DurationHistogramRow[], colors: str
             values,
             color: colors[index % colors.length],
         }))
-        .filter((series) => series.values.reduce((a, b) => a + b) > 0)
+        .filter((series) => series.values.reduce((a, b) => a + b, 0) > 0)
 
     return { data, bucketsNs, labels: bucketsNs.map(formatBucketLabel) }
 }
