@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
+from uuid import UUID
 
 import posthoganalytics
 from temporalio import activity, workflow
@@ -51,18 +52,25 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
             limit=100,
         )
 
-        issues: list[ErrorTrackingIssueData] = []
-        for preview in previews:
-            fingerprints = error_tracking_api.list_fingerprints(team_id=input.team_id, issue_id=preview.id)
-            issues.append(
-                ErrorTrackingIssueData(
-                    issue_id=str(preview.id),
-                    name=preview.name or "Unknown",
-                    description=preview.description or "",
-                    fingerprint=fingerprints[0].fingerprint if fingerprints else "",
-                )
+        if not previews:
+            return []
+
+        # Bulk-fetch fingerprints and keep the earliest per issue (the list is created_at-ordered).
+        first_fingerprints: dict[UUID, str] = {}
+        for fingerprint in error_tracking_api.list_fingerprints(
+            team_id=input.team_id, issue_ids=[preview.id for preview in previews]
+        ):
+            first_fingerprints.setdefault(fingerprint.issue_id, fingerprint.fingerprint)
+
+        return [
+            ErrorTrackingIssueData(
+                issue_id=str(preview.id),
+                name=preview.name or "Unknown",
+                description=preview.description or "",
+                fingerprint=first_fingerprints.get(preview.id, ""),
             )
-        return issues
+            for preview in previews
+        ]
 
     return await database_sync_to_async(_fetch_issues)()
 
