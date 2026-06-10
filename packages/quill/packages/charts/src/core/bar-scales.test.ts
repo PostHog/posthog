@@ -275,6 +275,16 @@ describe('hog-charts bar scales', () => {
             expect(yAxes!.y1.position).toBe('right')
         })
 
+        it('alternates sides for three axes (left, right, left)', () => {
+            const third = makeSeries({ key: 's3', data: [50000, 60000, 70000], yAxisId: 'y2' })
+            const { yAxes } = createBarScales([smallSeries, largeSeries, third], ['a', 'b', 'c'], dimensions, {
+                barLayout: 'grouped',
+            })
+            expect(yAxes!.left.position).toBe('left')
+            expect(yAxes!.y1.position).toBe('right')
+            expect(yAxes!.y2.position).toBe('left')
+        })
+
         it('scales each series against its own domain so both fill the plot height', () => {
             const { value, yAxes } = createBarScales([smallSeries, largeSeries], ['a', 'b', 'c'], dimensions, {
                 barLayout: 'grouped',

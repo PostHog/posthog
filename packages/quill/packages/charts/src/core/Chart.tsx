@@ -307,6 +307,7 @@ export function Chart<Meta = unknown>({
                                 xTickFormatter={xTickFormatter}
                                 yTickFormatter={resolvedYFormatter}
                                 yRightTickFormatter={resolvedYRightFormatter}
+                                userYTickFormatter={yTickFormatter}
                                 hideXAxis={hideXAxis}
                                 hideYAxis={hideYAxis}
                                 axisColor={axisColor}

@@ -205,6 +205,20 @@ export function createYScale(
         .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
 }
 
+/** Order the visible series' axis ids — DEFAULT_Y_AXIS_ID first (when present), then the
+ *  remaining ids in first-encountered order — and assign alternating positions starting on the
+ *  left: index 0 left, 1 right, 2 left, 3 right, … Each side stacks its gutters outward in this
+ *  order. Mirrors the legacy multi-axis trends rendering and is shared by the scale builders and
+ *  the margin/axis-label layout so they agree on how many gutters sit on each side. */
+export function orderedAxisPositions(series: Series[]): { axisId: string; position: 'left' | 'right' }[] {
+    const axisIds = new Set(series.filter((s) => !s.visibility?.excluded).map((s) => s.yAxisId ?? DEFAULT_Y_AXIS_ID))
+    const ordered = [
+        ...(axisIds.has(DEFAULT_Y_AXIS_ID) ? [DEFAULT_Y_AXIS_ID] : []),
+        ...Array.from(axisIds).filter((id) => id !== DEFAULT_Y_AXIS_ID),
+    ]
+    return ordered.map((axisId, i) => ({ axisId, position: i % 2 === 0 ? 'left' : 'right' }))
+}
+
 export function createScales(
     series: Series[],
     labels: string[],
@@ -219,8 +233,8 @@ export function createScales(
 ): ScaleSet {
     const x = createXScale(labels, dimensions)
 
-    const axisIds = new Set(series.filter((s) => !s.visibility?.excluded).map((s) => s.yAxisId ?? DEFAULT_Y_AXIS_ID))
-    const hasMultipleAxes = axisIds.size > 1
+    const positions = orderedAxisPositions(series)
+    const hasMultipleAxes = positions.length > 1
 
     if (!hasMultipleAxes) {
         const y = createYScale(series, dimensions, {
@@ -231,25 +245,18 @@ export function createScales(
         return { x, y }
     }
 
-    // DEFAULT_Y_AXIS_ID is always the left axis when present, regardless of series order.
-    // Remaining axis ids keep their first-encountered order and take the right position.
-    const orderedAxisIds = [
-        ...(axisIds.has(DEFAULT_Y_AXIS_ID) ? [DEFAULT_Y_AXIS_ID] : []),
-        ...Array.from(axisIds).filter((id) => id !== DEFAULT_Y_AXIS_ID),
-    ]
-
     const yAxes: Record<string, { scale: D3YScale; position: 'left' | 'right' }> = {}
-    orderedAxisIds.forEach((axisId, axisIndex) => {
+    positions.forEach(({ axisId, position }, axisIndex) => {
         const axisSeries = series.filter((s) => !s.visibility?.excluded && (s.yAxisId ?? DEFAULT_Y_AXIS_ID) === axisId)
         const scale = createYScale(axisSeries, dimensions, {
             scaleType: options.scaleType,
             percentStack: options.percentStack,
             valueDomain: axisIndex === 0 ? options.valueDomain : undefined,
         })
-        yAxes[axisId] = { scale, position: axisIndex === 0 ? 'left' : 'right' }
+        yAxes[axisId] = { scale, position }
     })
 
-    const primaryAxis = yAxes[DEFAULT_Y_AXIS_ID] ?? yAxes[orderedAxisIds[0]]
+    const primaryAxis = yAxes[DEFAULT_Y_AXIS_ID] ?? yAxes[positions[0].axisId]
 
     return { x, y: primaryAxis.scale, yAxes }
 }
@@ -475,16 +482,10 @@ export function createBarScales(
     // series of different magnitudes are individually comparable. Stacked/percent layouts share
     // one axis (stacking values on different scales is meaningless).
     const visibleSeries = valueSeries.filter((s) => !s.visibility?.excluded)
-    const axisIds = new Set(visibleSeries.map((s) => s.yAxisId ?? DEFAULT_Y_AXIS_ID))
-    if (barLayout === 'grouped' && axisIds.size > 1) {
-        // DEFAULT_Y_AXIS_ID is always the left axis when present; remaining ids keep their
-        // first-encountered order and take the right position.
-        const orderedAxisIds = [
-            ...(axisIds.has(DEFAULT_Y_AXIS_ID) ? [DEFAULT_Y_AXIS_ID] : []),
-            ...Array.from(axisIds).filter((id) => id !== DEFAULT_Y_AXIS_ID),
-        ]
+    const positions = orderedAxisPositions(visibleSeries)
+    if (barLayout === 'grouped' && positions.length > 1) {
         const yAxes: Record<string, { scale: D3YScale; position: 'left' | 'right' }> = {}
-        orderedAxisIds.forEach((axisId, axisIndex) => {
+        positions.forEach(({ axisId, position }, axisIndex) => {
             const axisSeries = visibleSeries.filter((s) => (s.yAxisId ?? DEFAULT_Y_AXIS_ID) === axisId)
             const scale = buildBarValueScale(
                 axisSeries,
@@ -495,9 +496,9 @@ export function createBarScales(
                 undefined,
                 axisIndex === 0 ? valueDomain : undefined
             )
-            yAxes[axisId] = { scale, position: axisIndex === 0 ? 'left' : 'right' }
+            yAxes[axisId] = { scale, position }
         })
-        const primary = yAxes[DEFAULT_Y_AXIS_ID] ?? yAxes[orderedAxisIds[0]]
+        const primary = yAxes[DEFAULT_Y_AXIS_ID] ?? yAxes[positions[0].axisId]
         return { band, value: primary.scale, group, yAxes }
     }
 
