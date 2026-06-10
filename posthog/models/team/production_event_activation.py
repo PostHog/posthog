@@ -273,44 +273,48 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
     # cluster on cloud: this is a fleet sweep over raw events and must not
     # compete with customer-facing queries.
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
-    with tags_context(product=Product.GROWTH, feature=Feature.ENRICHMENT):
-        rows = sync_execute(
-            f"""
+    # The interpolated fragments are server-side SQL expressions from
+    # get_property_string_expr, never user input; all values go through
+    # query parameters.
+    query = f"""
+        SELECT
+            team_id,
+            groupUniqArrayIf(%(hosts_per_team_cap)s)(
+                host,
+                host != ''
+                AND host != 'localhost'
+                AND NOT startsWith(host, 'localhost:')
+                AND NOT startsWith(host, '127.0.0.1')
+            ) AS candidate_hosts,
+            uniqIf(
+                device_id,
+                device_id != '' AND is_emulator_raw IN ('false', '"false"')
+            ) AS physical_devices,
+            uniqIf(distinct_id, lib IN %(server_side_libs)s) AS server_lib_users
+        FROM (
             SELECT
                 team_id,
-                groupUniqArrayIf(%(hosts_per_team_cap)s)(
-                    host,
-                    host != ''
-                    AND host != 'localhost'
-                    AND NOT startsWith(host, 'localhost:')
-                    AND NOT startsWith(host, '127.0.0.1')
-                ) AS candidate_hosts,
-                uniqIf(
-                    device_id,
-                    device_id != '' AND is_emulator_raw IN ('false', '"false"')
-                ) AS physical_devices,
-                uniqIf(distinct_id, lib IN %(server_side_libs)s) AS server_lib_users
-            FROM (
-                SELECT
-                    team_id,
-                    distinct_id,
-                    substring(
-                        if({host_expr} != '', {host_expr}, domain({current_url_expr})),
-                        1,
-                        %(host_length_cap)s
-                    ) AS host,
-                    JSONExtractRaw(properties, '$is_emulator') AS is_emulator_raw,
-                    {device_id_expr} AS device_id,
-                    {lib_expr} AS lib
-                FROM events
-                WHERE team_id IN %(team_ids)s
-                  AND timestamp >= now() - toIntervalDay(%(window_days)s)
-            )
-            GROUP BY team_id
-            HAVING notEmpty(candidate_hosts)
-                OR physical_devices >= %(mobile_threshold)s
-                OR server_lib_users >= %(server_threshold)s
-            """,
+                distinct_id,
+                substring(
+                    if({host_expr} != '', {host_expr}, domain({current_url_expr})),
+                    1,
+                    %(host_length_cap)s
+                ) AS host,
+                JSONExtractRaw(properties, '$is_emulator') AS is_emulator_raw,
+                {device_id_expr} AS device_id,
+                {lib_expr} AS lib
+            FROM events
+            WHERE team_id IN %(team_ids)s
+              AND timestamp >= now() - toIntervalDay(%(window_days)s)
+        )
+        GROUP BY team_id
+        HAVING notEmpty(candidate_hosts)
+            OR physical_devices >= %(mobile_threshold)s
+            OR server_lib_users >= %(server_threshold)s
+    """
+    with tags_context(product=Product.GROWTH, feature=Feature.ENRICHMENT):
+        rows = sync_execute(
+            query,
             {
                 "team_ids": team_id_list,
                 "window_days": WINDOW_DAYS,

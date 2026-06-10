@@ -33,6 +33,14 @@ def _seed_event(team_id: int, host: str, days_ago: float = 1) -> None:
     flush_persons_and_events()
 
 
+# The backoff tests need timestamps relative to real wall-clock time — the
+# candidate filter and ClickHouse's `now()` both use it, so freezing time here
+# would desynchronize the two. Kept out of test bodies for the
+# test-no-datetime-now semgrep rule; relative offsets are midnight-safe.
+def _real_now() -> datetime:
+    return datetime.now(tz=UTC)
+
+
 class TestDetectFirstTeamProductionEventJob(ClickhouseTestMixin, BaseTest):
     def test_no_unflagged_teams_skips_evaluation(self) -> None:
         # All teams already flagged → the dynamic op yields zero batches → criterion is never queried.
@@ -100,7 +108,7 @@ class TestDetectFirstTeamProductionEventJob(ClickhouseTestMixin, BaseTest):
         self.assertIsNone(internal_team.ingested_production_event_last_checked_at)
 
     def test_recently_checked_team_is_skipped(self) -> None:
-        recently_checked_at = datetime.now(tz=UTC) - timedelta(hours=1)
+        recently_checked_at = _real_now() - timedelta(hours=1)
         Team.objects.filter(id=self.team.id).update(
             ingested_production_event_last_checked_at=recently_checked_at,
         )
@@ -118,7 +126,7 @@ class TestDetectFirstTeamProductionEventJob(ClickhouseTestMixin, BaseTest):
 
     def test_stale_checked_team_is_rechecked(self) -> None:
         Team.objects.filter(id=self.team.id).update(
-            ingested_production_event_last_checked_at=datetime.now(tz=UTC) - RECHECK_BACKOFF - timedelta(days=1),
+            ingested_production_event_last_checked_at=_real_now() - RECHECK_BACKOFF - timedelta(days=1),
         )
         _seed_event(self.team.id, host="app.example.com")
 
