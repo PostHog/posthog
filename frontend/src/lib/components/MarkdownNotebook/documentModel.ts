@@ -100,11 +100,13 @@ export function isTextBlockNode(node: NotebookBlockNode): node is NotebookTextBl
 }
 
 export function isGroupedTextBlockNode(node: NotebookBlockNode): node is NotebookTextBlockNode | NotebookListBlockNode {
-    return (isTextBlockNode(node) && node.type !== 'blockquote') || node.type === 'list'
+    return (isTextBlockNode(node) && node.type !== 'blockquote') || (node.type === 'list' && !node.blockquote)
 }
 
-export function isGroupedBlockquoteNode(node: NotebookBlockNode): node is NotebookTextBlockNode {
-    return isTextBlockNode(node) && node.type === 'blockquote'
+export function isGroupedBlockquoteNode(
+    node: NotebookBlockNode
+): node is NotebookTextBlockNode | NotebookListBlockNode {
+    return (isTextBlockNode(node) && node.type === 'blockquote') || (node.type === 'list' && !!node.blockquote)
 }
 
 export function isPromptComponentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {

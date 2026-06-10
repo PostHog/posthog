@@ -2466,20 +2466,38 @@ export function MarkdownNotebook({
     const setSelectedBlockStyle = (style: TextBlockStyle): void => {
         const activeTextRanges = floatingToolbar?.textRanges
         const activeCodeRanges = floatingToolbar?.codeRanges
-        if (!activeTextRanges?.length && !activeCodeRanges?.length) {
+        const activeListItemRanges = floatingToolbar?.listItemRanges
+        if (!activeTextRanges?.length && !activeCodeRanges?.length && !activeListItemRanges?.length) {
             return
         }
 
         const selectedTextNodeIds = new Set(activeTextRanges?.map(({ node }) => node.id) ?? [])
         const selectedCodeNodeIds = new Set(activeCodeRanges?.map(({ node }) => node.id) ?? [])
+        const selectedListNodeIds = new Set(activeListItemRanges?.map(({ node }) => node.id) ?? [])
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
 
+        const inlineRangesByNodeId = new Map(
+            [...(activeTextRanges ?? []), ...(activeCodeRanges ?? [])].map(({ range }) => [range.nodeId, range])
+        )
+        const listItemRangesByNodeId = new Map<string, FloatingToolbarListItemRange[]>()
+        activeListItemRanges?.forEach((listItemRange) => {
+            listItemRangesByNodeId.set(listItemRange.node.id, [
+                ...(listItemRangesByNodeId.get(listItemRange.node.id) ?? []),
+                listItemRange,
+            ])
+        })
         restoreSelectionRef.current = {
-            textRanges: [
-                ...(activeTextRanges?.map(({ range }) => range) ?? []),
-                ...(activeCodeRanges?.map(({ range }) => range) ?? []),
-            ],
+            textRanges: nodes.flatMap((node): RestoreTextRange[] => {
+                const inlineRange = inlineRangesByNodeId.get(node.id)
+                if (inlineRange) {
+                    return [inlineRange]
+                }
+                return (listItemRangesByNodeId.get(node.id) ?? []).map(({ range, itemIndex }) => ({
+                    ...range,
+                    listItemIndex: itemIndex,
+                }))
+            }),
         }
         commitDocument({
             ...currentDocument,
@@ -2493,6 +2511,16 @@ export function MarkdownNotebook({
                         return { id: node.id, type: 'heading', level: style, children }
                     }
                     return { id: node.id, type: style, children }
+                }
+                if (selectedListNodeIds.has(node.id) && node.type === 'list') {
+                    // Lists only toggle blockquote membership; heading and code styles do not apply to them.
+                    if (style === 'blockquote' && !node.blockquote) {
+                        return { ...node, blockquote: true }
+                    }
+                    if (style === 'paragraph' && node.blockquote) {
+                        return { ...node, blockquote: undefined }
+                    }
+                    return node
                 }
                 if (!selectedTextNodeIds.has(node.id) || !isTextBlockNode(node)) {
                     return node
@@ -4102,7 +4130,8 @@ export function MarkdownNotebook({
                         <FormattingToolbar
                             selectedBlockStyle={getSelectedBlockStyle(
                                 floatingToolbar.textRanges,
-                                floatingToolbar.codeRanges
+                                floatingToolbar.codeRanges,
+                                floatingToolbar.listItemRanges
                             )}
                             placement={floatingToolbar.placement}
                             top={floatingToolbar.top}

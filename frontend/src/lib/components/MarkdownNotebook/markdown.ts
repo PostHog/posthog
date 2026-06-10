@@ -117,6 +117,7 @@ export function serializeNode(node: NotebookBlockNode): string {
     }
     if (node.type === 'list') {
         const orderedCounters: (number | undefined)[] = []
+        const linePrefix = node.blockquote ? '> ' : ''
         return node.items
             .map((item) => {
                 const depth = Math.max(0, item.depth)
@@ -131,7 +132,7 @@ export function serializeNode(node: NotebookBlockNode): string {
                 } else {
                     orderedCounters[depth] = undefined
                 }
-                return `${'  '.repeat(depth)}${marker} ${serializeInlineNodes(item.children)}`
+                return `${linePrefix}${'  '.repeat(depth)}${marker} ${serializeInlineNodes(item.children)}`
             })
             .join('\n')
     }
@@ -316,10 +317,18 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
     }
 
     if (trimmed.startsWith('>')) {
+        if (isListLine(stripBlockquoteMarker(line))) {
+            return parseBlockquotedListBlock(lines, lineIndex)
+        }
+
         const quoteLines: string[] = []
         let nextLineIndex = lineIndex
-        while (nextLineIndex < lines.length && lines[nextLineIndex].trim().startsWith('>')) {
-            quoteLines.push(lines[nextLineIndex].trim().replace(/^>\s?/, ''))
+        while (
+            nextLineIndex < lines.length &&
+            lines[nextLineIndex].trim().startsWith('>') &&
+            !isListLine(stripBlockquoteMarker(lines[nextLineIndex]))
+        ) {
+            quoteLines.push(stripBlockquoteMarker(lines[nextLineIndex]))
             nextLineIndex += 1
         }
         return {
@@ -366,6 +375,33 @@ function parseParagraphBlock(lines: string[], lineIndex: number): BlockParseResu
             children: parseInlineMarkdown(paragraphLines.join('\n')),
         },
         nextLineIndex,
+    }
+}
+
+function isListLine(line: string): boolean {
+    return ORDERED_LIST_REGEX.test(line) || BULLET_LIST_REGEX.test(line)
+}
+
+function stripBlockquoteMarker(line: string): string {
+    return line.trim().replace(/^>\s?/, '')
+}
+
+function parseBlockquotedListBlock(lines: string[], lineIndex: number): BlockParseResult {
+    const listLines: string[] = []
+    let nextLineIndex = lineIndex
+    while (nextLineIndex < lines.length) {
+        const line = lines[nextLineIndex]
+        if (!line.trim().startsWith('>') || !isListLine(stripBlockquoteMarker(line))) {
+            break
+        }
+        listLines.push(stripBlockquoteMarker(line))
+        nextLineIndex += 1
+    }
+
+    const result = parseListBlock(listLines, 0)
+    return {
+        node: { ...result.node, blockquote: true } as NotebookListBlockNode,
+        nextLineIndex: lineIndex + result.nextLineIndex,
     }
 }
 

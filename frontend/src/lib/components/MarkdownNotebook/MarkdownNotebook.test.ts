@@ -3311,6 +3311,68 @@ aXbc
 - **Second item**`)
     })
 
+    it('round-trips lists inside blockquotes as quoted lists', () => {
+        const markdown = `> Quote intro
+> - First item
+> - Second item
+> Quote outro`
+
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes.map((node) => node.type)).toEqual(['blockquote', 'list', 'blockquote'])
+        expect(document.nodes[1].type === 'list' && document.nodes[1].blockquote).toBe(true)
+        expect(serializeMarkdownNotebook(document)).toEqual(`> Quote intro
+
+> - First item
+> - Second item
+
+> Quote outro`)
+    })
+
+    it('renders blockquoted lists inside the blockquote group', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('> Quote intro\n> - First item\n> - Second item'),
+            })
+        )
+
+        expect(
+            container.querySelector('.MarkdownNotebook__blockquote-group .MarkdownNotebook__list-block')
+        ).toBeInstanceOf(HTMLElement)
+        expect(getEditableListItems(container).map((item) => item.textContent)).toEqual(['First item', 'Second item'])
+    })
+
+    it('toggles blockquote membership for selected list items from the formatting toolbar', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('- First item\n- Second item'),
+                onChange,
+            })
+        )
+        let listItems = getEditableListItems(container)
+
+        selectTextAcrossNodes(getFirstTextNode(listItems[0]), 0, getFirstTextNode(listItems[1]), 'Second'.length, true)
+        fireEvent.click(getFormattingStyleButton(container, 'Quote'))
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+> - First item
+> - Second item`)
+
+        listItems = getEditableListItems(container)
+        selectTextAcrossNodes(getFirstTextNode(listItems[0]), 0, getFirstTextNode(listItems[1]), 'Second'.length, true)
+
+        expect(getFormattingStyleButton(container, 'Quote').classList.contains('LemonButton--active')).toBe(true)
+
+        fireEvent.click(getFormattingStyleButton(container, 'Quote'))
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+- First item
+- Second item`)
+    })
+
     it('applies bold to a list item selection through the keyboard shortcut', () => {
         const onChange = jest.fn()
         const { container } = render(

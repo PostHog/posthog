@@ -51,6 +51,8 @@ export type NotebookListBlockNode = {
     type: 'list'
     ordered: boolean
     start?: number
+    /** The list is part of a blockquote: serialized with a `> ` prefix on every line. */
+    blockquote?: boolean
     items: NotebookListItem[]
 }
 

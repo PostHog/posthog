@@ -6,7 +6,13 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { IconBold, IconItalic, IconLink } from 'lib/lemon-ui/icons'
 
-import { FloatingToolbarCodeRange, FloatingToolbarState, FloatingToolbarTextRange, TextBlockStyle } from './editorTypes'
+import {
+    FloatingToolbarCodeRange,
+    FloatingToolbarListItemRange,
+    FloatingToolbarState,
+    FloatingToolbarTextRange,
+    TextBlockStyle,
+} from './editorTypes'
 import { getSelectedLinkHref } from './inlineContent'
 import { sanitizeNotebookLinkHref } from './markdown'
 import { NotebookInlineMark, NotebookTextBlockNode } from './types'
@@ -236,13 +242,21 @@ export function getTextBlockStyle(node: NotebookTextBlockNode): TextBlockStyle {
 
 export function getSelectedBlockStyle(
     textRanges: FloatingToolbarTextRange[],
-    codeRanges: FloatingToolbarCodeRange[]
+    codeRanges: FloatingToolbarCodeRange[],
+    listItemRanges: FloatingToolbarListItemRange[] = []
 ): TextBlockStyle | null {
-    if (codeRanges.length) {
-        return textRanges.length ? null : 'code'
+    // Plain list items map to `null` so a mixed selection never reports a shared style.
+    const styles = new Set<TextBlockStyle | null>([
+        ...textRanges.map(({ node }): TextBlockStyle | null => getTextBlockStyle(node)),
+        ...codeRanges.map((): TextBlockStyle | null => 'code'),
+        ...listItemRanges.map(({ node }): TextBlockStyle | null => (node.blockquote ? 'blockquote' : null)),
+    ])
+
+    if (styles.size !== 1) {
+        return null
     }
 
-    return getSelectedTextBlockStyle(textRanges)
+    return [...styles][0]
 }
 
 export function getSelectedTextBlockStyle(textRanges: FloatingToolbarTextRange[]): TextBlockStyle | null {
