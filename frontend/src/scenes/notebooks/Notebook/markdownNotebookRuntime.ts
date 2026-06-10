@@ -84,8 +84,28 @@ export function preserveNotebookAIChatMarker(
     }
 
     const chatMarker = getNotebookAIChatMarker(chatId)
-    if (!currentMarkdown.includes(chatMarker) || nextMarkdown.includes(chatMarker)) {
+    const markerIndex = currentMarkdown.indexOf(chatMarker)
+    if (markerIndex === -1 || nextMarkdown.includes(chatMarker)) {
         return nextMarkdown
+    }
+
+    // The AI dropped the chat marker: re-anchor it at its previous position — right after the block
+    // that preceded it — so the chat does not jump to the bottom of the notebook.
+    const beforeMarker = currentMarkdown.slice(0, markerIndex).trimEnd()
+    if (!beforeMarker) {
+        return [chatMarker, nextMarkdown.trimStart()].filter((block) => block.trim()).join('\n\n')
+    }
+
+    const lastBlockBreakIndex = beforeMarker.lastIndexOf('\n\n')
+    const precedingBlock = (
+        lastBlockBreakIndex === -1 ? beforeMarker : beforeMarker.slice(lastBlockBreakIndex + 2)
+    ).trim()
+    const anchorIndex = precedingBlock ? nextMarkdown.indexOf(precedingBlock) : -1
+    if (anchorIndex !== -1) {
+        const insertionIndex = anchorIndex + precedingBlock.length
+        const beforeInsertion = nextMarkdown.slice(0, insertionIndex).trimEnd()
+        const afterInsertion = nextMarkdown.slice(insertionIndex).trimStart()
+        return [beforeInsertion, chatMarker, afterInsertion].filter((block) => block.trim()).join('\n\n')
     }
 
     return [nextMarkdown.trimEnd(), chatMarker].filter((block) => block.trim()).join('\n\n')

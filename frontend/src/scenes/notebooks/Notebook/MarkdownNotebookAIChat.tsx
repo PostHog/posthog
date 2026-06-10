@@ -134,9 +134,14 @@ export function getInlineAICompletion(
     }
 
     const completedMessages = threadRaw.filter((message) => message.status === 'completed')
+    // Assistant messages without content (e.g. thinking-only traces) cannot describe the outcome.
     const lastAssistantMessage = [...completedMessages]
         .reverse()
-        .find((message) => message.type !== AssistantMessageType.Human)
+        .find(
+            (message) =>
+                message.type !== AssistantMessageType.Human &&
+                (message.type !== AssistantMessageType.Assistant || !!getMessageContent(message).trim())
+        )
     if (!lastAssistantMessage) {
         return null
     }
@@ -592,11 +597,6 @@ export function NotebookAIChatConversation({
                             Reply
                         </LemonButton>
                     ) : null}
-                    {canReply && !isReplying && onDismiss ? (
-                        <LemonButton size="xsmall" type="secondary" onClick={onDismiss}>
-                            Dismiss
-                        </LemonButton>
-                    ) : null}
                     {showOlderMessages && onShowOlderMessages ? (
                         <LemonButton size="xsmall" type="secondary" onClick={onShowOlderMessages}>
                             Show older messages
@@ -605,6 +605,11 @@ export function NotebookAIChatConversation({
                     {showCollapseOlderMessages && onCollapseOlderMessages ? (
                         <LemonButton size="xsmall" type="secondary" onClick={onCollapseOlderMessages}>
                             Collapse older messages
+                        </LemonButton>
+                    ) : null}
+                    {canReply && !isReplying && onDismiss ? (
+                        <LemonButton size="xsmall" type="secondary" onClick={onDismiss}>
+                            Dismiss
                         </LemonButton>
                     ) : null}
                 </div>
@@ -693,9 +698,17 @@ export function getNotebookAIChatThreadMessages(
                 return [{ role: 'assistant', id, content }]
             }
 
-            const thinkingMessage = getThinkingMessage(message)
-            if (thinkingMessage || message.status === 'loading') {
-                return [{ role: 'thinking', id, content: thinkingMessage ?? 'Thinking ...' }]
+            // Thinking metadata is only a live status indicator: a completed message that carries
+            // nothing but internal reasoning must not render, or the chat looks stuck thinking.
+            if (message.status === 'loading') {
+                const thinkingMessage = getThinkingMessage(message)
+                return [
+                    {
+                        role: 'thinking',
+                        id,
+                        content: getInlineAIStatusText(thinkingMessage ?? undefined, 'Thinking ...'),
+                    },
+                ]
             }
         }
 
@@ -708,7 +721,7 @@ export function getNotebookAIChatThreadMessages(
         messages.push({
             role: 'thinking',
             id: 'notebook-ai-chat-thinking',
-            content: thinkingMessage ?? 'Thinking ...',
+            content: getInlineAIStatusText(thinkingMessage ?? undefined, 'Thinking ...'),
         })
     }
 

@@ -214,6 +214,8 @@ class TestAssistantContextManager(BaseTest):
         self.assertIn("The user is asking from a Markdown notebook v2 editor.", result)
         self.assertIn("Inline AI chat id: 835f09ed-e58a-4a4a-93c3-813ced0d3e55", result)
         self.assertIn('<Chat id="835f09ed-e58a-4a4a-93c3-813ced0d3e55" />', result)
+        self.assertIn("Insert new or generated content immediately after", result)
+        self.assertIn("never remove, move, or duplicate it", result)
         self.assertIn("single ph-markdown-notebook node", result)
         mock_from_short_id.assert_not_called()
 

@@ -352,12 +352,15 @@ class AssistantContextManager(AssistantContextMixin):
                 "",
                 "The user is asking from a Markdown notebook v2 editor.",
                 f"Inline AI chat id: {chat_id}",
+                f"The chat is anchored in the markdown below at the marker `{chat_marker}`.",
+                "Placement rules when changing notebook content:",
                 (
-                    'The inline AI chat is currently shown in the notebook as "Thinking ...". '
-                    "In the markdown below, the exact answer anchor is "
-                    f'`{chat_marker}`. If the user says "here", "this spot", "below", '
-                    '"above", or similar, they mean this Chat block.'
+                    f"- Insert new or generated content immediately after `{chat_marker}`, unless the user "
+                    'explicitly names a different location. Phrases like "here", "this spot", "below", or '
+                    '"above" also refer to this anchor.'
                 ),
+                f"- Keep `{chat_marker}` in the markdown exactly once — never remove, move, or duplicate it.",
+                "- Leave the rest of the notebook unchanged unless the user asks you to change it.",
                 (
                     "Use notebook tools against the current notebook when changing notebook content. "
                     "For Markdown notebook v2, preserve the single ph-markdown-notebook node and update "
