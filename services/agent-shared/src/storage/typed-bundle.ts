@@ -3,8 +3,9 @@
  *
  * The S3 layout below the surface is unchanged:
  *   - `agent.md`                        ← author's system prompt
- *   - `skills/<id>.md`                  ← skill markdown body
- *   - `skills/<id>/files/<path>`        ← skill companion files
+ *   - `skills/<id>/SKILL.md`            ← skill markdown body (one folder per skill,
+ *                                         compatible with the `SKILL.md` convention
+ *                                         used by external agent-skill frameworks)
  *   - `tools/<id>/source.ts`            ← TypeScript source (author writes)
  *   - `tools/<id>/compiled.js`          ← esbuild output (server writes)
  *   - `tools/<id>/schema.json`          ← derived from PUT body (server writes)
@@ -27,10 +28,7 @@ import { BundleEntry, BundleStore } from './bundle'
 
 export const AGENT_MD_PATH = 'agent.md'
 export function skillBodyPath(skillId: string): string {
-    return `skills/${skillId}.md`
-}
-export function skillFilePath(skillId: string, relPath: string): string {
-    return `skills/${skillId}/files/${relPath}`
+    return `skills/${skillId}/SKILL.md`
 }
 export function toolSourcePath(toolId: string): string {
     return `tools/${toolId}/source.ts`
@@ -53,23 +51,10 @@ const ResourceIdSchema = z
     .max(64)
     .regex(RESOURCE_ID_REGEX, { message: 'id must be lowercase letters, digits, hyphens, or underscores' })
 
-export const SkillFileSchema = z.object({
-    /** Path relative to `skills/<id>/files/`. No leading slash, no `..`. */
-    path: z
-        .string()
-        .min(1)
-        .max(256)
-        .refine((p) => !p.startsWith('/') && !p.includes('..') && !p.startsWith('./'), {
-            message: 'skill companion path must be relative and not contain `..`',
-        }),
-    content: z.string(),
-})
-
 export const TypedSkillSchema = z.object({
     id: ResourceIdSchema,
     description: z.string().min(1).max(2000),
     body: z.string().max(200_000),
-    files: z.array(SkillFileSchema).max(64).default([]),
 })
 
 export const TypedToolSchema = z.object({
@@ -165,40 +150,22 @@ export async function readTypedBundle(
         fileContents.set(r.path, r.content)
     }
 
-    // Skills: every `skills/<id>.md` that matches the slug regex + collect
-    // companion files from `skills/<id>/files/<path>`.
-    const skillsByid = new Map<
-        string,
-        { description: string; body: string; files: { path: string; content: string }[] }
-    >()
+    // Skills: every `skills/<id>/SKILL.md` whose `<id>` matches the slug regex.
+    const skillsByid = new Map<string, { description: string; body: string }>()
     for (const entry of entries) {
-        const m = /^skills\/([a-z0-9](?:[a-z0-9_-]*[a-z0-9])?)\.md$/.exec(entry.path)
+        const m = /^skills\/([a-z0-9](?:[a-z0-9_-]*[a-z0-9])?)\/SKILL\.md$/.exec(entry.path)
         if (!m) {
             continue
         }
         const id = m[1]
         const body = fileContents.get(entry.path) ?? ''
         const description = deriveSkillDescription(body)
-        skillsByid.set(id, { description, body, files: [] })
-    }
-    for (const entry of entries) {
-        const m = /^skills\/([a-z0-9](?:[a-z0-9_-]*[a-z0-9])?)\/files\/(.+)$/.exec(entry.path)
-        if (!m) {
-            continue
-        }
-        const id = m[1]
-        const relPath = m[2]
-        const slot = skillsByid.get(id)
-        if (!slot) {
-            warnings.push(`skill companion file at ${entry.path} has no corresponding skills/${id}.md`)
-            continue
-        }
-        slot.files.push({ path: relPath, content: fileContents.get(entry.path) ?? '' })
+        skillsByid.set(id, { description, body })
     }
 
     const skills: TypedSkill[] = []
     for (const [id, slot] of skillsByid) {
-        skills.push({ id, description: slot.description, body: slot.body, files: slot.files })
+        skills.push({ id, description: slot.description, body: slot.body })
     }
     skills.sort((a, b) => a.id.localeCompare(b.id))
 
@@ -297,9 +264,6 @@ export async function syncBundleToStore(revisionId: string, store: BundleStore, 
     willWrite.add(AGENT_MD_PATH)
     for (const skill of bundle.skills) {
         willWrite.add(skillBodyPath(skill.id))
-        for (const f of skill.files ?? []) {
-            willWrite.add(skillFilePath(skill.id, f.path))
-        }
     }
     for (const tool of bundle.tools) {
         willWrite.add(toolSourcePath(tool.id))
@@ -319,14 +283,11 @@ export async function syncBundleToStore(revisionId: string, store: BundleStore, 
         }
     }
 
-    // Write agent.md + skills + skill companions. Tools are written by the
-    // caller after the compile step succeeds.
+    // Write agent.md + skill bodies. Tools are written by the caller after
+    // the compile step succeeds.
     await store.write(revisionId, AGENT_MD_PATH, bundle.agent_md)
     for (const skill of bundle.skills) {
         await store.write(revisionId, skillBodyPath(skill.id), skill.body)
-        for (const f of skill.files ?? []) {
-            await store.write(revisionId, skillFilePath(skill.id, f.path), f.content)
-        }
     }
 }
 
@@ -355,10 +316,10 @@ export async function deleteToolFiles(revisionId: string, store: BundleStore, to
 }
 
 /**
- * Delete one skill's body + every companion file under skills/<id>/files/.
+ * Delete one skill's folder (`skills/<id>/` — currently just SKILL.md).
  */
 export async function deleteSkillFiles(revisionId: string, store: BundleStore, skillId: string): Promise<void> {
-    const entries = await store.list(revisionId, `skills/${skillId}`)
+    const entries = await store.list(revisionId, `skills/${skillId}/`)
     for (const e of entries) {
         await store.delete(revisionId, e.path)
     }

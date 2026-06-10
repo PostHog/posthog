@@ -42199,18 +42199,15 @@ export namespace Schemas {
       content: string;
     }
 
-    export interface _SkillFile {
-      path: string;
-      content: string;
-    }
-
     /**
-     * Body shape for PUT /revisions/<id>/skills/<skill_id>/.
+     * Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored
+    at the canonical `skills/<skill_id>/SKILL.md` path in the bundle.
      */
     export interface WriteSkillRequest {
+      /** One-line summary shown in the skill index; the model uses it to decide when to load the skill. */
       description: string;
+      /** The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`. */
       body: string;
-      files?: _SkillFile[];
     }
 
     export type WriteSpecRequestSpec = { [key: string]: unknown };

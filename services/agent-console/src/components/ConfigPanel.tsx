@@ -548,10 +548,7 @@ function ToolGrid({
 }): React.ReactElement {
     const [kindFilter, setKindFilter] = useState<ToolKindFilter>('all')
 
-    const kindsPresent = useMemo(
-        () => TOOL_KIND_ORDER.filter((k) => tools.some((t) => t.kind === k)),
-        [tools]
-    )
+    const kindsPresent = useMemo(() => TOOL_KIND_ORDER.filter((k) => tools.some((t) => t.kind === k)), [tools])
     const chipOptions = useMemo<readonly ToolKindFilter[]>(() => ['all', ...kindsPresent], [kindsPresent])
 
     const filtered = useMemo(() => {
@@ -780,10 +777,10 @@ function SkillCard({ skill, onClick }: { skill: SkillRef; onClick?: (path: strin
             <button
                 type="button"
                 // Canonical bundle path the runner stores (`getBundle` emits
-                // `skills/<id>.md`), not the spec's authored `path` — which may
-                // use a different convention (e.g. `skills/<name>/SKILL.md`) and
-                // wouldn't match a file in the bundle tree.
-                onClick={() => onClick(`skills/${skill.id}.md`)}
+                // `skills/<id>/SKILL.md`), not the spec's authored `path` —
+                // which on a draft may not be normalized yet and wouldn't match
+                // a file in the bundle tree.
+                onClick={() => onClick(`skills/${skill.id}/SKILL.md`)}
                 className="rounded border border-border/60 bg-card px-2 py-1.5 text-left transition-colors hover:border-border hover:bg-accent/40"
             >
                 {inner}

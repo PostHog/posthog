@@ -518,9 +518,11 @@ and the bulk bundle PUT for big rewrites.
 Conventions:
 
 - `agent.md` — the system prompt. Keep it short; let skills carry depth.
-- `skills/<id>.md` — one skill per file. Each skill has a one-line
-  description in the spec; the description is what makes the model decide
-  whether to load it via `@posthog/load-skill`.
+- `skills/<id>/SKILL.md` — one folder per skill, holding its `SKILL.md`
+  body (compatible with the `SKILL.md` convention external agent-skill
+  frameworks use). Each skill has a one-line description in the spec; the
+  description is what makes the model decide whether to load it via
+  `@posthog/load-skill`.
 - `tools/<id>/source.ts` — your custom tool's TypeScript source.
 - `tools/<id>/schema.json` — args shape + required secrets:
   ```json

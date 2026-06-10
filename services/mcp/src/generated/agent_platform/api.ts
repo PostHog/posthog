@@ -1145,18 +1145,18 @@ export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
             .array(
                 zod
                     .object({
-                        description: zod.string(),
-                        body: zod.string(),
-                        files: zod
-                            .array(
-                                zod.object({
-                                    path: zod.string(),
-                                    content: zod.string(),
-                                })
-                            )
-                            .optional(),
+                        description: zod
+                            .string()
+                            .describe(
+                                'One-line summary shown in the skill index; the model uses it to decide when to load the skill.'
+                            ),
+                        body: zod
+                            .string()
+                            .describe("The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`."),
                     })
-                    .describe('Body shape for PUT /revisions/<id>/skills/<skill_id>/.')
+                    .describe(
+                        'Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored\nat the canonical `skills/<skill_id>/SKILL.md` path in the bundle.'
+                    )
             )
             .optional(),
         tools: zod
@@ -1320,18 +1320,14 @@ export const AgentApplicationsRevisionsSkillsUpdateParams = /* @__PURE__ */ zod.
 
 export const AgentApplicationsRevisionsSkillsUpdateBody = /* @__PURE__ */ zod
     .object({
-        description: zod.string(),
-        body: zod.string(),
-        files: zod
-            .array(
-                zod.object({
-                    path: zod.string(),
-                    content: zod.string(),
-                })
-            )
-            .optional(),
+        description: zod
+            .string()
+            .describe('One-line summary shown in the skill index; the model uses it to decide when to load the skill.'),
+        body: zod.string().describe("The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`."),
     })
-    .describe('Body shape for PUT /revisions/<id>/skills/<skill_id>/.')
+    .describe(
+        'Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored\nat the canonical `skills/<skill_id>/SKILL.md` path in the bundle.'
+    )
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through

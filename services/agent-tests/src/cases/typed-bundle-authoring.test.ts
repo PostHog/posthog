@@ -14,11 +14,16 @@
  * If a case fails here, the feature is broken; we don't ship.
  */
 
+import { readFile } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import request from 'supertest'
 
 import { AgentSpecSchema } from '@posthog/agent-shared'
 
 import { buildCluster, closeSharedPool, Cluster } from '../harness'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 // Canonical "good" tool source — matches the AST shape the runner requires.
 // Used as the baseline; tests that need bad shapes inline their own source.
@@ -105,13 +110,11 @@ describe('typed bundle authoring API: real e2e', () => {
                         id: 'research',
                         description: 'When to deep-dive.',
                         body: '# research\nDo your homework.',
-                        files: [],
                     },
                     {
                         id: 'notify',
                         description: 'How to ping ops.',
                         body: '# notify',
-                        files: [{ path: 'lookup.md', content: 'on-call table here' }],
                     },
                 ],
                 tools: [
@@ -137,9 +140,9 @@ describe('typed bundle authoring API: real e2e', () => {
             expect(get.body.bundle.skills.map((s: { id: string }) => s.id).sort()).toEqual(['notify', 'research'])
             expect(get.body.bundle.tools).toHaveLength(1)
             expect(get.body.bundle.tools[0].id).toBe('echo')
-            // The skill companion file roundtripped.
-            const notify = get.body.bundle.skills.find((s: { id: string }) => s.id === 'notify')
-            expect(notify.files).toEqual([{ path: 'lookup.md', content: 'on-call table here' }])
+            // Skill body roundtripped.
+            const notify = get.body.bundle.skills.find((s: { id: string; body: string }) => s.id === 'notify')
+            expect(notify.body).toBe('# notify')
 
             // Server-derived: tools/echo/compiled.js exists in the bundle.
             expect(await c.bundle.exists(rid, 'tools/echo/compiled.js')).toBe(true)
@@ -172,18 +175,15 @@ describe('typed bundle authoring API: real e2e', () => {
             await request(c.janitor).put(`/revisions/${rid}/skills/research`).send({
                 description: 'first',
                 body: 'first body',
-                files: [],
             })
             await request(c.janitor).put(`/revisions/${rid}/skills/triage`).send({
                 description: 'triage',
                 body: 'triage body',
-                files: [],
             })
             // Update research only.
             await request(c.janitor).put(`/revisions/${rid}/skills/research`).send({
                 description: 'second',
                 body: 'updated body',
-                files: [],
             })
             const get = await request(c.janitor).get(`/revisions/${rid}/bundle`)
             const research = get.body.bundle.skills.find((s: { id: string }) => s.id === 'research')
@@ -217,7 +217,6 @@ describe('typed bundle authoring API: real e2e', () => {
             await request(c.janitor).put(`/revisions/${rid}/skills/x`).send({
                 description: 'x',
                 body: 'x body',
-                files: [],
             })
             await request(c.janitor).put(`/revisions/${rid}/agent_md`).send({ content: 'updated prompt' })
             const get = await request(c.janitor).get(`/revisions/${rid}/bundle`)
@@ -230,7 +229,6 @@ describe('typed bundle authoring API: real e2e', () => {
             await request(c.janitor).put(`/revisions/${rid}/skills/x`).send({
                 description: 'x',
                 body: 'x body',
-                files: [],
             })
             await request(c.janitor).put(`/revisions/${rid}/tools/t`).send({
                 description: 't',
@@ -253,21 +251,18 @@ describe('typed bundle authoring API: real e2e', () => {
     // ─── DELETE semantics ─────────────────────────────────────────────
 
     describe('DELETE removes a resource cleanly', () => {
-        it('DELETE /skills/foo strips body + companion files from S3', async () => {
+        it('DELETE /skills/foo strips the skill folder from S3', async () => {
             const rid = await newDraft(c)
-            await request(c.janitor)
-                .put(`/revisions/${rid}/skills/research`)
-                .send({
-                    description: 'research',
-                    body: 'research body',
-                    files: [{ path: 'lookup.md', content: 'table' }],
-                })
+            await request(c.janitor).put(`/revisions/${rid}/skills/research`).send({
+                description: 'research',
+                body: 'research body',
+            })
             const del = await request(c.janitor).delete(`/revisions/${rid}/skills/research`)
             expect(del.status).toBe(200)
             const get = await request(c.janitor).get(`/revisions/${rid}/bundle`)
             expect(get.body.bundle.skills).toEqual([])
-            expect(await c.bundle.exists(rid, 'skills/research.md')).toBe(false)
-            expect(await c.bundle.exists(rid, 'skills/research/files/lookup.md')).toBe(false)
+            expect(await c.bundle.exists(rid, 'skills/research/SKILL.md')).toBe(false)
+            expect(await c.bundle.list(rid, 'skills/research/')).toEqual([])
         })
 
         it('DELETE /tools/foo strips source.ts + compiled.js + schema.json', async () => {
@@ -299,12 +294,10 @@ describe('typed bundle authoring API: real e2e', () => {
             await request(c.janitor).put(`/revisions/${rid}/skills/keep`).send({
                 description: 'k',
                 body: '# k',
-                files: [],
             })
             await request(c.janitor).put(`/revisions/${rid}/skills/gone`).send({
                 description: 'g',
                 body: '# g',
-                files: [],
             })
             await request(c.janitor).delete(`/revisions/${rid}/skills/gone`)
             const freeze = await request(c.janitor).post(`/revisions/${rid}/freeze`)
@@ -325,7 +318,6 @@ describe('typed bundle authoring API: real e2e', () => {
                     .send({
                         description: id,
                         body: `# ${id}`,
-                        files: [],
                     })
             }
             await request(c.janitor)
@@ -333,8 +325,8 @@ describe('typed bundle authoring API: real e2e', () => {
                 .send({
                     agent_md: 'top',
                     skills: [
-                        { id: 'a', description: 'updated', body: '# new a', files: [] },
-                        { id: 'd', description: 'd', body: '# d', files: [] },
+                        { id: 'a', description: 'updated', body: '# new a' },
+                        { id: 'd', description: 'd', body: '# d' },
                     ],
                     tools: [],
                     spec: defaultSpec(),
@@ -345,8 +337,8 @@ describe('typed bundle authoring API: real e2e', () => {
             const a = get.body.bundle.skills.find((s: { id: string }) => s.id === 'a')
             expect(a.body).toBe('# new a')
             // S3 doesn't keep orphaned files behind.
-            expect(await c.bundle.exists(rid, 'skills/b.md')).toBe(false)
-            expect(await c.bundle.exists(rid, 'skills/c.md')).toBe(false)
+            expect(await c.bundle.exists(rid, 'skills/b/SKILL.md')).toBe(false)
+            expect(await c.bundle.exists(rid, 'skills/c/SKILL.md')).toBe(false)
         })
 
         it('tools not in payload are deleted (source + compiled + schema)', async () => {
@@ -466,12 +458,10 @@ describe('typed bundle authoring API: real e2e', () => {
             await request(c.janitor).put(`/revisions/${rid}/skills/zebra`).send({
                 description: 'z',
                 body: '# z',
-                files: [],
             })
             await request(c.janitor).put(`/revisions/${rid}/skills/alpha`).send({
                 description: 'a',
                 body: '# a',
-                files: [],
             })
             await request(c.janitor).put(`/revisions/${rid}/tools/echo`).send({
                 description: 'e',
@@ -569,19 +559,15 @@ describe('typed bundle authoring API: real e2e', () => {
             const r1 = await request(c.janitor).put(`/revisions/${rid}/agent_md`).send({ content: agentMd })
             expect(r1.status).toBe(200)
 
-            // 2. Push two skills, one with a companion file, one without.
-            const r2 = await request(c.janitor)
-                .put(`/revisions/${rid}/skills/research`)
-                .send({
-                    description: 'When to deep-dive.',
-                    body: '# research\nDo your homework.',
-                    files: [{ path: 'lookup.md', content: 'reference table' }],
-                })
+            // 2. Push two skills.
+            const r2 = await request(c.janitor).put(`/revisions/${rid}/skills/research`).send({
+                description: 'When to deep-dive.',
+                body: '# research\nDo your homework.',
+            })
             expect(r2.status).toBe(200)
             const r3 = await request(c.janitor).put(`/revisions/${rid}/skills/triage`).send({
                 description: 'Initial triage.',
                 body: '# triage\nFirst 5 minutes.',
-                files: [],
             })
             expect(r3.status).toBe(200)
 
@@ -634,16 +620,15 @@ export default {
             const expectedAgentMd = await c.bundle.readText(rid, 'agent.md')
             expect(expectedAgentMd).toBe(agentMd)
 
-            const researchBody = await c.bundle.readText(rid, 'skills/research.md')
+            // Each skill body lands at the canonical `skills/<id>/SKILL.md`.
+            const researchBody = await c.bundle.readText(rid, 'skills/research/SKILL.md')
             expect(researchBody).toBe('# research\nDo your homework.')
-            const researchCompanion = await c.bundle.readText(rid, 'skills/research/files/lookup.md')
-            expect(researchCompanion).toBe('reference table')
 
-            const triageBody = await c.bundle.readText(rid, 'skills/triage.md')
+            const triageBody = await c.bundle.readText(rid, 'skills/triage/SKILL.md')
             expect(triageBody).toBe('# triage\nFirst 5 minutes.')
-            // No companion files for triage — no skills/triage/ subdir should exist.
+            // The skill folder holds exactly the one SKILL.md — no other files.
             const triageEntries = await c.bundle.list(rid, 'skills/triage/')
-            expect(triageEntries).toEqual([])
+            expect(triageEntries.map((e) => e.path)).toEqual(['skills/triage/SKILL.md'])
 
             for (const id of ['echo', 'incr']) {
                 const src = await c.bundle.readText(rid, `tools/${id}/source.ts`)
@@ -666,8 +651,8 @@ export default {
             expect(
                 rev!.spec.skills.map((s) => ({ id: s.id, path: s.path })).sort((a, b) => a.id.localeCompare(b.id))
             ).toEqual([
-                { id: 'research', path: 'skills/research.md' },
-                { id: 'triage', path: 'skills/triage.md' },
+                { id: 'research', path: 'skills/research/SKILL.md' },
+                { id: 'triage', path: 'skills/triage/SKILL.md' },
             ])
             // Custom tool entries appear with kind:'custom' alongside any
             // native/client tools the spec carries.
@@ -698,7 +683,6 @@ export default {
                 request(c.janitor).put(`/revisions/${rid}/skills/foo`).send({
                     description: 'foo',
                     body: '# foo',
-                    files: [],
                 }),
                 request(c.janitor).put(`/revisions/${rid}/tools/bar`).send({
                     description: 'bar',
@@ -716,16 +700,69 @@ export default {
             await request(c.janitor).put(`/revisions/${rid}/skills/x`).send({
                 description: 'first',
                 body: 'first body',
-                files: [],
             })
             await request(c.janitor).put(`/revisions/${rid}/skills/x`).send({
                 description: 'second',
                 body: 'second body',
-                files: [],
             })
             const get = await request(c.janitor).get(`/revisions/${rid}/bundle`)
             const x = get.body.bundle.skills.find((s: { id: string }) => s.id === 'x')
             expect(x.body).toBe('second body')
+        })
+    })
+
+    // ─── Example bundle ↔ SKILL.md storage contract ──────────────────
+    // Guards the convention every example agent follows: skills authored as
+    // `skills/<id>/SKILL.md` on disk are accepted by the typed API, stored at
+    // exactly that canonical path in S3, and read back intact via GET /bundle.
+    // Runs against a real example bundle (sre-slack-bot) so a drift between
+    // the on-disk layout and the platform storage format fails here.
+    describe('example bundle skills round-trip through the SKILL.md storage contract', () => {
+        it('accepts sre-slack-bot skills via the API, stores them at skills/<id>/SKILL.md, loads them back', async () => {
+            const exampleRoot = resolve(__dirname, '../examples/sre-slack-bot')
+            const spec = JSON.parse(await readFile(join(exampleRoot, 'spec.json'), 'utf-8')) as {
+                skills: Array<{ id: string; description: string; path: string }>
+            }
+            // Load each skill body from its on-disk `skills/<id>/SKILL.md`.
+            const skills = await Promise.all(
+                spec.skills.map(async (s) => {
+                    expect(s.path).toBe(`skills/${s.id}/SKILL.md`) // the convention itself
+                    return {
+                        id: s.id,
+                        description: s.description,
+                        body: await readFile(join(exampleRoot, s.path), 'utf-8'),
+                    }
+                })
+            )
+            expect(skills.length).toBeGreaterThan(0)
+
+            const rid = await newDraft(c, 'sre-roundtrip')
+
+            // 1. ACCEPTED — the typed PUT /bundle takes the SKILL.md bodies.
+            const put = await request(c.janitor)
+                .put(`/revisions/${rid}/bundle`)
+                .send({
+                    agent_md: await readFile(join(exampleRoot, 'agent.md'), 'utf-8'),
+                    skills,
+                    tools: [],
+                    spec: defaultSpec(),
+                })
+            expect(put.status).toBe(200)
+
+            // 2. STORED — each body lands at exactly `skills/<id>/SKILL.md` in S3.
+            for (const s of skills) {
+                expect(await c.bundle.exists(rid, `skills/${s.id}/SKILL.md`)).toBe(true)
+                expect(await c.bundle.readText(rid, `skills/${s.id}/SKILL.md`)).toBe(s.body)
+            }
+
+            // 3. LOADED — GET /bundle reconstructs the typed skills with bodies intact.
+            const get = await request(c.janitor).get(`/revisions/${rid}/bundle`)
+            expect(get.status).toBe(200)
+            const loaded = get.body.bundle.skills as Array<{ id: string; body: string }>
+            expect(loaded.map((s) => s.id).sort()).toEqual(skills.map((s) => s.id).sort())
+            for (const s of skills) {
+                expect(loaded.find((l) => l.id === s.id)!.body).toBe(s.body)
+            }
         })
     })
 })

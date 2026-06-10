@@ -205,9 +205,9 @@ tools:
         title: Get the typed bundle
         description: >
             Returns `{ agent_md, skills, tools, spec }` — the typed view of the revision. Use this when you want to edit
-            the whole agent locally (pull, mutate in-memory, push back via the bundle PUT). Skills carry `description`,
-            `body`, and optional `files[]`. Tools carry `description`, `args_schema`, `source` (TypeScript). `spec` is
-            the author-facing slice (skills/tools are server-derived at freeze).
+            the whole agent locally (pull, mutate in-memory, push back via the bundle PUT). Skills carry `description`
+            and `body` (stored at `skills/<id>/SKILL.md`). Tools carry `description`, `args_schema`, `source`
+            (TypeScript). `spec` is the author-facing slice (skills/tools are server-derived at freeze).
     agent-applications-revisions-bundle-update:
         operation: agent_applications_revisions_bundle_update
         enabled: true
@@ -381,7 +381,7 @@ tools:
             idempotent: true
         title: Delete one skill
         description: >
-            Removes the skill body + every companion file under `skills/<id>/files/`. Returns 404 if the skill doesn't
+            Removes the skill folder (`skills/<id>/`, holding its `SKILL.md`). Returns 404 if the skill doesn't
             exist. Draft-only.
     agent-applications-revisions-skills-update:
         operation: agent_applications_revisions_skills_update
@@ -394,9 +394,8 @@ tools:
             idempotent: true
         title: Upsert one skill
         description: >
-            Body `{ description, body, files? }`. Creates the skill if it doesn't exist, replaces it if it does.
-            `files[]` is the optional list of companion docs (path relative to `skills/<id>/files/`). Skill id comes
-            from the URL. Draft-only.
+            Body `{ description, body }`. Creates the skill if it doesn't exist, replaces it if it does. The `body` is
+            stored at `skills/<skill_id>/SKILL.md`. Skill id comes from the URL. Draft-only.
     agent-applications-revisions-slack-manifest:
         operation: agent_applications_revisions_slack_manifest
         enabled: true

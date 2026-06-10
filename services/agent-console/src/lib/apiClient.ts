@@ -186,7 +186,7 @@ export async function listRevisions(teamId: number, slug: string): Promise<Agent
 interface TypedBundleResponse {
     bundle: {
         agent_md: string
-        skills: { id: string; description: string; body: string; files?: { path: string; content: string }[] }[]
+        skills: { id: string; description: string; body: string }[]
         tools: { id: string; description: string; args_schema: Record<string, unknown>; source: string }[]
     }
 }
@@ -205,14 +205,10 @@ export async function getBundle(teamId: number, slug: string, revisionId: string
     }
     for (const skill of bundle.skills ?? []) {
         out.push({
-            path: `skills/${skill.id}.md`,
+            path: `skills/${skill.id}/SKILL.md`,
             content: skill.body,
             language: 'markdown',
         })
-        for (const f of skill.files ?? []) {
-            const p = `skills/${skill.id}/files/${f.path}`
-            out.push({ path: p, content: f.content, language: languageForPath(p) })
-        }
     }
     for (const tool of bundle.tools ?? []) {
         const sourcePath = `tools/${tool.id}/source.ts`

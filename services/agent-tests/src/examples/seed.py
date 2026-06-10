@@ -260,9 +260,13 @@ def load_bundle_files(bundle_root: Path) -> dict[str, str]:
     files["agent.md"] = (bundle_root / "agent.md").read_text()
     skills_dir = bundle_root / "skills"
     if skills_dir.is_dir():
-        for f in sorted(skills_dir.iterdir()):
-            if f.is_file() and f.suffix == ".md":
-                files[f"skills/{f.name}"] = f.read_text()
+        # Recurse: skills are either flat (`skills/<id>.md`) or nested in their
+        # own folder (`skills/<name>/SKILL.md` + companion files). Key each by
+        # its full bundle-relative path so `build_typed_bundle` can resolve the
+        # body via the spec's `skills[].path` regardless of convention.
+        for f in sorted(skills_dir.rglob("*.md")):
+            if f.is_file():
+                files[f.relative_to(bundle_root).as_posix()] = f.read_text()
     tests_dir = bundle_root / "tests"
     if tests_dir.is_dir():
         for f in sorted(tests_dir.iterdir()):

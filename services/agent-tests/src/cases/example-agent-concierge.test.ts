@@ -53,9 +53,10 @@ async function loadBundle(): Promise<{ spec: ConciergeSpec; files: Record<string
     const files: Record<string, string> = {}
     files['agent.md'] = await readFile(join(BUNDLE_ROOT, 'agent.md'), 'utf-8')
     files['README.md'] = await readFile(join(BUNDLE_ROOT, 'README.md'), 'utf-8')
-    const skillFiles = await readdir(join(BUNDLE_ROOT, 'skills'))
-    for (const sf of skillFiles) {
-        files[`skills/${sf}`] = await readFile(join(BUNDLE_ROOT, 'skills', sf), 'utf-8')
+    const skillDirs = await readdir(join(BUNDLE_ROOT, 'skills'))
+    for (const id of skillDirs) {
+        const p = `skills/${id}/SKILL.md`
+        files[p] = await readFile(join(BUNDLE_ROOT, p), 'utf-8')
     }
     return { spec, files }
 }

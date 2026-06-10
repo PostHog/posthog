@@ -9,7 +9,7 @@
  *
  * Resources:
  *   - `agent_md`            ← the system prompt (string)
- *   - `skills/<id>`         ← { description, body, files[] }
+ *   - `skills/<id>`         ← { description, body }  (stored at skills/<id>/SKILL.md)
  *   - `tools/<id>`          ← { description, args_schema, source }
  *   - `spec`                ← author-facing slice (no skills[]/tools[])
  *
@@ -35,7 +35,6 @@ import {
     RevisionState,
     RevisionStore,
     skillBodyPath,
-    skillFilePath,
     syncBundleToStore,
     toolCompiledPath,
     TypedBundleSchema,
@@ -196,13 +195,11 @@ export function buildTypedBundleRouter(opts: TypedBundleRouterOpts): Router {
                 return
             }
             const id = idCheck.data
-            // Wipe any existing companion files before writing — otherwise an
-            // edit that removed a companion would leave a stray file behind.
+            // Clear the skill folder first so a re-PUT also sweeps any stray
+            // legacy files (e.g. old `skills/<id>/files/*` companions) before
+            // writing the fresh SKILL.md body.
             await deleteSkillFiles(req.params.id, opts.bundles, id)
             await opts.bundles.write(req.params.id, skillBodyPath(id), parsed.data.body)
-            for (const f of parsed.data.files ?? []) {
-                await opts.bundles.write(req.params.id, skillFilePath(id, f.path), f.content)
-            }
             res.json({ ok: true, skill_id: id })
         })
     )

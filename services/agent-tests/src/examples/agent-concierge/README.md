@@ -39,19 +39,21 @@ agent-concierge/
 ├── README.md                            # this file
 ├── spec.json                            # triggers, tools, mcps, skills
 ├── agent.md                             # short system prompt; defers to skills
-└── skills/
-    ├── platform-mental-model.md         # spec / bundle / revision / session
-    ├── reading-an-agent.md              # standard inspection flow
-    ├── debugging-sessions.md            # failure taxonomy + triage
-    ├── editing-agents-safely.md         # branch → validate → freeze → test → promote
-    ├── authoring-new-agents.md          # fresh creation flow
-    ├── secrets-and-integrations.md      # punch-out flow, integrations table
-    ├── designing-mcp-surfaces.md        # spec.mcp.tools[] design
-    ├── running-and-evaluating-tests.md  # tests + judge skills
-    ├── using-the-console-ui.md          # focus_* + toast etiquette
-    ├── working-outside-the-console.md   # MCP / IDE mode; no client tools
-    ├── cost-and-quota-analysis.md       # LLM analytics views
-    └── safety-and-boundaries.md         # hard rules
+└── skills/                                       # one folder per skill, each with a SKILL.md
+    ├── platform-mental-model/SKILL.md       # spec / bundle / revision / session
+    ├── reading-an-agent/SKILL.md            # standard inspection flow
+    ├── debugging-sessions/SKILL.md          # failure taxonomy + triage
+    ├── editing-agents-safely/SKILL.md       # branch → validate → freeze → test → promote
+    ├── authoring-new-agents/SKILL.md        # fresh creation flow
+    ├── choosing-the-model/SKILL.md          # match model + reasoning to the job
+    ├── secrets-and-integrations/SKILL.md    # punch-out flow, integrations table
+    ├── designing-mcp-surfaces/SKILL.md      # spec.mcp.tools[] design
+    ├── running-and-evaluating-tests/SKILL.md # tests + judge skills
+    ├── setting-up-slack-app/SKILL.md        # Slack app creation + scopes
+    ├── using-the-console-ui/SKILL.md        # focus_* + toast etiquette
+    ├── working-outside-the-console/SKILL.md # MCP / IDE mode; no client tools
+    ├── cost-and-quota-analysis/SKILL.md     # LLM analytics views
+    └── safety-and-boundaries/SKILL.md       # hard rules
 ```
 
 ## Tool surface

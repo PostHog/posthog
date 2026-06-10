@@ -255,17 +255,20 @@ class WriteSpecRequestSerializer(serializers.Serializer):
     spec = serializers.DictField(child=serializers.JSONField())
 
 
-class _SkillFileSerializer(serializers.Serializer):
-    path = serializers.CharField(allow_blank=False, trim_whitespace=False)
-    content = serializers.CharField(allow_blank=True, trim_whitespace=False)
-
-
 class WriteSkillRequestSerializer(serializers.Serializer):
-    """Body shape for PUT /revisions/<id>/skills/<skill_id>/."""
+    """Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored
+    at the canonical `skills/<skill_id>/SKILL.md` path in the bundle."""
 
-    description = serializers.CharField(allow_blank=False, trim_whitespace=False)
-    body = serializers.CharField(allow_blank=True, trim_whitespace=False)
-    files = serializers.ListField(child=_SkillFileSerializer(), required=False, default=list)
+    description = serializers.CharField(
+        allow_blank=False,
+        trim_whitespace=False,
+        help_text="One-line summary shown in the skill index; the model uses it to decide when to load the skill.",
+    )
+    body = serializers.CharField(
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`.",
+    )
 
 
 class WriteToolRequestSerializer(serializers.Serializer):

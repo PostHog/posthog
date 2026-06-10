@@ -740,18 +740,15 @@ export interface WriteAgentMdRequestApi {
 
 export type WriteTypedBundleRequestApiSpec = { [key: string]: unknown }
 
-export interface _SkillFileApi {
-    path: string
-    content: string
-}
-
 /**
- * Body shape for PUT /revisions/<id>/skills/<skill_id>/.
+ * Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored
+at the canonical `skills/<skill_id>/SKILL.md` path in the bundle.
  */
 export interface WriteSkillRequestApi {
+    /** One-line summary shown in the skill index; the model uses it to decide when to load the skill. */
     description: string
+    /** The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`. */
     body: string
-    files?: _SkillFileApi[]
 }
 
 export type WriteToolRequestApiArgsSchema = { [key: string]: unknown }

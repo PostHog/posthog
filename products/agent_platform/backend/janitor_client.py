@@ -111,7 +111,7 @@ class JanitorClient:
         return self._call("PUT", f"/revisions/{revision_id}/spec", json={"spec": spec})
 
     def put_skill(self, revision_id: str, skill_id: str, skill: dict) -> dict:
-        """Upsert one skill. `skill` carries { description, body, files? }."""
+        """Upsert one skill. `skill` carries { description, body }; stored at skills/<id>/SKILL.md."""
         return self._call("PUT", f"/revisions/{revision_id}/skills/{skill_id}", json=skill)
 
     def delete_skill(self, revision_id: str, skill_id: str) -> dict:

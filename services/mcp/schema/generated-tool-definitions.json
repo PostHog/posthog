@@ -401,7 +401,7 @@
         }
     },
     "agent-applications-revisions-bundle-retrieve": {
-        "description": "Returns `{ agent_md, skills, tools, spec }` — the typed view of the revision. Use this when you want to edit the whole agent locally (pull, mutate in-memory, push back via the bundle PUT). Skills carry `description`, `body`, and optional `files[]`. Tools carry `description`, `args_schema`, `source` (TypeScript). `spec` is the author-facing slice (skills/tools are server-derived at freeze).",
+        "description": "Returns `{ agent_md, skills, tools, spec }` — the typed view of the revision. Use this when you want to edit the whole agent locally (pull, mutate in-memory, push back via the bundle PUT). Skills carry `description` and `body` (stored at `skills/<id>/SKILL.md`). Tools carry `description`, `args_schema`, `source` (TypeScript). `spec` is the author-facing slice (skills/tools are server-derived at freeze).",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Get the typed bundle",
@@ -569,7 +569,7 @@
         }
     },
     "agent-applications-revisions-skills-destroy": {
-        "description": "Removes the skill body + every companion file under `skills/<id>/files/`. Returns 404 if the skill doesn't exist. Draft-only.",
+        "description": "Removes the skill folder (`skills/<id>/`, holding its `SKILL.md`). Returns 404 if the skill doesn't exist. Draft-only.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Delete one skill",
@@ -583,7 +583,7 @@
         }
     },
     "agent-applications-revisions-skills-update": {
-        "description": "Body `{ description, body, files? }`. Creates the skill if it doesn't exist, replaces it if it does. `files[]` is the optional list of companion docs (path relative to `skills/<id>/files/`). Skill id comes from the URL. Draft-only.",
+        "description": "Body `{ description, body }`. Creates the skill if it doesn't exist, replaces it if it does. The `body` is stored at `skills/<skill_id>/SKILL.md`. Skill id comes from the URL. Draft-only.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Upsert one skill",
