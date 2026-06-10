@@ -289,7 +289,7 @@ RUN apt-get update && \
     "libxmlsec1=1.2.37-2" \
     "libxmlsec1-openssl=1.2.37-2" \
     "libxml2" \
-    "libssl3=3.0.19-1~deb12u2" \
+    "libssl3=3.0.20-1~deb12u2" \
     "libjemalloc2" \
     && \
     rm -rf /var/lib/apt/lists/*
