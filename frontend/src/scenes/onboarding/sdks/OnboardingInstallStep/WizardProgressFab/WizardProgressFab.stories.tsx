@@ -129,6 +129,11 @@ const meta: Meta<StoryArgs> = {
         viewMode: 'story',
         // FAB is flag-gated; storybook's useFeatureFlag treats any truthy value as "on".
         featureFlags: [FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC],
+        // Freeze time. The tracker ticks `now` at 1Hz; without a frozen clock that
+        // tick re-renders the FAB during the snapshot window, which re-fires the
+        // global `withTheme` decorator and clobbers the test-runner's per-pass body
+        // theme — making the light/dark snapshot pick up the wrong theme at random.
+        mockDate: '2024-05-01 12:00:00',
     },
     args: { skillId: DEFAULT_SKILL_ID },
     argTypes: {
@@ -351,3 +356,7 @@ export const SimulatedRun: StoryFn<StoryArgs> = function SimulatedRunStory({ ski
         </SceneFrame>
     )
 }
+// Auto-playing timeline: its setTimeout-driven task transitions (which MockDate can't
+// freeze) re-render mid-snapshot, so it has no stable reference image — watch it live
+// in Storybook instead of asserting on it in visual regression.
+SimulatedRun.tags = ['test-skip']
