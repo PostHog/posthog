@@ -49,7 +49,7 @@ class RunSummary:
     task_run_id: str | None = None
     task_url: str | None = None
     # `error` is the full `TaskRun.error_message`; `failure_reason` is the concise derived
-    # one-liner (null unless the run terminated in failed/cancelled). Both null on success.
+    # one-liner. Both are surfaced only for failed/cancelled runs — null otherwise (incl. success).
     error: str | None = None
     failure_reason: str | None = None
 
@@ -79,7 +79,7 @@ class RunDetail:
     task_run_id: str | None = None
     task_url: str | None = None
     # `error` is the full `TaskRun.error_message`; `failure_reason` is the concise derived
-    # one-liner (null unless the run terminated in failed/cancelled). Both null on success.
+    # one-liner. Both are surfaced only for failed/cancelled runs — null otherwise (incl. success).
     error: str | None = None
     failure_reason: str | None = None
 
@@ -147,7 +147,7 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
     task_run = row.task_run
     task_id = str(task_run.task_id) if task_run is not None else None
     task_run_id = str(task_run.id) if task_run is not None else None
-    error = task_run.error_message if task_run is not None else None
+    error, failure_reason = _derive_failure(task_run)
     return RunSummary(
         run_id=str(row.id),
         skill_name=row.skill_name,
@@ -161,8 +161,8 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
         task_id=task_id,
         task_run_id=task_run_id,
         task_url=_build_task_url(team_id=team_id, task_id=task_id, task_run_id=task_run_id),
-        error=error or None,
-        failure_reason=_derive_failure_reason(task_run),
+        error=error,
+        failure_reason=failure_reason,
     )
 
 
@@ -171,20 +171,25 @@ def _to_detail(row: SignalScoutRun, *, team_id: int) -> RunDetail:
     return RunDetail(**asdict(summary))
 
 
-def _derive_failure_reason(task_run: TaskRun | None) -> str | None:
-    """Concise, list-safe reason a run didn't complete cleanly, or None if it didn't fail.
+def _derive_failure(task_run: TaskRun | None) -> tuple[str | None, str | None]:
+    """Return `(error, failure_reason)` for a run — both None unless it failed/cancelled.
 
-    Only terminal-failure statuses (failed / cancelled) carry a reason — the value is the
-    first line of `error_message` bounded to `MAX_FAILURE_REASON_LENGTH`, or a status-derived
-    fallback when no message was recorded. The full message is on `error`; this is the field
-    a bulk run scan reads to see *why* a run emitted nothing without pulling every stack trace.
+    Gating both on terminal-failure status keeps a non-null `error` a genuine failure signal:
+    a stray `error_message` left on a run that reached COMPLETED is not surfaced, so the
+    "both null on success" contract holds. `error` is the full `TaskRun.error_message`;
+    `failure_reason` is the concise list-safe derived one-liner — the first line of the message
+    bounded to `MAX_FAILURE_REASON_LENGTH`, or a status-derived fallback when none was recorded.
+    `failure_reason` is what a bulk run scan reads to see *why* a run emitted nothing without
+    pulling every stack trace.
     """
     if task_run is None or task_run.status not in (TaskRun.Status.FAILED, TaskRun.Status.CANCELLED):
-        return None
+        return None, None
+    error = task_run.error_message or None
     message = (task_run.error_message or "").strip()
     if message:
-        return message.splitlines()[0][:MAX_FAILURE_REASON_LENGTH]
-    return "cancelled" if task_run.status == TaskRun.Status.CANCELLED else "failed (no error message recorded)"
+        return error, message.splitlines()[0][:MAX_FAILURE_REASON_LENGTH]
+    fallback = "cancelled" if task_run.status == TaskRun.Status.CANCELLED else "failed (no error message recorded)"
+    return error, fallback
 
 
 def _build_task_url(*, team_id: int, task_id: str | None, task_run_id: str | None) -> str | None:

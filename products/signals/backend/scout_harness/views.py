@@ -21,7 +21,8 @@ from __future__ import annotations
 
 import uuid
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import exceptions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -71,6 +72,16 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
 # handful of findings), so it never truncates in practice — it just bounds a pathological
 # retry-heavy run rather than leaving the payload unbounded.
 MAX_EMISSIONS_PER_RUN = 1000
+
+# `SignalScoutRunViewSet.lookup_field` is `run_id`, but the model's PK field is `id`, so
+# drf-spectacular can't derive the path-param type from the model and warns (fatal under
+# `--fail-on-warn`). Declare the param explicitly on every detail action instead.
+_RUN_ID_PATH_PARAMETER = OpenApiParameter(
+    name="run_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.PATH,
+    description="UUID of the `SignalScoutRun` bridge row.",
+)
 
 
 def _caller_carries_scout_internal_scope(request: Request) -> bool:
@@ -198,6 +209,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
 
     @extend_schema(
+        parameters=[_RUN_ID_PATH_PARAMETER],
         responses={
             200: OpenApiResponse(response=SignalScoutRunDetailSerializer, description="Full run detail."),
             404: OpenApiResponse(description="Run not found or not visible to this project."),
@@ -216,6 +228,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(SignalScoutRunDetailSerializer(detail.as_dict()).data)
 
     @extend_schema(
+        parameters=[_RUN_ID_PATH_PARAMETER],
         responses={
             200: OpenApiResponse(
                 response=SignalScoutEmissionSerializer(many=True),
@@ -257,6 +270,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @validated_request(
         request_serializer=EmitFindingRequestSerializer,
+        parameters=[_RUN_ID_PATH_PARAMETER],
         responses={
             200: OpenApiResponse(
                 response=EmitFindingResponseSerializer, description="Finding emitted, or skipped by a preflight gate."

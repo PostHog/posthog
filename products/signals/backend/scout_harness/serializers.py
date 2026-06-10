@@ -64,8 +64,8 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
         allow_null=True,
         required=False,
         help_text=(
-            "Full `error_message` from the linked TaskRun, or null when the run didn't record one. "
-            "Set when a run failed; use `failure_reason` for a concise scan-friendly summary."
+            "Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs "
+            "(null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary."
         ),
     )
     failure_reason = serializers.CharField(

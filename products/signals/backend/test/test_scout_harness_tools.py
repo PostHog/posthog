@@ -36,7 +36,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     _validate_inputs,
     emit_finding_sync,
 )
-from products.signals.backend.scout_harness.tools.runs import MAX_RUN_SEARCH_LIMIT
+from products.signals.backend.scout_harness.tools.runs import MAX_FAILURE_REASON_LENGTH, MAX_RUN_SEARCH_LIMIT
 from products.signals.backend.scout_harness.tools.scratchpad import (
     MAX_SCRATCHPAD_CONTENT_LENGTH,
     MAX_SCRATCHPAD_SEARCH_LIMIT,
@@ -245,6 +245,27 @@ class TestSearchRecentRuns(BaseTest):
 
         assert hit.error is None
         assert hit.failure_reason is None
+
+    def test_completed_run_with_error_message_does_not_surface_error(self) -> None:
+        # A stray error_message on a run that still reached COMPLETED must not surface as a
+        # failure signal — `error` and `failure_reason` are gated on terminal-failure status.
+        run = _create_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
+        TaskRun.objects.filter(id=run.task_run_id).update(error_message="transient warning, recovered")
+
+        hit = search_recent_runs(team_id=self.team.id, limit=1)[0]
+
+        assert hit.error is None
+        assert hit.failure_reason is None
+
+    def test_failure_reason_truncated_to_max_length(self) -> None:
+        run = _create_run(self.team, task_run_status=TaskRun.Status.FAILED)
+        long_message = "x" * (MAX_FAILURE_REASON_LENGTH + 50)
+        TaskRun.objects.filter(id=run.task_run_id).update(error_message=long_message)
+
+        hit = search_recent_runs(team_id=self.team.id, limit=1)[0]
+
+        assert hit.error == long_message  # full message preserved
+        assert len(hit.failure_reason or "") == MAX_FAILURE_REASON_LENGTH  # derived reason bounded
 
 
 class TestGetRun(BaseTest):
