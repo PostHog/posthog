@@ -1,6 +1,7 @@
 import { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
 import {
@@ -853,6 +854,10 @@ export const QueryDatabase = ({
                             className="z-2"
                             onClick={(e) => {
                                 e.stopPropagation()
+                                posthog.capture('sql-editor-add-source-clicked', {
+                                    source_type: null,
+                                    location: 'sources_header',
+                                })
                                 newInternalTab(urls.dataWarehouseSourceNew())
                             }}
                             data-attr="sql-editor-add-source"
@@ -875,6 +880,10 @@ export const QueryDatabase = ({
                             className="absolute right-0 opacity-0 group-hover/lemon-tree-button-group:opacity-100 z-10 data-[state=open]:opacity-100 -outline-offset-2 focus-visible:opacity-100"
                             onClick={(e) => {
                                 e.stopPropagation()
+                                posthog.capture('sql-editor-add-source-clicked', {
+                                    source_type: sourceType,
+                                    location: 'source_type_row',
+                                })
                                 newInternalTab(urls.dataWarehouseSourceNew(sourceType))
                             }}
                             data-attr="sql-editor-add-source-of-type"
