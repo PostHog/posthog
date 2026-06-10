@@ -7,6 +7,7 @@ import structlog
 
 from posthog.models.integration import Integration
 from posthog.models.user import User
+from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
 
@@ -87,10 +88,18 @@ def resolve_from_candidates(
     ``slack_user_id=""``; the SlackSettings lookup is skipped and the result
     falls through to ``sole_candidate`` / ``needs_picker``.
     """
-    accessible_team_ids: set[int] | None = set(user.teams.values_list("id", flat=True)) if user is not None else None
-    accessible = (
-        candidates if accessible_team_ids is None else [i for i in candidates if i.team_id in accessible_team_ids]
-    )
+    # ``user.teams`` keys its access-control filter off a single arbitrary
+    # ``Organization.first()`` row's feature flags, so a user whose AC-enabled
+    # org isn't the one picked sees private projects from that org. Per-team
+    # ``effective_membership_level`` is the right check — it consults each
+    # team's own organization's feature flags.
+    if user is None:
+        accessible_team_ids: set[int] | None = None
+        accessible = candidates
+    else:
+        permissions = UserPermissions(user=user)
+        accessible = [c for c in candidates if permissions.team(c.team).effective_membership_level is not None]
+        accessible_team_ids = {c.team_id for c in accessible}
     candidate_ids = {c.id for c in candidates}
     candidates_by_team_id = {c.team_id: c for c in candidates}
 
@@ -247,8 +256,16 @@ def resolve_user_for_workspace(
     # Filter to integrations the user can access. A resolved target the user can't
     # reach is dropped so the caller falls through to the picker / sole-candidate
     # path rather than auto-redirecting to a default the thread didn't imply.
-    accessible_team_ids = set(posthog_user.teams.values_list("id", flat=True))
-    accessible_candidates = [c for c in workspace_result.candidates if c.team_id in accessible_team_ids]
+    # Use per-team ``effective_membership_level`` rather than ``user.teams``: the
+    # latter gates its access-control filter on an arbitrary ``Organization.first()``
+    # row's feature flags, so a Slack user spanning multiple orgs can otherwise
+    # be treated as having access to a private project in a different org than
+    # the one that drove the AC check.
+    permissions = UserPermissions(user=posthog_user)
+    accessible_candidates = [
+        c for c in workspace_result.candidates if permissions.team(c.team).effective_membership_level is not None
+    ]
+    accessible_team_ids = {c.team_id for c in accessible_candidates}
     if not accessible_candidates:
         logger.warning(
             "posthog_code_no_integration_found",

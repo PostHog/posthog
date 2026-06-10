@@ -396,6 +396,58 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False)
+    def test_app_mention_excludes_private_team_when_user_lacks_access_control_grant(
+        self, mock_sync_connect, mock_asyncio_run
+    ):
+        # Regression: ``user.teams`` reads its access-control flag from a single
+        # ``Organization.first()`` row, so a Slack user spanning an
+        # ACCESS_CONTROL-enabled org and a non-AC org can otherwise appear to
+        # have access to a private project they were never granted. The
+        # per-team ``effective_membership_level`` check must drop that
+        # integration before the workflow starts.
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        ac_org = Organization.objects.create(name="AC Org")
+        # The ``pre_save`` signal on ``Organization`` resets
+        # ``available_product_features`` to ``[]`` on insert, so set it after the
+        # initial save to opt the org into per-team access-control checks.
+        ac_org.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        ac_org.save()
+        private_team = Team.objects.create(organization=ac_org, name="Private Team")
+        AccessControl.objects.create(
+            team=private_team,
+            resource="project",
+            resource_id=str(private_team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        OrganizationMembership.objects.create(organization=ac_org, user=self.user)
+        private_integration = Integration.objects.create(
+            team=private_team,
+            kind="slack",
+            integration_id="T12345",
+            config=self.posthog_code_integration.config,
+            sensitive_config={"access_token": "xoxb-private"},
+        )
+
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
+
+        mock_sync_connect.return_value.start_workflow.assert_called_once()
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        assert workflow_inputs.integration_id == self.posthog_code_integration.id
+        assert workflow_inputs.integration_id != private_integration.id
+
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
     def test_app_mention_passes_resolved_user_id_into_workflow_inputs(self, mock_sync_connect, mock_asyncio_run):
         # The routing layer must propagate the resolved PostHog user id into the
         # mention workflow inputs so the workflow can skip its legacy in-workflow
