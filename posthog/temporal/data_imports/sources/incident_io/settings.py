@@ -71,6 +71,8 @@ INCIDENT_IO_ENDPOINTS: dict[str, IncidentIoEndpointConfig] = {
         name="follow_ups",
         path="/v2/follow_ups",
         data_key="follow_ups",
+        paginated=True,
+        page_size=250,
         partition_key="created_at",
     ),
     "alerts": IncidentIoEndpointConfig(
