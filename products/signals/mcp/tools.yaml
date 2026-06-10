@@ -294,8 +294,8 @@ tools:
         title: Get a scout run by ID
         description: >
             Return the full `SignalScoutRun` row for the given `run_id`, including the agent's end-of-run `summary`,
-            `emitted_count`, and `emitted_finding_ids`. Status, timestamps, `error` (full TaskRun error message), and the
-            derived `failure_reason` flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows
+            `emitted_count`, and `emitted_finding_ids`. Status, timestamps, `error` (full TaskRun error message), and
+            the derived `failure_reason` flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows
             queryable by `source_id = run:<run_id>:finding:<finding_id>` (one per id in `emitted_finding_ids`). Strictly
             team-scoped — a UUID belonging to another team returns 404.
     signals-scout-scratchpad-forget:
