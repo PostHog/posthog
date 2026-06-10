@@ -3,8 +3,9 @@ import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from '~/lib/api'
 
-import { llmSkillsNameFilesRetrieve } from '../generated/api'
-import type { LLMSkillFileApi } from '../generated/api.schemas'
+import { llmSkillsNameFilesRetrieve } from 'products/ai_observability/frontend/generated/api'
+import type { LLMSkillFileApi } from 'products/ai_observability/frontend/generated/api.schemas'
+
 import type { skillFileLogicType } from './skillFileLogicType'
 
 export interface SkillFileLogicProps {
@@ -14,7 +15,7 @@ export interface SkillFileLogicProps {
 }
 
 export const skillFileLogic = kea<skillFileLogicType>([
-    path(['scenes', 'ai-observability', 'skillFileLogic']),
+    path(['scenes', 'skills', 'skillFileLogic']),
     props({ skillName: '', filePath: '' } as SkillFileLogicProps),
     key(({ skillName, filePath, version }) => `skill-file-${skillName}:${filePath}:${version ?? 'latest'}`),
     actions({
