@@ -279,7 +279,7 @@ function ImageView({ node }: NotebookComponentRenderProps): JSX.Element {
     return src ? (
         <img className="MarkdownNotebook__image" src={src} alt={alt} />
     ) : (
-        <SummaryView node={node} mode="view" updateProps={() => {}} />
+        <SummaryView node={node} mode="view" updateProps={() => {}} deleteNode={() => {}} />
     )
 }
 
@@ -307,7 +307,7 @@ function EmbedView({ node }: NotebookComponentRenderProps): JSX.Element {
     return src ? (
         <iframe className="MarkdownNotebook__embed" src={src} title={title} sandbox="allow-scripts allow-same-origin" />
     ) : (
-        <SummaryView node={node} mode="view" updateProps={() => {}} />
+        <SummaryView node={node} mode="view" updateProps={() => {}} deleteNode={() => {}} />
     )
 }
 
