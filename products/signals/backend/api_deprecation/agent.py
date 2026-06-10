@@ -80,6 +80,10 @@ class ApiDeprecationAgent(CustomSignalAgent):
             top.classification == Classification.MECHANICAL and top.confidence >= MECHANICAL_CONFIDENCE_THRESHOLD
         )
 
+        # Persist the complete research output (every item + cleared + skipped) on the report, so
+        # "what did the agent conclude about each usage?" is queryable, not buried in sandbox logs.
+        self.register_artefact("signal_finding", researched.model_dump_json())
+
         # PR-style title (same convention as ReportPresentationOutput) — it flows into the
         # auto-started implementation task and ultimately a draft PR.
         self.register_title(f"fix(cdp): {top.headline}"[:96])
