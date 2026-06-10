@@ -312,7 +312,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         )
         flush_persons_and_events()
 
-        series = [ActionsNode(id=action.id), EventsNode(event="$pageleave")]
+        series: list[ActionsNode | EventsNode] = [ActionsNode(id=action.id), EventsNode(event="$pageleave")]
         earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
         self.assertEqual(earliest_timestamp, datetime.datetime(2019, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
 
