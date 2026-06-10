@@ -576,6 +576,27 @@ describe('batchExportConfigFormLogic', () => {
         )
     })
 
+    describe('invalid persisted compression is dropped on save', () => {
+        it('clears a JSONLines+zstd combination when saving an unrelated edit', async () => {
+            await initLogic({ service: null, id: S3_BATCH_EXPORT.id })
+
+            logic.actions.setConfigurationValues({
+                ...logic.values.configuration,
+                file_format: 'JSONLines',
+                compression: 'zstd',
+                prefix: 'updated-prefix/',
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            }).toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+
+            expect(lastPatchBody!.destination.config.file_format).toBe('JSONLines')
+            expect(lastPatchBody!.destination.config.compression).toBeNull()
+            expect(lastPatchBody!.destination.config.prefix).toBe('updated-prefix/')
+        })
+    })
+
     describe('Redshift bucket validation only runs in COPY mode', () => {
         // Validates that Redshift's mode-conditional validation only kicks in for COPY mode.
         // INSERT mode shouldn't validate the (irrelevant) bucket name field.

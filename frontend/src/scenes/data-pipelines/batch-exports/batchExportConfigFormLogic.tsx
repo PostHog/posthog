@@ -73,6 +73,12 @@ function buildDestinationPayload(formValues: Record<string, any>): {
         }
         config[key] = value
     }
+    // A persisted compression value can be invalid for the selected file_format (e.g. an
+    // externally-created JSONLines export still carrying a Parquet-only codec). Drop it on save so
+    // editing an unrelated field doesn't resubmit a combination the backend rejects.
+    if ('compression' in config && !isSelectedCompressionOptionValid(config.file_format, config.compression)) {
+        config.compression = null
+    }
     const result: { type: string; config: Record<string, any>; integration?: any } = {
         type: destinationType,
         config,
