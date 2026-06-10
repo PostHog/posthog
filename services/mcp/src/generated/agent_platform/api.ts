@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 35 enabled ops
+ * PostHog API - MCP 34 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1815,31 +1815,6 @@ export const AgentApplicationsSessionsRetrieveQueryParams = /* @__PURE__ */ zod.
             'If set, return only the most recent N messages from the conversation. `usage_total` is still computed over the full session — only the transcript is trimmed. The response includes `conversation_trimmed: true` and `conversation_total_turns` so the caller knows how much was hidden.'
         ),
 })
-
-/**
- * Replace the agent's encrypted env block.
-
-The body is `{ "env": { "<KEY>": "<value>", ... } }`. The encrypted
-text gets stored on AgentApplication.encrypted_env; the worker
-decrypts it at session start via the same Fernet schedule (see
-agent-shared/src/runtime/encryption.ts).
- */
-export const AgentApplicationsSetEnvCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this agent application.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const AgentApplicationsSetEnvCreateBody = /* @__PURE__ */ zod
-    .object({
-        env: zod.record(zod.string(), zod.string()),
-    })
-    .describe(
-        'Body shape for AgentApplicationViewSet.set_env.\n\n`env` is a JSON object of string→string. The view encrypts it via the\nsame Fernet schedule the worker uses to decrypt.'
-    )
 
 /**
  * Read-only catalog of every @posthog/* native tool the runner knows.

@@ -2000,6 +2000,12 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         moved off the janitor side as part of the same fix.
         """
         revision: AgentRevision = self.get_object()
+        # Only a draft can be frozen. Without this guard a freeze against an
+        # archived/live revision would overwrite its state to "ready" — leaving
+        # `application.live_revision` pointing at a now-"ready" row, which the
+        # promote path doesn't expect. Mirrors the `update()` non-draft guard.
+        if revision.state != "draft":
+            raise ValidationError(f"Cannot freeze a {revision.state} revision; only 'draft' can be frozen.")
         janitor_client = _janitor()
         # Skill / custom-tool template pinning (freeze_templates_into_bundle) is
         # disabled pending a registry rethink — see the commented-out template
@@ -2259,42 +2265,6 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self.check_object_permissions(self.request, app)
         return app
 
-    def _log_memory_change(
-        self, application: AgentApplication, activity: str, path: str, extra: dict[str, Any]
-    ) -> None:
-        # Local import — activity_log isn't on the hot path and avoids a top-level
-        # circular import with posthog.models in some test paths.
-        import dataclasses  # noqa: PLC0415
-
-        from posthog.models.activity_logging.activity_log import (  # noqa: PLC0415
-            ActivityContextBase,
-            Detail,
-            log_activity,
-        )
-
-        @dataclasses.dataclass(frozen=True)
-        class AgentMemoryContext(ActivityContextBase):
-            memory_path: str = ""
-            extra: dict[str, Any] = dataclasses.field(default_factory=dict)
-
-        log_activity(
-            organization_id=self.organization_id,
-            team_id=application.team_id,
-            user=cast(User, self.request.user),
-            was_impersonated=getattr(self.request, "user_is_impersonated", False),
-            item_id=application.id,
-            scope="AgentApplication",
-            activity=activity,
-            detail=Detail(
-                name=application.slug,
-                short_id=None,
-                changes=None,
-                trigger=None,
-                type=None,
-                context=AgentMemoryContext(memory_path=path, extra=extra),
-            ),
-        )
-
     # ── list / tree ────────────────────────────────────────────────────────
 
     @extend_schema(
@@ -2442,12 +2412,6 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
-        self._log_memory_change(
-            application,
-            activity="memory_file_created",
-            path=body["path"],
-            extra={"description": body["description"], "tags": body.get("tags") or []},
-        )
         return Response(payload, status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -2486,12 +2450,6 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
-        self._log_memory_change(
-            application,
-            activity="memory_file_updated",
-            path=path,
-            extra=dict(body.items()),
-        )
         return Response(payload)
 
     @extend_schema(
@@ -2528,7 +2486,6 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             payload = _janitor().delete_memory_file(int(self.team_id), str(application.id), path)
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
-        self._log_memory_change(application, activity="memory_file_deleted", path=path, extra={})
         return Response(payload)
 
     # ── search ─────────────────────────────────────────────────────────────

@@ -128,8 +128,8 @@ tools:
             idempotent: true
         title: Update an agent application
         description: >
-            Edit `name` / `description`. The env block is managed separately via `agent-applications-set-env-create`
-            (never round-tripped through this endpoint), and `live_revision` is set by promoting a revision.
+            Edit `name` / `description`. The env block is managed separately (raw secret entry goes through the agent
+            console's secret editor, not MCP), and `live_revision` is set by promoting a revision.
     agent-applications-preview-proxy:
         operation: agent_applications_preview_proxy
         enabled: true
@@ -530,18 +530,20 @@ tools:
             untrimmed conversation so cost reporting stays accurate.
     agent-applications-set-env-create:
         operation: agent_applications_set_env_create
-        enabled: true
+        enabled: false
         scopes:
             - agents:write
         annotations:
             readOnly: false
             destructive: true
             idempotent: true
-        title: Replace the application's env block
+        title: Replace the application's env block (raw values — disabled by default)
         description: >
-            Body `{ env: { KEY: "value", … } }`. The whole env is replaced (not patched); pass the full set you want
-            available to the runner. Encrypted at rest with the team's Fernet keys; the worker decrypts at session start
-            and feeds the values to tool sandboxes as opaque nonces (raw secrets never leave Django).
+            Body `{ env: { KEY: "value", … } }` — the whole env is replaced (not patched). **Disabled for the standard
+            MCP surface** — the body carries raw secret values, which would land in the agent's tool-call history. Raw
+            secret entry goes through the agent console's secret editor instead (deep-link flow; see the
+            `secrets-and-integrations` skill). Values are encrypted at rest with the team's Fernet keys and never leave
+            Django; this endpoint stays available on the REST API for the console / CI that already hold the values.
     agent-applications-stats:
         operation: agent_applications_stats
         enabled: false

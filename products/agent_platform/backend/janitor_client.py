@@ -8,13 +8,12 @@ Auth is a short-lived, audience-bound HS256 JWT minted per call and sent as
 same key Django uses for ingress preview tokens, scoped by `aud`). Endpoints
 are documented in services/agent-janitor/src/server.ts.
 
-Configured via one env var:
-    AGENT_JANITOR_URL          base URL (default: http://localhost:3031)
+Base URL comes from `settings.AGENT_JANITOR_BASE_URL` (env var of the same
+name, default http://localhost:3031).
 """
 
 from __future__ import annotations
 
-import os
 import logging
 from datetime import timedelta
 from typing import Any
@@ -41,10 +40,10 @@ class JanitorClientError(Exception):
 
 class JanitorClient:
     def __init__(self, base_url: str | None = None, timeout: float = 120.0) -> None:
-        # Default matches `bin/mprocs.yaml`'s janitor `PORT=${AGENT_JANITOR_PORT:-3031}`.
-        # Keep these two in lockstep — Django + janitor must agree on the URL
-        # for the bundle proxy to work in dev without explicit env wiring.
-        self.base_url = (base_url or os.environ.get("AGENT_JANITOR_URL") or "http://localhost:3031").rstrip("/")
+        # Single source of truth: `settings.AGENT_JANITOR_BASE_URL` (default
+        # http://localhost:3031, matching `bin/mprocs.yaml`'s janitor PORT).
+        # Django + janitor must agree on the URL for the bundle proxy to work.
+        self.base_url = (base_url or settings.AGENT_JANITOR_BASE_URL).rstrip("/")
         self.timeout = timeout
 
     def _headers(self) -> dict[str, str]:

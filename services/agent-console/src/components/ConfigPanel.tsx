@@ -42,7 +42,6 @@ import {
     ShieldIcon,
     SparklesIcon,
     TimerIcon,
-    UserIcon,
     WebhookIcon,
     WrenchIcon,
     ZapIcon,
@@ -56,30 +55,36 @@ import type { NativeToolCatalogEntry } from '@/lib/apiClient'
 import type { McpRef } from '@/types/mcp'
 
 import { EditWithAIButton } from './EditWithAIButton'
+import { FilterChips } from './FilterChips'
 
 /* ── Spec subset types ──────────────────────────────────────────── */
 
 interface NativeToolRef {
     kind: 'native'
     id: string
+    requires_approval?: boolean
 }
 interface CustomToolRef {
     kind: 'custom'
     id: string
     path: string
+    requires_approval?: boolean
 }
 interface CustomTemplateToolRef {
     kind: 'custom_template'
     id: string
     from_template: string
+    requires_approval?: boolean
 }
 interface ClientToolRef {
     kind: 'client'
     id: string
     description?: string
     args_schema?: unknown
+    requires_approval?: boolean
 }
 type ToolRef = NativeToolRef | CustomToolRef | CustomTemplateToolRef | ClientToolRef
+type ToolKind = ToolRef['kind']
 
 interface SkillRef {
     id: string
@@ -157,7 +162,6 @@ export function ConfigPanel({
     const setGlobalFilter = isFilterControlled ? onFilterChange : setInternalFilter
     const [openTool, setOpenTool] = useState<{ kind: 'native' | 'client'; ref: ToolRef } | null>(null)
 
-    const toolsByKind = groupToolsByKind(tools)
     const mcpToolCount = mcps.reduce((sum, m) => sum + normalizeMcpTools(m).length, 0)
 
     const editAction = (section: string): React.ReactElement | undefined => {
@@ -242,37 +246,25 @@ export function ConfigPanel({
                 )}
             </Section>
 
-            {/* ── Tools (grouped by kind) ─── */}
+            {/* ── Tools ─── */}
             <Section
                 icon={<WrenchIcon className="h-3 w-3" />}
                 label="Tools"
                 count={tools.length}
                 highlighted={highlightedSection === 'tools'}
-                info="Callable functions the agent has direct access to. Grouped by kind — open each group's info pill for what that kind means."
+                info="Callable functions the agent has direct access to. Native tools are runner built-ins; client tools are fulfilled by the host UI; custom tools are authored in the bundle. A lock marks a tool whose calls require approval before they run."
                 action={editAction('tools')}
             >
                 {tools.length === 0 ? (
                     <Empty label="No tools" />
                 ) : (
-                    <div className="flex flex-col gap-2">
-                        {(['native', 'client', 'custom', 'custom_template'] as const).map((kind) => {
-                            const list = toolsByKind[kind]
-                            if (!list || list.length === 0) {
-                                return null
-                            }
-                            return (
-                                <ToolGroup
-                                    key={kind}
-                                    kind={kind}
-                                    tools={list}
-                                    filter={globalFilter}
-                                    onSelectBundleFile={onSelectBundleFile}
-                                    onNativeClick={(ref) => setOpenTool({ kind: 'native', ref })}
-                                    onClientClick={(ref) => setOpenTool({ kind: 'client', ref })}
-                                />
-                            )
-                        })}
-                    </div>
+                    <ToolGrid
+                        tools={tools}
+                        filter={globalFilter}
+                        onSelectBundleFile={onSelectBundleFile}
+                        onNativeClick={(ref) => setOpenTool({ kind: 'native', ref })}
+                        onClientClick={(ref) => setOpenTool({ kind: 'client', ref })}
+                    />
                 )}
             </Section>
 
@@ -522,117 +514,81 @@ function LimitStat({ label, value }: { label: string; value: string }): React.Re
 
 /* ── Tools ──────────────────────────────────────────────────────── */
 
-function groupToolsByKind(tools: ToolRef[]): Record<string, ToolRef[]> {
-    const out: Record<string, ToolRef[]> = {}
-    for (const t of tools) {
-        ;(out[t.kind] ??= []).push(t)
-    }
-    return out
-}
-
-const TOOL_KIND_LABEL: Record<string, string> = {
+const TOOL_KIND_LABEL: Record<ToolKind, string> = {
     native: 'Native',
-    client: 'Client-fulfilled',
-    custom: 'Custom (bundle)',
-    custom_template: 'Custom (template)',
+    client: 'Client',
+    custom: 'Custom',
+    custom_template: 'Template',
 }
 
-const TOOL_KIND_INFO: Record<string, string> = {
-    native: 'Server-side built-in tools provided by the runner. No setup required — every agent can call them.',
-    client: 'Tools fulfilled by the host UI (e.g. the agent console). Only available when the user is interacting through a client that implements them; otherwise the call returns `unhandled_client_tool`.',
-    custom: "Tool source.ts authored inside this agent's bundle and compiled at freeze time. Runs in a sandbox alongside the agent.",
-    custom_template:
-        'Tool pinned to a published version of a `@posthog/*` custom-tool template. The source lives in the shared template registry; the agent references it by name.',
-}
+// Fixed display order so the filter chips + cards are stable regardless of
+// spec ordering.
+const TOOL_KIND_ORDER: readonly ToolKind[] = ['native', 'client', 'custom', 'custom_template']
 
-function ToolGroup({
-    kind,
+type ToolKindFilter = 'all' | ToolKind
+
+/**
+ * Flat tool grid — every tool as a card (like the skills grid), with a
+ * segmented kind filter on top instead of per-kind collapsible groups.
+ * The card carries a small kind badge + an approval lock so kind and
+ * gating stay visible without grouping.
+ */
+function ToolGrid({
     tools,
     filter,
     onSelectBundleFile,
     onNativeClick,
     onClientClick,
 }: {
-    kind: string
     tools: ToolRef[]
     filter: string
     onSelectBundleFile?: (path: string) => void
     onNativeClick: (ref: NativeToolRef) => void
     onClientClick: (ref: ClientToolRef) => void
 }): React.ReactElement {
-    const filtered = useMemo(
-        () => (filter ? tools.filter((t) => t.id.toLowerCase().includes(filter.toLowerCase())) : tools),
-        [tools, filter]
+    const [kindFilter, setKindFilter] = useState<ToolKindFilter>('all')
+
+    const kindsPresent = useMemo(
+        () => TOOL_KIND_ORDER.filter((k) => tools.some((t) => t.kind === k)),
+        [tools]
     )
-    const startOpen = tools.length <= EXPAND_THRESHOLD || filter.length > 0
-    const [open, setOpen] = useState(startOpen)
-    const [infoOpen, setInfoOpen] = useState(false)
-    const effectiveOpen = filter.length > 0 ? true : open
-    const Icon =
-        kind === 'client' ? UserIcon : kind === 'custom' || kind === 'custom_template' ? CodeIcon : SparklesIcon
-    const info = TOOL_KIND_INFO[kind]
+    const chipOptions = useMemo<readonly ToolKindFilter[]>(() => ['all', ...kindsPresent], [kindsPresent])
+
+    const filtered = useMemo(() => {
+        const q = filter.trim().toLowerCase()
+        return tools.filter((t) => {
+            if (kindFilter !== 'all' && t.kind !== kindFilter) {
+                return false
+            }
+            return q ? t.id.toLowerCase().includes(q) : true
+        })
+    }, [tools, filter, kindFilter])
 
     return (
-        // Flat group, indented inside the parent Tools section. No outer
-        // card so the section reads as one continuous panel.
-        <div>
-            <div className="flex w-full items-center gap-2 py-1">
-                <button
-                    type="button"
-                    onClick={() => setOpen((o) => !o)}
-                    className="flex flex-1 items-center gap-2 text-left"
-                >
-                    {effectiveOpen ? (
-                        <ChevronDownIcon className="h-3 w-3 text-muted-foreground" />
-                    ) : (
-                        <ChevronRightIcon className="h-3 w-3 text-muted-foreground" />
-                    )}
-                    <Icon className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
-                        {TOOL_KIND_LABEL[kind] ?? kind}
-                    </span>
-                    <span className="rounded-full bg-muted/40 px-1.5 py-0.5 font-mono text-[0.625rem] text-muted-foreground">
-                        {filter ? `${filtered.length}/${tools.length}` : tools.length}
-                    </span>
-                </button>
-                {info ? (
-                    <button
-                        type="button"
-                        onClick={() => setInfoOpen((o) => !o)}
-                        aria-pressed={infoOpen}
-                        aria-label={infoOpen ? 'Hide kind info' : 'Show kind info'}
-                        className={
-                            'flex h-5 w-5 items-center justify-center rounded transition-colors ' +
-                            (infoOpen
-                                ? 'bg-primary text-primary-foreground shadow-sm'
-                                : 'text-muted-foreground hover:bg-muted hover:text-foreground')
-                        }
-                    >
-                        <InfoIcon className="h-3 w-3" />
-                    </button>
+        <div className="space-y-2">
+            {/* Kind filter — only when there's more than one kind to choose between. */}
+            {kindsPresent.length > 1 ? (
+                <FilterChips
+                    options={chipOptions}
+                    value={kindFilter}
+                    onChange={setKindFilter}
+                    labels={{ all: 'All', ...TOOL_KIND_LABEL }}
+                />
+            ) : null}
+            <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
+                {filtered.map((t, i) => (
+                    <ToolCard
+                        key={`${t.kind}:${t.id}:${i}`}
+                        tool={t}
+                        onSelectBundleFile={onSelectBundleFile}
+                        onNativeClick={onNativeClick}
+                        onClientClick={onClientClick}
+                    />
+                ))}
+                {filtered.length === 0 ? (
+                    <div className="col-span-full text-xs italic text-muted-foreground">No matches.</div>
                 ) : null}
             </div>
-            {info && infoOpen ? (
-                <div className="mt-1 border-l-2 border-primary bg-primary/10 px-3 py-2 text-[0.75rem] leading-relaxed text-foreground/80">
-                    {info}
-                </div>
-            ) : null}
-            {effectiveOpen ? (
-                <div className="mt-1.5 grid grid-cols-1 gap-1.5 md:grid-cols-2">
-                    {filtered.map((t, i) => (
-                        <ToolCard
-                            key={`${t.kind}:${t.id}:${i}`}
-                            tool={t}
-                            onSelectBundleFile={onSelectBundleFile}
-                            onNativeClick={onNativeClick}
-                            onClientClick={onClientClick}
-                        />
-                    ))}
-                    {filtered.length === 0 ? (
-                        <div className="col-span-full text-xs italic text-muted-foreground">No matches.</div>
-                    ) : null}
-                </div>
-            ) : null}
         </div>
     )
 }
@@ -651,22 +607,33 @@ function ToolCard({
     const desc =
         tool.kind === 'client'
             ? tool.description
-            : tool.kind === 'custom'
-              ? `→ ${tool.path}`
-              : tool.kind === 'custom_template'
-                ? `from ${tool.from_template}`
-                : undefined
+            : tool.kind === 'custom_template'
+              ? `from ${tool.from_template}`
+              : undefined
+    // Click target is the CANONICAL bundle path the runner stores (and that
+    // `getBundle` emits), derived from the tool id — not the spec's authored
+    // `path`, which may use a different convention (e.g. `tools/x/`).
     const onClick =
         tool.kind === 'native'
             ? (): void => onNativeClick(tool)
             : tool.kind === 'client'
               ? (): void => onClientClick(tool)
               : tool.kind === 'custom' && onSelectBundleFile
-                ? (): void => onSelectBundleFile(tool.path)
+                ? (): void => onSelectBundleFile(`tools/${tool.id}/source.ts`)
                 : undefined
     const inner = (
         <>
-            <code className="block truncate font-mono text-[0.6875rem] text-foreground">{stripNamespace(tool.id)}</code>
+            <div className="flex items-center gap-1.5">
+                <code className="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-foreground">
+                    {stripNamespace(tool.id)}
+                </code>
+                {tool.requires_approval ? (
+                    <LockIcon className="h-3 w-3 shrink-0 text-amber-600 dark:text-amber-300" />
+                ) : null}
+                <span className="shrink-0 rounded-full bg-muted/40 px-1.5 py-0.5 text-[0.5625rem] uppercase tracking-wide text-muted-foreground">
+                    {TOOL_KIND_LABEL[tool.kind]}
+                </span>
+            </div>
             {desc ? (
                 <div className="mt-0.5 line-clamp-2 text-[0.6875rem] leading-snug text-muted-foreground">{desc}</div>
             ) : null}
@@ -812,7 +779,11 @@ function SkillCard({ skill, onClick }: { skill: SkillRef; onClick?: (path: strin
         return (
             <button
                 type="button"
-                onClick={() => onClick(skill.path)}
+                // Canonical bundle path the runner stores (`getBundle` emits
+                // `skills/<id>.md`), not the spec's authored `path` — which may
+                // use a different convention (e.g. `skills/<name>/SKILL.md`) and
+                // wouldn't match a file in the bundle tree.
+                onClick={() => onClick(`skills/${skill.id}.md`)}
                 className="rounded border border-border/60 bg-card px-2 py-1.5 text-left transition-colors hover:border-border hover:bg-accent/40"
             >
                 {inner}

@@ -331,7 +331,7 @@
         }
     },
     "agent-applications-partial-update": {
-        "description": "Edit `name` / `description`. The env block is managed separately via `agent-applications-set-env-create` (never round-tripped through this endpoint), and `live_revision` is set by promoting a revision.",
+        "description": "Edit `name` / `description`. The env block is managed separately (raw secret entry goes through the agent console's secret editor, not MCP), and `live_revision` is set by promoting a revision.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Update an agent application",
@@ -706,20 +706,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
-    },
-    "agent-applications-set-env-create": {
-        "description": "Body `{ env: { KEY: \"value\", … } }`. The whole env is replaced (not patched); pass the full set you want available to the runner. Encrypted at rest with the team's Fernet keys; the worker decrypts at session start and feeds the values to tool sandboxes as opaque nonces (raw secrets never leave Django).",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Replace the application's env block",
-        "title": "Replace the application's env block",
-        "required_scopes": ["agents:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         }
     },
     "agent-feedback": {

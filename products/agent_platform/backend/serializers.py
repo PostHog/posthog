@@ -273,7 +273,7 @@ class WriteToolRequestSerializer(serializers.Serializer):
 
     description = serializers.CharField(allow_blank=False, trim_whitespace=False)
     args_schema = serializers.DictField(child=serializers.JSONField())
-    source = serializers.CharField(allow_blank=False, trim_whitespace=False)
+    source = serializers.CharField(allow_blank=False, trim_whitespace=False)  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
 
 
 class WriteTypedBundleRequestSerializer(serializers.Serializer):
