@@ -4,11 +4,10 @@ on:
     push:
         branches: [master]
     pull_request:
-    # Required so `MCP Tests Pass` (a required status check) reports on merge
-    # queue entries — without it the queue would wait for the check until timeout.
-    # The jobs themselves skip on merge_group (the suite already runs in full on
-    # every PR) and the aggregator treats skipped as success.
-    merge_group:
+        # Draft PRs run build + unit tests only; the integration tests (which boot
+        # the full PostHog backend and trigger on any Python change) run when the
+        # PR is marked ready for review — that full run is the merge gate.
+        types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -252,7 +251,11 @@ jobs:
         runs-on: depot-ubuntu-latest-4
         needs: changes
         timeout-minutes: 30
-        if: needs.changes.outputs.mcp == 'true'
+        # Skipped on drafts: these boot the full PostHog backend and trigger on any
+        # Python change, so they're the expensive half of this workflow. Build and
+        # unit tests still run on drafts; the `MCP Tests Pass` aggregator treats
+        # skipped as success, and the ready-for-review run is the merge gate.
+        if: needs.changes.outputs.mcp == 'true' && github.event.pull_request.draft != true
         env:
             OPT_OUT_CAPTURE: 1
             SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
