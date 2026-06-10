@@ -973,6 +973,149 @@ export function MarkdownNotebook({
         return true
     }, [commitDocument, insertMenu?.nodeId])
 
+    const splitListItemAtCurrentSelection = useCallback((): boolean => {
+        const notebookElement = notebookRef.current
+        if (!notebookElement) {
+            return false
+        }
+
+        const selection = window.getSelection()
+        const inlineEditableElement = getInlineEditableElementForSelection(selection, notebookElement)
+        if (!inlineEditableElement?.classList.contains('MarkdownNotebook__list-item-content')) {
+            return false
+        }
+
+        const nodeId = inlineEditableElement.dataset.markdownNotebookNodeId
+        const itemIndex = Number(inlineEditableElement.dataset.markdownNotebookListItemIndex)
+        if (!nodeId || !Number.isInteger(itemIndex)) {
+            return false
+        }
+
+        const currentDocument = documentRef.current
+        const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+        const node = nodes.find((currentNode) => currentNode.id === nodeId)
+        if (!node || node.type !== 'list') {
+            return false
+        }
+
+        const itemId = inlineEditableElement.dataset.markdownNotebookListItemId
+        const targetItemIndex = getListItemIndex(node.items, itemIndex, itemId)
+        const item = node.items[targetItemIndex]
+        if (!item) {
+            return false
+        }
+
+        const expandedSelection = getSelectionRange(inlineEditableElement, node.id)
+        const textLength = getInlineText(item.children).length
+        const selectionStart = expandedSelection
+            ? Math.max(0, Math.min(Math.min(expandedSelection.start, expandedSelection.end), textLength))
+            : textLength
+        const selectionEnd = expandedSelection
+            ? Math.max(selectionStart, Math.min(Math.max(expandedSelection.start, expandedSelection.end), textLength))
+            : selectionStart
+
+        const makeListNode = (
+            items: NotebookListItem[],
+            idSeed: string,
+            idOverride?: string
+        ): NotebookListBlockNode | null => {
+            if (!items.length) {
+                return null
+            }
+
+            const normalizedItems = normalizeListItemDepths(items)
+            const ordered = normalizedItems[0]?.ordered ?? node.ordered
+            return {
+                ...node,
+                id: idOverride ?? makeEmptyParagraph(idSeed).id,
+                ordered,
+                start: getOrderedListStart(normalizedItems, ordered, node.start),
+                items: normalizedItems,
+            }
+        }
+
+        if (!textLength && selectionStart === 0 && selectionEnd === 0) {
+            if (item.depth > 0) {
+                const subtreeEndIndex = getListItemSubtreeEndIndex(node.items, targetItemIndex)
+                const nextItems = node.items.map((currentItem, index) =>
+                    index >= targetItemIndex && index < subtreeEndIndex
+                        ? { ...currentItem, depth: Math.max(0, currentItem.depth - 1) }
+                        : currentItem
+                )
+                restoreSelectionRef.current = {
+                    nodeId: node.id,
+                    listItemIndex: targetItemIndex,
+                    listItemId: item.id,
+                    start: 0,
+                    end: 0,
+                }
+                commitDocument({
+                    ...currentDocument,
+                    nodes: nodes.map((currentNode) =>
+                        currentNode.id === node.id ? { ...node, items: nextItems } : currentNode
+                    ),
+                })
+                return true
+            }
+
+            const subtreeEndIndex = getListItemSubtreeEndIndex(node.items, targetItemIndex)
+            const beforeListNode = makeListNode(node.items.slice(0, targetItemIndex), `before-list-${node.id}`, node.id)
+            const paragraph: NotebookTextBlockNode = {
+                id: beforeListNode ? makeEmptyParagraph(`unlisted-${node.id}`).id : node.id,
+                type: 'paragraph',
+                children: item.children,
+            }
+            const childItems = node.items
+                .slice(targetItemIndex + 1, subtreeEndIndex)
+                .map((childItem) => ({ ...childItem, depth: Math.max(0, childItem.depth - 1) }))
+            const afterListNode = makeListNode(
+                [...childItems, ...node.items.slice(subtreeEndIndex)],
+                `after-list-${node.id}`
+            )
+            const replacementNodes: NotebookBlockNode[] = []
+            if (beforeListNode) {
+                replacementNodes.push(beforeListNode)
+            }
+            replacementNodes.push(paragraph)
+            if (afterListNode) {
+                replacementNodes.push(afterListNode)
+            }
+
+            restoreSelectionRef.current = { nodeId: paragraph.id, start: 0, end: 0 }
+            commitDocument({
+                ...currentDocument,
+                nodes: nodes.flatMap((currentNode) => (currentNode.id === node.id ? replacementNodes : [currentNode])),
+            })
+            return true
+        }
+
+        const [before, selectionAndAfter] = splitInlineNodesAt(item.children, selectionStart)
+        const [, after] = splitInlineNodesAt(selectionAndAfter, selectionEnd - selectionStart)
+        const nextItem: NotebookListItem = {
+            id: makeListItemId(`split-${node.id}-${item.id ?? String(targetItemIndex)}`),
+            children: after,
+            depth: item.depth,
+            ordered: item.ordered ?? node.ordered,
+        }
+        const nextItems = [...node.items]
+        nextItems[targetItemIndex] = { ...item, children: before }
+        nextItems.splice(targetItemIndex + 1, 0, nextItem)
+        restoreSelectionRef.current = {
+            nodeId: node.id,
+            listItemIndex: targetItemIndex + 1,
+            listItemId: nextItem.id,
+            start: 0,
+            end: 0,
+        }
+        commitDocument({
+            ...currentDocument,
+            nodes: nodes.map((currentNode) =>
+                currentNode.id === node.id ? { ...node, items: nextItems } : currentNode
+            ),
+        })
+        return true
+    }, [commitDocument])
+
     const startInsertMenuAtCurrentTextSelection = useCallback(
         (query: string = ''): boolean => {
             const notebookElement = notebookRef.current
@@ -1201,7 +1344,10 @@ export function MarkdownNotebook({
             }
 
             const nativeEvent = event as InputEvent
-            if (nativeEvent.inputType === 'insertParagraph' && splitTextBlockAtCurrentSelection()) {
+            if (
+                nativeEvent.inputType === 'insertParagraph' &&
+                (splitListItemAtCurrentSelection() || splitTextBlockAtCurrentSelection())
+            ) {
                 event.preventDefault()
                 event.stopPropagation()
                 return
@@ -1269,6 +1415,7 @@ export function MarkdownNotebook({
         deleteTextAtCurrentSelection,
         mode,
         redoHistory,
+        splitListItemAtCurrentSelection,
         splitTextBlockAtCurrentSelection,
         startInsertMenuAtCurrentTextSelection,
         undoHistory,

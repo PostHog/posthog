@@ -169,6 +169,16 @@ function pressEnterInListItem(element: HTMLElement, offset: number = element.tex
     fireEvent.keyDown(element, { key: 'Enter' })
 }
 
+function beforeInputInContentEditable(element: HTMLElement, inputType: string, data: string | null = null): InputEvent {
+    const event = new Event('beforeinput', { bubbles: true, cancelable: true }) as InputEvent
+    Object.defineProperties(event, {
+        inputType: { value: inputType },
+        data: { value: data },
+    })
+    fireEvent(element, event)
+    return event
+}
+
 function pressTabInListItem(element: HTMLElement, offset: number, shiftKey = false): void {
     if (element.textContent?.length) {
         selectTextInElement(element, offset, offset)
@@ -5239,6 +5249,30 @@ Tail with **bold** text`)
 1. bla
 2. foo
 3. bar`)
+    })
+
+    it('splits ordered list items through native beforeinput without overwriting the previous item', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const textBlock = getBodyTextBlock(container)
+
+        updateContentEditableText(textBlock, '1. ')
+        updateActiveContentEditableText('asd')
+        const firstItem = document.activeElement as HTMLElement
+        selectTextInElement(firstItem, 'asd'.length, 'asd'.length)
+
+        const event = beforeInputInContentEditable(firstItem, 'insertParagraph')
+
+        expect(event.defaultPrevented).toBe(true)
+        expect(getEditableListItems(container).map((item) => item.textContent)).toEqual(['asd', ''])
+
+        updateActiveContentEditableText('sdf')
+
+        expect(getEditableListItems(container).map((item) => item.textContent)).toEqual(['asd', 'sdf'])
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+1. asd
+2. sdf`)
     })
 
     it('does not let stale list host DOM overwrite previous items after Enter', () => {
