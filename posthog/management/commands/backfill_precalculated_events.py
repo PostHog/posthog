@@ -11,8 +11,6 @@ from django.core.management.base import BaseCommand, CommandError
 import structlog
 from temporalio.common import WorkflowIDReusePolicy
 
-from posthog.models import Cohort
-from posthog.models.cohort.cohort import CohortType
 from posthog.models.property.property import BehavioralPropertyType
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.messaging.backfill_precalculated_events_coordinator_workflow import (
@@ -20,6 +18,8 @@ from posthog.temporal.messaging.backfill_precalculated_events_coordinator_workfl
 )
 from posthog.temporal.messaging.filter_storage import store_event_filters
 from posthog.temporal.messaging.types import BehavioralEventFilter
+
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 
 logger = structlog.get_logger(__name__)
 

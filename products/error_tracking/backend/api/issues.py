@@ -12,8 +12,6 @@ from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
-from posthog.schema import ProductKey
-
 from posthog.api.documentation import extend_schema, extend_schema_field
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -21,10 +19,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.error_tracking.backend.facade import api as facade_api
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
@@ -192,7 +190,6 @@ class ErrorTrackingIssueSplitResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     # These override the base defaults, so keep the standard DRF actions too.

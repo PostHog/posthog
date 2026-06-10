@@ -16,6 +16,7 @@ import type {
     LiveDebuggerBreakpointsBreakpointHitsRetrieveParams,
     LiveDebuggerBreakpointsListParams,
     PaginatedLiveDebuggerBreakpointListApi,
+    PatchedLiveDebuggerBreakpointApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -40,7 +41,7 @@ export const getLiveDebuggerBreakpointsListUrl = (projectId: string, params?: Li
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -85,6 +86,84 @@ export const liveDebuggerBreakpointsCreate = async (
     })
 }
 
+export const getLiveDebuggerBreakpointsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/live_debugger_breakpoints/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete breakpoints for live debugging.
+ */
+export const liveDebuggerBreakpointsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LiveDebuggerBreakpointApi> => {
+    return apiMutator<LiveDebuggerBreakpointApi>(getLiveDebuggerBreakpointsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLiveDebuggerBreakpointsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/live_debugger_breakpoints/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete breakpoints for live debugging.
+ */
+export const liveDebuggerBreakpointsUpdate = async (
+    projectId: string,
+    id: string,
+    liveDebuggerBreakpointApi: NonReadonly<LiveDebuggerBreakpointApi>,
+    options?: RequestInit
+): Promise<LiveDebuggerBreakpointApi> => {
+    return apiMutator<LiveDebuggerBreakpointApi>(getLiveDebuggerBreakpointsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(liveDebuggerBreakpointApi),
+    })
+}
+
+export const getLiveDebuggerBreakpointsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/live_debugger_breakpoints/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete breakpoints for live debugging.
+ */
+export const liveDebuggerBreakpointsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedLiveDebuggerBreakpointApi?: NonReadonly<PatchedLiveDebuggerBreakpointApi>,
+    options?: RequestInit
+): Promise<LiveDebuggerBreakpointApi> => {
+    return apiMutator<LiveDebuggerBreakpointApi>(getLiveDebuggerBreakpointsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLiveDebuggerBreakpointApi),
+    })
+}
+
+export const getLiveDebuggerBreakpointsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/live_debugger_breakpoints/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete breakpoints for live debugging.
+ */
+export const liveDebuggerBreakpointsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLiveDebuggerBreakpointsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getLiveDebuggerBreakpointsActiveRetrieveUrl = (
     projectId: string,
     params?: LiveDebuggerBreakpointsActiveRetrieveParams
@@ -93,7 +172,7 @@ export const getLiveDebuggerBreakpointsActiveRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -106,8 +185,8 @@ export const getLiveDebuggerBreakpointsActiveRetrieveUrl = (
 
 /**
  * External API endpoint for client applications to fetch active breakpoints using Project API key. This endpoint allows external client applications (like Python scripts, Node.js apps, etc.) to fetch the list of active breakpoints so they can instrument their code accordingly.
-
-Authentication: Requires a Project API Key in the Authorization header: `Authorization: Bearer phs_<your-project-api-key>`. You can find your Project API Key in PostHog at: Settings → Project → Project API Key
+ *
+ * Authentication: Requires a Project API Key in the Authorization header: `Authorization: Bearer phs_<your-project-api-key>`. You can find your Project API Key in PostHog at: Settings → Project → Project API Key
  * @summary Get active breakpoints (External API)
  */
 export const liveDebuggerBreakpointsActiveRetrieve = async (
@@ -129,7 +208,7 @@ export const getLiveDebuggerBreakpointsBreakpointHitsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -142,8 +221,8 @@ export const getLiveDebuggerBreakpointsBreakpointHitsRetrieveUrl = (
 
 /**
  * Retrieve breakpoint hit events from ClickHouse with optional filtering and pagination. Returns hit events containing stack traces, local variables, and execution context from your application's runtime.
-
-Security: Breakpoint IDs are filtered to only include those belonging to the current team.
+ *
+ * Security: Breakpoint IDs are filtered to only include those belonging to the current team.
  * @summary Get breakpoint hits
  */
 export const liveDebuggerBreakpointsBreakpointHitsRetrieve = async (

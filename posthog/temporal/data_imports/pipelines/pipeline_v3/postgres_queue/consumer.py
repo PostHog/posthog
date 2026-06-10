@@ -21,6 +21,7 @@ import psycopg
 import structlog
 from asgiref.sync import sync_to_async
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import BatchQueue, PendingBatch
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
     ACTIVE_GROUPS,
@@ -32,6 +33,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics 
     RECOVERY_SWEEPS_TOTAL,
     RUNS_FAILED_TOTAL,
 )
+from posthog.temporal.data_imports.pipelines.pipeline_v3.sync_lock import release_v3_pipeline_lock
 
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
@@ -44,6 +46,7 @@ POLL_INTERVAL_SECONDS = 2.0
 
 RECOVERY_INTERVAL_SECONDS = 30.0
 RETRY_BACKOFF_BASE_SECONDS = 15
+HEARTBEAT_INTERVAL_SECONDS = 5.0
 
 
 @dataclass
@@ -57,6 +60,7 @@ class ConsumerConfig:
     poll_limit: int = 50
     health_port: int = 8080
     health_timeout_seconds: float = 60.0
+    heartbeat_interval_seconds: float = HEARTBEAT_INTERVAL_SECONDS
     recovery_interval_seconds: float = RECOVERY_INTERVAL_SECONDS
     retry_backoff_base_seconds: int = RETRY_BACKOFF_BASE_SECONDS
     recovery_grace_seconds: int | None = None
@@ -88,6 +92,7 @@ class BatchConsumer:
         self._conn: psycopg.AsyncConnection[Any] | None = None
         self._recovery_conn: psycopg.AsyncConnection[Any] | None = None
         self._recovery_task: asyncio.Task[None] | None = None
+        self._heartbeat_task: asyncio.Task[None] | None = None
 
     async def run(self) -> None:
         """Main loop: poll → group → process → unlock → repeat."""
@@ -112,6 +117,7 @@ class BatchConsumer:
         try:
             await self._recovery_sweep()
             self._recovery_task = asyncio.create_task(self._recovery_loop())
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
             while not self._shutdown.is_set():
                 if self._health_reporter:
@@ -353,6 +359,23 @@ class BatchConsumer:
             error=reason,
         )
 
+        workflow_run_id = batch.metadata.get("workflow_run_id")
+        if workflow_run_id:
+            try:
+                await sync_to_async(release_v3_pipeline_lock)(
+                    team_id=batch.team_id,
+                    schema_id=batch.schema_id,
+                    token=workflow_run_id,
+                )
+            except Exception as e:
+                logger.error(
+                    "failed_to_release_v3_pipeline_lock",
+                    job_id=batch.job_id,
+                    schema_id=batch.schema_id,
+                    exc_info=True,
+                )
+                capture_exception(e)
+
     async def _recovery_loop(self) -> None:
         """Run recovery sweeps periodically until shutdown."""
         while not self._shutdown.is_set():
@@ -371,6 +394,19 @@ class BatchConsumer:
                 await self._recovery_sweep()
             except Exception:
                 logger.exception("recovery_sweep_error")
+
+    async def _heartbeat_loop(self) -> None:
+        """Report liveness on a fixed cadence, independent of batch processing."""
+        while not self._shutdown.is_set():
+            if self._health_reporter:
+                self._health_reporter()
+            try:
+                await asyncio.wait_for(
+                    self._shutdown.wait(),
+                    timeout=self._config.heartbeat_interval_seconds,
+                )
+            except TimeoutError:
+                pass
 
     async def _recovery_sweep(self) -> None:
         """Recover batches left in 'executing' by a crashed pod."""
@@ -443,13 +479,14 @@ class BatchConsumer:
             loop.add_signal_handler(sig, self._shutdown.set)
 
     async def _close(self) -> None:
-        """Cancel the recovery task, release all advisory locks, and close both connections."""
-        if self._recovery_task is not None:
-            self._recovery_task.cancel()
-            try:
-                await self._recovery_task
-            except asyncio.CancelledError:
-                pass
+        """Cancel the recovery and heartbeat tasks, release all advisory locks, and close both connections."""
+        for task in (self._recovery_task, self._heartbeat_task):
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
         if self._recovery_conn is not None and not self._recovery_conn.closed:
             await self._recovery_conn.close()

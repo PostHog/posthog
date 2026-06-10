@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Optional, cast
 from django.core.validators import MinLengthValidator
 from django.db import models, transaction
 
-from posthog.models.utils import sane_repr
+from posthog.models.utils import UpdatedMetaFields, sane_repr
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -34,7 +34,7 @@ class ProjectManager(models.Manager):
             return project, team
 
 
-class Project(models.Model):
+class Project(UpdatedMetaFields):
     id = models.BigIntegerField(primary_key=True, verbose_name="ID")  # Same as Team.id field
     organization = models.ForeignKey(
         "posthog.Organization",
@@ -50,6 +50,12 @@ class Project(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     # Deprecated in favor of CoreMemory
     product_description = models.TextField(null=True, blank=True, max_length=1000)
+    is_pending_deletion = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.",
+    )
 
     objects: ProjectManager = ProjectManager()
 

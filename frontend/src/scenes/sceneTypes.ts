@@ -63,9 +63,6 @@ export enum Scene {
     Subscription = 'Subscription',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
-    Deployment = 'Deployment',
-    DeploymentProject = 'DeploymentProject',
-    Deployments = 'Deployments',
     ExploreEvents = 'ExploreEvents',
     ExploreSessions = 'ExploreSessions',
     FeatureFlag = 'FeatureFlag',
@@ -145,7 +142,7 @@ export enum Scene {
     Health = 'Health',
     HealthCategoryDetail = 'HealthCategoryDetail',
     HealthAlerts = 'HealthAlerts',
-    SdkDoctor = 'SdkDoctor',
+    SdkHealth = 'SdkHealth',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
     SessionGroupSummariesTable = 'SessionGroupSummariesTable',
     SessionGroupSummary = 'SessionGroupSummary',
@@ -198,6 +195,7 @@ export enum Scene {
     AIObservabilityUsers = 'AIObservabilityUsers',
     Logs = 'Logs',
     LogsAlertDetail = 'LogsAlertDetail',
+    LogsAlertNotificationDetail = 'LogsAlertNotificationDetail',
     LogsSamplingNew = 'LogsSamplingNew',
     LogsSamplingDetail = 'LogsSamplingDetail',
     ManagedMigration = 'ManagedMigration',
@@ -211,6 +209,7 @@ export enum Scene {
     SlackTaskContext = 'SlackTaskContext',
     OrganizationDeactivated = 'OrganizationDeactivated',
     OrganizationPendingDeletion = 'OrganizationPendingDeletion',
+    ProjectPendingDeletion = 'ProjectPendingDeletion',
     CustomerJourneyTemplates = 'CustomerJourneyTemplates',
 }
 
@@ -348,6 +347,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,
     [Scene.Surveys]: AccessControlResourceType.Survey,
+
+    // Endpoints
+    [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,
 
     // Product Tours
     [Scene.ProductTour]: AccessControlResourceType.ProductTour,

@@ -113,7 +113,7 @@ class RoleLookupResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["integrations"])
+@extend_schema(extensions={"x-product": "integrations"})
 class RoleExternalReferenceViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,

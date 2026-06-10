@@ -5,6 +5,7 @@ import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
+    getAdvertisedOAuthScopes,
     getToolDefinitions,
     getRequiredFeatureFlags,
     getToolsForFeatures,
@@ -19,8 +20,8 @@ import type { Context } from '@/tools/types'
  * Tests use this to assert that filtered results never drop these tools,
  * without hard-coding the exact set (which grows as utility tools are added).
  */
-const collectAlwaysAvailableToolNames = (version?: number): string[] =>
-    Object.entries(getToolDefinitions(version))
+const collectAlwaysAvailableToolNames = (): string[] =>
+    Object.entries(getToolDefinitions())
         .filter(([_, def]: [string, ToolDefinition]) => def.always_available === true)
         .map(([name]) => name)
 
@@ -61,7 +62,7 @@ describe('Tool Filtering - Features', () => {
         {
             features: ['workspace'],
             description: 'workspace tools',
-            expectedTools: ['switch-organization', 'projects-get', 'switch-project', 'property-definitions'],
+            expectedTools: ['switch-organization', 'projects-get', 'switch-project'],
         },
         {
             features: ['error_tracking'],
@@ -114,8 +115,8 @@ describe('Tool Filtering - Features', () => {
             }
         })
 
-        it('should expose all annotation tools in v2', () => {
-            const tools = getToolsForFeatures({ features: ['annotations'], version: 2 })
+        it('should expose all annotation tools', () => {
+            const tools = getToolsForFeatures({ features: ['annotations'] })
 
             expect(tools).toContain('annotation-create')
             expect(tools).toContain('annotation-delete')
@@ -212,18 +213,18 @@ describe('Tool Filtering - Tools Allowlist', () => {
 
         it('should still apply aiConsentGiven on top of tools filter', () => {
             const withoutConsent = getToolsForFeatures({
-                tools: ['dashboard-get', 'query-generate-hogql-from-question'],
+                tools: ['dashboard-get', 'llma-summarization-create'],
                 aiConsentGiven: false,
             })
             expect(withoutConsent).toContain('dashboard-get')
-            expect(withoutConsent).not.toContain('query-generate-hogql-from-question')
+            expect(withoutConsent).not.toContain('llma-summarization-create')
 
             const withConsent = getToolsForFeatures({
-                tools: ['dashboard-get', 'query-generate-hogql-from-question'],
+                tools: ['dashboard-get', 'llma-summarization-create'],
                 aiConsentGiven: true,
             })
             expect(withConsent).toContain('dashboard-get')
-            expect(withConsent).toContain('query-generate-hogql-from-question')
+            expect(withConsent).toContain('llma-summarization-create')
         })
     })
 
@@ -249,6 +250,7 @@ const createMockContext = (scopes: string[]): Context => ({
         POSTHOG_ANALYTICS_API_KEY: undefined,
         POSTHOG_ANALYTICS_HOST: undefined,
         POSTHOG_API_BASE_URL: undefined,
+        POSTHOG_PUBLIC_URL: undefined,
         POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
         POSTHOG_UI_APPS_TOKEN: undefined,
     },
@@ -364,13 +366,15 @@ function expectAllToolsHaveNoRequiredScopes(toolNames: string[]): void {
 }
 
 describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
+    // Minted directly into a server-issued token, never advertised via OAuth metadata
+    // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes.py). Tools may require them, but
+    // they are intentionally absent from OAUTH_SCOPES_SUPPORTED, so exclude them here.
+    const SERVER_MINT_ONLY_SCOPES = new Set(['signal_scout_internal:read', 'signal_scout_internal:write'])
+
     it('should include every scope referenced in tool definitions', () => {
         const supportedScopes = new Set<string>(OAUTH_SCOPES_SUPPORTED)
 
-        const allDefinitions = {
-            ...getToolDefinitions(1),
-            ...getToolDefinitions(2),
-        }
+        const allDefinitions = getToolDefinitions()
 
         const scopesFromTools = new Set<string>()
         for (const def of Object.values(allDefinitions)) {
@@ -379,12 +383,46 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
             }
         }
 
-        const missing = [...scopesFromTools].filter((s) => !supportedScopes.has(s)).sort()
+        const missing = [...scopesFromTools]
+            .filter((s) => !supportedScopes.has(s) && !SERVER_MINT_ONLY_SCOPES.has(s))
+            .sort()
 
         expect(
             missing,
             `OAUTH_SCOPES_SUPPORTED is missing scopes used by tool definitions: ${missing.join(', ')}`
         ).toEqual([])
+    })
+})
+
+describe('getAdvertisedOAuthScopes', () => {
+    const supported = new Set<string>(OAUTH_SCOPES_SUPPORTED)
+    const advertised = getAdvertisedOAuthScopes()
+    const advertisedSet = new Set(advertised)
+
+    it('stays a subset of OAUTH_SCOPES_SUPPORTED so nothing is rejected at /authorize', () => {
+        const outside = advertised.filter((s) => !supported.has(s))
+        expect(outside, `advertised scopes not grantable by the AS: ${outside.join(', ')}`).toEqual([])
+    })
+
+    it('keeps the identity scopes that ride every authorize', () => {
+        for (const scope of OAUTH_SCOPES_SUPPORTED.filter((s) => !s.includes(':'))) {
+            expect(advertisedSet.has(scope), `missing identity scope: ${scope}`).toBe(true)
+        }
+    })
+
+    it('covers every grantable scope the tool catalog requires', () => {
+        const required = new Set<string>()
+        for (const def of Object.values(getToolDefinitions())) {
+            for (const scope of def.required_scopes) {
+                required.add(scope)
+            }
+        }
+        const missing = [...required].filter((s) => supported.has(s) && !advertisedSet.has(s)).sort()
+        expect(missing, `tool-required scopes dropped from the advertised list: ${missing.join(', ')}`).toEqual([])
+    })
+
+    it('narrows the full grantable set rather than mirroring it', () => {
+        expect(advertised.length).toBeLessThan(OAUTH_SCOPES_SUPPORTED.length)
     })
 })
 
@@ -447,17 +485,17 @@ describe('Tool Filtering - excludeTools', () => {
 describe('Tool Filtering - AI Consent', () => {
     it('should exclude tools requiring AI consent when aiConsentGiven is false', () => {
         const tools = getToolsForFeatures({ aiConsentGiven: false })
-        expect(tools).not.toContain('query-generate-hogql-from-question')
+        expect(tools).not.toContain('llma-summarization-create')
     })
 
     it('should include tools requiring AI consent when aiConsentGiven is true', () => {
         const tools = getToolsForFeatures({ aiConsentGiven: true })
-        expect(tools).toContain('query-generate-hogql-from-question')
+        expect(tools).toContain('llma-summarization-create')
     })
 
     it('should exclude tools requiring AI consent when aiConsentGiven is undefined', () => {
         const tools = getToolsForFeatures({ aiConsentGiven: undefined })
-        expect(tools).not.toContain('query-generate-hogql-from-question')
+        expect(tools).not.toContain('llma-summarization-create')
     })
 
     it('should not exclude tools that do not require AI consent when aiConsentGiven is false', () => {
@@ -467,9 +505,9 @@ describe('Tool Filtering - AI Consent', () => {
     })
 
     it('should combine aiConsentGiven with feature filtering', () => {
-        const tools = getToolsForFeatures({ features: ['insights', 'product_analytics'], aiConsentGiven: false })
-        expect(tools).not.toContain('query-generate-hogql-from-question')
-        expect(tools).toContain('insights-list')
+        const tools = getToolsForFeatures({ features: ['llm_analytics'], aiConsentGiven: false })
+        expect(tools).not.toContain('llma-summarization-create')
+        expect(tools).toContain('get-llm-total-costs-for-project')
     })
 
     it('should filter AI consent tools via getToolsFromContext when org denies consent', async () => {
@@ -481,6 +519,7 @@ describe('Tool Filtering - AI Consent', () => {
                 POSTHOG_ANALYTICS_API_KEY: undefined,
                 POSTHOG_ANALYTICS_HOST: undefined,
                 POSTHOG_API_BASE_URL: undefined,
+                POSTHOG_PUBLIC_URL: undefined,
                 POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
                 POSTHOG_UI_APPS_TOKEN: undefined,
             },
@@ -494,7 +533,7 @@ describe('Tool Filtering - AI Consent', () => {
         }
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
-        expect(toolNames).not.toContain('query-generate-hogql-from-question')
+        expect(toolNames).not.toContain('llma-summarization-create')
         expect(toolNames).toContain('dashboard-get')
     })
 
@@ -507,6 +546,7 @@ describe('Tool Filtering - AI Consent', () => {
                 POSTHOG_ANALYTICS_API_KEY: undefined,
                 POSTHOG_ANALYTICS_HOST: undefined,
                 POSTHOG_API_BASE_URL: undefined,
+                POSTHOG_PUBLIC_URL: undefined,
                 POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
                 POSTHOG_UI_APPS_TOKEN: undefined,
             },
@@ -520,7 +560,7 @@ describe('Tool Filtering - AI Consent', () => {
         }
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
-        expect(toolNames).toContain('query-generate-hogql-from-question')
+        expect(toolNames).toContain('llma-summarization-create')
     })
 })
 
@@ -701,9 +741,14 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-csp',
                 'notebooks-collaboration',
                 'replay-vision',
+                'tasks',
+                'promoted-product',
+                'dashboard-widgets',
+                'heatmaps-mcp',
+                'marketing-analytics-mcp',
             ])
         )
-        expect(flags).toHaveLength(9)
+        expect(flags).toHaveLength(14)
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries
@@ -821,7 +866,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 expect(tools).toContain('unrelated-tool')
             })
 
-            it.each(['control_a', 'control_b', 'intent', false, true, undefined])(
+            it.each(['control', 'control_b', 'intent', false, true, undefined])(
                 'hides variant-gated tool when flag value is %p',
                 (flagValue) => {
                     const tools = filterByFeatureFlags(variantToolEntries, { 'promoted-product': flagValue })

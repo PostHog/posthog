@@ -9,6 +9,8 @@ from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.routing import get_producer
 from posthog.models.team.team import Team
 
+from products.ai_observability.backend.models.llm_traces_summaries import LLMTraceSummary
+
 from ee.hogai.llm_traces_summaries.constants import (
     DOCUMENT_EMBEDDINGS_TOPIC,
     LLM_TRACES_SUMMARIES_DOCUMENT_TYPE,
@@ -17,7 +19,6 @@ from ee.hogai.llm_traces_summaries.constants import (
     LLM_TRACES_SUMMARIES_SEARCH_QUERY_MAX_ATTEMPTS,
     LLM_TRACES_SUMMARIES_SEARCH_QUERY_POLL_INTERVAL_SECONDS,
 )
-from ee.models.llm_traces_summaries import LLMTraceSummary
 
 
 class LLMTracesSummarizerEmbedder:

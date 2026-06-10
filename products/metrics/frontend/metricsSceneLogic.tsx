@@ -1,31 +1,23 @@
-import { actions, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { actions, kea, listeners, path, reducers } from 'kea'
+import { router, urlToAction } from 'kea-router'
 
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Params } from 'scenes/sceneTypes'
 
 import type { metricsSceneLogicType } from './metricsSceneLogicType'
 
-export const getMetricsSqlEditorTabId = (id: string): string => `metrics-sql-editor-${id}`
+export const METRICS_SQL_EDITOR_TAB_ID = 'metrics-sql-editor'
 
 export type MetricsSceneActiveTab = 'viewer' | 'sql'
 const VALID_ACTIVE_TABS: MetricsSceneActiveTab[] = ['viewer', 'sql']
 export const DEFAULT_ACTIVE_TAB: MetricsSceneActiveTab = 'viewer'
 
-export interface MetricsLogicProps {
-    tabId: string
-}
-
 export const metricsSceneLogic = kea<metricsSceneLogicType>([
-    props({} as MetricsLogicProps),
     path(['products', 'metrics', 'frontend', 'metricsSceneLogic']),
-    tabAwareScene(),
     actions({
         setActiveTab: (activeTab: MetricsSceneActiveTab) => ({ activeTab }),
         keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
@@ -33,10 +25,7 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
     reducers({
         activeTab: [DEFAULT_ACTIVE_TAB as MetricsSceneActiveTab, { setActiveTab: (_, { activeTab }) => activeTab }],
     }),
-    selectors({
-        tabId: [(_, p) => [p.tabId], (tabId: string) => tabId],
-    }),
-    tabAwareUrlToAction(({ actions, values, cache }) => {
+    urlToAction(({ actions, values, cache }) => {
         const urlToAction = (_: any, params: Params): void => {
             if (cache.isSyncingUrl) {
                 return
@@ -52,7 +41,7 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
         }
         return { '*': urlToAction }
     }),
-    tabAwareActionToUrl(({ values, cache }) => {
+    trackedActionToUrl(({ values, cache }) => {
         const syncUrl = (): [string, Params, Record<string, any>, { replace: boolean }] => {
             cache.isSyncingUrl = true
             const result = syncSearchParams(router, (params: Params) => {

@@ -76,7 +76,7 @@ function ButtonTileCardInternal(
     return (
         <div
             className={clsx(
-                'ButtonTileCard rounded flex flex-col',
+                'DashboardTileCard ButtonTileCard rounded flex flex-col',
                 !isTransparent && 'bg-surface-primary border',
                 isTransparent && showResizeHandles && 'border border-dashed border-border',
                 className

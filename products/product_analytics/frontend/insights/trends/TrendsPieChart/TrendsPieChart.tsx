@@ -2,9 +2,10 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
+import { PieChart } from '@posthog/quill-charts'
+import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from '@posthog/quill-charts'
+
 import { buildTheme } from 'lib/charts/utils/theme'
-import { PieChart } from 'lib/hog-charts'
-import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from 'lib/hog-charts'
 import {
     formatAggregationAxisValue,
     formatAggregationAxisValueWithShareOfTotal,
@@ -64,6 +65,8 @@ export function TrendsPieChart({
         formula,
         showValuesOnSeries,
         showLabelOnSeries,
+        showPercentStackView,
+        supportsPercentStackView,
         pieChartVizOptions,
         hasDataWarehouseSeries,
         querySource,
@@ -72,6 +75,8 @@ export function TrendsPieChart({
         getTrendsColor,
         getTrendsHidden,
     } = useValues(trendsDataLogic(insightProps))
+
+    const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
 
     const resolvedGroupTypeLabel =
         context?.groupTypeLabel ??
@@ -126,9 +131,10 @@ export function TrendsPieChart({
         () => ({
             showValueOnSlice: !!showValuesOnSeries,
             showLabelOnSlice: !!showLabelOnSeries,
+            isPercent: isPercentStackView,
             disableHoverOffset: !!pieChartVizOptions?.disableHoverOffset,
         }),
-        [showValuesOnSeries, showLabelOnSeries, pieChartVizOptions?.disableHoverOffset]
+        [showValuesOnSeries, showLabelOnSeries, isPercentStackView, pieChartVizOptions?.disableHoverOffset]
     )
 
     // ActionsPie disables clicks entirely when the insight has data-warehouse series (see

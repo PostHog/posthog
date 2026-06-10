@@ -6,6 +6,11 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SlackChannelType } from '~/types'
 
+import {
+    getRecentSlackChannelIds,
+    RECENTLY_SUBSCRIBED_SLACK_CHANNELS_LIMIT,
+    recordRecentSlackChannel,
+} from './slackChannel'
 import { SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS, slackIntegrationLogic } from './slackIntegrationLogic'
 
 const FIXED_NOW = new Date('2026-01-01T12:00:00Z')
@@ -57,13 +62,15 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
         logic.unmount()
     })
 
-    it('forwards search and limit to the channels endpoint when search is provided', async () => {
+    it('forwards search to the channels endpoint when search is provided', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadAllSlackChannels(false, 'eng')
         }).toFinishAllListeners()
 
         expect(lastChannelsQuery.search).toBe('eng')
-        expect(lastChannelsQuery.limit).toBe('200')
+        // No explicit limit — the picker defers to the backend default so the initial dropdown
+        // stays light and anything past the default falls through to server-side search.
+        expect(lastChannelsQuery.limit).toBeUndefined()
         expect(lastChannelsQuery.force_refresh).toBe('false')
         expect(logic.values.allSlackChannels?.has_more).toBe(true)
     })
@@ -74,7 +81,7 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
         }).toFinishAllListeners()
 
         expect(lastChannelsQuery.search).toBe('')
-        expect(lastChannelsQuery.limit).toBe('200')
+        expect(lastChannelsQuery.limit).toBeUndefined()
     })
 
     it('reloads the full list when a search-then-clear sequence runs', async () => {
@@ -161,5 +168,122 @@ describe('slackIntegrationLogic — getChannelRefreshButtonDisabledReason', () =
         } else {
             expect(reason).not.toBe('')
         }
+    })
+})
+
+const fixtureChannel = (id: string, name: string, extra: Partial<SlackChannelType> = {}): SlackChannelType => ({
+    id,
+    name,
+    is_private: false,
+    is_ext_shared: false,
+    is_member: true,
+    ...extra,
+})
+
+describe('recentSlackChannels store', () => {
+    beforeEach(() => {
+        window.localStorage.clear()
+    })
+
+    afterEach(() => {
+        window.localStorage.clear()
+    })
+
+    it('prepends, deduplicates, and moves an already-recorded channel back to the top', () => {
+        recordRecentSlackChannel(1, 'C1')
+        recordRecentSlackChannel(1, 'C2')
+        recordRecentSlackChannel(1, 'C1')
+        expect(getRecentSlackChannelIds(1)).toEqual(['C1', 'C2'])
+    })
+
+    it('persists to localStorage so the recency survives a fresh read', () => {
+        recordRecentSlackChannel(1, 'C7')
+        // A brand new read (no in-memory state) must see the persisted value.
+        expect(getRecentSlackChannelIds(1)).toEqual(['C7'])
+    })
+
+    it('scopes recency per integration id', () => {
+        recordRecentSlackChannel(1, 'C1')
+        recordRecentSlackChannel(2, 'C2')
+        expect(getRecentSlackChannelIds(1)).toEqual(['C1'])
+        expect(getRecentSlackChannelIds(2)).toEqual(['C2'])
+    })
+
+    it('caps the recency list at the configured limit and drops the oldest entries', () => {
+        for (let i = 0; i < RECENTLY_SUBSCRIBED_SLACK_CHANNELS_LIMIT + 5; i++) {
+            recordRecentSlackChannel(1, `C${i}`)
+        }
+        const ids = getRecentSlackChannelIds(1)
+        expect(ids).toHaveLength(RECENTLY_SUBSCRIBED_SLACK_CHANNELS_LIMIT)
+        expect(ids[0]).toBe(`C${RECENTLY_SUBSCRIBED_SLACK_CHANNELS_LIMIT + 4}`)
+        expect(ids).not.toContain('C0')
+    })
+
+    it('ignores empty channel ids', () => {
+        recordRecentSlackChannel(1, 'C1')
+        recordRecentSlackChannel(1, '')
+        expect(getRecentSlackChannelIds(1)).toEqual(['C1'])
+    })
+})
+
+describe('slackIntegrationLogic — slackChannelsForPicker', () => {
+    let logic: ReturnType<typeof slackIntegrationLogic.build>
+    const allChannels = [
+        fixtureChannel('C3', 'announcements'),
+        fixtureChannel('C1', 'alerts'),
+        fixtureChannel('C2', 'general'),
+    ]
+
+    beforeEach(() => {
+        window.localStorage.clear()
+        useMocks({
+            get: {
+                '/api/environments/:team_id/integrations/:id/channels': {
+                    channels: allChannels,
+                    lastRefreshedAt: '2026-01-01T00:00:00Z',
+                },
+            },
+        })
+        initKeaTests()
+        logic = slackIntegrationLogic({ id: 1 })
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        window.localStorage.clear()
+    })
+
+    it('leaves slackChannels in fetch order, sorting only the picker view', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+
+        expect(logic.values.slackChannels.map((c) => c.id)).toEqual(['C3', 'C1', 'C2'])
+        expect(logic.values.slackChannelsForPicker.map((c) => c.id)).toEqual(['C1', 'C3', 'C2'])
+    })
+
+    it('puts recently subscribed channels first (most recent first), then alphabetical', async () => {
+        recordRecentSlackChannel(1, 'C2')
+        recordRecentSlackChannel(1, 'C3')
+
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+
+        expect(logic.values.slackChannelsForPicker.map((c) => c.id)).toEqual(['C3', 'C2', 'C1'])
+    })
+
+    it('refreshes recency from the store each time channels load', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+        expect(logic.values.slackChannelsForPicker.map((c) => c.id)).toEqual(['C1', 'C3', 'C2'])
+
+        recordRecentSlackChannel(1, 'C2')
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+        expect(logic.values.slackChannelsForPicker.map((c) => c.id)).toEqual(['C2', 'C1', 'C3'])
     })
 })
