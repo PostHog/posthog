@@ -20862,6 +20862,14 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type TraceOrderColumn = typeof TraceOrderColumn[keyof typeof TraceOrderColumn];
+
+
+    export const TraceOrderColumn = {
+      Timestamp: 'timestamp',
+      Duration: 'duration',
+    } as const;
+
     export interface TraceSpansQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -20899,7 +20907,10 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
-      orderBy?: LogsOrderBy | null;
+      /** Column to order by. Defaults to timestamp. `timestamp` paginates via keyset cursor (`after`); other columns via `offset`. */
+      orderBy?: TraceOrderColumn | null;
+      /** Order direction. Defaults to DESC. */
+      orderDirection?: OrderDirection2 | null;
       /** Prefetch up to this many spans per trace and include them in results */
       prefetchSpans?: number | null;
       response?: TraceSpansQueryResponse | null;
@@ -25678,6 +25689,7 @@ export namespace Schemas {
       readonly last_used_at: string | null;
       /** @nullable */
       readonly last_rolled_at: string | null;
+      /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
       scopes: string[];
     }
 
@@ -32462,6 +32474,7 @@ export namespace Schemas {
       readonly last_used_at?: string | null;
       /** @nullable */
       readonly last_rolled_at?: string | null;
+      /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
       scopes?: string[];
     }
 
@@ -42673,6 +42686,18 @@ export namespace Schemas {
       count: number;
     }
 
+    /**
+     * * `timestamp` - timestamp
+     * * `duration` - duration
+     */
+    export type _TracingQueryBodyOrderByEnum = typeof _TracingQueryBodyOrderByEnum[keyof typeof _TracingQueryBodyOrderByEnum];
+
+
+    export const _TracingQueryBodyOrderByEnum = {
+      Timestamp: 'timestamp',
+      Duration: 'duration',
+    } as const;
+
     export interface _TracingQueryBody {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -42680,19 +42705,29 @@ export namespace Schemas {
       serviceNames?: string[];
       /** Filter by HTTP status codes. */
       statusCodes?: number[];
-      /** Order results by timestamp. Defaults to latest.
+      /** Column to order by. Defaults to timestamp. Ordering by timestamp paginates via the keyset cursor ('after'); ordering by duration paginates via 'offset'.
        *
-       * * `latest` - latest
-       * * `earliest` - earliest */
-      orderBy?: OrderByEnum;
+       * * `timestamp` - timestamp
+       * * `duration` - duration */
+      orderBy?: _TracingQueryBodyOrderByEnum;
+      /** Order direction. Defaults to DESC (e.g. timestamp+DESC = newest first, duration+DESC = slowest first).
+       *
+       * * `ASC` - ASC
+       * * `DESC` - DESC */
+      orderDirection?: OrderDirectionEnum;
       /** Property filters for the query. */
       filterGroup?: _SpanPropertyFilter[];
       /** Filter to a specific trace ID (hex string). */
       traceId?: string;
       /** Max results (1-1000). Defaults to 100. */
       limit?: number;
-      /** Pagination cursor from previous response. */
+      /** Keyset pagination cursor from a previous timestamp-ordered response. */
       after?: string;
+      /**
+         * Pagination offset, used when ordering by a column (e.g. duration). Defaults to 0.
+         * @minimum 0
+         */
+      offset?: number;
       /** Filter to root spans only. Defaults to true. */
       rootSpans?: boolean;
       /** Number of child spans to prefetch per trace (1-100). */
