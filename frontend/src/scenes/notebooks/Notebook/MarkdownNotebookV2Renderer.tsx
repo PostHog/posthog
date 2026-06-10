@@ -151,7 +151,7 @@ const MARKDOWN_NODE_DEFINITIONS: {
 ]
 
 type InlineNotebookAIRequest = MarkdownNotebookAskAIRequest & {
-    tabId: string
+    panelId: string
     uiContext?: Partial<MaxUIContext>
 }
 
@@ -268,7 +268,7 @@ export function MarkdownNotebookV2(): JSX.Element {
 
             const inlineAIRequest: InlineNotebookAIRequest = {
                 chatId,
-                tabId: getInlineNotebookAITabId(chatId, 'inline'),
+                panelId: getInlineNotebookAIPanelId(chatId, 'inline'),
                 query,
                 source,
                 chatNodeId,
@@ -339,8 +339,8 @@ function InlineNotebookAIRunner({
     onError: (request: InlineNotebookAIRequest) => void
 }): JSX.Element {
     const maxLogicProps = useMemo<maxLogicType['props']>(
-        () => ({ tabId: request.tabId, initialFrontendConversationId: request.chatId }),
-        [request.chatId, request.tabId]
+        () => ({ panelId: request.panelId, initialFrontendConversationId: request.chatId }),
+        [request.chatId, request.panelId]
     )
     const maxLogicInstance = maxLogic(maxLogicProps)
     useMountedLogic(maxLogicInstance)
@@ -550,7 +550,7 @@ function getNotebookAIChatTitle(node: NotebookComponentBlockNode): string | null
     )
 }
 
-function getInlineNotebookAITabId(chatId: string, mode: 'inline' | 'full'): string {
+function getInlineNotebookAIPanelId(chatId: string, mode: 'inline' | 'full'): string {
     return `notebook-inline-${mode}-${chatId}`
 }
 
@@ -712,10 +712,10 @@ function NotebookAIChatById({
     onQueuedReplyConsumed: () => void
     updateProps: (props: Partial<NotebookComponentProps>) => void
 }): JSX.Element {
-    const tabId = getInlineNotebookAITabId(chatId, loadOlderMessages ? 'full' : 'inline')
+    const panelId = getInlineNotebookAIPanelId(chatId, loadOlderMessages ? 'full' : 'inline')
     const maxLogicProps = useMemo<maxLogicType['props']>(
-        () => ({ tabId, initialFrontendConversationId: chatId }),
-        [chatId, tabId]
+        () => ({ panelId, initialFrontendConversationId: chatId }),
+        [chatId, panelId]
     )
     const maxLogicInstance = maxLogic(maxLogicProps)
     useMountedLogic(maxLogicInstance)

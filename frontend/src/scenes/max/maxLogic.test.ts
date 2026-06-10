@@ -42,6 +42,16 @@ describe('maxLogic', () => {
         logic?.unmount()
     })
 
+    it('passes panelId through thread logic props', () => {
+        logic = maxLogic({ panelId: 'notebook-inline-inline-chat-id', initialFrontendConversationId: 'chat-id' })
+        logic.mount()
+
+        expect(logic.values.threadLogicProps).toMatchObject({
+            panelId: 'notebook-inline-inline-chat-id',
+            conversationId: 'chat-id',
+        })
+    })
+
     it('sets the question when URL has hash param #panel=max:Foo', async () => {
         // Set up sidePanelStateLogic with the options before mounting maxLogic
         sidePanelStateLogic.mount()
