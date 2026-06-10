@@ -128,6 +128,7 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
                         size="small"
                         onClick={() => verifyEmailDomain(config.id)}
                         loading={isVerifying}
+                        disabledReason={adminRestrictionReason}
                         icon={<IconRefresh />}
                     >
                         {config.domain_verified ? 'Re-verify' : 'Verify domain'}

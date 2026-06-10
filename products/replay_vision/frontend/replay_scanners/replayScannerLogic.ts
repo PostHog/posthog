@@ -9,8 +9,6 @@ import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema/schema-general'
-
 import {
     visionScannersCreate,
     visionScannersDestroy,
@@ -23,10 +21,8 @@ import {
 import type { EstimateResponseApi, ObservationStatsApi, ReplayObservationApi } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import type { replayScannerLogicType } from './replayScannerLogicType'
-import { findScannerTemplate } from './scannerTemplates'
+import { findScannerTemplate, newScanner } from './scannerTemplates'
 import {
-    DEFAULT_MODEL,
-    DEFAULT_PROVIDER,
     ScannerConfig,
     ScannerType,
     ReplayScanner,
@@ -68,39 +64,55 @@ function omitQuery(scanner: ReplayScanner): Omit<ReplayScanner, 'query'> {
     return rest
 }
 
-function newScanner(templateKey?: string | null): ReplayScanner {
-    const base = {
-        id: 'new',
-        enabled: true,
-        sampling_rate: 1,
-        query: { kind: NodeKind.RecordingsQuery },
-        provider: DEFAULT_PROVIDER,
-        model: DEFAULT_MODEL,
-        emits_signals: false,
-        scanner_version: 1,
-        last_swept_at: dayjs().toISOString(),
-        created_at: dayjs().toISOString(),
-        updated_at: dayjs().toISOString(),
-        created_by: null,
-    } as const
+const UNIT_BY_LETTER: Record<string, dayjs.ManipulateType> = {
+    h: 'hour',
+    d: 'day',
+    w: 'week',
+    m: 'month',
+    y: 'year',
+}
 
-    const template = findScannerTemplate(templateKey ?? undefined)
-    if (template) {
-        return {
-            ...base,
-            name: template.scanner_name,
-            description: template.scanner_description,
-            scanner_type: template.scanner_type,
-            scanner_config: template.scanner_config,
-        } as ReplayScanner
+const START_OF_BY_PREFIX: Record<string, dayjs.ManipulateType> = {
+    dStart: 'day',
+    wStart: 'week',
+    mStart: 'month',
+    yStart: 'year',
+}
+
+function chartRangeToDayjs(expr: string): dayjs.Dayjs | null {
+    const relative = expr.match(/^-(\d+)([hdwmy])(Start|End)?$/)
+    if (relative) {
+        const [, n, letter, suffix] = relative
+        const unit = UNIT_BY_LETTER[letter]
+        const date = dayjs().subtract(parseInt(n, 10), unit)
+        if (suffix === 'Start') {
+            return date.startOf(unit)
+        }
+        if (suffix === 'End') {
+            return date.endOf(unit)
+        }
+        return date
     }
-    return {
-        ...base,
-        name: '',
-        description: '',
-        scanner_type: 'monitor',
-        scanner_config: { prompt: '' },
+    if (expr in START_OF_BY_PREFIX) {
+        return dayjs().startOf(START_OF_BY_PREFIX[expr])
     }
+    if (expr === 'all') {
+        return dayjs().subtract(1, 'year')
+    }
+    const parsed = dayjs(expr)
+    return parsed.isValid() ? parsed : null
+}
+
+function daysFromChartRange(dateFrom: string | null, dateTo: string | null): number {
+    if (!dateFrom) {
+        return 14
+    }
+    const from = chartRangeToDayjs(dateFrom)
+    if (!from) {
+        return 14
+    }
+    const to = dateTo ? chartRangeToDayjs(dateTo) || dayjs() : dayjs()
+    return Math.max(1, to.diff(from, 'day'))
 }
 
 interface ObservationListParams {
@@ -186,6 +198,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScannerSuccess: (scanner: ReplayScanner) => ({ scanner }),
         loadScannerFailure: true,
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
+        setSubmitIntent: (intent: 'save' | 'advance') => ({ intent }),
         loadObservations: true,
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
@@ -212,10 +225,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         requestScannerEstimate: true,
         loadScannerEstimate: true,
         loadScannerEstimateSuccess: (estimate: EstimateResponseApi) => ({ estimate }),
-        loadScannerEstimateFailure: true,
+        loadScannerEstimateFailure: (error: string | null = null) => ({ error }),
     }),
 
-    forms(({ props }) => ({
+    forms(({ props, values, actions }) => ({
         scanner: {
             defaults: newScanner(props.id === 'new' ? currentTemplateKey() : null),
             errors: (scanner: ReplayScanner) => {
@@ -256,6 +269,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
             submit: async (scanner: ReplayScanner) => {
+                if (values.submitIntent === 'advance') {
+                    actions.setSubmitIntent('save')
+                    router.actions.push(urls.replayVisionScannerTriggers(props.id))
+                    return
+                }
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
                     return
@@ -292,6 +310,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadScanner: () => true,
                 loadScannerSuccess: () => false,
                 loadScannerFailure: () => false,
+            },
+        ],
+        submitIntent: [
+            'save' as 'save' | 'advance',
+            {
+                setSubmitIntent: (_, { intent }) => intent,
+                loadScannerSuccess: () => 'save' as 'save' | 'advance',
             },
         ],
         observations: [
@@ -354,6 +379,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             {
                 loadScannerEstimateSuccess: (_, { estimate }) => estimate,
                 loadScannerEstimateFailure: () => null,
+            },
+        ],
+        scannerEstimateError: [
+            null as string | null,
+            {
+                requestScannerEstimate: () => null,
+                loadScannerEstimateSuccess: () => null,
+                loadScannerEstimateFailure: (_, { error }) => error,
             },
         ],
         scannerEstimateLoading: [
@@ -571,10 +604,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             setScannerType: ({ scannerType }) => {
-                actions.setScannerValues({
+                const current = values.scanner
+                if (!current) {
+                    return
+                }
+                actions.resetScanner({
+                    ...current,
                     scanner_type: scannerType,
                     scanner_config: defaultConfigForType(scannerType),
-                })
+                } as ReplayScanner)
             },
 
             // kea-forms fires setScannerValue(s) on every field change. Debounce the estimate so slider drags
@@ -608,7 +646,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         return
                     }
                     actions.loadScannerEstimateSuccess(response)
-                } catch (error) {
+                } catch (error: any) {
                     if (error instanceof Error && isBreakpoint(error)) {
                         throw error
                     }
@@ -617,7 +655,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     if (values.estimateRequestVersion !== version) {
                         return
                     }
-                    actions.loadScannerEstimateFailure()
+                    const detail = typeof error?.detail === 'string' ? error.detail : null
+                    const message = typeof error?.message === 'string' ? error.message : null
+                    actions.loadScannerEstimateFailure(detail ?? message)
                 }
             },
 
@@ -667,6 +707,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             setObservationTagFilter: () => reloadObservationsAndStats(),
             clearObservationFilters: () => reloadObservationsAndStats(),
 
+            setChartDateRange: () => {
+                actions.loadObservationStats()
+            },
+
             loadObservationStats: async () => {
                 if (props.id === 'new') {
                     actions.loadObservationStatsFailure()
@@ -679,7 +723,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 try {
                     // Stats endpoint accepts the same filters as the list, but `order_by` is meaningless on an aggregate.
                     const { order_by: _ignored, ...params } = buildObservationListParams(values)
-                    const response = await visionScannersObservationsStatsRetrieve(String(teamId), props.id, params)
+                    const recentDays = daysFromChartRange(values.chartDateFrom, values.chartDateTo)
+                    const response = await visionScannersObservationsStatsRetrieve(String(teamId), props.id, {
+                        ...params,
+                        recent_days: recentDays,
+                    })
                     actions.loadObservationStatsSuccess(response)
                 } catch {
                     actions.loadObservationStatsFailure()

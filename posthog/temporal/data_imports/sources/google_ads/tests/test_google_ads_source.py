@@ -1,6 +1,71 @@
 import pytest
 
+from posthog.temporal.data_imports.sources.google_ads.configs import clean_customer_id
 from posthog.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
+
+_CUSTOMER_ID_ERROR = "valid Google Ads customer ID"
+_MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
+
+
+class TestCleanCustomerId:
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ("123-456-7890", "1234567890"),
+            ("1234567890", "1234567890"),
+            ("  123-456-7890  ", "1234567890"),
+            ("123 456 7890", "1234567890"),
+            ("", ""),
+            (None, None),
+        ],
+    )
+    def test_strips_to_bare_digits(self, raw, expected):
+        assert clean_customer_id(raw) == expected
+
+
+class TestGoogleAdsValidateConfig:
+    def setup_method(self):
+        self.source = GoogleAdsSource()
+
+    def _customer_id_errors(self, job_inputs: dict) -> list[str]:
+        _, errors = self.source.validate_config(job_inputs)
+        return [e for e in errors if _CUSTOMER_ID_ERROR in e]
+
+    def _manager_id_errors(self, job_inputs: dict) -> list[str]:
+        _, errors = self.source.validate_config(job_inputs)
+        return [e for e in errors if _MANAGER_ID_ERROR in e]
+
+    @pytest.mark.parametrize(
+        "customer_id",
+        ["123-456-7890", "1234567890", "123 456 7890", "  123-456-7890  "],
+    )
+    def test_accepts_any_common_customer_id_format(self, customer_id):
+        assert self._customer_id_errors({"customer_id": customer_id}) == []
+
+    @pytest.mark.parametrize(
+        "customer_id",
+        ["12345", "123-456-789", "abcd", "123-456-78901"],
+    )
+    def test_rejects_invalid_customer_id(self, customer_id):
+        assert len(self._customer_id_errors({"customer_id": customer_id})) == 1
+
+    @pytest.mark.parametrize(
+        "mcc_client_id",
+        ["123-456-7890", "1234567890", "123 456 7890", "  123-456-7890  "],
+    )
+    def test_accepts_any_common_manager_customer_id_format(self, mcc_client_id):
+        job_inputs = {
+            "customer_id": "1234567890",
+            "is_mcc_account": {"enabled": True, "mcc_client_id": mcc_client_id},
+        }
+        assert self._manager_id_errors(job_inputs) == []
+
+    def test_rejects_invalid_manager_customer_id(self):
+        job_inputs = {
+            "customer_id": "1234567890",
+            "is_mcc_account": {"enabled": True, "mcc_client_id": "123"},
+        }
+        assert len(self._manager_id_errors(job_inputs)) == 1
 
 
 class TestGoogleAdsNonRetryableErrors:

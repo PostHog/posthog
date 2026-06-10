@@ -47,7 +47,7 @@ async def _delete_page(
     if page.session_ids:
         progress.total_found += len(page.session_ids)
 
-        for batch in batched(page.session_ids, config.batch_size):
+        for batch in batched(page.session_ids, config.batch_size, strict=False):
             batch_start = workflow.now()
             result: DeleteRecordingsResult = await workflow.execute_activity(
                 delete_recordings,

@@ -19,10 +19,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.error_tracking.backend.facade import api as facade_api
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,

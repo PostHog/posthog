@@ -1386,7 +1386,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
 class TestSharedCohortInlining(APIBaseTest):
     @mock_exporter_template
     def test_shared_insight_inlines_referenced_cohort_names(self):
-        from posthog.models.cohort import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         cohort = Cohort.objects.create(team=self.team, name="Power users")
         other_cohort = Cohort.objects.create(team=self.team, name="Churned users")  # not referenced
@@ -1433,8 +1433,7 @@ class TestSharedCohortInlining(APIBaseTest):
 
     @mock_exporter_template
     def test_shared_dashboard_collects_cohorts_across_tiles(self):
-        from posthog.models.cohort import Cohort
-
+        from products.cohorts.backend.models.cohort import Cohort
         from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
         cohort_a = Cohort.objects.create(team=self.team, name="Cohort A")
