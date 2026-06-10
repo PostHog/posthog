@@ -64,10 +64,7 @@ from ee.hogai.tools.read_data.prompts import (
     READ_DATA_PROMPT,
     READ_DATA_WAREHOUSE_SCHEMA_PROMPT,
 )
-from ee.hogai.utils.feature_flags import (
-    has_business_knowledge_feature_flag,
-    has_customer_analytics_mode_feature_flag,
-)
+from ee.hogai.utils.feature_flags import has_business_knowledge_feature_flag, has_customer_analytics_mode_feature_flag
 from ee.hogai.utils.helpers import sanitize_for_system_reminder
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
