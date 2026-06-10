@@ -44,7 +44,9 @@ fn discovers_and_packages_elf_files() {
             "850c70a2-6592-a70c-3e49-c0e443794d23",
         ]
     );
-    assert!(report.missing_build_id.is_empty());
+    // The classification fixtures in the same directory triage instead
+    assert_eq!(report.without_debug_info.len(), 1);
+    assert_eq!(report.missing_build_id.len(), 1);
     assert!(report.dsym_bundles.is_empty());
 
     // Packaged uploads round-trip through the symbol_data container with the
@@ -76,4 +78,40 @@ fn skips_non_elf_and_flags_dsyms() {
     assert!(report.files.is_empty());
     assert_eq!(report.dsym_bundles.len(), 1);
     assert_eq!(report.split_dwarf.len(), 1);
+}
+
+#[test]
+fn classifies_elfs_without_debug_info_or_build_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let fixtures = fixtures_dir();
+    std::fs::copy(
+        fixtures.join("test_binary_nodebug"),
+        dir.path().join("test_binary_nodebug"),
+    )
+    .unwrap();
+    std::fs::copy(
+        fixtures.join("test_binary_nobuildid"),
+        dir.path().join("test_binary_nobuildid"),
+    )
+    .unwrap();
+
+    let report = discover(dir.path()).unwrap();
+    assert!(report.files.is_empty());
+    assert_eq!(report.without_debug_info.len(), 1);
+    assert_eq!(report.missing_build_id.len(), 1);
+
+    // With nothing uploadable, the missing build id is a hard error
+    // carrying linker guidance.
+    let err = posthog_cli::debug_symbols::report_problems(&report, dir.path()).unwrap_err();
+    assert!(err.to_string().contains("build id"), "got: {err}");
+
+    // A valid ELF alongside turns the hard error into a warning-only run.
+    std::fs::copy(
+        fixtures.join("test_binary_pie"),
+        dir.path().join("test_binary_pie"),
+    )
+    .unwrap();
+    let report = discover(dir.path()).unwrap();
+    assert_eq!(report.files.len(), 1);
+    assert!(posthog_cli::debug_symbols::report_problems(&report, dir.path()).is_ok());
 }

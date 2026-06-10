@@ -67,7 +67,7 @@ impl DebugSymbolFile {
             zip.write_all(&self.data)?;
 
             if include_source {
-                match source_bundle::extract_source_paths_from_dwarf(&self.path) {
+                match source_bundle::extract_source_paths_from_dwarf_bytes(&self.data) {
                     Ok(all_paths) => {
                         let filtered = filter_native_source_paths(&all_paths);
                         info!(
@@ -255,6 +255,13 @@ fn parse_candidate(path: &Path) -> Result<Option<Candidate>> {
 
         if !object.has_debug_info() {
             return Ok(Some(Candidate::NoDebugInfo));
+        }
+
+        // Without a GNU build id (code id), symbolic synthesizes a
+        // content-derived debug id that the SDK cannot reproduce at runtime,
+        // so the upload would never match any crash event.
+        if object.code_id().is_none() {
+            return Ok(Some(Candidate::NoBuildId));
         }
 
         let debug_id = object.debug_id();
