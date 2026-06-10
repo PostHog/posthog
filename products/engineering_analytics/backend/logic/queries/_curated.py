@@ -18,6 +18,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
@@ -83,11 +84,12 @@ def run_query(
     turns that into a clear 4xx. Any other query error is a real bug and propagates.
     """
     try:
-        return execute_hogql_query(
-            query=parse_select(sql, placeholders=placeholders),
-            team=team,
-            query_type=query_type,
-        )
+        with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=team.pk):
+            return execute_hogql_query(
+                query=parse_select(sql, placeholders=placeholders),
+                team=team,
+                query_type=query_type,
+            )
     except QueryError as err:
         message = str(err)
         # HogQL raises ``Unknown table `<name>`.`` for any table missing from the
