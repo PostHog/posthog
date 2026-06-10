@@ -2652,6 +2652,17 @@ class TestOAuthAPI(APIBaseTest):
         assert location
         self.assertIn("error=invalid_scope", location)
 
+    def test_authorize_get_passes_wildcard_read_scopes_to_consent_page(self):
+        with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")) as mock_render:
+            response = self.client.get(f"{self.base_authorization_url}&scope=*")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        wildcard_reads = mock_render.call_args.kwargs["context"]["oauth_application"]["wildcard_read_scopes"]
+        self.assertIn("insight:read", wildcard_reads)
+        self.assertIn("batch_import:read", wildcard_reads)
+        self.assertNotIn("llm_gateway:read", wildcard_reads)
+        self.assertNotIn("metrics:read", wildcard_reads)
+        self.assertFalse(any(scope.endswith(":write") for scope in wildcard_reads))
+
     def test_authorize_wildcard_accepted_when_app_ceiling_empty(self):
         # Existing clients (the PostHog Code CLI today) still send scope=*
         # against apps that have no explicit ceiling. Until wildcard retirement

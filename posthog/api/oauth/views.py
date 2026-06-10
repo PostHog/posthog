@@ -878,6 +878,12 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     "is_verified": application.is_verified,
                     "logo_uri": application.logo_uri,
                     "required_scopes": application.required_scopes,
+                    # The read-only form of a `*` grant, computed from the same ceiling
+                    # resolution `validate_scopes` enforces — the frontend's scope list
+                    # drifts from the server's (both over- and under-granting otherwise).
+                    "wildcard_read_scopes": sorted(
+                        scope for scope in effective_ceiling(application.ceiling_scopes) if scope.endswith(":read")
+                    ),
                 }
             },
         )
