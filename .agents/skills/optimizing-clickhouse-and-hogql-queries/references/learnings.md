@@ -92,6 +92,10 @@ Also learned while measuring: ClickHouse 26.x's **query condition cache** makes 
 
 **Takeaway.** Even when the `event` filter looks selective, with `toDate(timestamp)` unconstrained the primary index leaves ~1 boundary granule per (date, part) range, which adds up to millions of rows over years of partitions. Single-entity lookups (session, trace, etc.) should always carry a timestamp bound derived from how far back the entity can realistically be referenced.
 
+---
+
+## 2026-05-28: Dropping `FROM person FINAL` via `argMax` is worse than the original; materialization is the actual win
+
 **Context.** `posthog/temporal/messaging/backfill_precalculated_person_properties_workflow.py` builds a raw ClickHouse query that does `SELECT id, JSONExtract(properties, '<key>', 'String'), ... FROM person FINAL WHERE team_id = ... AND id BETWEEN ... AND is_deleted = 0 ORDER BY id FORMAT JSONEachRow`. We flagged the `FINAL` as a smell.
 
 **Question.** Does dropping `FINAL` via the textbook `argMax(properties, version) GROUP BY id` rewrite actually make the query faster?
