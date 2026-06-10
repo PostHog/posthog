@@ -21,7 +21,10 @@ consumers:
 mmdb:
     path: 'mmdb.db'
 jwt:
-    token: '<randomly generated secret key>'
+    secret: '<randomly generated secret key>'
+    # Previous secrets still accepted for verification during key rotation
+    secret_fallbacks:
+        - '<previous secret key>'
 postgres:
     url: 'postgres://postgres:postgres@localhost:5432/postgres'
 cors_allow_origins:
