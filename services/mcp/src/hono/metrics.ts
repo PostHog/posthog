@@ -93,6 +93,33 @@ export const contextMillRevalidationsTotal = new Counter({
     labelNames: ['source', 'status', 'result'] as const,
 })
 
+// Typed-confirm two-tool paradigm (`confirmed_action`):
+//
+// - `prepares_total`/`executes_total` count outcomes of each phase. Watch
+//   the prepare→execute conversion ratio per tool to detect tools the LLM
+//   prepares but never executes (user declines or model loses track) and
+//   tools the LLM executes repeatedly (replay attempts).
+// - `refusals_total` breaks down execute refusals by reason so we can tune
+//   TTL, signing-key rotation, and tool descriptions against real failure
+//   modes instead of guessing.
+export const confirmedActionPreparesTotal = new Counter({
+    name: 'mcp_confirmed_action_prepares_total',
+    help: 'Outcomes of -prepare tool calls under the typed-confirm paradigm.',
+    labelNames: ['tool', 'status'] as const,
+})
+
+export const confirmedActionExecutesTotal = new Counter({
+    name: 'mcp_confirmed_action_executes_total',
+    help: 'Outcomes of -execute tool calls under the typed-confirm paradigm.',
+    labelNames: ['tool', 'status'] as const,
+})
+
+export const confirmedActionRefusalsTotal = new Counter({
+    name: 'mcp_confirmed_action_refusals_total',
+    help: 'Reasons -execute calls were refused (wrong word, bad signature, expired, replay, mismatch).',
+    labelNames: ['tool', 'reason'] as const,
+})
+
 export const contextMillRevalidationDurationSeconds = new Histogram({
     name: 'mcp_context_mill_revalidation_duration_seconds',
     help: 'Context-mill resource revalidation duration.',
