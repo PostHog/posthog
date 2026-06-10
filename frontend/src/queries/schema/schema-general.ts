@@ -1949,6 +1949,8 @@ export type LifecycleFilter = {
      *  `showValuesOnSeries` — on its own it has no visible effect. */
     showPercentagesOnSeries?: boolean
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
+    /** Custom display order for lifecycle series. Defaults to ['new', 'resurrecting', 'returning', 'dormant']. */
+    lifecycleOrdering?: LifecycleFilterLegacy['toggledLifecycles']
     /** @default false */
     showLegend?: LifecycleFilterLegacy['show_legend']
     /** @default true */

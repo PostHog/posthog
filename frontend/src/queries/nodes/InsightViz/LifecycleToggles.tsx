@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { useCallback, useRef, useState } from 'react'
 
-import { LemonCheckbox, LemonLabel } from '@posthog/lemon-ui'
+import { IconDrag } from '@posthog/icons'
+import { LemonCheckbox, LemonLabel, Tooltip } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils'
 import {
@@ -13,26 +15,17 @@ import { groupsModel, Noun } from '~/models/groupsModel'
 import { LifecycleFilter, LifecycleQuery } from '~/queries/schema/schema-general'
 import { EditorFilterProps, LifecycleToggle } from '~/types'
 
-const lifecycles: { name: LifecycleToggle; color: string }[] = [
-    {
-        name: 'new',
-        color: 'var(--color-lifecycle-new)',
-    },
-    {
-        name: 'returning',
-        color: 'var(--color-lifecycle-returning)',
-    },
-    {
-        name: 'resurrecting',
-        color: 'var(--color-lifecycle-resurrecting)',
-    },
-    {
-        name: 'dormant',
-        color: 'var(--color-lifecycle-dormant)',
-    },
-]
+const DEFAULT_LIFECYCLE_ORDER: LifecycleToggle[] = ['new', 'returning', 'resurrecting', 'dormant']
 
-const DEFAULT_LIFECYCLE_TOGGLES: LifecycleToggle[] = ['new', 'returning', 'resurrecting', 'dormant']
+const LIFECYCLE_COLORS: Record<LifecycleToggle, string> = {
+    new: 'var(--color-lifecycle-new)',
+    returning: 'var(--color-lifecycle-returning)',
+    resurrecting: 'var(--color-lifecycle-resurrecting)',
+    dormant: 'var(--color-lifecycle-dormant)',
+}
+
+// Keep for backwards compat with existing usages
+const DEFAULT_LIFECYCLE_TOGGLES: LifecycleToggle[] = DEFAULT_LIFECYCLE_ORDER
 
 export function getLifecycleTooltip(
     lifecycle: LifecycleToggle,
@@ -64,7 +57,9 @@ export function LifecycleToggles({ insightProps }: EditorFilterProps): JSX.Eleme
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
 
-    const toggledLifecycles = (insightFilter as LifecycleFilter)?.toggledLifecycles || DEFAULT_LIFECYCLE_TOGGLES
+    const filter = insightFilter as LifecycleFilter
+    const toggledLifecycles = filter?.toggledLifecycles || DEFAULT_LIFECYCLE_TOGGLES
+    const lifecycleOrdering = filter?.lifecycleOrdering || DEFAULT_LIFECYCLE_ORDER
     const customAggregationTarget = (querySource as LifecycleQuery | null)?.customAggregationTarget === true
     const aggregationTargetLabel = customAggregationTarget
         ? AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE
@@ -79,20 +74,58 @@ export function LifecycleToggles({ insightProps }: EditorFilterProps): JSX.Eleme
         }
     }
 
+    // Drag-to-reorder state
+    const dragItem = useRef<number | null>(null)
+    const dragOverItem = useRef<number | null>(null)
+    const [dragging, setDragging] = useState(false)
+
+    const handleDragStart = useCallback((index: number) => {
+        dragItem.current = index
+        setDragging(true)
+    }, [])
+
+    const handleDragEnter = useCallback((index: number) => {
+        dragOverItem.current = index
+    }, [])
+
+    const handleDragEnd = useCallback(() => {
+        if (dragItem.current !== null && dragOverItem.current !== null && dragItem.current !== dragOverItem.current) {
+            const newOrder = [...lifecycleOrdering]
+            const [moved] = newOrder.splice(dragItem.current, 1)
+            newOrder.splice(dragOverItem.current, 0, moved)
+            updateInsightFilter({ lifecycleOrdering: newOrder })
+        }
+        dragItem.current = null
+        dragOverItem.current = null
+        setDragging(false)
+    }, [lifecycleOrdering, updateInsightFilter])
+
     return (
         <div className="flex flex-col -mt-1 uppercase">
-            {lifecycles.map((lifecycle) => (
-                <LemonLabel
-                    key={lifecycle.name}
-                    info={getLifecycleTooltip(lifecycle.name, aggregationTargetLabel, aggregationTargetPronoun)}
+            {lifecycleOrdering.map((name, index) => (
+                <div
+                    key={name}
+                    className={`flex items-center gap-1 ${dragging ? 'cursor-grabbing' : ''}`}
+                    draggable
+                    onDragStart={() => handleDragStart(index)}
+                    onDragEnter={() => handleDragEnter(index)}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={(e) => e.preventDefault()}
                 >
-                    <LemonCheckbox
-                        label={lifecycle.name}
-                        color={lifecycle.color}
-                        checked={toggledLifecycles.includes(lifecycle.name)}
-                        onChange={() => toggleLifecycle(lifecycle.name)}
-                    />
-                </LemonLabel>
+                    <Tooltip title="Drag to reorder">
+                        <span className="cursor-grab text-secondary opacity-50 hover:opacity-100 flex-shrink-0">
+                            <IconDrag className="w-3 h-3" />
+                        </span>
+                    </Tooltip>
+                    <LemonLabel info={getLifecycleTooltip(name, aggregationTargetLabel, aggregationTargetPronoun)}>
+                        <LemonCheckbox
+                            label={name}
+                            color={LIFECYCLE_COLORS[name]}
+                            checked={toggledLifecycles.includes(name)}
+                            onChange={() => toggleLifecycle(name)}
+                        />
+                    </LemonLabel>
+                </div>
             ))}
         </div>
     )

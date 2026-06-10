@@ -239,10 +239,9 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                         )
                     }
 
+                    const orderList = lifecycleFilter.lifecycleOrdering ?? defaultLifecyclesOrder
                     indexedResults = indexedResults.sort(
-                        (a, b) =>
-                            defaultLifecyclesOrder.indexOf(String(b.status)) -
-                            defaultLifecyclesOrder.indexOf(String(a.status))
+                        (a, b) => orderList.indexOf(String(b.status)) - orderList.indexOf(String(a.status))
                     )
                 }
 
