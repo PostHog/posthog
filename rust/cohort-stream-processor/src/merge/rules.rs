@@ -1,0 +1,608 @@
+//! Per-leaf merge rules: combine P_old's and P_new's state for one `LeafStateKey` (TDD §4.5 / D6).
+//!
+//! Pure and sink-free — given both sides' [`StatefulRecord`]s and the leaf's catalog meta, produce the
+//! merged record to persist for P_new plus the membership flip it implies. The orchestration (which
+//! leaves, where the state comes from) lives in the drain/apply handlers; this is the local
+//! computation once both sides are in hand.
+
+use std::collections::BTreeMap;
+
+use chrono_tz::Tz;
+use metrics::counter;
+use uuid::Uuid;
+
+use crate::filters::reverse_index::LeafStateMeta;
+use crate::merge::bucket_align::align_and_sum;
+use crate::merge::compressed_concat::union_by_day;
+use crate::observability::metrics::MERGE_LEAVES_DROPPED_TOTAL;
+use crate::stage1::bucket_tz::daily_bucket_len;
+use crate::stage1::compressed_history::compressed_eviction_deadline;
+use crate::stage1::daily::daily_eviction_deadline;
+use crate::stage1::state::{AppliedOffsets, Stage1State, StateVariant, StatefulRecord};
+use crate::stage1::transition::TransitionKind;
+use crate::stage2::evaluator::leaf_membership;
+
+/// The result of merging one leaf: the record to persist for P_new and the membership flip it caused.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MergedRecord {
+    /// The merged record to write for P_new, or [`None`] to leave the leaf absent — a person-property
+    /// leaf P_new never had: P_old's bit is dropped per D6/L10 and re-evaluated on P_new's next event,
+    /// so the apply path writes no state and appends no index for it.
+    pub record: Option<StatefulRecord>,
+    /// P_new's membership flip on this leaf, if the merge crossed the predicate threshold. `None` when
+    /// membership is unchanged (or when nothing was written).
+    pub flip: Option<TransitionKind>,
+}
+
+/// Merge P_old's leaf state into P_new's for one `LeafStateKey`.
+///
+/// `old` is always present (the leaf is enumerated from P_old's `cf_person_index`); `new` is P_new's
+/// record for the same leaf, absent when P_new never had it. Per [`Decision 2`] the merged record
+/// keeps P_new's main `applied_offsets` (or empty — never seeded from P_old) and gains a
+/// `redirect_dedup` entry per ancestor so post-merge stragglers stay replay-safe; the flip is the
+/// transition P_new's membership made.
+///
+/// [`Decision 2`]: crate::stage1::state::StatefulRecord::redirect_dedup
+pub fn merge_records(
+    old_person: Uuid,
+    old: &StatefulRecord,
+    new: Option<&StatefulRecord>,
+    meta: &LeafStateMeta,
+    tz: Tz,
+) -> MergedRecord {
+    // The LSK pins the variant, so both sides should equal `meta.variant`. A mismatch is a desync —
+    // keep P_new untouched (with the ancestor dedup composed) and migrate nothing from P_old.
+    if old.state.variant() != meta.variant
+        || new.is_some_and(|record| record.state.variant() != meta.variant)
+    {
+        counter!(MERGE_LEAVES_DROPPED_TOTAL, "reason" => "variant_mismatch").increment(1);
+        return keep_new(old_person, old, new);
+    }
+
+    // Person properties: drop P_old's bit (D6/L10). Keep P_new's record so its own state survives, or
+    // write nothing so P_new re-evaluates the property lazily on its next event.
+    if matches!(meta.variant, StateVariant::PersonProperty) {
+        return keep_new(old_person, old, new);
+    }
+
+    let merged_state = match new {
+        // P_new had no state for this behavioral leaf: migrate P_old's as-is (the apply core treats
+        // this as P_new entering if P_old was a member).
+        None => old.state.clone(),
+        Some(new_record) => match merge_behavioral_pair(meta, &old.state, &new_record.state, tz) {
+            Some(state) => state,
+            // A structural desync (e.g. a daily array length disagreeing with the window): keep new.
+            None => {
+                counter!(MERGE_LEAVES_DROPPED_TOTAL, "reason" => "length_desync").increment(1);
+                return keep_new(old_person, old, new);
+            }
+        },
+    };
+
+    let prev_member = leaf_membership(new.map(|record| &record.state), meta);
+    let next_member = leaf_membership(Some(&merged_state), meta);
+
+    // Decision 2: the main map is P_new's (untouched) or empty — never seeded from P_old.
+    let applied_offsets = new
+        .map(|record| record.applied_offsets.clone())
+        .unwrap_or_default();
+    let mut redirect_dedup = new
+        .map(|record| record.redirect_dedup.clone())
+        .unwrap_or_default();
+    compose_ancestor_dedup(&mut redirect_dedup, old_person, old);
+
+    MergedRecord {
+        record: Some(StatefulRecord {
+            state: merged_state,
+            applied_offsets,
+            redirect_dedup,
+        }),
+        flip: flip_of(prev_member, next_member),
+    }
+}
+
+/// Keep P_new's record unchanged (composing the ancestor dedup so its stragglers stay replay-safe), or
+/// write nothing when P_new had no record. No flip — P_new's membership is unchanged.
+fn keep_new(old_person: Uuid, old: &StatefulRecord, new: Option<&StatefulRecord>) -> MergedRecord {
+    let record = new.cloned().map(|mut record| {
+        compose_ancestor_dedup(&mut record.redirect_dedup, old_person, old);
+        record
+    });
+    MergedRecord { record, flip: None }
+}
+
+/// Fold P_old's offsets into the merged record's `redirect_dedup`, keyed per ancestor (TDD §4.5.1,
+/// Decision 2). P_old becomes an ancestor under its own uuid; its own ancestors (from an earlier
+/// chained merge) carry forward under their original origins — keyed, not unioned, so a chain's
+/// straggler dedups against the right map.
+fn compose_ancestor_dedup(
+    redirect_dedup: &mut BTreeMap<Uuid, AppliedOffsets>,
+    old_person: Uuid,
+    old: &StatefulRecord,
+) {
+    redirect_dedup
+        .entry(old_person)
+        .or_default()
+        .merge_max(&old.applied_offsets);
+    for (ancestor, offsets) in &old.redirect_dedup {
+        redirect_dedup
+            .entry(*ancestor)
+            .or_default()
+            .merge_max(offsets);
+    }
+}
+
+/// Merge two same-variant behavioral states (both present). [`None`] on a structural desync the caller
+/// counts and skips (only reachable for a daily array whose length disagrees with the window).
+fn merge_behavioral_pair(
+    meta: &LeafStateMeta,
+    old: &Stage1State,
+    new: &Stage1State,
+    tz: Tz,
+) -> Option<Stage1State> {
+    match (old, new) {
+        (
+            Stage1State::BehavioralSingle {
+                last_event_at_ms: old_last,
+                earliest_eviction_at_ms: old_deadline,
+                ..
+            },
+            Stage1State::BehavioralSingle {
+                last_event_at_ms: new_last,
+                earliest_eviction_at_ms: new_deadline,
+                ..
+            },
+        ) => Some(Stage1State::BehavioralSingle {
+            // `has_match` ORs (both are `true` by construction); the deadline is the longest-surviving.
+            has_match: true,
+            last_event_at_ms: (*old_last).max(*new_last),
+            earliest_eviction_at_ms: (*old_deadline).max(*new_deadline),
+        }),
+
+        (
+            Stage1State::BehavioralDailyBuckets {
+                buckets: old_buckets,
+                window_start_day: old_start,
+                last_event_at_ms: old_last,
+                ..
+            },
+            Stage1State::BehavioralDailyBuckets {
+                buckets: new_buckets,
+                window_start_day: new_start,
+                last_event_at_ms: new_last,
+                ..
+            },
+        ) => {
+            let window_days = meta
+                .window_days
+                .unwrap_or_else(|| old_buckets.len().saturating_sub(1) as u32);
+            let expected_len = daily_bucket_len(window_days);
+            if old_buckets.len() != expected_len || new_buckets.len() != expected_len {
+                return None; // length desync — caller keeps new
+            }
+            let (buckets, window_start_day) = align_and_sum(
+                old_buckets,
+                *old_start,
+                new_buckets,
+                *new_start,
+                window_days,
+            );
+            let earliest_eviction_at_ms =
+                daily_eviction_deadline(&buckets, window_start_day, window_days, tz);
+            Some(Stage1State::BehavioralDailyBuckets {
+                buckets,
+                window_start_day,
+                last_event_at_ms: (*old_last).max(*new_last),
+                earliest_eviction_at_ms,
+            })
+        }
+
+        (
+            Stage1State::BehavioralCompressedHistory {
+                entries: old_entries,
+                window_start_day: old_start,
+                last_event_at_ms: old_last,
+                ..
+            },
+            Stage1State::BehavioralCompressedHistory {
+                entries: new_entries,
+                window_start_day: new_start,
+                last_event_at_ms: new_last,
+                ..
+            },
+        ) => {
+            let window_days = meta.window_days.unwrap_or(0);
+            let (entries, window_start_day) =
+                union_by_day(old_entries, *old_start, new_entries, *new_start);
+            let earliest_eviction_at_ms = compressed_eviction_deadline(&entries, window_days, tz);
+            Some(Stage1State::BehavioralCompressedHistory {
+                entries,
+                window_start_day,
+                last_event_at_ms: (*old_last).max(*new_last),
+                earliest_eviction_at_ms,
+            })
+        }
+
+        // Variant pre-verified equal above, so a mismatched pair here is unreachable; keep new.
+        _ => Some(new.clone()),
+    }
+}
+
+fn flip_of(prev_member: bool, next_member: bool) -> Option<TransitionKind> {
+    match (prev_member, next_member) {
+        (false, true) => Some(TransitionKind::Entered),
+        (true, false) => Some(TransitionKind::Left),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono_tz::UTC;
+
+    use crate::stage1::pick_state::{EvictionWindow, PredicateOp};
+
+    const TZ: Tz = UTC;
+
+    fn uuid(n: u128) -> Uuid {
+        Uuid::from_u128(n)
+    }
+
+    fn single_meta() -> LeafStateMeta {
+        LeafStateMeta {
+            variant: StateVariant::BehavioralSingle,
+            condition_hash: [0; 16],
+            window: Some(EvictionWindow::RelativeDays { days: 7 }),
+            window_days: None,
+            predicate_op: None,
+        }
+    }
+
+    fn daily_meta(window_days: u32, op: PredicateOp) -> LeafStateMeta {
+        LeafStateMeta {
+            variant: StateVariant::BehavioralDailyBuckets,
+            condition_hash: [0; 16],
+            window: None,
+            window_days: Some(window_days),
+            predicate_op: Some(op),
+        }
+    }
+
+    fn compressed_meta(window_days: u32, op: PredicateOp) -> LeafStateMeta {
+        LeafStateMeta {
+            variant: StateVariant::BehavioralCompressedHistory,
+            window_days: Some(window_days),
+            predicate_op: Some(op),
+            ..single_meta()
+        }
+    }
+
+    fn person_meta() -> LeafStateMeta {
+        LeafStateMeta {
+            variant: StateVariant::PersonProperty,
+            condition_hash: [0; 16],
+            window: None,
+            window_days: None,
+            predicate_op: None,
+        }
+    }
+
+    fn single(last: i64, deadline: i64) -> StatefulRecord {
+        StatefulRecord::new(
+            Stage1State::BehavioralSingle {
+                has_match: true,
+                last_event_at_ms: last,
+                earliest_eviction_at_ms: deadline,
+            },
+            AppliedOffsets::default(),
+        )
+    }
+
+    fn daily(buckets: Vec<u32>, window_start_day: i32) -> StatefulRecord {
+        StatefulRecord::new(
+            Stage1State::BehavioralDailyBuckets {
+                buckets,
+                window_start_day,
+                last_event_at_ms: 1_000,
+                earliest_eviction_at_ms: i64::MAX,
+            },
+            AppliedOffsets::default(),
+        )
+    }
+
+    fn compressed(entries: Vec<(i32, u32)>, window_start_day: i32) -> StatefulRecord {
+        StatefulRecord::new(
+            Stage1State::BehavioralCompressedHistory {
+                entries,
+                window_start_day,
+                last_event_at_ms: 1_000,
+                earliest_eviction_at_ms: i64::MAX,
+            },
+            AppliedOffsets::default(),
+        )
+    }
+
+    fn person(matches: bool, last: i64) -> StatefulRecord {
+        StatefulRecord::new(
+            Stage1State::PersonProperty {
+                matches,
+                last_updated_at_ms: last,
+                last_updated_offset: 0,
+            },
+            AppliedOffsets::default(),
+        )
+    }
+
+    fn applied(entries: &[(i32, i64)]) -> AppliedOffsets {
+        let mut applied = AppliedOffsets::default();
+        for &(partition, offset) in entries {
+            applied.record(partition, offset);
+        }
+        applied
+    }
+
+    // ── BehavioralSingle ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn single_ors_match_and_maxes_the_deadline() {
+        let merged = merge_records(
+            uuid(1),
+            &single(100, 500),
+            Some(&single(200, 400)),
+            &single_meta(),
+            TZ,
+        );
+        match merged.record.unwrap().state {
+            Stage1State::BehavioralSingle {
+                has_match,
+                last_event_at_ms,
+                earliest_eviction_at_ms,
+            } => {
+                assert!(has_match);
+                assert_eq!(last_event_at_ms, 200, "max of the two last-event times");
+                assert_eq!(earliest_eviction_at_ms, 500, "longest-surviving deadline");
+            }
+            other => panic!("expected single, got {other:?}"),
+        }
+        assert_eq!(merged.flip, None, "both sides were already members");
+    }
+
+    #[test]
+    fn single_into_absent_new_migrates_and_enters() {
+        let merged = merge_records(uuid(1), &single(100, 500), None, &single_meta(), TZ);
+        assert_eq!(
+            merged.flip,
+            Some(TransitionKind::Entered),
+            "P_new had no single, so inheriting P_old's makes it a member",
+        );
+        assert!(matches!(
+            merged.record.unwrap().state,
+            Stage1State::BehavioralSingle {
+                has_match: true,
+                ..
+            }
+        ));
+    }
+
+    // ── BehavioralDailyBuckets ───────────────────────────────────────────────────
+
+    #[test]
+    fn daily_aligns_and_sums_per_the_worked_example() {
+        // Acceptance #9 end-to-end through merge_records: window_days 6, the §4.5.1 worked example.
+        let meta = daily_meta(6, PredicateOp::Gte(1));
+        let merged = merge_records(
+            uuid(1),
+            &daily(vec![2, 0, 1, 3, 0, 1, 5], 19_500),
+            Some(&daily(vec![0, 1, 2, 0, 1, 0, 4], 19_501)),
+            &meta,
+            TZ,
+        );
+        match merged.record.unwrap().state {
+            Stage1State::BehavioralDailyBuckets {
+                buckets,
+                window_start_day,
+                ..
+            } => {
+                assert_eq!(buckets, vec![0, 2, 5, 0, 2, 5, 4]);
+                assert_eq!(window_start_day, 19_501);
+            }
+            other => panic!("expected daily, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn daily_count_crossing_the_threshold_enters() {
+        // gte 3: P_old has 2 on its now-day, P_new has 1 on the same day → merged 3 ⇒ Entered.
+        let meta = daily_meta(2, PredicateOp::Gte(3));
+        let merged = merge_records(
+            uuid(1),
+            &daily(vec![0, 0, 2], 100),
+            Some(&daily(vec![0, 0, 1], 100)),
+            &meta,
+            TZ,
+        );
+        assert_eq!(merged.flip, Some(TransitionKind::Entered));
+        match merged.record.unwrap().state {
+            Stage1State::BehavioralDailyBuckets { buckets, .. } => {
+                assert_eq!(buckets, vec![0, 0, 3])
+            }
+            other => panic!("expected daily, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn daily_length_desync_keeps_new() {
+        // A stored array shorter than the window is a desync: keep P_new, migrate nothing.
+        let meta = daily_meta(7, PredicateOp::Gte(1)); // expects length 8
+        let old = daily(vec![1, 2, 3], 100); // wrong length
+        let new = daily(vec![0u32; 8], 100);
+        let merged = merge_records(uuid(1), &old, Some(&new), &meta, TZ);
+        assert_eq!(merged.flip, None);
+        match merged.record.unwrap().state {
+            Stage1State::BehavioralDailyBuckets { buckets, .. } => {
+                assert_eq!(buckets.len(), 8, "kept P_new's well-formed array")
+            }
+            other => panic!("expected daily, got {other:?}"),
+        }
+    }
+
+    // ── BehavioralCompressedHistory ──────────────────────────────────────────────
+
+    #[test]
+    fn compressed_unions_by_day_and_sums_shared_days() {
+        let meta = compressed_meta(365, PredicateOp::Gte(1));
+        let merged = merge_records(
+            uuid(1),
+            &compressed(vec![(100, 2), (200, 1)], 50),
+            Some(&compressed(vec![(150, 3), (200, 4)], 60)),
+            &meta,
+            TZ,
+        );
+        match merged.record.unwrap().state {
+            Stage1State::BehavioralCompressedHistory {
+                entries,
+                window_start_day,
+                ..
+            } => {
+                assert_eq!(entries, vec![(100, 2), (150, 3), (200, 5)]);
+                assert_eq!(window_start_day, 60, "the more recent anchor");
+            }
+            other => panic!("expected compressed, got {other:?}"),
+        }
+    }
+
+    // ── PersonProperty ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn person_property_keeps_new_and_drops_old() {
+        // P_old true, P_new false: the merged record stays P_new's `false` (D6 drops P_old's bit).
+        let merged = merge_records(
+            uuid(1),
+            &person(true, 100),
+            Some(&person(false, 200)),
+            &person_meta(),
+            TZ,
+        );
+        assert_eq!(merged.flip, None);
+        assert!(matches!(
+            merged.record.unwrap().state,
+            Stage1State::PersonProperty { matches: false, .. }
+        ));
+    }
+
+    #[test]
+    fn person_property_with_absent_new_writes_nothing() {
+        // P_new never had this person-property leaf: write nothing — re-evaluated on its next event.
+        let merged = merge_records(uuid(1), &person(true, 100), None, &person_meta(), TZ);
+        assert_eq!(merged.record, None, "no state migrated for P_new");
+        assert_eq!(merged.flip, None);
+    }
+
+    // ── dedup composition (Decision 2) ───────────────────────────────────────────
+
+    #[test]
+    fn merged_record_keeps_p_news_main_map_and_adds_an_ancestor_entry() {
+        let mut old = single(100, 500);
+        old.applied_offsets = applied(&[(5, 100), (6, 7)]);
+        let mut new = single(200, 400);
+        new.applied_offsets = applied(&[(5, 50)]);
+
+        let merged = merge_records(uuid(0xA11CE), &old, Some(&new), &single_meta(), TZ)
+            .record
+            .unwrap();
+        // Main map is P_new's, untouched (still {5:50}); never seeded from P_old's {5:100}.
+        assert!(merged.applied_offsets.is_replay(5, 50));
+        assert!(
+            !merged.applied_offsets.is_replay(5, 51),
+            "P_new's main high-water mark stays at 50, not P_old's 100",
+        );
+        // P_old becomes an ancestor under its own uuid, carrying its pre-merge offsets.
+        let ancestor = &merged.redirect_dedup[&uuid(0xA11CE)];
+        assert!(ancestor.is_replay(5, 100) && ancestor.is_replay(6, 7));
+        assert!(!ancestor.is_replay(5, 101));
+    }
+
+    #[test]
+    fn chained_merge_carries_grandparent_ancestry_keyed() {
+        // P_old itself absorbed an earlier ancestor (a grandparent of P_new). Both P_old and the
+        // grandparent must appear as distinct redirect_dedup keys — per-ancestor, not unioned.
+        let grandparent = uuid(0x6172);
+        let p_old = uuid(0xA11CE);
+        let mut old = single(100, 500);
+        old.applied_offsets = applied(&[(5, 100)]);
+        old.redirect_dedup.insert(grandparent, applied(&[(9, 42)]));
+
+        let new = single(200, 400);
+        let merged = merge_records(p_old, &old, Some(&new), &single_meta(), TZ)
+            .record
+            .unwrap();
+        assert!(
+            merged.redirect_dedup[&p_old].is_replay(5, 100),
+            "P_old is an ancestor under its own uuid",
+        );
+        assert!(
+            merged.redirect_dedup[&grandparent].is_replay(9, 42),
+            "P_old's own ancestor carries forward under the grandparent's origin",
+        );
+    }
+
+    #[test]
+    fn variant_mismatch_keeps_new_defensively() {
+        // meta says single, but P_old's stored state is a person property (a desync): keep P_new.
+        let merged = merge_records(
+            uuid(1),
+            &person(true, 100),
+            Some(&single(200, 400)),
+            &single_meta(),
+            TZ,
+        );
+        assert_eq!(merged.flip, None);
+        assert!(
+            matches!(
+                merged.record.unwrap().state,
+                Stage1State::BehavioralSingle { .. }
+            ),
+            "P_new's single is kept; P_old's mismatched state is not migrated",
+        );
+    }
+
+    // ── merge-then-fold ≡ fold-then-merge (Single) ───────────────────────────────
+
+    #[test]
+    fn single_merge_then_fold_equals_fold_then_merge() {
+        // For BehavioralSingle the OR/max merge commutes with a later matching fold: merging then
+        // seeing a newer event yields the same has_match/last_event as folding that event first.
+        let old = single(100, 500);
+        let new = single(200, 400);
+
+        // merge-then-fold: merge, then a newer event bumps last_event to 300.
+        let merged = merge_records(uuid(1), &old, Some(&new), &single_meta(), TZ)
+            .record
+            .unwrap();
+        let (m_match, m_last) = match merged.state {
+            Stage1State::BehavioralSingle {
+                has_match,
+                last_event_at_ms,
+                ..
+            } => (has_match, last_event_at_ms.max(300)),
+            other => panic!("expected single, got {other:?}"),
+        };
+
+        // fold-then-merge: fold the newer event into new first (last_event 300), then merge.
+        let new_folded = single(300, 400);
+        let merged2 = merge_records(uuid(1), &old, Some(&new_folded), &single_meta(), TZ)
+            .record
+            .unwrap();
+        let (f_match, f_last) = match merged2.state {
+            Stage1State::BehavioralSingle {
+                has_match,
+                last_event_at_ms,
+                ..
+            } => (has_match, last_event_at_ms),
+            other => panic!("expected single, got {other:?}"),
+        };
+
+        assert_eq!((m_match, m_last), (f_match, f_last));
+    }
+}

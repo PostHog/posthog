@@ -230,6 +230,7 @@ mod tests {
                 elements_chain: None,
                 source_offset: tag,
                 source_partition: 0,
+                redirected_from: None,
             },
             cse_offset: 0,
         }

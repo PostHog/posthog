@@ -18,7 +18,7 @@ use metrics::{counter, histogram};
 use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext, StreamConsumer};
 use rdkafka::message::Message;
 use rdkafka::{Offset, TopicPartitionList};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
 use crate::filters::manager::CatalogHandle;
@@ -50,7 +50,7 @@ const RECV_ERROR_BACKOFF: Duration = Duration::from_millis(500);
 /// parses them lazily so a malformed payload can skip a single event without failing the
 /// deserialize. `source_partition` / `source_offset` are the upstream coordinates Stage 1 uses for
 /// replay-safe counter increments.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CohortStreamEvent {
     pub team_id: i32,
     pub person_id: String,
@@ -65,6 +65,14 @@ pub struct CohortStreamEvent {
     pub elements_chain: Option<String>,
     pub source_offset: i64,
     pub source_partition: i32,
+    /// The merge *origin* (the first person in a tombstone chain), set when a post-merge straggler is
+    /// redirected to a merged-into person (TDD §4.5.1). `None` for a normal shuffler event. Stage 1
+    /// routes the fold's replay-dedup through this: `Some(origin)` ⇒ the merged record's
+    /// `redirect_dedup[origin]`, never the main map (closes the double-fold hazard). Serde-default so a
+    /// shuffler envelope without the field deserializes to `None`. Dormant until C2 writes tombstones —
+    /// only the same-partition inline rewrite in `handle_event` stamps it in C1.
+    #[serde(default)]
+    pub redirected_from: Option<String>,
 }
 
 /// One event consumed from `cohort_stream_events`, paired with its position on that topic.
@@ -704,6 +712,45 @@ mod tests {
     }
 
     #[test]
+    fn shuffler_envelope_without_redirected_from_deserializes_to_none() {
+        // The shuffler does not emit `redirected_from`; the serde default must read it as `None` so
+        // the field is dormant on every normal event.
+        let value = json!({
+            "team_id": 7,
+            "person_id": "p",
+            "distinct_id": "d",
+            "uuid": "u",
+            "event": "$pageview",
+            "timestamp": BASE_TS,
+            "properties": null,
+            "person_properties": null,
+            "elements_chain": null,
+            "source_offset": 0,
+            "source_partition": 0,
+        });
+        let event: CohortStreamEvent = serde_json::from_slice(&serde_json::to_vec(&value).unwrap())
+            .expect("an envelope without redirected_from deserializes");
+        assert!(event.redirected_from.is_none());
+    }
+
+    #[test]
+    fn redirected_from_round_trips_for_the_c2_re_produce() {
+        // The cross-partition redirect re-produces an event with `redirected_from` set; it must
+        // survive a serialize→deserialize round trip (the Serialize derive added for that path).
+        let event = matching_event(Uuid::from_u128(1), 3, 9);
+        let with_origin = CohortStreamEvent {
+            redirected_from: Some("01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string()),
+            ..event
+        };
+        let bytes = serde_json::to_vec(&with_origin).unwrap();
+        let decoded: CohortStreamEvent = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            decoded.redirected_from.as_deref(),
+            Some("01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+        );
+    }
+
+    #[test]
     fn envelope_round_trips_through_wire_bytes() {
         // Covers the `from_slice` path the consumer actually uses (not `from_value`), catching a
         // number-as-string regression in the shuffler's output.
@@ -841,6 +888,7 @@ mod tests {
             elements_chain: None,
             source_offset,
             source_partition,
+            redirected_from: None,
         }
     }
 

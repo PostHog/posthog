@@ -11,12 +11,22 @@ use uuid::Uuid;
 use super::rocks::StoreError;
 use crate::stage1::key::{LeafStateKey, Stage1Key};
 
-/// `[partition_id u16][team_id u64][leaf_state_key 16][person_id 16]`.
+/// `[partition_id u16][team_id u64][leaf_state_key 16][person_id 16]`. The longest state key; the
+/// merge-protocol keys below are all shorter, so [`partition_range`]'s max-sentinel still dominates
+/// them.
 pub const STAGE1_KEY_LEN: usize = 2 + 8 + 16 + 16;
 /// `[partition_id u16][team_id u64][person_id 16]`.
 pub const PERSON_INDEX_KEY_LEN: usize = 2 + 8 + 16;
 /// `[partition_id u16][team_id u64][cohort_id u64][person_id 16]`.
 pub const STAGE2_KEY_LEN: usize = 2 + 8 + 8 + 16;
+/// `[partition_id u16][team_id u64][old_person 16][merge_msg_partition u32][merge_msg_offset u64]`.
+pub const MERGE_DRAIN_KEY_LEN: usize = 2 + 8 + 16 + 4 + 8;
+/// `[partition_id u16][team_id u64][old_person 16]`.
+pub const PENDING_TRANSFER_KEY_LEN: usize = 2 + 8 + 16;
+/// `[partition_id u16][team_id u64][new_person 16][transfer_partition u32][transfer_offset u64]`.
+pub const MERGE_APPLIED_KEY_LEN: usize = 2 + 8 + 16 + 4 + 8;
+/// `[partition_id u16][team_id u64][person 16]`.
+pub const TOMBSTONE_KEY_LEN: usize = 2 + 8 + 16;
 
 /// `cf_person_index` key: a person's Stage 1 leaf states live under this prefix.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -33,6 +43,49 @@ pub struct Stage2Key {
     pub team_id: u64,
     pub cohort_id: u64,
     pub person_id: Uuid,
+}
+
+/// `cf_merge_drains_applied` key (TDD §4.5.1): the Phase 1 idempotence marker for one merge message.
+/// The Kafka coordinates of the triggering `KAFKA_PERSON_MERGE_EVENTS` message disambiguate a replay.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct MergeDrainKey {
+    pub partition_id: u16,
+    pub team_id: u64,
+    pub old_person: Uuid,
+    /// Kafka partition of the merge message. Non-negative; encoded as BE `u32` (see the sign-trap doc).
+    pub merge_msg_partition: i32,
+    /// Kafka offset of the merge message. Non-negative; encoded as BE `u64`.
+    pub merge_msg_offset: i64,
+}
+
+/// `cf_pending_transfers` key (TDD §4.5.1): the Phase 1 outbox slot for a person's drained state, one
+/// per `(team, P_old)` so a re-drain overwrites rather than accumulates.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct PendingTransferKey {
+    pub partition_id: u16,
+    pub team_id: u64,
+    pub old_person: Uuid,
+}
+
+/// `cf_merge_applied` key (TDD §4.5.1): the Phase 2 idempotence marker for one transfer message,
+/// disambiguated by the `cohort_merge_state_transfer` message's Kafka coordinates.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct MergeAppliedKey {
+    pub partition_id: u16,
+    pub team_id: u64,
+    pub new_person: Uuid,
+    /// Kafka partition of the transfer message. Non-negative; encoded as BE `u32`.
+    pub transfer_partition: i32,
+    /// Kafka offset of the transfer message. Non-negative; encoded as BE `u64`.
+    pub transfer_offset: i64,
+}
+
+/// `cf_merge_tombstones` key (TDD §4.5.1): the redirect marker for a merged-away person.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct TombstoneKey {
+    pub partition_id: u16,
+    pub team_id: u64,
+    pub person: Uuid,
 }
 
 impl Stage1Key {
@@ -96,6 +149,92 @@ impl Stage2Key {
     }
 }
 
+impl MergeDrainKey {
+    pub fn encode(&self) -> [u8; MERGE_DRAIN_KEY_LEN] {
+        let mut out = [0u8; MERGE_DRAIN_KEY_LEN];
+        out[0..2].copy_from_slice(&self.partition_id.to_be_bytes());
+        out[2..10].copy_from_slice(&self.team_id.to_be_bytes());
+        out[10..26].copy_from_slice(self.old_person.as_bytes());
+        // Kafka coords are non-negative, so the unsigned BE encoding preserves order (same sign-trap
+        // reasoning as `team_id`); the decode reverses the cast exactly for any in-range value.
+        out[26..30].copy_from_slice(&(self.merge_msg_partition as u32).to_be_bytes());
+        out[30..38].copy_from_slice(&(self.merge_msg_offset as u64).to_be_bytes());
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, StoreError> {
+        check_len(bytes, MERGE_DRAIN_KEY_LEN, "merge_drain")?;
+        Ok(Self {
+            partition_id: u16::from_be_bytes(array2(&bytes[0..2])),
+            team_id: u64::from_be_bytes(array8(&bytes[2..10])),
+            old_person: Uuid::from_bytes(array16(&bytes[10..26])),
+            merge_msg_partition: u32::from_be_bytes(array4(&bytes[26..30])) as i32,
+            merge_msg_offset: u64::from_be_bytes(array8(&bytes[30..38])) as i64,
+        })
+    }
+}
+
+impl PendingTransferKey {
+    pub fn encode(&self) -> [u8; PENDING_TRANSFER_KEY_LEN] {
+        let mut out = [0u8; PENDING_TRANSFER_KEY_LEN];
+        out[0..2].copy_from_slice(&self.partition_id.to_be_bytes());
+        out[2..10].copy_from_slice(&self.team_id.to_be_bytes());
+        out[10..26].copy_from_slice(self.old_person.as_bytes());
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, StoreError> {
+        check_len(bytes, PENDING_TRANSFER_KEY_LEN, "pending_transfer")?;
+        Ok(Self {
+            partition_id: u16::from_be_bytes(array2(&bytes[0..2])),
+            team_id: u64::from_be_bytes(array8(&bytes[2..10])),
+            old_person: Uuid::from_bytes(array16(&bytes[10..26])),
+        })
+    }
+}
+
+impl MergeAppliedKey {
+    pub fn encode(&self) -> [u8; MERGE_APPLIED_KEY_LEN] {
+        let mut out = [0u8; MERGE_APPLIED_KEY_LEN];
+        out[0..2].copy_from_slice(&self.partition_id.to_be_bytes());
+        out[2..10].copy_from_slice(&self.team_id.to_be_bytes());
+        out[10..26].copy_from_slice(self.new_person.as_bytes());
+        out[26..30].copy_from_slice(&(self.transfer_partition as u32).to_be_bytes());
+        out[30..38].copy_from_slice(&(self.transfer_offset as u64).to_be_bytes());
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, StoreError> {
+        check_len(bytes, MERGE_APPLIED_KEY_LEN, "merge_applied")?;
+        Ok(Self {
+            partition_id: u16::from_be_bytes(array2(&bytes[0..2])),
+            team_id: u64::from_be_bytes(array8(&bytes[2..10])),
+            new_person: Uuid::from_bytes(array16(&bytes[10..26])),
+            transfer_partition: u32::from_be_bytes(array4(&bytes[26..30])) as i32,
+            transfer_offset: u64::from_be_bytes(array8(&bytes[30..38])) as i64,
+        })
+    }
+}
+
+impl TombstoneKey {
+    pub fn encode(&self) -> [u8; TOMBSTONE_KEY_LEN] {
+        let mut out = [0u8; TOMBSTONE_KEY_LEN];
+        out[0..2].copy_from_slice(&self.partition_id.to_be_bytes());
+        out[2..10].copy_from_slice(&self.team_id.to_be_bytes());
+        out[10..26].copy_from_slice(self.person.as_bytes());
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, StoreError> {
+        check_len(bytes, TOMBSTONE_KEY_LEN, "tombstone")?;
+        Ok(Self {
+            partition_id: u16::from_be_bytes(array2(&bytes[0..2])),
+            team_id: u64::from_be_bytes(array8(&bytes[2..10])),
+            person: Uuid::from_bytes(array16(&bytes[10..26])),
+        })
+    }
+}
+
 pub fn partition_prefix(partition_id: u16) -> [u8; 2] {
     partition_id.to_be_bytes()
 }
@@ -129,6 +268,11 @@ fn check_len(bytes: &[u8], expected: usize, kind: &'static str) -> Result<(), St
 // Callers slice after `check_len`, so `copy_from_slice` cannot panic on a length mismatch.
 fn array2(s: &[u8]) -> [u8; 2] {
     let mut a = [0u8; 2];
+    a.copy_from_slice(s);
+    a
+}
+fn array4(s: &[u8]) -> [u8; 4] {
+    let mut a = [0u8; 4];
     a.copy_from_slice(s);
     a
 }
@@ -299,5 +443,157 @@ mod tests {
         let (_start, end) = partition_range(u16::MAX);
         // The sentinel must dominate even the (unreachable) all-0xFF key.
         assert!([0xFFu8; STAGE1_KEY_LEN].as_slice() < end.as_slice());
+    }
+
+    // ── merge-protocol keys (TDD §4.5.1) ──────────────────────────────────────────
+
+    #[test]
+    fn merge_key_lengths_are_exact_and_within_the_stage1_bound() {
+        assert_eq!(MERGE_DRAIN_KEY_LEN, 38);
+        assert_eq!(PENDING_TRANSFER_KEY_LEN, 26);
+        assert_eq!(MERGE_APPLIED_KEY_LEN, 38);
+        assert_eq!(TOMBSTONE_KEY_LEN, 26);
+        // The `partition_range` max-sentinel is `STAGE1_KEY_LEN + 1` long, so it dominates any merge
+        // key only while each is ≤ STAGE1_KEY_LEN.
+        for len in [
+            MERGE_DRAIN_KEY_LEN,
+            PENDING_TRANSFER_KEY_LEN,
+            MERGE_APPLIED_KEY_LEN,
+            TOMBSTONE_KEY_LEN,
+        ] {
+            assert!(len <= STAGE1_KEY_LEN, "{len} exceeds STAGE1_KEY_LEN");
+        }
+
+        let drain = MergeDrainKey {
+            partition_id: 1,
+            team_id: 2,
+            old_person: person(3),
+            merge_msg_partition: 4,
+            merge_msg_offset: 5,
+        };
+        assert_eq!(drain.encode().len(), MERGE_DRAIN_KEY_LEN);
+        assert_eq!(
+            PendingTransferKey {
+                partition_id: 1,
+                team_id: 2,
+                old_person: person(3),
+            }
+            .encode()
+            .len(),
+            PENDING_TRANSFER_KEY_LEN,
+        );
+        assert_eq!(
+            MergeAppliedKey {
+                partition_id: 1,
+                team_id: 2,
+                new_person: person(3),
+                transfer_partition: 4,
+                transfer_offset: 5,
+            }
+            .encode()
+            .len(),
+            MERGE_APPLIED_KEY_LEN,
+        );
+        assert_eq!(
+            TombstoneKey {
+                partition_id: 1,
+                team_id: 2,
+                person: person(3),
+            }
+            .encode()
+            .len(),
+            TOMBSTONE_KEY_LEN,
+        );
+    }
+
+    #[test]
+    fn merge_drain_key_round_trips_including_kafka_coords() {
+        let key = MergeDrainKey {
+            partition_id: 0xBEEF,
+            team_id: 0x0123_4567_89AB_CDEF,
+            old_person: person(0xDEAD_BEEF),
+            merge_msg_partition: 63,
+            merge_msg_offset: 0x7FFF_FFFF_FFFF_FFFE,
+        };
+        assert_eq!(MergeDrainKey::decode(&key.encode()).unwrap(), key);
+    }
+
+    #[test]
+    fn merge_applied_key_round_trips_including_kafka_coords() {
+        let key = MergeAppliedKey {
+            partition_id: 7,
+            team_id: 42,
+            new_person: person(0xC0FFEE),
+            transfer_partition: 17,
+            transfer_offset: 12345,
+        };
+        assert_eq!(MergeAppliedKey::decode(&key.encode()).unwrap(), key);
+    }
+
+    #[test]
+    fn pending_transfer_and_tombstone_keys_round_trip() {
+        let pending = PendingTransferKey {
+            partition_id: 9,
+            team_id: 100,
+            old_person: person(0xFEED),
+        };
+        assert_eq!(
+            PendingTransferKey::decode(&pending.encode()).unwrap(),
+            pending
+        );
+
+        let tombstone = TombstoneKey {
+            partition_id: 9,
+            team_id: 100,
+            person: person(0xFACE),
+        };
+        assert_eq!(
+            TombstoneKey::decode(&tombstone.encode()).unwrap(),
+            tombstone
+        );
+    }
+
+    #[test]
+    fn merge_drain_decode_rejects_wrong_length() {
+        let err = MergeDrainKey::decode(&[0u8; 37]).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                StoreError::KeyDecode {
+                    kind: "merge_drain",
+                    expected: 38,
+                    actual: 37
+                }
+            ),
+            "unexpected error: {err:?}",
+        );
+    }
+
+    #[test]
+    fn merge_keys_share_the_partition_prefix_so_delete_range_reclaims_them() {
+        // Each merge key starts with `[partition_id u16][team_id u64]`, so it sorts inside the same
+        // half-open `partition_range` as the state keys and `delete_partition` reclaims it too.
+        for p in [0u16, 5, 256, u16::MAX] {
+            let (start, end) = partition_range(p);
+            let drain = MergeDrainKey {
+                partition_id: p,
+                team_id: u64::MAX,
+                old_person: person(u128::MAX),
+                merge_msg_partition: i32::MAX,
+                merge_msg_offset: i64::MAX,
+            }
+            .encode();
+            let tombstone = TombstoneKey {
+                partition_id: p,
+                team_id: 0,
+                person: person(0),
+            }
+            .encode();
+            assert!(
+                start.as_slice() <= tombstone.as_slice(),
+                "start>min at p={p}"
+            );
+            assert!(drain.as_slice() < end.as_slice(), "max>=end at p={p}");
+        }
     }
 }

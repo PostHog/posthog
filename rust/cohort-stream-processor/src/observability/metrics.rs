@@ -195,6 +195,24 @@ pub const SWEEP_CYCLE_DURATION_SECONDS: &str = "sweep_cycle_duration_seconds";
 /// eviction *work*, not just membership flips (a daily slide that drops a bucket but keeps the member
 /// is counted here with no transition).
 pub const SWEEP_KEYS_EVICTED_TOTAL: &str = "sweep_keys_evicted_total";
+// ── Cross-partition merge protocol (TDD §4.5.1 / §8.1) ───────────────────────────
+/// Person merges handled, labelled by `path` (`same_partition`|`cross_partition`) (counter). Expect
+/// ~1.6% / ~98.4% in steady state. **Dormant in C1** — nothing routes merge events until C2.
+pub const MERGE_HANDLED_TOTAL: &str = "merge_handled_total";
+/// Drain messages short-circuited by a `cf_merge_drains_applied` hit (counter) — non-zero is normal
+/// under replay/restart.
+pub const MERGE_DRAINS_SKIPPED_REPLAY_TOTAL: &str = "merge_drains_skipped_replay_total";
+/// Transfer messages short-circuited by a `cf_merge_applied` hit (counter) — same as above.
+pub const MERGE_APPLIES_SKIPPED_REPLAY_TOTAL: &str = "merge_applies_skipped_replay_total";
+/// Late events for merged persons that triggered a tombstone redirect, labelled by `path`
+/// (`inline`|`re_keyed`|`cross_partition`) (counter). Closes S6a.
+pub const MERGE_TOMBSTONE_REDIRECTS_TOTAL: &str = "merge_tombstone_redirects_total";
+/// Per-leaf merge work dropped, labelled by `reason` (counter): a variant desync between the two
+/// sides (`variant_mismatch`), an LSK no longer in the catalog (`leaf_drift`), or a stale
+/// `cf_person_index` entry with no backing state (`stale_index`). A defensive guard, near-zero in
+/// steady state.
+pub const MERGE_LEAVES_DROPPED_TOTAL: &str = "merge_leaves_dropped_total";
+
 /// Keys the sweep popped from the queue but did **not** evict, labelled by `reason` (counter). The
 /// conservation counterpart to [`SWEEP_KEYS_EVICTED_TOTAL`]: both are counted only once the tick
 /// commits (a produce/write failure reschedules and re-derives, counting neither), so in steady state

@@ -5,6 +5,8 @@
 //! flipped. Its step order is a parity + replay-idempotence contract preserved from the Node
 //! consumer, and transitions are surfaced only after the commit succeeds.
 
+use std::collections::BTreeMap;
+
 use metrics::counter;
 use uuid::Uuid;
 
@@ -22,7 +24,9 @@ use crate::stage1::compressed_history;
 use crate::stage1::daily::{daily_eviction_deadline, slide_window_forward};
 use crate::stage1::key::{LeafStateKey, Stage1Key};
 use crate::stage1::predicate::{compressed_predicate, daily_predicate, predicate};
-use crate::stage1::state::{AppliedOffsets, Stage1State, StateVariant, StatefulRecord};
+use crate::stage1::state::{
+    dedup_is_replay, dedup_record, AppliedOffsets, Stage1State, StateVariant, StatefulRecord,
+};
 use crate::stage1::time::clickhouse_timestamp_to_millis;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::{CohortStore, IndexOp, PersonIndexKey, StoreError};
@@ -141,6 +145,17 @@ pub fn process_event(
         return Ok(EventOutcome::skipped(SkipReason::UnparseablePersonId));
     };
 
+    // A redirected straggler carries its merge origin (the first person in the tombstone chain). The
+    // fold routes its replay-dedup through `redirect_dedup[origin]` instead of the main map, so a
+    // replayed-then-redirected P_old event can't double-fold and a fresh P_new event on a shared
+    // upstream partition can't be falsely skipped (TDD §4.5.1). An unparseable marker degrades to a
+    // normal event — the worker only ever stamps a valid UUID, so this is defensive.
+    let origin: Option<Uuid> = event
+        .redirected_from
+        .as_deref()
+        .and_then(|raw| Uuid::parse_str(raw).ok());
+    let origin = origin.as_ref();
+
     let has_behavioral = !filters.behavioral_conditions.is_empty();
     let has_person = !filters.person_property_conditions.is_empty();
     if !has_behavioral && !has_person {
@@ -226,6 +241,7 @@ pub fn process_event(
                         apply.lsk(),
                         *condition_hash,
                         person_id,
+                        origin,
                         event,
                         event_ms,
                         prev,
@@ -236,6 +252,7 @@ pub fn process_event(
                             apply.lsk(),
                             *condition_hash,
                             person_id,
+                            origin,
                             event,
                             event_ms,
                             prev,
@@ -246,6 +263,7 @@ pub fn process_event(
                         apply.lsk(),
                         *condition_hash,
                         person_id,
+                        origin,
                         event,
                         event_ms,
                         prev,
@@ -261,6 +279,7 @@ pub fn process_event(
                 *condition_hash,
                 *matches,
                 person_id,
+                origin,
                 event,
                 event_ms,
                 prev,
@@ -326,7 +345,10 @@ pub fn process_event(
 /// The finite eviction deadline to schedule for a just-written state, or [`None`] when it never
 /// evicts (a person-property leaf, an explicit-window single, or an all-zero daily — all carry an
 /// `i64::MAX` "never" sentinel and are left out of the sweep queue).
-fn schedule_deadline(state: &Stage1State) -> Option<i64> {
+///
+/// `pub(crate)` so the merge apply path schedules a merged record's deadline through the same function
+/// the event path uses, keeping the two from drifting.
+pub(crate) fn schedule_deadline(state: &Stage1State) -> Option<i64> {
     let deadline = match state {
         Stage1State::BehavioralSingle {
             earliest_eviction_at_ms,
@@ -421,28 +443,35 @@ fn collect_applies(
 
 /// Fold a behavioral match into a leaf's state. `has_match` is never cleared here, so this never
 /// emits `Left`. [`None`] skips the leaf (replay or unexpected stored variant).
+#[allow(clippy::too_many_arguments)] // origin-aware fold needs the catalog + event coords + prior state
 fn mutate_behavioral(
     filters: &TeamFilters,
     lsk: LeafStateKey,
     condition_hash: [u8; 16],
     person_id: Uuid,
+    origin: Option<&Uuid>,
     event: &CohortStreamEvent,
     event_ms: i64,
     prev: Option<StatefulRecord>,
 ) -> Option<(StatefulRecord, Option<LeafTransition>)> {
-    // Taken by value so the prior offset map moves into the new record instead of cloning on this
-    // per-event hot path. `predicate_before` is read off the prior state here, before the map is
+    // Taken by value so the prior dedup maps move into the new record instead of cloning on this
+    // per-event hot path. `predicate_before` is read off the prior state here, before the maps are
     // moved out; `predicate` is a trivial field read, so computing it on the replay-skip path too
     // is free.
-    let (prev_last_event, predicate_before, mut applied) = match prev {
-        None => (i64::MIN, false, AppliedOffsets::default()),
+    let (prev_last_event, predicate_before, mut applied, mut redirect_dedup) = match prev {
+        None => (i64::MIN, false, AppliedOffsets::default(), BTreeMap::new()),
         Some(record) => {
             // `BehavioralSingle` is op-less, so no `PredicateOp` is needed.
             let predicate_before = predicate(&record.state);
             match record.state {
                 Stage1State::BehavioralSingle {
                     last_event_at_ms, ..
-                } => (last_event_at_ms, predicate_before, record.applied_offsets),
+                } => (
+                    last_event_at_ms,
+                    predicate_before,
+                    record.applied_offsets,
+                    record.redirect_dedup,
+                ),
                 // The LSK pins the variant; a non-behavioral value here means corruption, skip it.
                 _ => {
                     counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
@@ -452,12 +481,26 @@ fn mutate_behavioral(
         }
     };
 
-    if applied.is_replay(event.source_partition, event.source_offset) {
+    // Replay-dedup routed by origin: the main map for a normal event, `redirect_dedup[origin]` for a
+    // redirected straggler.
+    if dedup_is_replay(
+        &applied,
+        &redirect_dedup,
+        origin,
+        event.source_partition,
+        event.source_offset,
+    ) {
         counter!(STAGE1_REPLAY_SKIPPED, "variant" => StateVariant::BehavioralSingle.as_str())
             .increment(1);
         return None;
     }
-    applied.record(event.source_partition, event.source_offset);
+    dedup_record(
+        &mut applied,
+        &mut redirect_dedup,
+        origin,
+        event.source_partition,
+        event.source_offset,
+    );
 
     let last_event_at_ms = prev_last_event.max(event_ms);
     let window = filters.by_lsk.get(&lsk).and_then(|meta| meta.window);
@@ -474,6 +517,7 @@ fn mutate_behavioral(
             earliest_eviction_at_ms,
         },
         applied_offsets: applied,
+        redirect_dedup,
     };
     let transition = if predicate_before {
         None
@@ -495,11 +539,13 @@ fn mutate_behavioral(
 /// The apply path reads **no wall clock**: the event's own calendar day positions it against the
 /// stored window, and `window_start_day` only moves forward. [`None`] skips the leaf (replay, a meta
 /// desync, or an unexpected stored variant).
+#[allow(clippy::too_many_arguments)] // origin-aware fold needs the catalog + event coords + prior state
 fn mutate_behavioral_daily(
     filters: &TeamFilters,
     lsk: LeafStateKey,
     condition_hash: [u8; 16],
     person_id: Uuid,
+    origin: Option<&Uuid>,
     event: &CohortStreamEvent,
     event_ms: i64,
     prev: Option<StatefulRecord>,
@@ -518,40 +564,60 @@ fn mutate_behavioral_daily(
     let tz = filters.timezone;
     let len = daily_bucket_len(window_days); // window_days + 1
 
-    // Taken by value so the prior bucket array and offset map move into the new record instead of
+    // Taken by value so the prior bucket array and dedup maps move into the new record instead of
     // cloning on this per-event hot path.
-    let (prior_buckets, prior_window_start_day, prev_last_event, mut applied) = match prev {
-        // The `0` window_start_day is a throwaway: a `None` prior yields empty buckets, so the
-        // `buckets.is_empty()` seed below recomputes window_start_day and this value is never read.
-        None => (None, 0_i32, i64::MIN, AppliedOffsets::default()),
-        Some(record) => match record.state {
-            Stage1State::BehavioralDailyBuckets {
-                buckets,
-                window_start_day,
-                last_event_at_ms,
-                ..
-            } => (
-                Some(buckets),
-                window_start_day,
-                last_event_at_ms,
-                record.applied_offsets,
+    let (prior_buckets, prior_window_start_day, prev_last_event, mut applied, mut redirect_dedup) =
+        match prev {
+            // The `0` window_start_day is a throwaway: a `None` prior yields empty buckets, so the
+            // `buckets.is_empty()` seed below recomputes window_start_day and this value is never read.
+            None => (
+                None,
+                0_i32,
+                i64::MIN,
+                AppliedOffsets::default(),
+                BTreeMap::new(),
             ),
-            // The LSK pins the variant; a non-bucket value here means corruption, skip it.
-            _ => {
-                counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
-                return None;
-            }
-        },
-    };
+            Some(record) => match record.state {
+                Stage1State::BehavioralDailyBuckets {
+                    buckets,
+                    window_start_day,
+                    last_event_at_ms,
+                    ..
+                } => (
+                    Some(buckets),
+                    window_start_day,
+                    last_event_at_ms,
+                    record.applied_offsets,
+                    record.redirect_dedup,
+                ),
+                // The LSK pins the variant; a non-bucket value here means corruption, skip it.
+                _ => {
+                    counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
+                    return None;
+                }
+            },
+        };
 
     // Replay guard FIRST — the `buckets[i] += 1` fold is not idempotent, so a redelivered offset must
-    // skip before it is folded.
-    if applied.is_replay(event.source_partition, event.source_offset) {
+    // skip before it is folded. Routed by origin (main map vs `redirect_dedup[origin]`).
+    if dedup_is_replay(
+        &applied,
+        &redirect_dedup,
+        origin,
+        event.source_partition,
+        event.source_offset,
+    ) {
         counter!(STAGE1_REPLAY_SKIPPED, "variant" => StateVariant::BehavioralDailyBuckets.as_str())
             .increment(1);
         return None;
     }
-    applied.record(event.source_partition, event.source_offset);
+    dedup_record(
+        &mut applied,
+        &mut redirect_dedup,
+        origin,
+        event.source_partition,
+        event.source_offset,
+    );
 
     // A stored array whose length disagrees with the leaf's window is a format desync (the LSK pins
     // `window_days`, so it shouldn't happen); guard it so the fold can't index out of bounds.
@@ -609,6 +675,7 @@ fn mutate_behavioral_daily(
             earliest_eviction_at_ms,
         },
         applied_offsets: applied,
+        redirect_dedup,
     };
     // A fold crossing the threshold gives `Entered`; a slide draining the buckets gives `Left`.
     let kind = match (predicate_before, predicate_after) {
@@ -634,11 +701,13 @@ fn mutate_behavioral_daily(
 /// The apply path reads **no wall clock**: the event's own calendar day positions it against the
 /// stored window, and `window_start_day` only moves forward. [`None`] skips the leaf (replay, a meta
 /// desync, or an unexpected stored variant).
+#[allow(clippy::too_many_arguments)] // origin-aware fold needs the catalog + event coords + prior state
 fn mutate_behavioral_compressed(
     filters: &TeamFilters,
     lsk: LeafStateKey,
     condition_hash: [u8; 16],
     person_id: Uuid,
+    origin: Option<&Uuid>,
     event: &CohortStreamEvent,
     event_ms: i64,
     prev: Option<StatefulRecord>,
@@ -656,38 +725,58 @@ fn mutate_behavioral_compressed(
     };
     let tz = filters.timezone;
 
-    // Taken by value so the prior entries and offset map move into the new record instead of cloning
+    // Taken by value so the prior entries and dedup maps move into the new record instead of cloning
     // on this per-event path.
-    let (prior_entries, prior_window_start_day, prev_last_event, mut applied) = match prev {
-        None => (None, 0_i32, i64::MIN, AppliedOffsets::default()),
-        Some(record) => match record.state {
-            Stage1State::BehavioralCompressedHistory {
-                entries,
-                window_start_day,
-                last_event_at_ms,
-                ..
-            } => (
-                Some(entries),
-                window_start_day,
-                last_event_at_ms,
-                record.applied_offsets,
+    let (prior_entries, prior_window_start_day, prev_last_event, mut applied, mut redirect_dedup) =
+        match prev {
+            None => (
+                None,
+                0_i32,
+                i64::MIN,
+                AppliedOffsets::default(),
+                BTreeMap::new(),
             ),
-            // The LSK pins the variant; a non-compressed value here means corruption, skip it.
-            _ => {
-                counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
-                return None;
-            }
-        },
-    };
+            Some(record) => match record.state {
+                Stage1State::BehavioralCompressedHistory {
+                    entries,
+                    window_start_day,
+                    last_event_at_ms,
+                    ..
+                } => (
+                    Some(entries),
+                    window_start_day,
+                    last_event_at_ms,
+                    record.applied_offsets,
+                    record.redirect_dedup,
+                ),
+                // The LSK pins the variant; a non-compressed value here means corruption, skip it.
+                _ => {
+                    counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
+                    return None;
+                }
+            },
+        };
 
     // Replay guard FIRST — the insert/increment fold is not idempotent, so a redelivered offset must
-    // skip before it is folded.
-    if applied.is_replay(event.source_partition, event.source_offset) {
+    // skip before it is folded. Routed by origin (main map vs `redirect_dedup[origin]`).
+    if dedup_is_replay(
+        &applied,
+        &redirect_dedup,
+        origin,
+        event.source_partition,
+        event.source_offset,
+    ) {
         counter!(STAGE1_REPLAY_SKIPPED, "variant" => StateVariant::BehavioralCompressedHistory.as_str())
             .increment(1);
         return None;
     }
-    applied.record(event.source_partition, event.source_offset);
+    dedup_record(
+        &mut applied,
+        &mut redirect_dedup,
+        origin,
+        event.source_partition,
+        event.source_offset,
+    );
 
     // `None` prior ⇒ a fresh leaf, so the window anchors on this event's day (mirrors daily's
     // `buckets.is_empty()` seed); an existing record keeps its anchor even if its entries drained.
@@ -741,6 +830,7 @@ fn mutate_behavioral_compressed(
             earliest_eviction_at_ms,
         },
         applied_offsets: applied,
+        redirect_dedup,
     };
     // A fold crossing the threshold gives `Entered`; a slide draining the entries gives `Left`.
     let kind = match (predicate_before, predicate_after) {
@@ -761,46 +851,68 @@ fn mutate_behavioral_compressed(
 /// Fold a person-property evaluation into a leaf's state, guarding against Kafka replay and then
 /// out-of-order events via the event-time argMax tiebreaker. [`None`] skips (replay / unexpected
 /// variant).
+#[allow(clippy::too_many_arguments)] // origin-aware fold needs the catalog + event coords + prior state
 fn mutate_person(
     lsk: LeafStateKey,
     condition_hash: [u8; 16],
     matches: bool,
     person_id: Uuid,
+    origin: Option<&Uuid>,
     event: &CohortStreamEvent,
     event_ms: i64,
     prev: Option<StatefulRecord>,
 ) -> Option<(StatefulRecord, Option<LeafTransition>)> {
-    // Taken by value so the prior offset map moves into the new record instead of cloning on this
+    // Taken by value so the prior dedup maps move into the new record instead of cloning on this
     // per-event hot path.
-    let (prev_matches, prev_updated_at, prev_updated_offset, mut applied) = match prev {
-        None => (false, i64::MIN, i64::MIN, AppliedOffsets::default()),
-        Some(record) => match record.state {
-            Stage1State::PersonProperty {
-                matches,
-                last_updated_at_ms,
-                last_updated_offset,
-            } => (
-                matches,
-                last_updated_at_ms,
-                last_updated_offset,
-                record.applied_offsets,
+    let (prev_matches, prev_updated_at, prev_updated_offset, mut applied, mut redirect_dedup) =
+        match prev {
+            None => (
+                false,
+                i64::MIN,
+                i64::MIN,
+                AppliedOffsets::default(),
+                BTreeMap::new(),
             ),
-            _ => {
-                counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
-                return None;
-            }
-        },
-    };
+            Some(record) => match record.state {
+                Stage1State::PersonProperty {
+                    matches,
+                    last_updated_at_ms,
+                    last_updated_offset,
+                } => (
+                    matches,
+                    last_updated_at_ms,
+                    last_updated_offset,
+                    record.applied_offsets,
+                    record.redirect_dedup,
+                ),
+                _ => {
+                    counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
+                    return None;
+                }
+            },
+        };
 
-    if applied.is_replay(event.source_partition, event.source_offset) {
+    if dedup_is_replay(
+        &applied,
+        &redirect_dedup,
+        origin,
+        event.source_partition,
+        event.source_offset,
+    ) {
         counter!(STAGE1_REPLAY_SKIPPED, "variant" => StateVariant::PersonProperty.as_str())
             .increment(1);
         return None;
     }
     // Recorded before the argMax branch so a stale-but-not-replay event still advances the applied
     // offset on both paths. The argMax key's `source_offset` is a within-partition tiebreaker only
-    // (cross-partition replays are already caught by `is_replay` above).
-    applied.record(event.source_partition, event.source_offset);
+    // (cross-partition replays are already caught above). Routed by origin (main vs ancestor map).
+    dedup_record(
+        &mut applied,
+        &mut redirect_dedup,
+        origin,
+        event.source_partition,
+        event.source_offset,
+    );
 
     // Event-time argMax: an event no newer than the last write keeps the prior `matches` but still
     // advances the applied offset, so the same offset isn't reprocessed.
@@ -813,6 +925,7 @@ fn mutate_person(
                 last_updated_offset: prev_updated_offset,
             },
             applied_offsets: applied,
+            redirect_dedup,
         };
         return Some((record, None));
     }
@@ -824,6 +937,7 @@ fn mutate_person(
             last_updated_offset: event.source_offset,
         },
         applied_offsets: applied,
+        redirect_dedup,
     };
     let transition = if matches == prev_matches {
         None

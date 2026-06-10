@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Which state representation a leaf uses; recorded per [`crate::stage1::key::LeafStateKey`] so the
 /// worker can pick the apply path without decoding stored state first.
@@ -147,6 +148,28 @@ impl AppliedOffsets {
             .and_modify(|last| *last = (*last).max(source_offset))
             .or_insert(source_offset);
     }
+
+    /// Fold another map's high-water marks into this one, per-partition max. Used only to compose a
+    /// [`StatefulRecord::redirect_dedup`] entry from an ancestor's offsets at merge time — never on the
+    /// event hot path, so the per-key allocation is acceptable.
+    pub fn merge_max(&mut self, other: &Self) {
+        for (&partition, &offset) in &other.0 {
+            self.record(partition, offset);
+        }
+    }
+
+    /// `true` when no source partition has been seen yet.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// `(source_partition, last_applied_offset)` pairs in ascending partition order. The inner map
+    /// stays private; this is the read accessor the merge composition and its tests use.
+    pub fn iter(&self) -> impl Iterator<Item = (i32, i64)> + '_ {
+        self.0
+            .iter()
+            .map(|(&partition, &offset)| (partition, offset))
+    }
 }
 
 /// The persisted `cf_stage1` value: a [`Stage1State`] plus the per-source-partition offsets already
@@ -155,6 +178,18 @@ impl AppliedOffsets {
 pub struct StatefulRecord {
     pub state: Stage1State,
     pub applied_offsets: AppliedOffsets,
+    /// Per-ancestor replay-dedup for post-merge straggler events redirected from a now-merged-away
+    /// person (TDD §4.5.1). Keyed by the *origin* — the first person in a merge chain — each entry
+    /// holds the offsets already folded from that ancestor's pre-merge events. Consulted/advanced
+    /// **only** for an event carrying a `redirected_from` marker ([`StatefulRecord::is_replay_for`] /
+    /// [`record_for`](StatefulRecord::record_for)); a normal event always uses
+    /// [`applied_offsets`](StatefulRecord::applied_offsets). Empty for every non-merged person, and
+    /// `skip_serializing_if` keeps it off the wire then, so the on-disk form is byte-identical to the
+    /// pre-merge record — no shadow-diff churn and no L11-style deploy break. Per-ancestor keying (not
+    /// a single union) is load-bearing under chained merges. Bounded by a person's merge-chain
+    /// ancestry (never GC'd, but tiny); serde-default so master-era bytes decode to an empty map.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub redirect_dedup: BTreeMap<Uuid, AppliedOffsets>,
 }
 
 /// A failure decoding a stored [`StatefulRecord`]; surfaced (never panicked) so a single corrupt
@@ -164,6 +199,47 @@ pub struct StatefulRecord {
 pub struct StateCodecError(#[from] serde_json::Error);
 
 impl StatefulRecord {
+    /// A record with no redirect-dedup ancestry — the shape every non-merged person carries. Merge
+    /// composition builds the field directly.
+    pub fn new(state: Stage1State, applied_offsets: AppliedOffsets) -> Self {
+        Self {
+            state,
+            applied_offsets,
+            redirect_dedup: BTreeMap::new(),
+        }
+    }
+
+    /// Origin-aware replay check: `None` ⇒ the main [`applied_offsets`](Self::applied_offsets); `Some`
+    /// ⇒ the ancestor's `redirect_dedup` entry (absent ⇒ never a replay). Keeps the main map
+    /// authoritative for fresh events even when an ancestor entry exists.
+    pub fn is_replay_for(
+        &self,
+        origin: Option<&Uuid>,
+        source_partition: i32,
+        source_offset: i64,
+    ) -> bool {
+        dedup_is_replay(
+            &self.applied_offsets,
+            &self.redirect_dedup,
+            origin,
+            source_partition,
+            source_offset,
+        )
+    }
+
+    /// Origin-aware offset advance, routed like [`is_replay_for`](Self::is_replay_for): the main map
+    /// for a normal event, the ancestor's `redirect_dedup` entry (created on demand) for a redirected
+    /// one.
+    pub fn record_for(&mut self, origin: Option<&Uuid>, source_partition: i32, source_offset: i64) {
+        dedup_record(
+            &mut self.applied_offsets,
+            &mut self.redirect_dedup,
+            origin,
+            source_partition,
+            source_offset,
+        );
+    }
+
     /// Infallible for these plain structs — `serde_json` only errors on a refusing `Serialize` or
     /// non-string map keys, neither of which occurs here.
     pub fn encode(&self) -> Vec<u8> {
@@ -173,6 +249,41 @@ impl StatefulRecord {
     /// Garbage bytes and unknown `"v"` tags both yield an [`Err`] (forward-compat), never a panic.
     pub fn decode(bytes: &[u8]) -> Result<Self, StateCodecError> {
         Ok(serde_json::from_slice(bytes)?)
+    }
+}
+
+/// Origin-aware replay check over a moved-out dedup pair — shared by the event path (which moves the
+/// maps out of the prior record to keep its no-clone fold) and [`StatefulRecord::is_replay_for`].
+pub(crate) fn dedup_is_replay(
+    main: &AppliedOffsets,
+    redirect: &BTreeMap<Uuid, AppliedOffsets>,
+    origin: Option<&Uuid>,
+    source_partition: i32,
+    source_offset: i64,
+) -> bool {
+    match origin {
+        None => main.is_replay(source_partition, source_offset),
+        Some(ancestor) => redirect
+            .get(ancestor)
+            .is_some_and(|offsets| offsets.is_replay(source_partition, source_offset)),
+    }
+}
+
+/// Origin-aware offset advance over a moved-out dedup pair — the recording counterpart to
+/// [`dedup_is_replay`].
+pub(crate) fn dedup_record(
+    main: &mut AppliedOffsets,
+    redirect: &mut BTreeMap<Uuid, AppliedOffsets>,
+    origin: Option<&Uuid>,
+    source_partition: i32,
+    source_offset: i64,
+) {
+    match origin {
+        None => main.record(source_partition, source_offset),
+        Some(ancestor) => redirect
+            .entry(*ancestor)
+            .or_default()
+            .record(source_partition, source_offset),
     }
 }
 
@@ -189,49 +300,49 @@ mod tests {
     }
 
     fn behavioral() -> StatefulRecord {
-        StatefulRecord {
-            state: Stage1State::BehavioralSingle {
+        StatefulRecord::new(
+            Stage1State::BehavioralSingle {
                 has_match: true,
                 last_event_at_ms: 1_700_000_000_000,
                 earliest_eviction_at_ms: 1_700_000_000_000 + 7 * 86_400 * 1000,
             },
-            applied_offsets: applied(&[(17, 42)]),
-        }
+            applied(&[(17, 42)]),
+        )
     }
 
     fn person() -> StatefulRecord {
-        StatefulRecord {
-            state: Stage1State::PersonProperty {
+        StatefulRecord::new(
+            Stage1State::PersonProperty {
                 matches: false,
                 last_updated_at_ms: 1_700_000_000_123,
                 last_updated_offset: 99,
             },
-            applied_offsets: applied(&[(3, 100)]),
-        }
+            applied(&[(3, 100)]),
+        )
     }
 
     fn daily() -> StatefulRecord {
-        StatefulRecord {
-            state: Stage1State::BehavioralDailyBuckets {
+        StatefulRecord::new(
+            Stage1State::BehavioralDailyBuckets {
                 buckets: vec![0, 2, 0, 1, 3, 0, 1, 5],
                 window_start_day: 20_600,
                 last_event_at_ms: 1_700_000_000_000,
                 earliest_eviction_at_ms: 1_700_000_000_000 + 7 * 86_400 * 1000,
             },
-            applied_offsets: applied(&[(4, 7), (9, 2)]),
-        }
+            applied(&[(4, 7), (9, 2)]),
+        )
     }
 
     fn compressed() -> StatefulRecord {
-        StatefulRecord {
-            state: Stage1State::BehavioralCompressedHistory {
+        StatefulRecord::new(
+            Stage1State::BehavioralCompressedHistory {
                 entries: vec![(20_240, 2), (20_400, 1), (20_605, 5)],
                 window_start_day: 20_240,
                 last_event_at_ms: 1_700_000_000_000,
                 earliest_eviction_at_ms: 1_700_000_000_000 + 365 * 86_400 * 1000,
             },
-            applied_offsets: applied(&[(4, 7), (9, 2)]),
-        }
+            applied(&[(4, 7), (9, 2)]),
+        )
     }
 
     #[test]
@@ -417,20 +528,159 @@ mod tests {
 
     #[test]
     fn multi_entry_record_round_trips_with_sorted_keys() {
-        let record = StatefulRecord {
-            state: Stage1State::BehavioralSingle {
+        let record = StatefulRecord::new(
+            Stage1State::BehavioralSingle {
                 has_match: true,
                 last_event_at_ms: 1_700_000_000_000,
                 earliest_eviction_at_ms: i64::MAX,
             },
-            applied_offsets: applied(&[(3, 100), (7, 5), (1, 0)]),
-        };
+            applied(&[(3, 100), (7, 5), (1, 0)]),
+        );
         let bytes = record.encode();
         assert_eq!(StatefulRecord::decode(&bytes).unwrap(), record);
         let text = String::from_utf8(bytes).unwrap();
         assert!(
             text.contains(r#""applied_offsets":{"1":0,"3":100,"7":5}"#),
             "applied_offsets must serialize with sorted partition keys, got: {text}",
+        );
+    }
+
+    fn uuid(n: u128) -> Uuid {
+        Uuid::from_u128(n)
+    }
+
+    #[test]
+    fn empty_redirect_dedup_serializes_byte_identical_to_master() {
+        // The byte-stability contract: a record with an empty `redirect_dedup` must serialize exactly
+        // as the pre-merge record did — `skip_serializing_if` drops the field — so the shadow diff
+        // sees no churn and the rolling deploy is not an L11-style format break.
+        let record = StatefulRecord::new(
+            Stage1State::BehavioralSingle {
+                has_match: true,
+                last_event_at_ms: 1_700_000_000_000,
+                earliest_eviction_at_ms: i64::MAX,
+            },
+            applied(&[(3, 100)]),
+        );
+        let text = String::from_utf8(record.encode()).unwrap();
+        assert!(
+            !text.contains("redirect_dedup"),
+            "an empty redirect_dedup must not appear on the wire, got: {text}",
+        );
+        assert_eq!(
+            text,
+            r#"{"state":{"v":"BehavioralSingle","has_match":true,"last_event_at_ms":1700000000000,"earliest_eviction_at_ms":9223372036854775807},"applied_offsets":{"3":100}}"#,
+            "empty-redirect_dedup bytes must match the master-era StatefulRecord form exactly",
+        );
+    }
+
+    #[test]
+    fn master_era_bytes_without_redirect_dedup_decode_to_an_empty_map() {
+        // Forward-compat the other way: bytes written before the field existed (no `redirect_dedup`
+        // key) decode via serde-default to an empty map — no decode error on the rolling deploy.
+        let master = serde_json::json!({
+            "state": {
+                "v": "BehavioralSingle",
+                "has_match": true,
+                "last_event_at_ms": 1_700_000_000_000_i64,
+                "earliest_eviction_at_ms": i64::MAX,
+            },
+            "applied_offsets": { "3": 100 },
+        });
+        let record = StatefulRecord::decode(&serde_json::to_vec(&master).unwrap()).unwrap();
+        assert!(record.redirect_dedup.is_empty());
+        assert_eq!(record.applied_offsets, applied(&[(3, 100)]));
+    }
+
+    #[test]
+    fn non_empty_redirect_dedup_round_trips_per_ancestor() {
+        // A merged person's record carries an ancestor's folded offsets; it must round-trip and serde
+        // the ancestor as a string-keyed map (UUID serde form).
+        let mut record = StatefulRecord::new(
+            Stage1State::BehavioralSingle {
+                has_match: true,
+                last_event_at_ms: 1_700_000_000_000,
+                earliest_eviction_at_ms: i64::MAX,
+            },
+            applied(&[(3, 100)]),
+        );
+        record
+            .redirect_dedup
+            .insert(uuid(0xA11CE), applied(&[(5, 9), (6, 2)]));
+
+        let bytes = record.encode();
+        assert_eq!(StatefulRecord::decode(&bytes).unwrap(), record);
+        let text = String::from_utf8(bytes).unwrap();
+        assert!(
+            text.contains("redirect_dedup"),
+            "a non-empty redirect_dedup must serialize, got: {text}",
+        );
+    }
+
+    #[test]
+    fn merge_max_unions_per_partition_high_water_marks() {
+        let mut into = applied(&[(5, 100), (6, 10)]);
+        into.merge_max(&applied(&[(5, 50), (6, 20), (7, 1)]));
+        // partition 5 keeps its higher 100, 6 advances to 20, 7 is newly seen.
+        assert!(into.is_replay(5, 100));
+        assert!(!into.is_replay(5, 101));
+        assert!(into.is_replay(6, 20));
+        assert!(!into.is_replay(6, 21));
+        assert!(into.is_replay(7, 1));
+    }
+
+    #[test]
+    fn is_replay_for_routes_by_origin() {
+        // The main map dedups normal events; an ancestor's redirect_dedup dedups its redirected
+        // stragglers — and the two are independent (the main map is authoritative for fresh events).
+        let mut record = StatefulRecord::new(
+            Stage1State::PersonProperty {
+                matches: true,
+                last_updated_at_ms: 1,
+                last_updated_offset: 2,
+            },
+            applied(&[(5, 100)]),
+        );
+        let ancestor = uuid(0xA11CE);
+        record.redirect_dedup.insert(ancestor, applied(&[(5, 200)]));
+
+        // origin = None → main map: offset 100 is a replay, 101 is new.
+        assert!(record.is_replay_for(None, 5, 100));
+        assert!(!record.is_replay_for(None, 5, 101));
+        // A fresh main-map event at offset 150 (above main's 100, below the ancestor's 200) still
+        // folds — the ancestor entry does not gate normal events (hazard A).
+        assert!(!record.is_replay_for(None, 5, 150));
+        // origin = Some(ancestor) → redirect_dedup[ancestor]: 200 is a replay, 201 is new (hazard B).
+        assert!(record.is_replay_for(Some(&ancestor), 5, 200));
+        assert!(!record.is_replay_for(Some(&ancestor), 5, 201));
+        // origin = an unknown ancestor → never a replay (no entry yet).
+        assert!(!record.is_replay_for(Some(&uuid(0xBEEF)), 5, 0));
+    }
+
+    #[test]
+    fn record_for_routes_by_origin_and_creates_entries_on_demand() {
+        let mut record = StatefulRecord::new(
+            Stage1State::PersonProperty {
+                matches: true,
+                last_updated_at_ms: 1,
+                last_updated_offset: 2,
+            },
+            AppliedOffsets::default(),
+        );
+        let ancestor = uuid(0xA11CE);
+
+        record.record_for(None, 5, 100);
+        assert!(record.is_replay_for(None, 5, 100));
+        assert!(
+            record.redirect_dedup.is_empty(),
+            "a normal event touches only the main map"
+        );
+
+        record.record_for(Some(&ancestor), 5, 200);
+        assert!(record.is_replay_for(Some(&ancestor), 5, 200));
+        assert!(
+            !record.is_replay_for(None, 5, 150),
+            "recording into the ancestor map must not advance the main map",
         );
     }
 

@@ -29,7 +29,7 @@ use cohort_stream_processor::stage1::{
 };
 use cohort_stream_processor::stage2::Stage2State;
 use cohort_stream_processor::store::{
-    CohortStore, LeafStateKey, Stage1Key, Stage2Key, StoreConfig,
+    CohortStore, LeafStateKey, PersonIndexKey, Stage1Key, Stage2Key, StoreConfig,
 };
 use cohort_stream_processor::workers::{process_event, Stage1Worker};
 use common_kafka::kafka_producer::KafkaProduceError;
@@ -155,6 +155,7 @@ fn event_at(person: Uuid, timestamp: &str, source_offset: i64) -> CohortStreamEv
         elements_chain: None,
         source_offset,
         source_partition: 1,
+        redirected_from: None,
     }
 }
 
@@ -200,6 +201,17 @@ fn state_at(store: &CohortStore, lsk: LeafStateKey, person: Uuid) -> Option<Stag
 
 fn day_of(ts: &str) -> i32 {
     day_idx_in_tz(clickhouse_timestamp_to_millis(ts).unwrap(), UTC)
+}
+
+/// The person's `cf_person_index` leaf-state set — the leaves the merge drain (M3) would enumerate.
+fn person_index_of(store: &CohortStore, person: Uuid) -> Vec<LeafStateKey> {
+    store
+        .get_person_index(&PersonIndexKey {
+            partition_id: PARTITION_ID,
+            team_id: TEAM as u64,
+            person_id: person,
+        })
+        .unwrap()
 }
 
 /// Raise the dispatch ceiling, then deliver one event to the worker (matching the dispatcher's
@@ -285,6 +297,53 @@ async fn sweep_evicts_a_single_leaf_member_emits_left_and_deletes() {
     assert!(
         state_at(&store, lsk, alice).is_none(),
         "a fully-expired single is deleted",
+    );
+}
+
+#[tokio::test]
+async fn sweep_full_expiry_delete_retracts_the_person_index_entry() {
+    // The merge drain (M3) enumerates a person's leaves from `cf_person_index`, so a full-expiry
+    // delete must retract the leaf there too — not just delete the `cf_stage1` row — or the drain
+    // would read a key for state that no longer exists.
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![behavioral_leaf(7)]);
+    let lsk = behavioral_lsk(&filters);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+    let (tx, worker) = spawn_worker(
+        &store,
+        catalog_of(filters),
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    let alice = person(1);
+    let ts = "2026-05-20 10:00:00.000000";
+    let event_ms = clickhouse_timestamp_to_millis(ts).unwrap();
+    let deadline = event_ms + 7 * DAY_MS;
+
+    send_event(&tracker, &tx, event_at(alice, ts, 0), 0).await;
+    // Wait for the Entered to land, so the event's WriteBatch (cf_stage1 + the cf_person_index
+    // append) is durable before reading the index.
+    drain_until_changes(&sink, 1).await;
+    assert_eq!(
+        person_index_of(&store, alice),
+        vec![lsk],
+        "the entering event appends the leaf to cf_person_index",
+    );
+
+    // Sweep past the deadline: the single fully expires (Delete), retracting the index entry too.
+    send_sweep(&tx, deadline + DAY_MS).await;
+    drop(tx);
+    worker.join().await.unwrap();
+
+    assert!(
+        state_at(&store, lsk, alice).is_none(),
+        "the expired single's cf_stage1 row is gone",
+    );
+    assert!(
+        person_index_of(&store, alice).is_empty(),
+        "the full-expiry delete leaves no stale leaf in cf_person_index",
     );
 }
 

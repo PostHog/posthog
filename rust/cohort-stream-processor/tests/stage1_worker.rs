@@ -178,6 +178,7 @@ fn event(person: Uuid, source_partition: i32, source_offset: i64) -> CohortStrea
         elements_chain: None,
         source_offset,
         source_partition,
+        redirected_from: None,
     }
 }
 
@@ -2089,5 +2090,133 @@ async fn compressed_sweep_deletes_then_a_late_event_recreates_the_state() {
         compressed_state(&state).0,
         &[(day_of(late_ts), 1)],
         "re-created from the late event's own timestamp, not the deleted window",
+    );
+}
+
+// ── redirect_dedup origin routing (TDD §4.5.1, Decision 2) ────────────────────────
+
+fn applied(entries: &[(i32, i64)]) -> AppliedOffsets {
+    let mut applied = AppliedOffsets::default();
+    for &(partition, offset) in entries {
+        applied.record(partition, offset);
+    }
+    applied
+}
+
+/// Seed a person-property record (with a chosen dedup state) directly into `cf_stage1`.
+fn seed_person_record(store: &CohortStore, lsk: LeafStateKey, who: Uuid, record: &StatefulRecord) {
+    store
+        .write_batch(|b| b.put_stage1(&stage1_key(lsk, who), &record.encode()))
+        .unwrap();
+}
+
+#[test]
+fn fresh_event_on_a_redirect_dedup_partition_still_folds_main_map_authoritative() {
+    // Hazard A: a fresh (non-redirected) P_new event must dedup against the MAIN map, never an
+    // ancestor's `redirect_dedup` entry — otherwise a union-max would falsely skip an in-flight P_new
+    // event whose offset trails the ancestor's high-water mark on a shared upstream partition.
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
+    let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+    let p_new = person(2);
+    let ancestor = person(1);
+
+    // P_new: not a member, main offsets at partition 5 = 50, an ancestor entry at partition 5 = 100.
+    let mut seed = StatefulRecord::new(
+        Stage1State::PersonProperty {
+            matches: false,
+            last_updated_at_ms: 1_000,
+            last_updated_offset: 0,
+        },
+        applied(&[(5, 50)]),
+    );
+    seed.redirect_dedup.insert(ancestor, applied(&[(5, 100)]));
+    seed_person_record(&store, lsk, p_new, &seed);
+
+    // A fresh event on partition 5 at offset 60: 60 > main's 50 ⇒ fold, even though 60 ≤ the ancestor
+    // entry's 100. The matching email flips the person leaf false→true.
+    let fresh = person_event(p_new, "u@p.com", BASE_TS, 5, 60);
+    let out = process_event(PARTITION_ID, &store, &filters, &fresh).unwrap();
+
+    assert_eq!(
+        out.transitions.len(),
+        1,
+        "the fresh event folded and flipped"
+    );
+    assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
+    let after = record_at(&store, lsk, p_new).unwrap();
+    assert!(matches!(
+        after.state,
+        Stage1State::PersonProperty { matches: true, .. }
+    ));
+    assert!(
+        after.applied_offsets.is_replay(5, 60),
+        "the main map advanced to the fresh event's offset",
+    );
+    assert!(
+        after.redirect_dedup[&ancestor].is_replay(5, 100)
+            && !after.redirect_dedup[&ancestor].is_replay(5, 101),
+        "the ancestor entry is untouched by a normal event",
+    );
+}
+
+#[test]
+fn redirected_event_at_or_below_ancestor_max_is_skipped_then_above_folds() {
+    // Hazard B: a redirected straggler (origin = P_old) must dedup against `redirect_dedup[P_old]`, so
+    // a replayed-then-redirected P_old event at or below the ancestor's high-water mark is skipped —
+    // the double-fold guard — while one above it folds.
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![person_leaf()]))]);
+    let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+    let p_new = person(2);
+    let p_old = person(1);
+
+    // P_new is a member; P_old (an ancestor) folded up to offset 100 on partition 5.
+    let mut seed = StatefulRecord::new(
+        Stage1State::PersonProperty {
+            matches: true,
+            last_updated_at_ms: 1_000,
+            last_updated_offset: 0,
+        },
+        applied(&[(5, 50)]),
+    );
+    seed.redirect_dedup.insert(p_old, applied(&[(5, 100)]));
+    seed_person_record(&store, lsk, p_new, &seed);
+
+    // A redirected event at offset 80 ≤ the ancestor's 100 → replay via redirect_dedup[P_old] → skip.
+    let mut redirected_replay = person_event(p_new, "different@x.com", BASE_TS, 5, 80);
+    redirected_replay.redirected_from = Some(p_old.to_string());
+    let skipped = process_event(PARTITION_ID, &store, &filters, &redirected_replay).unwrap();
+    assert!(
+        skipped.transitions.is_empty(),
+        "a redirected replay at/below the ancestor max is skipped",
+    );
+    assert!(
+        matches!(
+            record_at(&store, lsk, p_new).unwrap().state,
+            Stage1State::PersonProperty { matches: true, .. }
+        ),
+        "the skipped replay leaves P_new's state unchanged",
+    );
+
+    // A redirected event at offset 101 > the ancestor's 100 → not a replay → folds (email no longer
+    // matches → Left), and advances the ancestor entry.
+    let mut redirected_new = person_event(p_new, "different@x.com", BASE_TS, 5, 101);
+    redirected_new.redirected_from = Some(p_old.to_string());
+    let folded = process_event(PARTITION_ID, &store, &filters, &redirected_new).unwrap();
+    assert_eq!(
+        folded.transitions.len(),
+        1,
+        "the above-max redirected event folds"
+    );
+    assert_eq!(folded.transitions[0].kind, TransitionKind::Left);
+    let after = record_at(&store, lsk, p_new).unwrap();
+    assert!(
+        after.redirect_dedup[&p_old].is_replay(5, 101),
+        "the ancestor entry advanced to the folded offset",
+    );
+    assert!(
+        after.applied_offsets.is_replay(5, 50) && !after.applied_offsets.is_replay(5, 51),
+        "the redirected fold did not touch the main map",
     );
 }

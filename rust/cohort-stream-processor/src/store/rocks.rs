@@ -10,13 +10,16 @@ use std::time::Instant;
 
 use metrics::{counter, histogram};
 use rocksdb::{
-    Cache, ColumnFamily, DBWithThreadMode, FlushOptions, Options, SingleThreaded, WriteBatch,
-    WriteOptions,
+    Cache, ColumnFamily, DBWithThreadMode, Direction, FlushOptions, IteratorMode, Options,
+    ReadOptions, SingleThreaded, WriteBatch, WriteOptions,
 };
 use thiserror::Error;
 
 use super::column_families::{self, Cf, OpaqueCf};
-use super::keys::{self, PersonIndexKey, Stage2Key};
+use super::keys::{
+    self, MergeAppliedKey, MergeDrainKey, PendingTransferKey, PersonIndexKey, Stage2Key,
+    TombstoneKey,
+};
 use super::secondary_index::{decode_person_index, IndexOp};
 use crate::observability::metrics::{
     STORE_ERRORS_TOTAL, STORE_WRITE_BATCH_TOTAL, STORE_WRITE_DURATION_SECONDS,
@@ -31,6 +34,7 @@ const OP_MULTI_GET: &str = "multi_get";
 const OP_WRITE_BATCH: &str = "write_batch";
 const OP_DELETE_PARTITION: &str = "delete_partition";
 const OP_FLUSH: &str = "flush";
+const OP_SCAN: &str = "scan";
 
 const DEFAULT_BLOCK_CACHE_BYTES: usize = 128 * 1024 * 1024;
 const DEFAULT_WRITE_BUFFER_BYTES: usize = 64 * 1024 * 1024;
@@ -200,9 +204,75 @@ impl CohortStore {
             stage1: self.cf(Cf::Stage1)?,
             person_index: self.cf(Cf::PersonIndex)?,
             stage2: self.cf(Cf::Stage2)?,
+            merge_drains_applied: self.cf(Cf::MergeDrainsApplied)?,
+            pending_transfers: self.cf(Cf::PendingTransfers)?,
+            merge_applied: self.cf(Cf::MergeApplied)?,
+            merge_tombstones: self.cf(Cf::MergeTombstones)?,
         };
         build(&mut builder);
         self.commit(builder.batch, OP_WRITE_BATCH)
+    }
+
+    pub fn get_merge_drain_applied(
+        &self,
+        key: &MergeDrainKey,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        self.get(Cf::MergeDrainsApplied, &key.encode())
+    }
+
+    pub fn get_pending_transfer(
+        &self,
+        key: &PendingTransferKey,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        self.get(Cf::PendingTransfers, &key.encode())
+    }
+
+    pub fn get_merge_applied(&self, key: &MergeAppliedKey) -> Result<Option<Vec<u8>>, StoreError> {
+        self.get(Cf::MergeApplied, &key.encode())
+    }
+
+    pub fn get_tombstone(&self, key: &TombstoneKey) -> Result<Option<Vec<u8>>, StoreError> {
+        self.get(Cf::MergeTombstones, &key.encode())
+    }
+
+    /// Clear one outbox slot once its transfer is acked — the C2 produce path's "delete after produce"
+    /// step. A standalone batch (not part of the drain) since it runs only after the produce returns.
+    pub fn clear_pending_transfer(&self, key: &PendingTransferKey) -> Result<(), StoreError> {
+        self.write_batch(|batch| batch.delete_pending_transfer(key))
+    }
+
+    /// Scan one partition's `cf_pending_transfers` slice, returning `(key, value)` in key order. The
+    /// first iterator API in the crate — C2's startup recovery and periodic redrive re-produce these
+    /// orphaned transfers. Bounded to `[partition_range.0, partition_range.1)` via an upper bound, so
+    /// it reads only the requested partition. A backend or key-decode error fails the whole scan
+    /// (recovery fails loud rather than silently skipping an orphan).
+    pub fn scan_pending_transfers(
+        &self,
+        partition_id: u16,
+    ) -> Result<Vec<(PendingTransferKey, Vec<u8>)>, StoreError> {
+        let (start, end) = keys::partition_range(partition_id);
+        let handle = self.cf(Cf::PendingTransfers)?;
+
+        let mut read_opts = ReadOptions::default();
+        read_opts.set_iterate_upper_bound(end);
+        let iter = self.db.iterator_cf_opt(
+            handle,
+            read_opts,
+            IteratorMode::From(&start, Direction::Forward),
+        );
+
+        let mut out = Vec::new();
+        for item in iter {
+            let (key_bytes, value) = item.map_err(|source| {
+                counter!(STORE_ERRORS_TOTAL, "op" => OP_SCAN).increment(1);
+                StoreError::Backend {
+                    op: OP_SCAN,
+                    source,
+                }
+            })?;
+            out.push((PendingTransferKey::decode(&key_bytes)?, value.to_vec()));
+        }
+        Ok(out)
     }
 
     /// Reclaim all state for one partition on rebalance. The per-CF `delete_range`s share one batch
@@ -224,6 +294,10 @@ impl CohortStore {
             self.cf(Cf::Stage1)?,
             self.cf(Cf::PersonIndex)?,
             self.cf(Cf::Stage2)?,
+            self.cf(Cf::MergeDrainsApplied)?,
+            self.cf(Cf::PendingTransfers)?,
+            self.cf(Cf::MergeApplied)?,
+            self.cf(Cf::MergeTombstones)?,
         ];
         let mut flush_opts = FlushOptions::default();
         flush_opts.set_wait(true);
@@ -274,6 +348,10 @@ pub struct BatchBuilder<'db> {
     stage1: &'db ColumnFamily,
     person_index: &'db ColumnFamily,
     stage2: &'db ColumnFamily,
+    merge_drains_applied: &'db ColumnFamily,
+    pending_transfers: &'db ColumnFamily,
+    merge_applied: &'db ColumnFamily,
+    merge_tombstones: &'db ColumnFamily,
 }
 
 impl BatchBuilder<'_> {
@@ -292,8 +370,50 @@ impl BatchBuilder<'_> {
             .merge_cf(self.person_index, key.encode(), op.encode());
     }
 
+    /// Whole-key delete of a person's index entry — used by the merge drain to drop P_old's entire
+    /// leaf set in one op rather than a `Remove` per leaf. Sound against the merge operator: a `Delete`
+    /// is a base tombstone, so a later `merge_person_index(Append)` re-creates the set from an empty
+    /// base (`full_merge` with `existing = None`), never resurrecting the deleted entries.
+    pub fn delete_person_index(&mut self, key: &PersonIndexKey) {
+        self.batch.delete_cf(self.person_index, key.encode());
+    }
+
     pub fn put_stage2(&mut self, key: &Stage2Key, value: &[u8]) {
         self.batch.put_cf(self.stage2, key.encode(), value);
+    }
+
+    pub fn delete_stage2(&mut self, key: &Stage2Key) {
+        self.batch.delete_cf(self.stage2, key.encode());
+    }
+
+    // ── merge protocol (TDD §4.5.1) — plain put/delete, no merge operator ──────────
+
+    /// Stage the Phase 1 idempotence marker for a drained merge message.
+    pub fn put_merge_drain_applied(&mut self, key: &MergeDrainKey, value: &[u8]) {
+        self.batch
+            .put_cf(self.merge_drains_applied, key.encode(), value);
+    }
+
+    /// Stage a packaged merge into the outbox, between the drain `WriteBatch` and the transfer produce.
+    pub fn put_pending_transfer(&mut self, key: &PendingTransferKey, value: &[u8]) {
+        self.batch
+            .put_cf(self.pending_transfers, key.encode(), value);
+    }
+
+    /// Clear an outbox slot once its transfer is acked (C2 produce path).
+    pub fn delete_pending_transfer(&mut self, key: &PendingTransferKey) {
+        self.batch.delete_cf(self.pending_transfers, key.encode());
+    }
+
+    /// Stage the Phase 2 idempotence marker for an applied transfer message.
+    pub fn put_merge_applied(&mut self, key: &MergeAppliedKey, value: &[u8]) {
+        self.batch.put_cf(self.merge_applied, key.encode(), value);
+    }
+
+    /// Stage the redirect tombstone for a merged-away person.
+    pub fn put_tombstone(&mut self, key: &TombstoneKey, value: &[u8]) {
+        self.batch
+            .put_cf(self.merge_tombstones, key.encode(), value);
     }
 
     /// Raw put by pre-encoded key bytes. Restricted to [`OpaqueCf`]: `cf_person_index` is merge-only

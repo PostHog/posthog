@@ -203,6 +203,7 @@ fn evict_daily(
     let StatefulRecord {
         state,
         applied_offsets,
+        redirect_dedup,
     } = record;
     let Stage1State::BehavioralDailyBuckets {
         mut buckets,
@@ -253,6 +254,8 @@ fn evict_daily(
                 earliest_eviction_at_ms: new_deadline,
             },
             applied_offsets,
+            // A swept post-merge person keeps its ancestor replay-dedup across the slide.
+            redirect_dedup,
         };
         (EvictionAction::Write(advanced.encode()), Some(new_deadline))
     };
@@ -288,6 +291,7 @@ fn evict_compressed(
     let StatefulRecord {
         state,
         applied_offsets,
+        redirect_dedup,
     } = record;
     let Stage1State::BehavioralCompressedHistory {
         mut entries,
@@ -333,6 +337,8 @@ fn evict_compressed(
                 earliest_eviction_at_ms: new_deadline,
             },
             applied_offsets,
+            // A swept post-merge person keeps its ancestor replay-dedup across the slide.
+            redirect_dedup,
         };
         (EvictionAction::Write(advanced.encode()), Some(new_deadline))
     };
@@ -453,10 +459,7 @@ mod tests {
     }
 
     fn write(store: &CohortStore, key: &Stage1Key, state: Stage1State) {
-        let record = StatefulRecord {
-            state,
-            applied_offsets: AppliedOffsets::default(),
-        };
+        let record = StatefulRecord::new(state, AppliedOffsets::default());
         store
             .write_batch(|b| b.put_stage1(key, &record.encode()))
             .unwrap();

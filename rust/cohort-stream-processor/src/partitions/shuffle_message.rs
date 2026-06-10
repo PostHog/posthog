@@ -51,6 +51,7 @@ mod tests {
             elements_chain: None,
             source_offset,
             source_partition: 3,
+            redirected_from: None,
         }
     }
 

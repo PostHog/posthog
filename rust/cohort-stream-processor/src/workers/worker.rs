@@ -17,6 +17,7 @@
 //! crash here. Acceptable while shadow-only; the at-least-once cutover must commit state *after*
 //! the produce ack so a replay can re-emit.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -25,11 +26,13 @@ use metrics::{counter, histogram};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
+use uuid::Uuid;
 
 use crate::consumers::events::CohortStreamEvent;
 use crate::filters::manager::CatalogHandle;
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::TeamId;
+use crate::merge::tombstone_redirect::{self, Resolution};
 use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, OUTPUT_MEMBERSHIP_CHANGES_EMITTED,
     OUTPUT_PRODUCE_ERRORS, STAGE1_EVENTS_PROCESSED, STAGE1_EVENTS_SKIPPED,
@@ -45,7 +48,7 @@ use crate::producer::{
 use crate::stage1::key::Stage1Key;
 use crate::stage1::state::StateVariant;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
-use crate::store::CohortStore;
+use crate::store::{CohortStore, IndexOp, PersonIndexKey};
 use crate::sweep::EvictionQueue;
 use crate::workers::event_path::{process_event, SkipReason};
 use crate::workers::stage2_path::compose_stage2;
@@ -229,8 +232,22 @@ fn handle_event(
     };
     let filters: &TeamFilters = team_filters;
 
+    // Tombstone preflight (TDD §4.5.1): redirect a post-merge straggler for a merged-away person to
+    // the person it merged into. A point-read per event — a bloom-filtered miss until C2 writes
+    // tombstones, so it is the only hot-path delta this slice adds. Borrows the event unchanged on the
+    // common `NotMerged` path; an unparseable/empty person_id has no tombstone and falls through to
+    // `process_event`'s own skip.
+    let resolved: Cow<'_, CohortStreamEvent> =
+        match redirect_for_tombstone(partition_id, store, event) {
+            Redirected::Process(event) => event,
+            // Cross-partition redirect: C1 has no producer, so drop (counted + warned). C2 replaces this
+            // with the ack-awaited re-produce to `cohort_stream_events` keyed to the target. Unreachable
+            // until C2 writes tombstones. See SESSION.md.
+            Redirected::DropCrossPartition => return (Vec::new(), Vec::new()),
+        };
+
     let started = Instant::now();
-    let result = process_event(partition_id, store, filters, event);
+    let result = process_event(partition_id, store, filters, &resolved);
     histogram!(STAGE1_EVENT_PROCESS_DURATION).record(started.elapsed().as_secs_f64());
 
     match result {
@@ -281,6 +298,81 @@ fn handle_event(
             );
             (Vec::new(), Vec::new())
         }
+    }
+}
+
+/// The tombstone preflight's outcome: the event to feed to [`process_event`] (the original or a
+/// person-rewritten copy), or a signal to drop a cross-partition redirect (C1 has no re-producer).
+///
+/// Lives briefly on the stack per event; boxing the `Cow` to shrink the size gap would add a
+/// per-event allocation on the hot path — the opposite of what we want (cf. `ShuffleMessage`).
+#[allow(clippy::large_enum_variant)]
+enum Redirected<'a> {
+    Process(Cow<'a, CohortStreamEvent>),
+    DropCrossPartition,
+}
+
+/// Resolve a straggler event through the [`tombstone_redirect`] chain. Borrows the event unchanged on
+/// `NotMerged`; on an inline redirect returns a copy with `person_id` rewritten to the merge target
+/// and `redirected_from` stamped with the chain origin. A backend read error or an unparseable id
+/// falls through to normal processing (the tombstone is consulted again on the event's replay); a
+/// cross-partition redirect is dropped (C1).
+fn redirect_for_tombstone<'a>(
+    partition_id: u16,
+    store: &CohortStore,
+    event: &'a CohortStreamEvent,
+) -> Redirected<'a> {
+    let Ok(person_id) = Uuid::parse_str(&event.person_id) else {
+        // process_event skips an empty/unparseable id; no tombstone applies.
+        return Redirected::Process(Cow::Borrowed(event));
+    };
+    let resolution =
+        match tombstone_redirect::resolve(store, partition_id, TeamId(event.team_id), person_id) {
+            Ok(resolution) => resolution,
+            Err(error) => {
+                warn!(
+                    partition_id,
+                    team_id = event.team_id,
+                    error = %error,
+                    "tombstone preflight read failed; processing without redirect",
+                );
+                return Redirected::Process(Cow::Borrowed(event));
+            }
+        };
+    tombstone_redirect::record_redirect(&resolution);
+    match resolution {
+        Resolution::NotMerged => Redirected::Process(Cow::Borrowed(event)),
+        Resolution::Inline {
+            final_person,
+            origin,
+        } => Redirected::Process(Cow::Owned(rewrite_to(event, final_person, origin))),
+        Resolution::CrossPartition {
+            target_person,
+            origin,
+        } => {
+            warn!(
+                partition_id,
+                team_id = event.team_id,
+                %target_person,
+                %origin,
+                "cross-partition tombstone redirect dropped (C1; C2 re-produces the re-keyed event)",
+            );
+            Redirected::DropCrossPartition
+        }
+    }
+}
+
+/// Rewrite a straggler to its inline merge target: `person_id` becomes `final_person`, and
+/// `redirected_from` is stamped with the chain `origin` **only if not already set** — a chained
+/// re-produce keeps the first origin, which keys the merged record's `redirect_dedup`.
+fn rewrite_to(event: &CohortStreamEvent, final_person: Uuid, origin: Uuid) -> CohortStreamEvent {
+    CohortStreamEvent {
+        person_id: final_person.to_string(),
+        redirected_from: event
+            .redirected_from
+            .clone()
+            .or_else(|| Some(origin.to_string())),
+        ..event.clone()
     }
 }
 
@@ -404,7 +496,23 @@ async fn handle_sweep(
             for result in &results {
                 match &result.action {
                     EvictionAction::Write(bytes) => batch.put_stage1(&result.key, bytes),
-                    EvictionAction::Delete => batch.delete_stage1(&result.key),
+                    // A full-expiry delete also retracts the leaf from the person's `cf_person_index`
+                    // set, in the same batch, so the merge drain (M3) enumerating P_old's leaves never
+                    // reads a stale key for state that no longer exists. The `Stage1Key` carries the
+                    // person-index coordinates, so no extra read is needed; the drain still tolerates a
+                    // residual hole (a `multi_get_stage1` miss is skipped), but keeping the index minimal
+                    // bounds that work.
+                    EvictionAction::Delete => {
+                        batch.delete_stage1(&result.key);
+                        batch.merge_person_index(
+                            &PersonIndexKey {
+                                partition_id: result.key.partition_id,
+                                team_id: result.key.team_id,
+                                person_id: result.key.person_id,
+                            },
+                            IndexOp::Remove(result.key.leaf_state_key),
+                        );
+                    }
                 }
             }
         });
@@ -551,5 +659,231 @@ fn transition_metric_label(
         }
         (StateVariant::PersonProperty, TransitionKind::Entered) => Some("person_entered"),
         (StateVariant::PersonProperty, TransitionKind::Left) => Some("person_left"),
+    }
+}
+
+#[cfg(test)]
+mod tombstone_redirect_tests {
+    use super::*;
+    use chrono_tz::UTC;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder};
+    use crate::merge::transfer::Tombstone;
+    use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
+    use crate::stage1::key::LeafStateKey;
+    use crate::stage1::state::{AppliedOffsets, Stage1State, StatefulRecord};
+    use crate::store::{StoreConfig, TombstoneKey};
+
+    const TEAM: i32 = 7;
+    const PERSON_HASH: [u8; 16] = *b"fedcba9876543210";
+
+    fn temp_store() -> (TempDir, CohortStore) {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        (dir, store)
+    }
+
+    /// A single person-property leaf cohort (`email == "u@p.com"`), so one leaf flip is the cohort's
+    /// whole membership and `handle_event` emits a per-cohort change directly.
+    fn person_catalog() -> Arc<CatalogHandle> {
+        let leaf = json!({
+            "type": "person", "key": "email", "value": "u@p.com", "operator": "exact",
+            "conditionHash": "fedcba9876543210",
+            "bytecode": ["_H", 1, 32, "u@p.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],
+        });
+        let cohort = json!({ "properties": { "type": "AND", "values": [leaf] } });
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(CohortId(1), TeamId(TEAM), &cohort)
+            .unwrap();
+        Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([(
+            TeamId(TEAM),
+            builder.freeze(UTC),
+        )])))
+    }
+
+    fn applied(entries: &[(i32, i64)]) -> AppliedOffsets {
+        let mut applied = AppliedOffsets::default();
+        for &(partition, offset) in entries {
+            applied.record(partition, offset);
+        }
+        applied
+    }
+
+    fn person_event(
+        person: Uuid,
+        email: &str,
+        source_partition: i32,
+        source_offset: i64,
+    ) -> CohortStreamEvent {
+        CohortStreamEvent {
+            team_id: TEAM,
+            person_id: person.to_string(),
+            distinct_id: "d".to_string(),
+            uuid: "u".to_string(),
+            event: "$pageview".to_string(),
+            timestamp: "2026-05-26 12:34:56.789000".to_string(),
+            properties: Some("{}".to_string()),
+            person_properties: Some(format!(r#"{{"email":"{email}"}}"#)),
+            elements_chain: None,
+            source_offset,
+            source_partition,
+            redirected_from: None,
+        }
+    }
+
+    fn stage1_key(partition_id: u16, lsk: LeafStateKey, person: Uuid) -> Stage1Key {
+        Stage1Key {
+            partition_id,
+            team_id: TEAM as u64,
+            leaf_state_key: lsk,
+            person_id: person,
+        }
+    }
+
+    fn write_tombstone(store: &CohortStore, partition_id: u16, old: Uuid, new: Uuid) {
+        let value = Tombstone {
+            new_person: new,
+            merged_at_ms: 1,
+        };
+        store
+            .write_batch(|b| {
+                b.put_tombstone(
+                    &TombstoneKey {
+                        partition_id,
+                        team_id: TEAM as u64,
+                        person: old,
+                    },
+                    &value.encode(),
+                )
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn inline_redirect_folds_into_redirect_dedup_origin_not_the_main_map() {
+        // A straggler for a merged-away P_old (P_new co-resides) is redirected to P_new and folded via
+        // `redirect_dedup[P_old]` — the double-fold guard: the fold must NOT touch P_new's main map.
+        let (_dir, store) = temp_store();
+        let catalog = person_catalog();
+        let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+
+        let p_new = Uuid::from_u128(2);
+        let partition_id = partition_of(TeamId(TEAM), &p_new, COHORT_PARTITION_COUNT) as u16;
+        let p_old = Uuid::from_u128(1);
+        write_tombstone(&store, partition_id, p_old, p_new);
+
+        // P_new: not a member; main offsets {5:50}, an ancestor entry for P_old at {5:100}.
+        let mut seed = StatefulRecord::new(
+            Stage1State::PersonProperty {
+                matches: false,
+                last_updated_at_ms: 1_000,
+                last_updated_offset: 0,
+            },
+            applied(&[(5, 50)]),
+        );
+        seed.redirect_dedup.insert(p_old, applied(&[(5, 100)]));
+        let p_new_key = stage1_key(partition_id, lsk, p_new);
+        store
+            .write_batch(|b| b.put_stage1(&p_new_key, &seed.encode()))
+            .unwrap();
+
+        // A matching straggler for P_old at offset 101 (> the ancestor's 100): folds into P_new.
+        let straggler = person_event(p_old, "u@p.com", 5, 101);
+        let (changes, _schedules) = handle_event(partition_id, &store, &catalog, &straggler, "ts");
+
+        // The single-leaf cohort flips to Entered for P_new (not P_old).
+        assert_eq!(changes.len(), 1, "the straggler entered P_new");
+        assert_eq!(changes[0].person_id, p_new.to_string());
+        assert_eq!(changes[0].status, MembershipStatus::Entered);
+
+        let after =
+            StatefulRecord::decode(&store.get_stage1(&p_new_key).unwrap().unwrap()).unwrap();
+        assert!(matches!(
+            after.state,
+            Stage1State::PersonProperty { matches: true, .. }
+        ));
+        assert!(
+            after.redirect_dedup[&p_old].is_replay(5, 101),
+            "the fold advanced redirect_dedup[origin]",
+        );
+        assert!(
+            after.applied_offsets.is_replay(5, 50) && !after.applied_offsets.is_replay(5, 51),
+            "the main map is untouched by a redirected straggler",
+        );
+
+        // No state was created for P_old — it stays merged away.
+        assert!(store
+            .get_stage1(&stage1_key(partition_id, lsk, p_old))
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn cross_partition_redirect_is_dropped_in_c1() {
+        // P_new hashes to a different partition: C1 has no re-producer, so the straggler is dropped
+        // (counted + warned) and writes nothing. C2 replaces this with the ack-awaited re-produce.
+        let (_dir, store) = temp_store();
+        let catalog = person_catalog();
+        let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+
+        let p_old = Uuid::from_u128(1);
+        let partition_id = partition_of(TeamId(TEAM), &p_old, COHORT_PARTITION_COUNT) as u16;
+        let p_new = (10u128..)
+            .map(Uuid::from_u128)
+            .find(|p| partition_of(TeamId(TEAM), p, COHORT_PARTITION_COUNT) as u16 != partition_id)
+            .unwrap();
+        write_tombstone(&store, partition_id, p_old, p_new);
+
+        let straggler = person_event(p_old, "u@p.com", 5, 1);
+        let (changes, schedules) = handle_event(partition_id, &store, &catalog, &straggler, "ts");
+
+        assert!(
+            changes.is_empty(),
+            "the cross-partition redirect is dropped"
+        );
+        assert!(schedules.is_empty());
+        assert!(
+            store
+                .get_stage1(&stage1_key(partition_id, lsk, p_old))
+                .unwrap()
+                .is_none(),
+            "no state written for P_old",
+        );
+        assert!(
+            store
+                .get_stage1(&stage1_key(partition_id, lsk, p_new))
+                .unwrap()
+                .is_none(),
+            "no state written for P_new on this worker",
+        );
+    }
+
+    #[test]
+    fn no_tombstone_processes_the_event_normally() {
+        // The common path: no tombstone, so the event folds for its own person.
+        let (_dir, store) = temp_store();
+        let catalog = person_catalog();
+        let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        let alice = Uuid::from_u128(3);
+        let partition_id = partition_of(TeamId(TEAM), &alice, COHORT_PARTITION_COUNT) as u16;
+
+        let event = person_event(alice, "u@p.com", 5, 0);
+        let (changes, _schedules) = handle_event(partition_id, &store, &catalog, &event, "ts");
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].person_id, alice.to_string());
+        assert!(
+            store
+                .get_stage1(&stage1_key(partition_id, lsk, alice))
+                .unwrap()
+                .is_some(),
+            "alice's own state was written",
+        );
     }
 }

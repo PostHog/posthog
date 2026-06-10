@@ -6,11 +6,15 @@
 //! runs the Stage 1 loop lives in [`crate::workers`].
 
 pub mod offset_tracker;
+pub mod partitioner;
 pub mod rebalance;
 pub mod router;
 pub mod shuffle_message;
 
 pub use offset_tracker::{MarkOutcome, OffsetTracker};
+pub use partitioner::{
+    merge_partition_key, murmur2, partition_for, partition_of, COHORT_PARTITION_COUNT,
+};
 pub use rebalance::{
     run_rebalance_worker, CohortConsumerContext, ConsumerCommand, ConsumerCommandReceiver,
     ConsumerCommandSender, RebalanceEvent, RebalanceEventReceiver,

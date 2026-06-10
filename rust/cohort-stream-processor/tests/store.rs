@@ -1,8 +1,8 @@
 //! End-to-end tests against a real RocksDB in a temp dir, through the public API only.
 
 use cohort_stream_processor::store::{
-    Cf, CohortStore, IndexOp, LeafStateKey, OpaqueCf, PersonIndexKey, Stage1Key, Stage2Key,
-    StoreConfig,
+    Cf, CohortStore, IndexOp, LeafStateKey, MergeAppliedKey, MergeDrainKey, OpaqueCf,
+    PendingTransferKey, PersonIndexKey, Stage1Key, Stage2Key, StoreConfig, TombstoneKey,
 };
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -49,6 +49,42 @@ fn stage2_key(partition: u16, team: u64, cohort: u64, p: u128) -> Stage2Key {
         team_id: team,
         cohort_id: cohort,
         person_id: person(p),
+    }
+}
+
+fn merge_drain_key(partition: u16, team: u64, old: u128) -> MergeDrainKey {
+    MergeDrainKey {
+        partition_id: partition,
+        team_id: team,
+        old_person: person(old),
+        merge_msg_partition: 17,
+        merge_msg_offset: 99,
+    }
+}
+
+fn pending_transfer_key(partition: u16, team: u64, old: u128) -> PendingTransferKey {
+    PendingTransferKey {
+        partition_id: partition,
+        team_id: team,
+        old_person: person(old),
+    }
+}
+
+fn merge_applied_key(partition: u16, team: u64, new: u128) -> MergeAppliedKey {
+    MergeAppliedKey {
+        partition_id: partition,
+        team_id: team,
+        new_person: person(new),
+        transfer_partition: 3,
+        transfer_offset: 42,
+    }
+}
+
+fn tombstone_key(partition: u16, team: u64, p: u128) -> TombstoneKey {
+    TombstoneKey {
+        partition_id: partition,
+        team_id: team,
+        person: person(p),
     }
 }
 
@@ -260,4 +296,230 @@ fn data_survives_reopen() {
         Some(&b"persisted"[..])
     );
     assert_eq!(reopened.get_person_index(&pix).unwrap(), vec![lsk(4)]);
+}
+
+// ── merge-protocol column families (TDD §4.5.1) ───────────────────────────────────
+
+#[test]
+fn one_write_batch_spans_state_and_merge_cfs_atomically() {
+    let dir = TempDir::new().unwrap();
+    let store = open_store(&dir);
+
+    let s1 = stage1_key(2, 100, 1, 7);
+    let s2 = stage2_key(2, 100, 55, 7);
+    let drain = merge_drain_key(2, 100, 7);
+    let pending = pending_transfer_key(2, 100, 7);
+    let applied = merge_applied_key(2, 100, 8);
+    let tombstone = tombstone_key(2, 100, 7);
+
+    // A drain-shaped batch: delete P_old's state, stage the outbox + idempotence markers + tombstone,
+    // all in one WriteBatch spanning the old and new CFs.
+    store
+        .write_batch(|b| {
+            b.put_stage1(&s1, b"old-state");
+            b.put_stage2(&s2, b"old-stage2");
+        })
+        .unwrap();
+    store
+        .write_batch(|b| {
+            b.delete_stage1(&s1);
+            b.delete_stage2(&s2);
+            b.delete_person_index(&PersonIndexKey {
+                partition_id: 2,
+                team_id: 100,
+                person_id: person(7),
+            });
+            b.put_merge_drain_applied(&drain, b"drained_at");
+            b.put_pending_transfer(&pending, b"transfer-payload");
+            b.put_merge_applied(&applied, b"applied_at");
+            b.put_tombstone(&tombstone, b"P_new+merged_at");
+        })
+        .unwrap();
+
+    assert!(
+        store.get_stage1(&s1).unwrap().is_none(),
+        "P_old state deleted"
+    );
+    assert!(store.get_stage2(&s2).unwrap().is_none());
+    assert_eq!(
+        store.get_merge_drain_applied(&drain).unwrap().as_deref(),
+        Some(&b"drained_at"[..]),
+    );
+    assert_eq!(
+        store.get_pending_transfer(&pending).unwrap().as_deref(),
+        Some(&b"transfer-payload"[..]),
+    );
+    assert_eq!(
+        store.get_merge_applied(&applied).unwrap().as_deref(),
+        Some(&b"applied_at"[..]),
+    );
+    assert_eq!(
+        store.get_tombstone(&tombstone).unwrap().as_deref(),
+        Some(&b"P_new+merged_at"[..]),
+    );
+
+    // delete_pending_transfer clears the outbox slot (the C2 ack path) without touching the markers.
+    store
+        .write_batch(|b| b.delete_pending_transfer(&pending))
+        .unwrap();
+    assert!(store.get_pending_transfer(&pending).unwrap().is_none());
+    assert!(
+        store.get_tombstone(&tombstone).unwrap().is_some(),
+        "clearing the outbox leaves the tombstone in place",
+    );
+}
+
+#[test]
+fn delete_person_index_then_reappend_rebuilds_from_empty() {
+    // The drain whole-key-deletes P_old's index; a later append for the same key must rebuild from an
+    // empty base, not resurrect the deleted leaves (the merge operator's `existing = None` path).
+    let dir = TempDir::new().unwrap();
+    let store = open_store(&dir);
+    let pix = person_index_key(0, 100, 7);
+
+    store
+        .write_batch(|b| {
+            b.merge_person_index(&pix, IndexOp::Append(lsk(1)));
+            b.merge_person_index(&pix, IndexOp::Append(lsk(2)));
+        })
+        .unwrap();
+    store.flush().unwrap();
+    assert_eq!(store.get_person_index(&pix).unwrap(), vec![lsk(1), lsk(2)]);
+
+    store.write_batch(|b| b.delete_person_index(&pix)).unwrap();
+    store.flush().unwrap();
+    assert!(store.get_person_index(&pix).unwrap().is_empty());
+
+    // A fresh append after the delete starts from empty — only the new leaf is present.
+    store
+        .write_batch(|b| b.merge_person_index(&pix, IndexOp::Append(lsk(9))))
+        .unwrap();
+    store.flush().unwrap();
+    assert_eq!(
+        store.get_person_index(&pix).unwrap(),
+        vec![lsk(9)],
+        "the whole-key delete is a base tombstone; the re-append never resurrects lsk 1/2",
+    );
+}
+
+#[test]
+fn delete_partition_reclaims_the_merge_cfs() {
+    let dir = TempDir::new().unwrap();
+    let store = open_store(&dir);
+
+    let seed = |p: u16| {
+        store
+            .write_batch(|b| {
+                b.put_merge_drain_applied(&merge_drain_key(p, 100, 7), b"d");
+                b.put_pending_transfer(&pending_transfer_key(p, 100, 7), b"t");
+                b.put_merge_applied(&merge_applied_key(p, 100, 8), b"a");
+                b.put_tombstone(&tombstone_key(p, 100, 7), b"s");
+            })
+            .unwrap();
+    };
+    seed(0);
+    seed(1);
+
+    store.delete_partition(0).unwrap();
+
+    // Partition 0's merge state is gone; partition 1 is untouched.
+    assert!(store
+        .get_merge_drain_applied(&merge_drain_key(0, 100, 7))
+        .unwrap()
+        .is_none());
+    assert!(store
+        .get_pending_transfer(&pending_transfer_key(0, 100, 7))
+        .unwrap()
+        .is_none());
+    assert!(store
+        .get_merge_applied(&merge_applied_key(0, 100, 8))
+        .unwrap()
+        .is_none());
+    assert!(store
+        .get_tombstone(&tombstone_key(0, 100, 7))
+        .unwrap()
+        .is_none());
+    assert!(store.scan_pending_transfers(0).unwrap().is_empty());
+
+    assert!(store
+        .get_tombstone(&tombstone_key(1, 100, 7))
+        .unwrap()
+        .is_some());
+    assert_eq!(store.scan_pending_transfers(1).unwrap().len(), 1);
+}
+
+#[test]
+fn scan_pending_transfers_returns_only_its_partition_in_key_order() {
+    let dir = TempDir::new().unwrap();
+    let store = open_store(&dir);
+
+    // Two persons in partition 5 (inserted out of order), one in the neighbouring partitions 4 and 6.
+    store
+        .write_batch(|b| {
+            b.put_pending_transfer(&pending_transfer_key(5, 100, 30), b"p30");
+            b.put_pending_transfer(&pending_transfer_key(5, 100, 10), b"p10");
+            b.put_pending_transfer(&pending_transfer_key(4, 100, 99), b"p4");
+            b.put_pending_transfer(&pending_transfer_key(6, 100, 99), b"p6");
+        })
+        .unwrap();
+
+    let scanned = store.scan_pending_transfers(5).unwrap();
+    assert_eq!(scanned.len(), 2, "only partition 5's entries");
+    // Person UUIDs from `Uuid::from_u128` sort by their big-endian bytes, so 10 precedes 30.
+    assert_eq!(scanned[0].0, pending_transfer_key(5, 100, 10));
+    assert_eq!(scanned[0].1, b"p10");
+    assert_eq!(scanned[1].0, pending_transfer_key(5, 100, 30));
+    assert_eq!(scanned[1].1, b"p30");
+
+    assert_eq!(store.scan_pending_transfers(4).unwrap().len(), 1);
+    assert_eq!(store.scan_pending_transfers(6).unwrap().len(), 1);
+    assert!(
+        store.scan_pending_transfers(7).unwrap().is_empty(),
+        "an empty partition scans to nothing",
+    );
+}
+
+#[test]
+fn merge_cf_values_survive_reopen_without_wipe() {
+    let dir = TempDir::new().unwrap();
+    let config = config_in(&dir);
+
+    let drain = merge_drain_key(2, 100, 7);
+    let pending = pending_transfer_key(2, 100, 7);
+    let applied = merge_applied_key(2, 100, 8);
+    let tombstone = tombstone_key(2, 100, 7);
+
+    {
+        let store = CohortStore::open(&config).unwrap();
+        store
+            .write_batch(|b| {
+                b.put_merge_drain_applied(&drain, b"d");
+                b.put_pending_transfer(&pending, b"t");
+                b.put_merge_applied(&applied, b"a");
+                b.put_tombstone(&tombstone, b"s");
+            })
+            .unwrap();
+        store.flush().unwrap();
+    } // drop releases the DB lock
+
+    let reopened = CohortStore::open(&config).unwrap();
+    assert_eq!(
+        reopened.get_merge_drain_applied(&drain).unwrap().as_deref(),
+        Some(&b"d"[..]),
+    );
+    assert_eq!(
+        reopened.get_pending_transfer(&pending).unwrap().as_deref(),
+        Some(&b"t"[..]),
+    );
+    assert_eq!(
+        reopened.get_merge_applied(&applied).unwrap().as_deref(),
+        Some(&b"a"[..]),
+    );
+    assert_eq!(
+        reopened.get_tombstone(&tombstone).unwrap().as_deref(),
+        Some(&b"s"[..]),
+    );
+    // The scan recovers the persisted outbox entry on reopen — the C2 startup-recovery path.
+    let scanned = reopened.scan_pending_transfers(2).unwrap();
+    assert_eq!(scanned, vec![(pending, b"t".to_vec())]);
 }

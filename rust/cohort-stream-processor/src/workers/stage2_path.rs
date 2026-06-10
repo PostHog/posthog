@@ -325,10 +325,7 @@ mod tests {
             leaf_state_key: lsk,
             person_id: who,
         };
-        let record = StatefulRecord {
-            state,
-            applied_offsets: AppliedOffsets::default(),
-        };
+        let record = StatefulRecord::new(state, AppliedOffsets::default());
         store
             .write_batch(|b| b.put_stage1(&key, &record.encode()))
             .unwrap();
