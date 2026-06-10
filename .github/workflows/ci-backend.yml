@@ -550,7 +550,7 @@ jobs:
                           posthog/temporal/*|products/batch_exports/backend/tests/temporal/*|products/tasks/backend/temporal/*)
                               temporal+=("$f")
                               ;;
-                          posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*|posthog/api/test/test_insight*|posthog/api/test/dashboards/test_dashboard.py)
+                          posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*|products/product_analytics/backend/api/test/*|posthog/api/test/test_insight*|posthog/api/test/dashboards/test_dashboard.py)
                               poe+=("$f")
                               core+=("$f")
                               ;;
