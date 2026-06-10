@@ -197,13 +197,37 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe(
-                                'Full HTML document sent verbatim as the email body. Supports Liquid templating. When design is provided without html, the server renders html from the design.'
+                                "Rendered email body — omit when sending design; the server renders it from the design. Author html directly (full document, inline CSS, table layout) only for pixel control the block editor can't express."
                             ),
                         design: zod
-                            .record(zod.string(), zod.unknown())
+                            .object({
+                                counters: zod
+                                    .looseObject({})
+                                    .optional()
+                                    .describe(
+                                        'Highest htmlID suffix per element type, e.g. {\"u_row\": 1, \"u_content_text\": 2}.'
+                                    ),
+                                schemaVersion: zod.number().describe('Unlayer schema version, e.g. 16.'),
+                                body: zod.object({
+                                    id: zod.string().optional().describe('Any unique string.'),
+                                    rows: zod
+                                        .array(zod.looseObject({}))
+                                        .describe(
+                                            'Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}.'
+                                        ),
+                                    headers: zod.array(zod.looseObject({})).optional(),
+                                    footers: zod.array(zod.looseObject({})).optional(),
+                                    values: zod
+                                        .looseObject({})
+                                        .optional()
+                                        .describe(
+                                            "Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor."
+                                        ),
+                                }),
+                            })
                             .optional()
                             .describe(
-                                'Unlayer design JSON — the source of truth for the visual editor. Sent without html, the server renders the email HTML from it.'
+                                'Unlayer design JSON — the authoring surface and source of truth. The server renders the sent HTML from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill.'
                             ),
                     }),
                     zod.null(),
@@ -259,13 +283,37 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe(
-                                'Full HTML document sent verbatim as the email body. Supports Liquid templating. When design is provided without html, the server renders html from the design.'
+                                "Rendered email body — omit when sending design; the server renders it from the design. Author html directly (full document, inline CSS, table layout) only for pixel control the block editor can't express."
                             ),
                         design: zod
-                            .record(zod.string(), zod.unknown())
+                            .object({
+                                counters: zod
+                                    .looseObject({})
+                                    .optional()
+                                    .describe(
+                                        'Highest htmlID suffix per element type, e.g. {\"u_row\": 1, \"u_content_text\": 2}.'
+                                    ),
+                                schemaVersion: zod.number().describe('Unlayer schema version, e.g. 16.'),
+                                body: zod.object({
+                                    id: zod.string().optional().describe('Any unique string.'),
+                                    rows: zod
+                                        .array(zod.looseObject({}))
+                                        .describe(
+                                            'Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}.'
+                                        ),
+                                    headers: zod.array(zod.looseObject({})).optional(),
+                                    footers: zod.array(zod.looseObject({})).optional(),
+                                    values: zod
+                                        .looseObject({})
+                                        .optional()
+                                        .describe(
+                                            "Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor."
+                                        ),
+                                }),
+                            })
                             .optional()
                             .describe(
-                                'Unlayer design JSON — the source of truth for the visual editor. Sent without html, the server renders the email HTML from it.'
+                                'Unlayer design JSON — the authoring surface and source of truth. The server renders the sent HTML from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill.'
                             ),
                     }),
                     zod.null(),
@@ -322,13 +370,37 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe(
-                                'Full HTML document sent verbatim as the email body. Supports Liquid templating. When design is provided without html, the server renders html from the design.'
+                                "Rendered email body — omit when sending design; the server renders it from the design. Author html directly (full document, inline CSS, table layout) only for pixel control the block editor can't express."
                             ),
                         design: zod
-                            .record(zod.string(), zod.unknown())
+                            .object({
+                                counters: zod
+                                    .looseObject({})
+                                    .optional()
+                                    .describe(
+                                        'Highest htmlID suffix per element type, e.g. {\"u_row\": 1, \"u_content_text\": 2}.'
+                                    ),
+                                schemaVersion: zod.number().describe('Unlayer schema version, e.g. 16.'),
+                                body: zod.object({
+                                    id: zod.string().optional().describe('Any unique string.'),
+                                    rows: zod
+                                        .array(zod.looseObject({}))
+                                        .describe(
+                                            'Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}.'
+                                        ),
+                                    headers: zod.array(zod.looseObject({})).optional(),
+                                    footers: zod.array(zod.looseObject({})).optional(),
+                                    values: zod
+                                        .looseObject({})
+                                        .optional()
+                                        .describe(
+                                            "Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor."
+                                        ),
+                                }),
+                            })
                             .optional()
                             .describe(
-                                'Unlayer design JSON — the source of truth for the visual editor. Sent without html, the server renders the email HTML from it.'
+                                'Unlayer design JSON — the authoring surface and source of truth. The server renders the sent HTML from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill.'
                             ),
                     }),
                     zod.null(),

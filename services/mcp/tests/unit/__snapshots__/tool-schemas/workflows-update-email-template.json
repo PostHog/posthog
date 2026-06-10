@@ -9,15 +9,65 @@
                         {
                             "properties": {
                                 "design": {
-                                    "additionalProperties": {},
-                                    "description": "Unlayer design JSON — the source of truth for the visual editor. Sent without html, the server renders the email HTML from it.",
-                                    "propertyNames": {
-                                        "type": "string"
+                                    "description": "Unlayer design JSON — the authoring surface and source of truth. The server renders the sent HTML from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill.",
+                                    "properties": {
+                                        "body": {
+                                            "properties": {
+                                                "footers": {
+                                                    "items": {
+                                                        "additionalProperties": {},
+                                                        "properties": {},
+                                                        "type": "object"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "headers": {
+                                                    "items": {
+                                                        "additionalProperties": {},
+                                                        "properties": {},
+                                                        "type": "object"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "id": {
+                                                    "description": "Any unique string.",
+                                                    "type": "string"
+                                                },
+                                                "rows": {
+                                                    "description": "Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}.",
+                                                    "items": {
+                                                        "additionalProperties": {},
+                                                        "properties": {},
+                                                        "type": "object"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "values": {
+                                                    "additionalProperties": {},
+                                                    "description": "Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.",
+                                                    "properties": {},
+                                                    "type": "object"
+                                                }
+                                            },
+                                            "required": ["rows"],
+                                            "type": "object"
+                                        },
+                                        "counters": {
+                                            "additionalProperties": {},
+                                            "description": "Highest htmlID suffix per element type, e.g. {\"u_row\": 1, \"u_content_text\": 2}.",
+                                            "properties": {},
+                                            "type": "object"
+                                        },
+                                        "schemaVersion": {
+                                            "description": "Unlayer schema version, e.g. 16.",
+                                            "type": "number"
+                                        }
                                     },
+                                    "required": ["schemaVersion", "body"],
                                     "type": "object"
                                 },
                                 "html": {
-                                    "description": "Full HTML document sent verbatim as the email body. Supports Liquid templating. When design is provided without html, the server renders html from the design.",
+                                    "description": "Rendered email body — omit when sending design; the server renders it from the design. Author html directly (full document, inline CSS, table layout) only for pixel control the block editor can't express.",
                                     "type": "string"
                                 },
                                 "subject": {

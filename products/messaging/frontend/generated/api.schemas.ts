@@ -92,18 +92,51 @@ export const HogFunctionTemplatingEnumApi = {
 } as const
 
 /**
- * Unlayer design JSON — the source of truth for the visual editor. Sent without html, the server renders the email HTML from it.
+ * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
  */
-export type EmailTemplateApiDesign = { [key: string]: unknown }
+export type EmailTemplateApiDesignCounters = { [key: string]: unknown }
+
+export type EmailTemplateApiDesignBodyRowsItem = { [key: string]: unknown }
+
+export type EmailTemplateApiDesignBodyHeadersItem = { [key: string]: unknown }
+
+export type EmailTemplateApiDesignBodyFootersItem = { [key: string]: unknown }
+
+/**
+ * Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.
+ */
+export type EmailTemplateApiDesignBodyValues = { [key: string]: unknown }
+
+export type EmailTemplateApiDesignBody = {
+    /** Any unique string. */
+    id?: string
+    /** Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}. */
+    rows: EmailTemplateApiDesignBodyRowsItem[]
+    headers?: EmailTemplateApiDesignBodyHeadersItem[]
+    footers?: EmailTemplateApiDesignBodyFootersItem[]
+    /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
+    values?: EmailTemplateApiDesignBodyValues
+}
+
+/**
+ * Unlayer design JSON — the authoring surface and source of truth. The server renders the sent HTML from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill.
+ */
+export type EmailTemplateApiDesign = {
+    /** Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}. */
+    counters?: EmailTemplateApiDesignCounters
+    /** Unlayer schema version, e.g. 16. */
+    schemaVersion: number
+    body: EmailTemplateApiDesignBody
+}
 
 export interface EmailTemplateApi {
     /** Email subject line. Supports Liquid templating. Required for email-type templates. */
     subject?: string
     /** Plain-text fallback body, sent alongside the HTML. */
     text?: string
-    /** Full HTML document sent verbatim as the email body. Supports Liquid templating. When design is provided without html, the server renders html from the design. */
+    /** Rendered email body — omit when sending design; the server renders it from the design. Author html directly (full document, inline CSS, table layout) only for pixel control the block editor can't express. */
     html?: string
-    /** Unlayer design JSON — the source of truth for the visual editor. Sent without html, the server renders the email HTML from it. */
+    /** Unlayer design JSON — the authoring surface and source of truth. The server renders the sent HTML from it, and it opens as editable blocks in the visual editor. Full schema in the designing-email-templates skill. */
     design?: EmailTemplateApiDesign
 }
 

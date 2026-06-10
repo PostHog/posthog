@@ -1,6 +1,5 @@
 from typing import Any
 
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -15,7 +14,40 @@ from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 
 
-@extend_schema_field(OpenApiTypes.OBJECT)
+# Shallow skeleton of the Unlayer design document — enough structure for API callers
+# (and the LLMs behind MCP tools) to author against; the full row/column/content
+# shape is documented in the designing-email-templates skill.
+@extend_schema_field(
+    {
+        "type": "object",
+        "properties": {
+            "counters": {
+                "type": "object",
+                "description": 'Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.',
+            },
+            "schemaVersion": {"type": "integer", "description": "Unlayer schema version, e.g. 16."},
+            "body": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Any unique string."},
+                    "rows": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}.",
+                    },
+                    "headers": {"type": "array", "items": {"type": "object"}},
+                    "footers": {"type": "array", "items": {"type": "object"}},
+                    "values": {
+                        "type": "object",
+                        "description": "Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.",
+                    },
+                },
+                "required": ["rows"],
+            },
+        },
+        "required": ["body", "schemaVersion"],
+    }
+)
 class UnlayerDesignField(serializers.JSONField):
     pass
 
@@ -33,13 +65,15 @@ class EmailTemplateSerializer(serializers.Serializer):
     html = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Full HTML document sent verbatim as the email body. Supports Liquid templating. "
-        "When design is provided without html, the server renders html from the design.",
+        help_text="Rendered email body — omit when sending design; the server renders it from the design. "
+        "Author html directly (full document, inline CSS, table layout) only for pixel control "
+        "the block editor can't express.",
     )
     design = UnlayerDesignField(
         required=False,
-        help_text="Unlayer design JSON — the source of truth for the visual editor. "
-        "Sent without html, the server renders the email HTML from it.",
+        help_text="Unlayer design JSON — the authoring surface and source of truth. The server renders "
+        "the sent HTML from it, and it opens as editable blocks in the visual editor. "
+        "Full schema in the designing-email-templates skill.",
     )
 
 

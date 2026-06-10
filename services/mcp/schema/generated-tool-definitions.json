@@ -6443,7 +6443,7 @@
         }
     },
     "workflows-create-email-template": {
-        "description": "Save an email template you authored to the workflows library. Provide name and content.email with subject, a plain-text fallback, and content.email.design (Unlayer design JSON) — the server renders the sent HTML from the design and the template stays editable in PostHog's visual editor. Liquid supported throughout. Alternatively author content.email.html directly (full document, inline CSS + table layout; sent verbatim) when you need pixel control the block editor can't express. Use the template in a workflow's function_email action.",
+        "description": "Save an email template you authored to the workflows library. Provide name and content.email with subject, a plain-text fallback, and content.email.design (Unlayer design JSON — full schema in the designing-email-templates skill) — the server renders the sent HTML from the design and the template stays editable in PostHog's visual editor. Liquid supported throughout. Alternatively author content.email.html directly (full document, inline CSS + table layout; sent verbatim) when you need pixel control the block editor can't express. Use the template in a workflow's function_email action.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Create email template",
