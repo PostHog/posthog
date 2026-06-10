@@ -198,9 +198,7 @@ describe('filterToMetricSource', () => {
         expect(result?.math).toBe(ExperimentMetricMathType.TotalCount)
     })
 
-    // Ratio metric numerator/denominator regression: the editor could emit an event filter whose
-    // `id` was '' or null while `name` held the chosen event, persisting `event: ''`/`event: null`
-    // and silently computing results as 0. `event` must fall back to `name`.
+    // Regression: an empty/null `id` must fall back to `name` so the event isn't dropped.
     it.each([
         ['empty string id (numerator path)', ''],
         ['null id (denominator path)', null],
