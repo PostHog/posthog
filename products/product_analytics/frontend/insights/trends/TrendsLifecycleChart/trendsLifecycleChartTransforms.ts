@@ -1,4 +1,4 @@
-import type { Series, TimeInterval, TimeSeriesBarChartConfig } from '@posthog/quill-charts'
+import type { Series, TimeInterval, TimeSeriesBarChartConfig, ValueLabelFormatter } from '@posthog/quill-charts'
 
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
 import type { YFormatterFields } from '../shared/trendsChartDisplayOptions'
@@ -23,6 +23,31 @@ export interface TrendsLifecycleResultLike {
 function lifecycleStatusOrder(status: string | undefined): number {
     const i = LIFECYCLE_STATUS_ORDER.indexOf(status ?? '')
     return i === -1 ? LIFECYCLE_STATUS_ORDER.length : i
+}
+
+export interface LifecycleValueLabelOptions {
+    showValues: boolean
+    showPercentages: boolean
+}
+
+// Each segment's percentage is its share of the band's absolute total — `abs` so the negative
+// dormant series contributes a sensible denominator instead of cancelling the positives.
+export function buildLifecycleValueLabelFormatter(
+    formatValue: (value: number) => string,
+    { showValues, showPercentages }: LifecycleValueLabelOptions
+): ValueLabelFormatter {
+    return (value, _seriesIndex, _dataIndex, context) => {
+        const valueText = showValues ? formatValue(value) : ''
+        if (!showPercentages || context.isPercent) {
+            return valueText
+        }
+        const absTotal = context.bandValues.reduce((sum, v) => sum + Math.abs(v), 0)
+        if (absTotal === 0) {
+            return valueText
+        }
+        const pct = Math.round((Math.abs(context.rawValue) / absTotal) * 100)
+        return showValues ? `${valueText} (${pct}%)` : `${pct}%`
+    }
 }
 
 /** Drops rows whose lifecycle status is toggled off — mirrors the main app's legend toggles, which

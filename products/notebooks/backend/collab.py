@@ -165,7 +165,7 @@ async def stream_collab_sse(
     notebook_id: str,
     *,
     last_event_id: str | None,
-) -> AsyncGenerator[bytes, None]:
+) -> AsyncGenerator[bytes]:
     """
     Tail this notebook's Redis stream from last_event_id (or from now if None).
     Yields one SSE frame per step, plus a keepalive comment during idle gaps.
