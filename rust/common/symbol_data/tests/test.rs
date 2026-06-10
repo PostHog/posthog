@@ -97,15 +97,21 @@ roundtrip_test!(
 );
 
 #[test]
-fn test_reading_elf_debug_info_as_apple_dsym_fails() {
-    let input = ElfDebugInfo {
-        data: b"\x7fELF fake debug payload".to_vec(),
-    };
-
-    let bytes = write_symbol_data(input).unwrap();
+fn test_cross_type_reads_fail() {
     // Consumers that accept multiple container types dispatch on the type tag,
-    // so a type mismatch must be an error rather than a silent reinterpretation.
-    assert!(read_symbol_data::<AppleDsym>(&bytes).is_err());
+    // so a type mismatch must be an error rather than a silent
+    // reinterpretation — in both directions.
+    let elf_bytes = write_symbol_data(ElfDebugInfo {
+        data: b"\x7fELF fake debug payload".to_vec(),
+    })
+    .unwrap();
+    assert!(read_symbol_data::<AppleDsym>(&elf_bytes).is_err());
+
+    let dsym_bytes = write_symbol_data(AppleDsym {
+        data: b"fake dsym zip payload".to_vec(),
+    })
+    .unwrap();
+    assert!(read_symbol_data::<ElfDebugInfo>(&dsym_bytes).is_err());
 }
 
 #[test]
