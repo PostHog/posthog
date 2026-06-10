@@ -31,7 +31,8 @@ export class LoadingScheduler {
     getNextBatch(
         store: SnapshotStore,
         batchSize: number = DEFAULT_BATCH_SIZE,
-        playbackPosition?: number
+        playbackPosition?: number,
+        playbackWindowId?: number
     ): LoadBatch | null {
         if (store.sourceCount === 0) {
             return null
@@ -45,7 +46,7 @@ export class LoadingScheduler {
             return this.getLoadAllBatch(store, batchSize)
         }
 
-        return this.getBufferAheadBatch(store, batchSize, playbackPosition)
+        return this.getBufferAheadBatch(store, batchSize, playbackPosition, playbackWindowId)
     }
 
     get isSeeking(): boolean {
@@ -130,8 +131,12 @@ export class LoadingScheduler {
         // Step 5: Backward search exhausted — no FullSnapshot exists at or before
         // the target, so playback there can only start from one after it (the
         // player clamps the seek to it once known). Keep loading forward until a
-        // FullSnapshot is found or everything is loaded.
-        if (store.fullSnapshotsAfter(targetTs).length === 0) {
+        // FullSnapshot for the target's window is found or everything is loaded —
+        // another window's FullSnapshot can't render the target.
+        const hasRecoveryCandidate = store
+            .fullSnapshotsAfter(targetTs)
+            .some((fs) => targetWindowId === undefined || fs.windowId === targetWindowId)
+        if (!hasRecoveryCandidate) {
             const forwardIndices = store.getUnloadedIndicesInRange(
                 (this.seekRangeEnd ?? targetIndex) + 1,
                 store.sourceCount - 1
@@ -151,7 +156,12 @@ export class LoadingScheduler {
         return this.getBufferAheadBatch(store, batchSize)
     }
 
-    private getBufferAheadBatch(store: SnapshotStore, batchSize: number, playbackPosition?: number): LoadBatch | null {
+    private getBufferAheadBatch(
+        store: SnapshotStore,
+        batchSize: number,
+        playbackPosition?: number,
+        playbackWindowId?: number
+    ): LoadBatch | null {
         let anchorIndex: number
         if (playbackPosition !== undefined) {
             const idx = store.getSourceIndexForTimestamp(playbackPosition)
@@ -172,14 +182,14 @@ export class LoadingScheduler {
             }
         }
 
-        // The playhead has nothing to render from (no FullSnapshot at or before it,
-        // e.g. lost at capture time) and no recovery point is known yet — the player
-        // can't progress to pull the buffer window along, so keep scanning forward
-        // beyond it until a FullSnapshot is found or everything is loaded.
+        // The playhead has nothing to render from (no FullSnapshot at or before it
+        // for its window, e.g. lost at capture time) — the player can't progress to
+        // pull the buffer window along, so keep scanning forward beyond it until
+        // everything is loaded. The player clamps to a recovery FullSnapshot (moving
+        // the playhead and ending the scan) as soon as one it can use appears.
         if (
             playbackPosition !== undefined &&
-            store.findNearestFullSnapshot(playbackPosition) === null &&
-            store.fullSnapshotsAfter(playbackPosition).length === 0
+            store.findNearestFullSnapshot(playbackPosition, playbackWindowId) === null
         ) {
             const forwardIndices = store.getUnloadedIndicesInRange(bufferEnd + 1, store.sourceCount - 1)
             if (forwardIndices.length > 0) {

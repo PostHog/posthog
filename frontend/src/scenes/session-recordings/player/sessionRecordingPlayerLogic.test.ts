@@ -416,15 +416,18 @@ describe('sessionRecordingPlayerLogic', () => {
         const START = 1682952380877
         const LATE_FS_TS = START + 300000
 
+        // Fresh blob keys ('8'/'9') — re-using the default mocks' key '0' would make
+        // setSources silently inherit the entry already loaded from the mocks instead
+        // of the snapshots seeded here
         const SOURCE_A = {
             source: 'blob_v2',
-            blob_key: '0',
+            blob_key: '8',
             start_timestamp: new Date(START).toISOString(),
             end_timestamp: new Date(START + 60000).toISOString(),
         }
         const SOURCE_B = {
             source: 'blob_v2',
-            blob_key: '1',
+            blob_key: '9',
             start_timestamp: new Date(START + 60000).toISOString(),
             end_timestamp: new Date(LATE_FS_TS + 60000).toISOString(),
         }
@@ -432,32 +435,26 @@ describe('sessionRecordingPlayerLogic', () => {
         const makeSnapshot = (timestamp: number, type: EventType): RecordingSnapshot =>
             ({ timestamp, type, windowId: 1, data: {} }) as unknown as RecordingSnapshot
 
+        const inc = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.IncrementalSnapshot)
+        const fs = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.FullSnapshot)
+
         // Seeds the snapshot store and the coordinator's processed snapshots (which
-        // segments derive from) directly, bypassing the network loading machinery
-        const seedRecording = ({
-            firstSourceSnapshotType = EventType.IncrementalSnapshot,
-            laterSnapshotType,
-            loadFirstSource = true,
-        }: {
-            firstSourceSnapshotType?: EventType
-            laterSnapshotType: EventType
-            loadFirstSource?: boolean
-        }): void => {
+        // segments derive from) directly, bypassing the network loading machinery.
+        // Passing null leaves that source unloaded.
+        const seedRecording = (
+            firstSourceSnapshots: RecordingSnapshot[] | null,
+            secondSourceSnapshots: RecordingSnapshot[]
+        ): void => {
             const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
             dataLogic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B] as any)
             const store = dataLogic.cache.store
             const processed: RecordingSnapshot[] = []
-            if (loadFirstSource) {
-                const snaps = [
-                    makeSnapshot(START, firstSourceSnapshotType),
-                    makeSnapshot(START + 1000, EventType.IncrementalSnapshot),
-                ]
-                store.markLoaded(0, snaps)
-                processed.push(...snaps)
+            if (firstSourceSnapshots) {
+                store.markLoaded(0, firstSourceSnapshots)
+                processed.push(...firstSourceSnapshots)
             }
-            const lateSnaps = [makeSnapshot(LATE_FS_TS, laterSnapshotType)]
-            store.markLoaded(1, lateSnaps)
-            processed.push(...lateSnaps)
+            store.markLoaded(1, secondSourceSnapshots)
+            processed.push(...secondSourceSnapshots)
             dataLogic.actions.storeUpdated()
             sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.setProcessedSnapshots(processed)
         }
@@ -472,62 +469,79 @@ describe('sessionRecordingPlayerLogic', () => {
         // run synchronously up to their first await, and draining listeners instead
         // would let the animation loop advance the playhead past the asserted value
 
-        it('clamps a seek into a dead zone forward to the next full snapshot', () => {
-            seedRecording({ laterSnapshotType: EventType.FullSnapshot })
-            const captureSpy = jest.spyOn(posthog, 'capture')
-            logic.actions.setPause()
+        it.each([
+            {
+                description: 'clamps a seek into a dead zone forward to the next full snapshot',
+                firstSourceSnapshots: [inc(START), inc(START + 1000)],
+                secondSourceSnapshots: [fs(LATE_FS_TS)],
+                seekTo: START + 1000,
+                expectedTimestamp: LATE_FS_TS,
+                expectedError: null,
+                expectsClampEvent: true,
+            },
+            {
+                // the seek target lies beyond the first source, so the scheduler enters
+                // seek mode — the unplayable verdict must still win over buffering
+                description: 'errors when fully loaded and no full snapshot exists anywhere',
+                firstSourceSnapshots: [inc(START), inc(START + 1000)],
+                secondSourceSnapshots: [inc(START + 61000), inc(START + 62000)],
+                seekTo: START + 61500,
+                expectedTimestamp: START + 61500,
+                expectedError: 'noPlayableFullSnapshot',
+                expectsClampEvent: false,
+            },
+            {
+                description: 'does not interfere when a full snapshot exists before the seek position',
+                firstSourceSnapshots: [fs(START), inc(START + 1000)],
+                secondSourceSnapshots: [inc(LATE_FS_TS)],
+                seekTo: START + 1000,
+                expectedTimestamp: START + 1000,
+                expectedError: null,
+                expectsClampEvent: false,
+            },
+        ])(
+            '$description',
+            ({
+                firstSourceSnapshots,
+                secondSourceSnapshots,
+                seekTo,
+                expectedTimestamp,
+                expectedError,
+                expectsClampEvent,
+            }) => {
+                seedRecording(firstSourceSnapshots, secondSourceSnapshots)
+                const captureSpy = jest.spyOn(posthog, 'capture')
+                captureSpy.mockClear()
+                logic.actions.setPause()
 
-            logic.actions.seekToTimestamp(START + 1000)
+                logic.actions.seekToTimestamp(seekTo)
 
-            expect(logic.values.currentTimestamp).toBe(LATE_FS_TS)
-            expect(logic.values.playerError).toBeNull()
-            expect(captureSpy).toHaveBeenCalledWith(
-                'recording player seek clamped to next full snapshot',
-                expect.objectContaining({ seekTimestamp: START + 1000, clampedToTimestamp: LATE_FS_TS })
-            )
-        })
-
-        it('errors when fully loaded and no full snapshot exists anywhere', () => {
-            seedRecording({ laterSnapshotType: EventType.IncrementalSnapshot })
-
-            logic.actions.seekToTimestamp(START + 1000)
-
-            expect(logic.values.playerError).toBe('noPlayableFullSnapshot')
-        })
+                expect(logic.values.currentTimestamp).toBe(expectedTimestamp)
+                expect(logic.values.playerError).toBe(expectedError)
+                const clampCalls = captureSpy.mock.calls.filter(
+                    ([eventName]) => eventName === 'recording player seek clamped to next full snapshot'
+                )
+                expect(clampCalls).toHaveLength(expectsClampEvent ? 1 : 0)
+                if (expectsClampEvent) {
+                    expect(clampCalls[0][1]).toMatchObject({
+                        seekTimestamp: seekTo,
+                        clampedToTimestamp: expectedTimestamp,
+                    })
+                }
+            }
+        )
 
         it('buffers while earlier data that could contain a full snapshot is still loading', () => {
             // The first source is unloaded — it could still contain the window's
             // FullSnapshot, so a seek into the second source's FullSnapshot-less data
-            // must buffer, not clamp. A fresh blob_key keeps the first source unloaded
-            // (re-using '0' would inherit the entry loaded from the default mocks).
-            const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
-            dataLogic.actions.loadSnapshotSourcesSuccess([{ ...SOURCE_A, blob_key: '9' }, SOURCE_B] as any)
-            const snaps = [
-                makeSnapshot(START + 61000, EventType.IncrementalSnapshot),
-                makeSnapshot(START + 62000, EventType.IncrementalSnapshot),
-            ]
-            dataLogic.cache.store.markLoaded(1, snaps)
-            dataLogic.actions.storeUpdated()
-            sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.setProcessedSnapshots(snaps)
+            // must buffer, not clamp
+            seedRecording(null, [inc(START + 61000), inc(START + 62000)])
 
             logic.actions.seekToTimestamp(START + 61500)
 
             expect(logic.values.isBuffering).toBe(true)
             expect(logic.values.playerError).toBeNull()
             expect(logic.values.currentTimestamp).toBe(START + 61500)
-        })
-
-        it('does not interfere when a full snapshot exists before the seek position', () => {
-            seedRecording({
-                firstSourceSnapshotType: EventType.FullSnapshot,
-                laterSnapshotType: EventType.IncrementalSnapshot,
-            })
-            logic.actions.setPause()
-
-            logic.actions.seekToTimestamp(START + 1000)
-
-            expect(logic.values.currentTimestamp).toBe(START + 1000)
-            expect(logic.values.playerError).toBeNull()
         })
     })
 

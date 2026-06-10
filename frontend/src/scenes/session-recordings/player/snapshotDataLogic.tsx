@@ -68,7 +68,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         setPollingInterval: (intervalMs: number) => ({ intervalMs }),
         resetPollingInterval: true,
         setTargetTimestamp: (timestamp: number | null, windowId?: number) => ({ timestamp, windowId }),
-        updatePlaybackPosition: (timestamp: number) => ({ timestamp }),
+        updatePlaybackPosition: (timestamp: number, windowId?: number) => ({ timestamp, windowId }),
         setPlayerActive: (active: boolean) => ({ active }),
         loadAllSources: true,
         // dispatch after any mutation to cache.store or cache.scheduler —
@@ -230,6 +230,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             }
             if (timestamp !== null) {
                 cache.playbackPosition = timestamp
+                cache.playbackWindowId = windowId
 
                 const currentMode = cache.scheduler.currentMode
                 // Don't interrupt load_all (e.g. during export)
@@ -268,8 +269,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             }
         },
 
-        updatePlaybackPosition: ({ timestamp }) => {
+        updatePlaybackPosition: ({ timestamp, windowId }) => {
             cache.playbackPosition = timestamp
+            cache.playbackWindowId = windowId
             // Trigger loading if the buffer ahead needs filling
             actions.loadNextSnapshotSource()
         },
@@ -443,7 +445,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             // mutating the store. Kea can't see that, so dispatch storeUpdated
             // to invalidate selectors that read scheduler state (#53893).
             const wasSeeking = cache.scheduler.currentMode.kind === 'seek'
-            const batch = cache.scheduler.getNextBatch(cache.store, 10, cache.playbackPosition)
+            const batch = cache.scheduler.getNextBatch(cache.store, 10, cache.playbackPosition, cache.playbackWindowId)
             if (wasSeeking && cache.scheduler.currentMode.kind !== 'seek') {
                 actions.storeUpdated()
             }

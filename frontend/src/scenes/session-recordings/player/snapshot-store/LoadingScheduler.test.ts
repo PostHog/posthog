@@ -138,6 +138,22 @@ describe('LoadingScheduler', () => {
             expect(scheduler.getNextBatch(store, 10, tsForMinute(0))).toBeNull()
         })
 
+        it('scans forward when the playhead window has no FullSnapshot even though another window does', () => {
+            // The FullSnapshot at source 0 belongs to window 2 — it can't render
+            // window-1 content at the playhead, so the scan must still fire
+            const store = new SnapshotStore()
+            store.setSources(makeSources(50))
+            for (let i = 0; i < 30; i++) {
+                const ts = tsForMinute(i)
+                store.markLoaded(i, i === 0 ? [makeFullSnapshot(ts, 2), makeSnapshot(ts + 100)] : [makeSnapshot(ts)])
+            }
+            const scheduler = new LoadingScheduler()
+
+            const batch = scheduler.getNextBatch(store, 10, tsForMinute(0), 1)
+            expect(batch?.reason).toBe('seek_forward')
+            expect(batch?.sourceIndices).toEqual([30, 31, 32, 33, 34, 35, 36, 37, 38, 39])
+        })
+
         it('does not load backward from playback position', () => {
             // Sources 0-9 unloaded, 10-19 loaded
             const store = createLoadedStore(
@@ -271,6 +287,23 @@ describe('LoadingScheduler', () => {
             const batch = scheduler.getNextBatch(store, 10)
             expect(scheduler.currentMode).toEqual({ kind: 'buffer_ahead' })
             expect(batch).toBeNull()
+        })
+
+        it('keeps searching forward when the only later FullSnapshot belongs to another window', () => {
+            // Sources 0-18 loaded; the FullSnapshot at source 18 belongs to window 2,
+            // which can't render a window-1 target — source 19 must still be scanned
+            const store = new SnapshotStore()
+            store.setSources(makeSources(20))
+            for (let i = 0; i < 19; i++) {
+                const ts = tsForMinute(i)
+                store.markLoaded(i, i === 18 ? [makeFullSnapshot(ts, 2), makeSnapshot(ts + 100)] : [makeSnapshot(ts)])
+            }
+            const scheduler = new LoadingScheduler()
+            scheduler.seekTo(tsForMinute(10), 1)
+
+            const batch = scheduler.getNextBatch(store, 10)
+            expect(batch?.reason).toBe('seek_forward')
+            expect(batch?.sourceIndices).toEqual([19])
         })
 
         it('only counts FullSnapshots of the target window when targetWindowId is passed', () => {

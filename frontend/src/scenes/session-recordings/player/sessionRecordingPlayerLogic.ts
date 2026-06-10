@@ -144,6 +144,13 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
 
 const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
 
+// Positions less than this far before the next FullSnapshot are treated as
+// renderable: recordings routinely start a few ms before their first
+// FullSnapshot (the recording start is min(event start, snapshot start)) and
+// rrweb handles that fine — clamping would only add telemetry noise and an
+// extra seek on nearly every playback.
+const MIN_CLAMPABLE_DEAD_ZONE_MS = 1000
+
 export type SeekRenderability =
     // a FullSnapshot exists at or before the timestamp for its window
     | { kind: 'renderable' }
@@ -1107,16 +1114,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     if (snapshotStore.getUnloadedIndicesInRange(0, targetIndex).length > 0) {
                         return { kind: 'waitingForData' }
                     }
-                    // Recover at the first later FullSnapshot — prefer one that can render
-                    // the segment it lands in, fall back to the earliest one of any window.
-                    const candidates = snapshotStore.fullSnapshotsAfter(timestamp)
-                    const preferred = candidates.find(
-                        (fs) => segmentForTimestamp(fs.timestamp)?.windowId === fs.windowId
-                    )
-                    const fallback = candidates.find((fs) => fs.timestamp > timestamp)
-                    const recoveryTarget = preferred ?? fallback
+                    // Recover at the first later FullSnapshot that can render the segment
+                    // it lands in. A FullSnapshot whose landing segment belongs to another
+                    // window is no use — seeking there would be just as unrenderable.
+                    const recoveryTarget = snapshotStore
+                        .fullSnapshotsAfter(timestamp)
+                        .find((fs) => segmentForTimestamp(fs.timestamp)?.windowId === fs.windowId)
                     if (recoveryTarget) {
-                        return { kind: 'clampToFullSnapshot', timestamp: recoveryTarget.timestamp }
+                        return recoveryTarget.timestamp - timestamp < MIN_CLAMPABLE_DEAD_ZONE_MS
+                            ? { kind: 'renderable' }
+                            : { kind: 'clampToFullSnapshot', timestamp: recoveryTarget.timestamp }
                     }
                     return allSourcesLoaded ? { kind: 'unplayable' } : { kind: 'waitingForData' }
                 }
@@ -1560,20 +1567,30 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             values.player?.replayer?.setConfig({ speed: values.playerSpeed })
         },
         checkBufferingCompleted: () => {
-            // If buffering has completed, resume last playing state
-            if (values.currentTimestamp === undefined) {
+            // If buffering has completed, resume last playing state.
+            // Gates on the raw isBuffering reducer rather than currentPlayerState ===
+            // BUFFER — other states (e.g. SKIP while skipping inactivity) outrank
+            // BUFFER in that selector and would otherwise mask the exit forever.
+            // == null also catches the null that currentTimestamp holds before
+            // playback initializes — seeking to it would derail the initial load
+            if (values.currentTimestamp == null || !values.isBuffering) {
                 return
             }
             const isBufferingSegment = values.segmentForTimestamp(values.currentTimestamp)?.kind === 'buffer'
-            const isWaitingForRenderableData =
-                values.seekRenderability(values.currentTimestamp).kind === 'waitingForData'
-            const isBuffering =
-                isBufferingSegment || values.isWaitingForPlayableFullSnapshot || isWaitingForRenderableData
+            const renderability = values.seekRenderability(values.currentTimestamp)
+            // A definitive verdict ends buffering even while the scheduler is still in
+            // seek mode for this position — the re-seek below clamps forward to the
+            // next FullSnapshot or errors if the position can never play
+            const hasDefinitiveVerdict =
+                renderability.kind === 'clampToFullSnapshot' || renderability.kind === 'unplayable'
+            const stillBuffering =
+                !hasDefinitiveVerdict &&
+                (isBufferingSegment ||
+                    values.isWaitingForPlayableFullSnapshot ||
+                    renderability.kind === 'waitingForData')
 
-            if (values.currentPlayerState === SessionPlayerState.BUFFER && !isBuffering) {
+            if (!stillBuffering) {
                 actions.endBuffer()
-                // seekToTimestamp re-resolves renderability: it clamps forward to the
-                // next FullSnapshot or errors if the position can never play
                 actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
             }
         },
@@ -1806,6 +1823,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setCurrentSegment(segment)
             }
 
+            // Everything is loaded and there is no FullSnapshot that could render this
+            // position — playback here can never work, so buffering would be pointless.
+            // Checked before the buffering branch: the scheduler may still be in seek
+            // mode for this very target (making isWaitingForPlayableFullSnapshot true),
+            // but no amount of loading changes a definitive verdict.
+            else if (renderability.kind === 'unplayable') {
+                values.player?.replayer?.pause()
+                actions.setPlayerError('noPlayableFullSnapshot')
+            }
+
             // If next time is greater than last buffered time, set to buffering.
             // Also buffer while we can't yet tell whether this position has a
             // FullSnapshot to render from — playing would freeze on a blank frame.
@@ -1820,13 +1847,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                 // if we're buffering, then be careful to ensure we're loading data
                 actions.loadNextSnapshotSource()
-            }
-
-            // Everything is loaded and there is no FullSnapshot anywhere at or after
-            // this position — playback here can never work
-            else if (renderability.kind === 'unplayable') {
-                values.player?.replayer?.pause()
-                actions.setPlayerError('noPlayableFullSnapshot')
             }
 
             // If not forced to play and if last playing state was pause, pause
@@ -2034,7 +2054,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Throttled position update for loading scheduler (every 5s)
                 if (shouldUpdatePlaybackPosition(newTimestamp, cache.lastPlaybackPositionUpdate)) {
                     cache.lastPlaybackPositionUpdate = newTimestamp
-                    actions.updatePlaybackPosition(newTimestamp)
+                    actions.updatePlaybackPosition(
+                        newTimestamp,
+                        values.currentSegment?.kind === 'window' ? values.currentSegment.windowId : undefined
+                    )
                 }
 
                 cache.disposables.add(() => {
