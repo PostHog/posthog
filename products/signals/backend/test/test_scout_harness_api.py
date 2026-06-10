@@ -143,6 +143,23 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         expected = emitting if emitted_param == "true" else quiet
         assert ids == [str(expected.id)]
 
+    def test_list_skill_name_filter_scopes_to_one_scout(self) -> None:
+        errors = _make_run(self.team, skill_name="signals-scout-errors")
+        _make_run(self.team, skill_name="signals-scout-llm")
+        response = self.client.get(f"{self._list_url()}?skill_name=signals-scout-errors")
+        assert response.status_code == status.HTTP_200_OK
+        ids = [row["run_id"] for row in response.json()]
+        assert ids == [str(errors.id)]
+
+    def test_list_surfaces_error_and_failure_reason_for_failed_run(self) -> None:
+        run = _make_run(self.team, task_run_status=TaskRun.Status.FAILED)
+        TaskRun.objects.filter(id=run.task_run_id).update(error_message="boom: sandbox died\nstack line 2")
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = response.json()[0]
+        assert row["error"] == "boom: sandbox died\nstack line 2"
+        assert row["failure_reason"] == "boom: sandbox died"
+
     def test_retrieve_returns_bridge_projection(self) -> None:
         run = _make_run(self.team, summary="looked at /checkout, nothing actionable")
         response = self.client.get(self._detail_url(str(run.id)))
@@ -361,6 +378,20 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         keys = [row["key"] for row in response.json()]
         assert keys == ["match"]
+
+    def test_search_keys_only_blanks_content(self) -> None:
+        SignalScratchpad.objects.create(team=self.team, key="k1", content="a long body")
+        response = self.client.get(f"{self._list_url()}?keys_only=true")
+        assert response.status_code == status.HTTP_200_OK
+        row = response.json()[0]
+        assert row["key"] == "k1"
+        assert row["content"] == ""
+
+    def test_search_content_max_chars_truncates_preview(self) -> None:
+        SignalScratchpad.objects.create(team=self.team, key="k1", content="abcdefghij")
+        response = self.client.get(f"{self._list_url()}?content_max_chars=4")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["content"] == "abcd"
 
     def test_search_does_not_leak_other_teams_memory(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
