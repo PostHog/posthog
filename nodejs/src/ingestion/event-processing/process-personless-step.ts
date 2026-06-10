@@ -20,6 +20,8 @@ export type ProcessPersonlessOutput = {
     personlessPerson?: Person
 }
 
+const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'
+
 /**
  * Pipeline step that handles personless event processing checks.
  *
@@ -35,7 +37,12 @@ export function createProcessPersonlessStep<TInput extends ProcessPersonlessInpu
     return async function processPersonlessStep(
         input: TInput
     ): Promise<PipelineResult<TInput & ProcessPersonlessOutput>> {
-        if (input.processPerson) {
+        const shouldApplyFeatureFlagCalledDefault =
+            input.processPerson &&
+            input.normalizedEvent.event === FEATURE_FLAG_CALLED_EVENT &&
+            input.normalizedEvent.properties?.$process_person_profile !== true
+
+        if (input.processPerson && !shouldApplyFeatureFlagCalledDefault) {
             return ok(input)
         }
 
@@ -66,6 +73,10 @@ export function createProcessPersonlessStep<TInput extends ProcessPersonlessInpu
         if (existingPerson) {
             const person = existingPerson as Person
 
+            if (shouldApplyFeatureFlagCalledDefault) {
+                return ok(input)
+            }
+
             // Ensure person properties don't propagate elsewhere, such as onto the event itself.
             person.properties = {}
 
@@ -84,7 +95,11 @@ export function createProcessPersonlessStep<TInput extends ProcessPersonlessInpu
             return ok({ ...input, personlessPerson: person })
         }
 
-        return ok({ ...input, personlessPerson: createFakePerson(team.id, distinctId) })
+        return ok({
+            ...input,
+            processPerson: false,
+            personlessPerson: createFakePerson(team.id, distinctId),
+        })
     }
 }
 
