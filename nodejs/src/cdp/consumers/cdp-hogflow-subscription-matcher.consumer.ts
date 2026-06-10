@@ -11,6 +11,7 @@ import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../.
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { waitConditionHasProperties } from '../services/hogflows/hogflow-utils'
 import { HogFlowInvocationContext, HogFunctionInvocationGlobals } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { execHog } from '../utils/hog-exec'
@@ -243,11 +244,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // An empty property condition compiles to always-true bytecode, which would wake the job
         // on the next event of any kind. Only evaluate the condition when it has real properties;
         // otherwise the wait relies on its `events` / the step timeout.
-        const conditionFilters = action.config.condition?.filters
-        if (!conditionFilters?.properties?.length) {
+        if (!waitConditionHasProperties(action.config.condition)) {
             return false
         }
-        return runBytecode(conditionFilters.bytecode, filterGlobals, context)
+        return runBytecode(action.config.condition?.filters?.bytecode, filterGlobals, context)
     }
 
     private async evaluateConversionEvents(hogflow: HogFlow, filterGlobals: FilterGlobals): Promise<boolean> {

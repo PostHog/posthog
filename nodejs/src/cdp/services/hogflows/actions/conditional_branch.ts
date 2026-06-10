@@ -4,15 +4,11 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { HogFlowAction } from '~/schema/hogflow'
 
-import { findContinueAction, findNextAction } from '../hogflow-utils'
+import { findContinueAction, findNextAction, waitConditionHasProperties } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
 const DEFAULT_WAIT_DURATION_SECONDS = 10 * 60
-
-function waitConditionHasProperties(condition?: { filters?: { properties?: unknown[] } }): boolean {
-    return (condition?.filters?.properties?.length ?? 0) > 0
-}
 
 export class ConditionalBranchHandler implements ActionHandler {
     async execute({

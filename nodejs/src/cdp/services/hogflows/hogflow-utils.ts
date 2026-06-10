@@ -105,6 +105,13 @@ export const actionIdForLogging = (action: Pick<HogFlowAction, 'id'>): string =>
     return `[Action:${action.id}]`
 }
 
+// A wait_until_condition with no property filters compiles to always-true bytecode. Treat such a
+// condition as absent so it never matches on entry or wakes the job on an unrelated event; the wait
+// then relies on its `events` / the step timeout.
+export function waitConditionHasProperties(condition?: { filters?: { properties?: unknown[] } }): boolean {
+    return (condition?.filters?.properties?.length ?? 0) > 0
+}
+
 const DELAY_ACTION_TYPES: HogFlowAction['type'][] = ['delay', 'wait_until_condition', 'wait_until_time_window']
 
 export function hasDelayActions(actions: HogFlowAction[]): boolean {
