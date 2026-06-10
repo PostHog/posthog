@@ -873,7 +873,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
     @patch("posthog.temporal.ai.posthog_code_slack_mention.send_user_message")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_successful_forwarding(self, mock_slack_cls, mock_send, mock_token):
-        self._create_mapping()
+        mapping = self._create_mapping()
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
         mock_send.return_value = _command_result(
@@ -898,6 +898,14 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance.client.reactions_remove.assert_not_called()
         # Response is delivered by relayAgentResponse from the agent-server, not by this activity.
         mock_slack_instance.client.chat_postMessage.assert_not_called()
+        # The follow-up sender is recorded on the mapping so async reply paths
+        # tag the latest actor instead of the original thread creator
+        # (multiplayer support). The creator (``mentioning_slack_user_id``)
+        # remains immutable; the latest-actor field receives the live actor
+        # even when it's the same person as the creator (one-time seed).
+        mapping.refresh_from_db()
+        assert mapping.latest_actor_slack_user_id == "U_ALICE"
+        assert mapping.mentioning_slack_user_id == "U_ALICE"
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.create_sandbox_connection_token", return_value="jwt-token")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.send_user_message")

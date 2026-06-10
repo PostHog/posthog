@@ -1,7 +1,8 @@
-import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import { expandRecentsForDisplay, hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
     ExcludedOperators,
+    SelectingKeyOnly,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
@@ -23,7 +24,7 @@ export function filterRecentsForContext(
     recentFilterItems: TaxonomicDefinitionTypes[],
     taxonomicGroupTypes: TaxonomicFilterGroupType[],
     excludedOperators?: ExcludedOperators,
-    selectingKeyOnly?: boolean
+    selectingKeyOnly?: SelectingKeyOnly
 ): TaxonomicDefinitionTypes[] {
     if (!recentFilterItems?.length) {
         return []
@@ -43,27 +44,7 @@ export function filterRecentsForContext(
         }
         return true
     })
-    if (!selectingKeyOnly) {
-        return inScope
-    }
-    const seen = new Set<string>()
-    const dedupedItems: TaxonomicDefinitionTypes[] = []
-    for (const item of inScope) {
-        if (!hasRecentContext(item)) {
-            continue
-        }
-        // Dedup by the persisted storage key (source group + value), not by
-        // item.name — for groups like Cohorts/Actions the name is a display
-        // label that can be unstable, while the stored value is canonical.
-        const dedupKey = `${item._recentContext.sourceGroupType}::${item._recentContext.sourceValue ?? ''}`
-        if (seen.has(dedupKey)) {
-            continue
-        }
-        seen.add(dedupKey)
-        const { propertyFilter: _propertyFilter, ...restContext } = item._recentContext
-        dedupedItems.push({ ...item, _recentContext: restContext } as unknown as TaxonomicDefinitionTypes)
-    }
-    return dedupedItems
+    return expandRecentsForDisplay(inScope, selectingKeyOnly)
 }
 
 /** Pinned items whose source group is one of the picker's groups. */

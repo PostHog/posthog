@@ -8,9 +8,32 @@ import { getTextMeasureCtx } from '../utils/text-measure'
 
 export type ValueLabelsMode = 'per-segment' | 'stack-total'
 
+/** Per-segment context handed to a value formatter so callers can compute labels that depend on
+ *  the band (e.g. each segment's share of its band). Keeps band/stacking knowledge in the library
+ *  while leaving the label text — values, percentages, units — entirely to the caller. */
+export interface ValueLabelContext {
+    /** Underlying value of this segment (the band total for stack-total labels). In percent layout
+     *  the formatter's `value` arg is the segment's fraction (0..1); `rawValue` stays the original so
+     *  callers can compute their own shares. */
+    rawValue: number
+    /** Finite values of every series contributing to this band's stack (non-excluded, not a fill
+     *  lower-bound, not an overlay) at this dataIndex — the denominator set for share math. */
+    bandValues: number[]
+    /** True in normalized/percent layout, where `value` is already a fraction. */
+    isPercent: boolean
+}
+
+/** Returning an empty string skips the label entirely. */
+export type ValueLabelFormatter = (
+    value: number,
+    /** `-1` for stack-total labels. */
+    seriesIndex: number,
+    dataIndex: number,
+    context: ValueLabelContext
+) => string
+
 export interface ValueLabelsProps {
-    /** `seriesIndex` is `-1` for stack-total labels. */
-    valueFormatter?: (value: number, seriesIndex: number, dataIndex: number) => string
+    valueFormatter?: ValueLabelFormatter
     minGap?: number
     mode?: ValueLabelsMode
 }
@@ -94,6 +117,21 @@ function buildCandidates(args: BuildCandidatesArgs): Candidate[] {
     return args.mode === 'stack-total' ? buildStackTotal(args, ctx) : buildPerSegment(args, ctx)
 }
 
+function stackContributors(series: ResolvedSeries[]): ResolvedSeries[] {
+    return series.filter((s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay)
+}
+
+function bandValuesAt(contributors: ResolvedSeries[], dIdx: number): number[] {
+    const values: number[] = []
+    for (const s of contributors) {
+        const v = s.data[dIdx]
+        if (typeof v === 'number' && isFinite(v)) {
+            values.push(v)
+        }
+    }
+    return values
+}
+
 function bandTotal(visible: ResolvedSeries[], dIdx: number): number | null {
     let total = 0
     let count = 0
@@ -140,6 +178,16 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
         if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
             continue
         }
+        // `visible` (label-eligible series) rather than all stack contributors, so `bandValues`
+        // sums to the `total` shown — `buildPerSegment` deliberately uses the wider contributor set.
+        const text = valueFormatter(total, -1, dIdx, {
+            rawValue: total,
+            bandValues: bandValuesAt(visible, dIdx),
+            isPercent,
+        })
+        if (text === '') {
+            continue
+        }
         pushCandidate(
             out,
             ctx,
@@ -148,7 +196,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             -1,
             dIdx,
             barColorAt(topSeries, dIdx),
-            valueFormatter(total, -1, dIdx),
+            text,
             categoricalCoord,
             valueCoord,
             total >= 0
@@ -161,13 +209,12 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
     const { series, labels, scales, resolvePositionValue, valueFormatter, isHorizontal, isPercent } = args
     const out: Candidate[] = []
 
-    // In percent layout each band sums to 1, so we need the band total to convert each segment's
-    // raw value into the fraction d3 uses for placement (`raw / total`). Match the d3 stack's own
-    // denominator — every non-excluded stacked series — even if some have `valueLabel: false`,
-    // since those still contribute to the visual stack height.
-    const visibleForTotal = isPercent
-        ? series.filter((s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay)
-        : []
+    // Stack denominator — for percent-layout fraction placement and for the `bandValues` handed to
+    // the formatter. Includes `valueLabel: false` series, which still contribute to stack height.
+    // The band depends only on `dIdx`, so compute it once per index instead of per segment.
+    const contributors = stackContributors(series)
+    const bandValuesByIndex = labels.map((_, dIdx) => bandValuesAt(contributors, dIdx))
+    const bandTotalByIndex = isPercent ? labels.map((_, dIdx) => bandTotal(contributors, dIdx)) : []
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
         const s = series[sIdx]
@@ -191,7 +238,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             let above = isPercent ? false : yValue >= 0
 
             if (isPercent) {
-                const total = bandTotal(visibleForTotal, dIdx)
+                const total = bandTotalByIndex[dIdx]
                 if (total == null || total === 0) {
                     continue
                 }
@@ -209,6 +256,15 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
                 continue
             }
+            const text = valueFormatter(displayValue, sIdx, dIdx, {
+                rawValue,
+                bandValues: bandValuesByIndex[dIdx],
+                isPercent,
+            })
+            if (text === '') {
+                continue
+            }
+
             pushCandidate(
                 out,
                 ctx,
@@ -217,7 +273,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
                 sIdx,
                 dIdx,
                 barColorAt(s, dIdx),
-                valueFormatter(displayValue, sIdx, dIdx),
+                text,
                 categoricalCoord,
                 valueCoord,
                 above,
