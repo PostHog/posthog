@@ -4,6 +4,8 @@ import difflib
 from collections.abc import Generator
 from typing import Optional
 
+from pydantic import BaseModel
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -220,7 +222,7 @@ def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
         return tuple(ast_to_query_node(e) for e in expr.exprs)
     elif isinstance(expr, ast.HogQLXTag):
         for klass in schema.__dict__.values():
-            if isinstance(klass, type) and issubclass(klass, schema.BaseModel) and klass.__name__ == expr.kind:
+            if isinstance(klass, type) and issubclass(klass, BaseModel) and klass.__name__ == expr.kind:
                 attributes = expr.to_dict()
                 attributes.pop("kind")
                 # Query runners use "source" instead of "children" for their source query
