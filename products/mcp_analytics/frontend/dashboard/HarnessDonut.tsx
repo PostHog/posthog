@@ -50,8 +50,8 @@ function HarnessSliceLabels(): JSX.Element | null {
                     >
                         {logo ? (
                             <img
-                                src={logo}
-                                alt={category}
+                                src={logo.src}
+                                alt={logo.alt}
                                 title={category}
                                 className="h-7 w-7 object-contain"
                                 style={{ filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45))' }}

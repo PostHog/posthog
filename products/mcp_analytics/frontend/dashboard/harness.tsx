@@ -5,12 +5,17 @@ import cursorLogo from '../harness-logos/cursor.svg'
 import openaiLogo from '../harness-logos/openai.svg'
 import vscodeLogo from '../harness-logos/vscode.svg'
 
-export const HARNESS_LOGOS: Record<string, string> = {
-    'Claude Code': claudeLogo,
-    'Claude.ai': claudeLogo,
-    'OpenAI Codex': openaiLogo,
-    Cursor: cursorLogo,
-    'VS Code': vscodeLogo,
+interface HarnessLogo {
+    src: string
+    alt: string
+}
+
+export const HARNESS_LOGOS: Record<string, HarnessLogo> = {
+    'Claude Code': { src: claudeLogo, alt: 'Claude Code logo' },
+    'Claude.ai': { src: claudeLogo, alt: 'Claude.ai logo' },
+    'OpenAI Codex': { src: openaiLogo, alt: 'OpenAI Codex logo' },
+    Cursor: { src: cursorLogo, alt: 'Cursor logo' },
+    'VS Code': { src: vscodeLogo, alt: 'VS Code logo' },
 }
 
 // Per-harness slice color (index into the data-viz palette), chosen so the logo drawn on top keeps
@@ -36,7 +41,7 @@ export function HarnessPill({ category, title }: { category: string; title?: str
             title={title}
         >
             {logo ? (
-                <img src={logo} alt="" className="h-3.5 w-3.5 shrink-0 object-contain" />
+                <img src={logo.src} alt="" className="h-3.5 w-3.5 shrink-0 object-contain" />
             ) : (
                 <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-secondary" aria-hidden />
             )}
