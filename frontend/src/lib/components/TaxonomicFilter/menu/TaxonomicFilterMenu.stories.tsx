@@ -1,17 +1,15 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
-
 import { Meta, StoryObj } from '@storybook/react'
 import { useMountedLogic } from 'kea'
 import { useState } from 'react'
 
+import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { actionsModel } from '~/models/actionsModel'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { TaxonomicFilterHeadless } from '../headless'
-import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
 import { DataWarehousePopoverField, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
 import { MenuFilterCombobox } from './Combobox'
 import { MenuFilterDwhConfig } from './DwhFlow'
@@ -371,52 +369,59 @@ export const DefaultSurfaceWithRecents: Story = {
     },
 }
 
-function SeedBareKeyRecent(): null {
-    useMountedLogic(recentTaxonomicFiltersLogic)
-    useOnMountEffect(() => {
-        recentTaxonomicFiltersLogic.actions.clearRecentFilters()
-        recentTaxonomicFiltersLogic.actions.recordRecentFilter({
-            groupType: TaxonomicFilterGroupType.EventProperties,
-            groupName: 'Event properties',
-            value: '$browser',
-            item: { name: '$browser' },
-            teamId: MOCK_TEAM_ID,
-            propertyFilter: {
-                type: PropertyFilterType.Event,
-                key: '$browser',
-                operator: PropertyOperator.Exact,
-                value: 'Chrome',
-            },
-        })
-    })
-    return null
+function bareKeyRecentEntries(): MenuFilterEntry[] {
+    const group = {
+        type: TaxonomicFilterGroupType.EventProperties,
+        name: 'Event properties',
+        getName: (item: { name?: string }) => item?.name,
+        getValue: (item: { name?: string }) => item?.name,
+    } as unknown as TaxonomicFilterGroup
+    const friendlyLabel = getCoreFilterDefinition('$browser', TaxonomicFilterGroupType.EventProperties)?.label
+    const propertyFilter: AnyPropertyFilter = {
+        type: PropertyFilterType.Event,
+        key: '$browser',
+        operator: PropertyOperator.Exact,
+        value: 'Chrome',
+    }
+    const bareKey = { item: { name: '$browser' }, group, name: '$browser', friendlyLabel } as MenuFilterEntry
+    const full = {
+        item: { name: '$browser' },
+        group,
+        name: '$browser',
+        friendlyLabel,
+        recentPropertyFilter: propertyFilter,
+        recentLabel: formatPropertyLabel(propertyFilter, {}),
+    } as MenuFilterEntry
+    return [bareKey, full]
 }
 
 function BareKeyRecentsContainer(): JSX.Element {
     useMountedLogic(actionsModel)
     return (
-        <div className="flex flex-col gap-3 max-w-2xl">
-            <SeedBareKeyRecent />
-            <TaxonomicFilterHeadless.Root
-                bindRootProps={false}
-                taxonomicGroupTypes={[TaxonomicFilterGroupType.RecentFilters, TaxonomicFilterGroupType.EventProperties]}
-                groupType={TaxonomicFilterGroupType.RecentFilters}
-            >
-                <div className="border rounded overflow-hidden w-[360px] bg-surface-primary">
-                    <TaxonomicFilterHeadless.Panel />
-                </div>
-            </TaxonomicFilterHeadless.Root>
-        </div>
+        <TaxonomicFilterHeadless.Root
+            bindRootProps={false}
+            taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+        >
+            <div className="border rounded overflow-hidden flex flex-col w-[720px] h-[420px] bg-surface-primary">
+                <MenuFilterCombobox
+                    drillTo="recent"
+                    drillItems={bareKeyRecentEntries()}
+                    title="Recent"
+                    onCommit={() => {}}
+                    onBack={() => {}}
+                />
+            </div>
+        </TaxonomicFilterHeadless.Root>
     )
 }
 
 export const RecentsBareKeyExpansion: Story = {
     render: () => <BareKeyRecentsContainer />,
     parameters: {
-        testOptions: { waitForSelector: '[data-attr="taxonomic-list-recent_filters"]' },
+        testOptions: { waitForSelector: '[data-slot="menu-filter-preview"]' },
         docs: {
             description: {
-                story: 'A complete recent (`$browser = Chrome`) surfaces twice in the recents list: the bare key (`Browser`) leads so a user can jump to the key and pick a fresh value, and the full recent (`Browser = Chrome`) follows. Rendered through the headless Panel scoped to RecentFilters so the surface is synchronous (no content fetch, preview pane, or autofocus) and the snapshot stays pixel-stable.',
+                story: "The menu combobox's Recent drill after a complete recent (`Browser = Chrome`) was used. The bare key (`Browser`) leads so a user can jump to the key and pick a fresh value, and the full recent (`Browser = Chrome`) follows.",
             },
         },
     },
